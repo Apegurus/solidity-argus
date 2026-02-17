@@ -1,0 +1,38 @@
+TASK 1: Plugin Export Verification
+===================================
+
+SOURCE: src/index.ts
+```typescript
+import type { Plugin } from "@opencode-ai/plugin"
+
+const ArgusPlugin: Plugin = async (_ctx) => {
+  return {
+    tool: {},
+    config: async (_config) => {},
+  }
+}
+
+export default ArgusPlugin
+```
+
+BUILT OUTPUT: dist/index.js
+```javascript
+// src/index.ts
+var ArgusPlugin = async (_ctx) => {
+  return {
+    tool: {},
+    config: async (_config) => {}
+  };
+};
+var src_default = ArgusPlugin;
+export {
+  src_default as default
+};
+```
+
+VERIFICATION:
+✓ Plugin type imported from @opencode-ai/plugin
+✓ ArgusPlugin constant typed as Plugin
+✓ Async function returns { tool: {}, config: async () => {} }
+✓ Default export present in built output
+✓ Build successful: 187 bytes, 1 module bundled in 8ms

@@ -1,0 +1,31 @@
+TASK 1: Test Infrastructure Verification
+==========================================
+
+TEST FILE: tests/smoke.test.ts
+```typescript
+import { test, expect } from "bun:test"
+
+test("smoke", () => expect(true).toBe(true))
+```
+
+TEST RUNNER OUTPUT:
+```
+bun test v1.3.6 (d530ed99)
+
+ 1 pass
+ 0 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [41.00ms]
+```
+
+CONFIGURATION:
+- bunfig.toml: [test] preload = ["./test-setup.ts"]
+- test-setup.ts: Created (empty setup file)
+- package.json script: "test": "bun test"
+
+VERIFICATION:
+✓ bun:test imported successfully
+✓ Smoke test passes
+✓ Test runner configured via bunfig.toml
+✓ Test preload setup file created
+✓ 1 passing test confirmed
