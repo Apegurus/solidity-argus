@@ -628,7 +628,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
   - Message: `feat(core): add config schema, types, project detector, parser utils, test fixtures`
   - Pre-commit: `bun test`
 
-- [ ] 7. `argus_slither_analyze` Tool
+- [x] 7. `argus_slither_analyze` Tool
 
   **What to do**:
   - Create `src/tools/slither-tool.ts` using `tool()` helper from `@opencode-ai/plugin`
@@ -694,7 +694,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 8. `argus_forge_test` Tool
+- [x] 8. `argus_forge_test` Tool
 
   **What to do**:
   - Create `src/tools/forge-test-tool.ts`
@@ -766,7 +766,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 9. `argus_forge_fuzz` Tool
+- [x] 9. `argus_forge_fuzz` Tool
 
   **What to do**:
   - Create `src/tools/forge-fuzz-tool.ts`
@@ -807,7 +807,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 10. `argus_analyze_contract` Tool
+- [x] 10. `argus_analyze_contract` Tool
 
   **What to do**:
   - Create `src/tools/contract-analyzer-tool.ts`
@@ -853,7 +853,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 11. `argus_check_patterns` Tool
+- [x] 11. `argus_check_patterns` Tool
 
   **What to do**:
   - Create `src/tools/pattern-checker-tool.ts`
@@ -908,7 +908,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 12. `argus_solodit_search` Tool
+- [x] 12. `argus_solodit_search` Tool
 
   **What to do**:
   - Create `src/tools/solodit-search-tool.ts`
@@ -963,7 +963,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 13. `argus_generate_report` Tool
+- [x] 13. `argus_generate_report` Tool
 
   **What to do**:
   - Create `src/tools/report-generator-tool.ts`
