@@ -1,0 +1,3 @@
+[submodule "tests/fixtures/vulnerable-vault/lib/forge-std"]
+	path = tests/fixtures/vulnerable-vault/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

@@ -1,0 +1,103 @@
+TASK 3: AUDIT STATE TYPES + FINDING STORE
+Evidence: Finding Deduplication Tests
+=====================================
+
+TEST RESULTS
+============
+
+Test Suite: AuditState - Finding Deduplication
+✓ should create audit state with factory pattern
+✓ should add finding to store
+✓ should deduplicate findings by check+file+lines
+✓ should not deduplicate findings with different lines
+✓ should not deduplicate findings with different files
+✓ should not deduplicate findings with different checks
+✓ should generate stable deterministic IDs
+
+DEDUPLICATION LOGIC VERIFICATION
+=================================
+
+1. Deduplication Key Format:
+   - Key: `${check}:${file}:${lines[0]}-${lines[1]}`
+   - Example: "reentrancy-eth:Vault.sol:10-15"
+   - ID: SHA256 hash (first 16 chars) for stable, deterministic IDs
+
+2. Test Case: Adding Duplicate Finding
+   - First finding: reentrancy-eth at Vault.sol:10-15
+   - Second finding: reentrancy-eth at Vault.sol:10-15 (identical)
+   - Result: Both return same ID, store contains only 1 finding
+   - Status: ✓ PASS
+
+3. Test Case: Different Line Ranges
+   - Finding 1: reentrancy-eth at Vault.sol:10-15
+   - Finding 2: reentrancy-eth at Vault.sol:20-25
+   - Result: Both stored (different line ranges), 2 findings in store
+   - Status: ✓ PASS
+
+4. Test Case: Different Files
+   - Finding 1: reentrancy-eth at Vault.sol:10-15
+   - Finding 2: reentrancy-eth at Token.sol:10-15
+   - Result: Both stored (different files), 2 findings in store
+   - Status: ✓ PASS
+
+5. Test Case: Different Checks
+   - Finding 1: reentrancy-eth at Vault.sol:10-15
+   - Finding 2: unchecked-call at Vault.sol:10-15
+   - Result: Both stored (different checks), 2 findings in store
+   - Status: ✓ PASS
+
+6. Test Case: Stable Deterministic IDs
+   - Create two independent audit states
+   - Add same finding to both: reentrancy-eth at Vault.sol:10-15
+   - Result: Both generate identical IDs
+   - Status: ✓ PASS (IDs are deterministic across instances)
+
+IMPLEMENTATION DETAILS
+======================
+
+File: src/state/finding-store.ts
+- Function: createFindingStore(state: AuditState): FindingStore
+- Uses Map<string, Finding> for O(1) dedup lookup
+- ID generation: SHA256(check:file:lines[0]-lines[1]).substring(0, 16)
+- Dedup check: findingMap.has(id) before adding
+- Returns existing finding if duplicate detected
+
+File: src/state/audit-state.ts
+- Function: createAuditState(projectDir: string)
+- Factory pattern (NOT singleton)
+- Each call creates fresh AuditState with unique sessionId
+- Returns { state, store } tuple
+
+File: src/state/types.ts
+- TypeScript interfaces with strict typing
+- No `as any` or `@ts-ignore` used
+- All types explicitly defined
+
+TEST EXECUTION
+==============
+
+Command: bun test src/state/audit-state.test.ts
+Result: 22 pass, 0 fail, 45 expect() calls
+Duration: 12.00ms
+Exit Code: 0
+
+COVERAGE
+========
+
+✓ Finding creation with all required fields
+✓ Deduplication by check+file+lines
+✓ Non-deduplication for different check/file/lines
+✓ Stable deterministic ID generation
+✓ Factory pattern (multiple independent instances)
+✓ State tracking (contracts, phase, tools)
+✓ Session ID uniqueness per instance
+
+CONCLUSION
+==========
+
+All deduplication tests PASS. Finding store correctly:
+1. Deduplicates by check+file+lines key
+2. Generates stable deterministic IDs
+3. Rejects duplicate findings
+4. Allows different findings with same check but different location
+5. Maintains separate findings for different checks/files

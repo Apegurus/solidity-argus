@@ -1,0 +1,83 @@
+TASK 5: Solidity Parser Utilities - ABI Parsing Evidence
+=========================================================
+
+TEST RESULTS:
+=============
+✓ 8 tests passed
+✓ 34 expect() calls verified
+✓ All tests ran in 10ms
+
+TEST COVERAGE:
+==============
+1. extractContractInfo - parses basic contract with ownable pattern
+   - Verifies ABI parsing from forge inspect output
+   - Confirms function extraction (deposit, withdraw, owner, transferOwnership)
+   - Validates access control pattern detection (ownable)
+   - Checks mutability mapping (payable, nonpayable, view)
+
+2. extractContractInfo - detects access-control pattern
+   - Tests OpenZeppelin AccessControl pattern detection
+   - Verifies hasRole() and grantRole() function detection
+   - Confirms access-control pattern assignment
+
+3. extractContractInfo - detects custom access control pattern
+   - Tests custom access control detection
+   - Verifies onlyAdmin and requireAdmin function name patterns
+   - Confirms custom pattern assignment
+
+4. extractContractInfo - handles forge error gracefully
+   - Tests error handling when forge command fails
+   - Verifies error field is populated
+   - Confirms functions and stateVars are empty arrays
+
+5. extractContractInfo - maps stateMutability to visibility correctly
+   - Tests all stateMutability types: pure, view, nonpayable, payable
+   - Verifies visibility mapping:
+     * pure → visibility: "view", mutability: "pure"
+     * view → visibility: "view", mutability: "view"
+     * nonpayable → visibility: "external", mutability: "nonpayable"
+     * payable → visibility: "external", mutability: "payable"
+
+6. extractContractInfo - parses state variables from storage layout
+   - Tests storage layout parsing
+   - Verifies state variable extraction (balance, owner)
+   - Confirms type mapping from storage layout types
+
+7. extractContractInfo - handles invalid JSON gracefully
+   - Tests JSON parse error handling
+   - Verifies error field is populated
+   - Confirms graceful degradation
+
+8. extractContractInfo - returns default none pattern when no access control detected
+   - Tests default access control pattern
+   - Verifies "none" pattern for simple contracts
+   - Confirms no error on successful parse
+
+IMPLEMENTATION DETAILS:
+=======================
+- Function: extractContractInfo(contractName: string, projectDir: string): Promise<ContractProfile>
+- Uses Bun.spawnSync to run forge inspect commands
+- Parses ABI JSON to extract functions with visibility/mutability
+- Parses storage layout JSON to extract state variables
+- Detects access control patterns:
+  * "ownable" - if owner() or transferOwnership() functions exist
+  * "access-control" - if hasRole() or grantRole() functions exist
+  * "custom" - if onlyAdmin or requireAdmin patterns detected
+  * "none" - default
+- Returns ContractProfile with error field on any failure
+- No exceptions thrown - all errors captured in error field
+
+MOCKING STRATEGY:
+=================
+- All tests use mocked Bun.spawnSync
+- Mock returns realistic forge inspect output
+- Tests verify both success and error paths
+- No actual forge installation required
+- Subprocess calls are intercepted and replaced with mock data
+
+LSP DIAGNOSTICS:
+================
+✓ solidity-parser.ts: No diagnostics
+✓ solidity-parser.test.ts: No diagnostics
+
+All code passes TypeScript strict mode checks.

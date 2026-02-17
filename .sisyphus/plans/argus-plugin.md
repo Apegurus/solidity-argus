@@ -268,7 +268,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ## TODOs
 
-- [ ] 1. Project Scaffold + Test Infrastructure
+- [x] 1. Project Scaffold + Test Infrastructure
 
   **What to do**:
   - Run `bun init` to create the project
@@ -332,7 +332,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 2. Plugin Config Schema + Loader
+- [x] 2. Plugin Config Schema + Loader
 
   **What to do**:
   - Create `src/plugin-config.ts` with Zod schema for `opencode-argus.jsonc` config
@@ -389,7 +389,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 3. Audit State Types + Finding Store
+- [x] 3. Audit State Types + Finding Store
 
   **What to do**:
   - Create `src/state/types.ts` with TypeScript interfaces: `AuditState`, `Finding`, `FindingSeverity`, `AuditPhase`, `ContractProfile`, `ToolExecution`
@@ -449,7 +449,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 4. Project Detector (Hardhat/Foundry)
+- [x] 4. Project Detector (Hardhat/Foundry)
 
   **What to do**:
   - Create `src/utils/project-detector.ts`
@@ -507,7 +507,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 5. Solidity Parser Utilities
+- [x] 5. Solidity Parser Utilities
 
   **What to do**:
   - Create `src/utils/solidity-parser.ts`
@@ -565,7 +565,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 6. Test Fixture Solidity Project
+- [x] 6. Test Fixture Solidity Project
 
   **What to do**:
   - Create `tests/fixtures/vulnerable-vault/` — a minimal Foundry project with intentional vulnerabilities

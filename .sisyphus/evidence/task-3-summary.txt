@@ -1,0 +1,255 @@
+TASK 3: AUDIT STATE TYPES + FINDING STORE
+Complete Implementation Summary
+=================================
+
+DELIVERABLES CHECKLIST
+======================
+
+✓ src/state/types.ts — TypeScript interfaces
+  - FindingSeverity: "Critical" | "High" | "Medium" | "Low" | "Informational"
+  - AuditPhase: 8 phases from reconnaissance to complete
+  - Finding: Complete interface with id, check, severity, confidence, description, file, lines, source, remediation, exploitReference
+  - ContractProfile: Functions, state vars, inheritance, access control, external calls, risk indicators
+  - ToolExecution: Tool tracking with startTime, endTime, success, findingsCount
+  - AuditState: Session tracking with sessionId, projectDir, contractsReviewed, findings, toolsExecuted, currentPhase, scope, startTime
+
+✓ src/state/finding-store.ts — In-memory finding store with deduplication
+  - createFindingStore(state: AuditState): FindingStore factory function
+  - addFinding(finding): Adds finding with automatic deduplication
+  - getFindings(filter?): Retrieves findings with optional severity/source filtering
+  - hasFinding(check, file, lines): Checks if finding exists
+  - serialize(): Returns human-readable state summary for compaction
+
+✓ src/state/audit-state.ts — Audit state manager with factory pattern
+  - createAuditState(projectDir): Factory function (NOT singleton)
+  - Returns { state, store } tuple
+  - Each call creates fresh AuditState with unique sessionId
+  - Initializes with reconnaissance phase and current timestamp
+
+✓ src/state/audit-state.test.ts — Comprehensive TDD test suite
+  - 22 tests covering all functionality
+  - 45 expect() calls
+  - 100% pass rate
+
+✓ bun test src/state/ → ALL PASS
+  - 22 pass, 0 fail
+  - 12.00ms execution time
+  - Exit code: 0
+
+✓ Evidence files created
+  - .sisyphus/evidence/task-3-dedup.txt
+  - .sisyphus/evidence/task-3-serialize.txt
+
+IMPLEMENTATION DETAILS
+======================
+
+1. DEDUPLICATION LOGIC
+   - Key format: `${check}:${file}:${lines[0]}-${lines[1]}`
+   - ID generation: SHA256 hash (first 16 chars) for deterministic, stable IDs
+   - Storage: Map<string, Finding> for O(1) lookup
+   - Behavior: Returns existing finding if duplicate detected
+   - Stability: Same check+file+lines always produces same ID across instances
+
+2. FINDING STORE INTERFACE
+   ```typescript
+   interface FindingStore {
+     addFinding(finding: Omit<Finding, "id">): Finding
+     getFindings(filter?: { severity?: FindingSeverity; source?: Finding["source"] }): Finding[]
+     hasFinding(check: string, file: string, lines: [number, number]): boolean
+     serialize(): string
+   }
+   ```
+
+3. STATE SERIALIZATION
+   - Format: "Contracts: {count}, Findings: {count} ({severity breakdown}), Phase: {phase}"
+   - Example: "Contracts: 2, Findings: 3 (1 Critical, 1 High, 1 Medium), Phase: scanning"
+   - Purpose: Compact audit state for session compaction hooks
+   - Severity breakdown: Only includes non-zero counts
+   - Phase tracking: Reflects current audit phase
+
+4. FACTORY PATTERN
+   - Function: createAuditState(projectDir: string)
+   - Returns: { state: AuditState, store: FindingStore }
+   - Behavior: Each call creates independent instance
+   - Session ID: Unique UUID per instance
+   - No global state or singletons
+
+TEST COVERAGE
+=============
+
+Finding Deduplication (7 tests):
+✓ Create audit state with factory pattern
+✓ Add finding to store
+✓ Deduplicate findings by check+file+lines
+✓ Don't deduplicate findings with different lines
+✓ Don't deduplicate findings with different files
+✓ Don't deduplicate findings with different checks
+✓ Generate stable deterministic IDs
+
+Severity Filtering (3 tests):
+✓ Filter findings by severity
+✓ Filter findings by source
+✓ Return all findings when no filter provided
+
+hasFinding Method (3 tests):
+✓ Return true for existing finding
+✓ Return false for non-existing finding
+✓ Return false for different line range
+
+Serialization (4 tests):
+✓ Serialize state for compaction
+✓ Serialize with correct phase
+✓ Serialize with zero findings
+✓ Serialize with multiple severity levels
+
+State Transitions (5 tests):
+✓ Track current phase
+✓ Track contracts reviewed
+✓ Track tool executions
+✓ Maintain session ID
+✓ Track start time
+
+QUALITY ASSURANCE
+=================
+
+TypeScript Strict Mode:
+✓ No `as any` or `@ts-ignore` used
+✓ All types explicitly defined
+✓ LSP diagnostics: 0 errors
+✓ Non-null assertions used appropriately in tests
+
+Build Verification:
+✓ bun build src/index.ts succeeds
+✓ No compilation errors
+✓ All imports resolve correctly
+
+Test Execution:
+✓ bun test src/state/ passes
+✓ 22 tests, 45 assertions
+✓ 100% pass rate
+✓ 12ms execution time
+
+Code Quality:
+✓ Factory pattern (no singletons)
+✓ Deterministic ID generation
+✓ Efficient deduplication (O(1) lookup)
+✓ Comprehensive error handling
+✓ Clear, documented interfaces
+
+INTEGRATION POINTS
+==================
+
+Task 11 (argus_check_patterns):
+- Uses Finding type for pattern matches
+- Uses FindingSeverity for severity classification
+- Stores findings in audit state
+
+Task 13 (argus_generate_report):
+- Reads findings from audit state
+- Uses serialize() for compaction
+- Groups findings by severity
+
+Task 20 (System prompt transform hook):
+- Uses serialize() for context injection
+- Provides audit state summary to agents
+
+Task 21 (Compaction hook):
+- Calls serialize() to create compact state
+- Injects summary into new session context
+- Preserves audit progress
+
+Task 22 (Tool tracking hook):
+- Accesses state.toolsExecuted
+- Tracks tool execution metrics
+- Updates finding counts
+
+Task 23 (Event hook):
+- Monitors state transitions
+- Tracks phase changes
+- Records session lifecycle
+
+DEPENDENCIES
+============
+
+✓ crypto (Node.js built-in) — for SHA256 hashing
+✓ No external npm dependencies
+✓ No peer dependencies required
+✓ TypeScript strict mode enabled
+
+USAGE EXAMPLES
+==============
+
+Example 1: Create audit state and add findings
+```typescript
+const { state, store } = createAuditState("/path/to/project");
+
+const finding = store.addFinding({
+  check: "reentrancy-eth",
+  severity: "High",
+  confidence: "High",
+  description: "Reentrancy vulnerability detected",
+  file: "Vault.sol",
+  lines: [10, 15],
+  source: "slither",
+});
+
+console.log(finding.id); // Deterministic ID
+```
+
+Example 2: Deduplicate findings
+```typescript
+const finding1 = store.addFinding({...});
+const finding2 = store.addFinding({...}); // Same check+file+lines
+console.log(finding1.id === finding2.id); // true
+console.log(store.getFindings().length); // 1
+```
+
+Example 3: Filter findings
+```typescript
+const highSeverity = store.getFindings({ severity: "High" });
+const slitherFindings = store.getFindings({ source: "slither" });
+```
+
+Example 4: Serialize for compaction
+```typescript
+state.contractsReviewed.push("Vault.sol", "Token.sol");
+state.currentPhase = "scanning";
+const summary = store.serialize();
+// "Contracts: 2, Findings: 5 (1 Critical, 2 High, 2 Medium), Phase: scanning"
+```
+
+VERIFICATION COMMANDS
+=====================
+
+Run all state tests:
+  bun test src/state/
+
+Run specific test file:
+  bun test src/state/audit-state.test.ts
+
+Build verification:
+  bun build src/index.ts
+
+Type checking:
+  bun check src/state/
+
+CONCLUSION
+==========
+
+Task 3 is COMPLETE. All deliverables implemented with TDD approach:
+
+✓ Types: 5 interfaces with strict TypeScript
+✓ Finding Store: Deduplication, filtering, serialization
+✓ Audit State: Factory pattern, no singletons
+✓ Tests: 22 tests, 100% pass rate
+✓ Quality: Zero TypeScript errors, clean build
+✓ Evidence: Comprehensive documentation
+
+The implementation provides a solid foundation for:
+- Finding accumulation across multiple tools
+- Deduplication by check+file+lines
+- Severity-based filtering and reporting
+- State serialization for session compaction
+- Audit workflow state management
+
+Ready for Wave 2 tools (Tasks 7-13) which will populate findings into this store.

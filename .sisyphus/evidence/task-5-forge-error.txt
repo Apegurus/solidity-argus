@@ -1,0 +1,88 @@
+TASK 5: Solidity Parser Utilities - Forge Error Handling Evidence
+==================================================================
+
+ERROR HANDLING VERIFICATION:
+============================
+
+The extractContractInfo function gracefully handles all error scenarios:
+
+1. FORGE COMMAND FAILURE
+   - When forge inspect fails (e.g., contract not found)
+   - Returns ContractProfile with error field populated
+   - Example: "Failed to inspect ABI: Error: Contract not found"
+   - Functions and stateVars arrays remain empty
+
+2. JSON PARSE ERRORS
+   - When ABI output is invalid JSON
+   - When storage layout output is invalid JSON
+   - Returns ContractProfile with error field populated
+   - Example: "Failed to parse ABI JSON: Unexpected token"
+   - Graceful degradation without throwing exceptions
+
+3. SUBPROCESS ERRORS
+   - When Bun.spawnSync fails
+   - Checks success flag before processing output
+   - Returns appropriate error message
+   - No unhandled exceptions
+
+4. MISSING FIELDS
+   - Handles missing optional fields in ABI items
+   - Provides sensible defaults (e.g., "nonpayable" for stateMutability)
+   - Safely accesses nested properties
+
+ERROR RESPONSE STRUCTURE:
+=========================
+{
+  name: string,
+  filePath: string,
+  functions: [],
+  stateVars: [],
+  inheritance: [],
+  accessControlPattern: "none",
+  externalCalls: [],
+  riskIndicators: [],
+  error: "Error message describing what went wrong"
+}
+
+TEST CASE: "extractContractInfo - handles forge error gracefully"
+==================================================================
+✓ Mocks forge inspect to return failure
+✓ Verifies error field is populated
+✓ Confirms functions array is empty
+✓ Confirms stateVars array is empty
+✓ No exceptions thrown
+✓ Function returns successfully with error context
+
+TEST CASE: "extractContractInfo - handles invalid JSON gracefully"
+===================================================================
+✓ Mocks forge to return invalid JSON
+✓ Verifies JSON.parse error is caught
+✓ Error message includes parse error details
+✓ Returns empty arrays for functions and stateVars
+✓ No exceptions thrown
+✓ Caller can check error field to determine failure
+
+IMPLEMENTATION PATTERN:
+=======================
+try {
+  // Run forge commands
+  // Parse JSON outputs
+  // Extract contract info
+  return result;
+} catch (e) {
+  result.error = `Unexpected error: ${e.message}`;
+  return result;
+}
+
+All errors are captured and returned in the error field.
+No exceptions propagate to the caller.
+Caller can check if result.error is defined to detect failures.
+
+BENEFITS:
+=========
+- Robust error handling
+- No unhandled promise rejections
+- Clear error messages for debugging
+- Graceful degradation
+- Caller can decide how to handle errors
+- Suitable for production use

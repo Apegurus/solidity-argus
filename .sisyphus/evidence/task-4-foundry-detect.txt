@@ -1,0 +1,25 @@
+Task 4: Foundry Project Detection
+=====================================
+
+Test: Detect Foundry project from foundry.toml
+Directory: /var/folders/zc/y3j6cbzs40q919jrc89v_2100000gn/T/foundry-test-tOMgvw
+
+Config File (foundry.toml):
+[profile.default]
+src = "src"
+test = "test"
+solc = "0.8.20"
+remappings = ["@openzeppelin/=lib/openzeppelin-contracts/"]
+
+
+Detected Configuration:
+- Type: foundry
+- Source Directory: src
+- Test Directory: test
+- Solc Version: 0.8.20
+- Remappings: [
+  "@openzeppelin/=lib/openzeppelin-contracts/"
+]
+- Root Directory: /var/folders/zc/y3j6cbzs40q919jrc89v_2100000gn/T/foundry-test-tOMgvw
+
+Status: ✓ PASS - Correctly detected as Foundry project with all fields parsed

@@ -1,0 +1,7 @@
+bun test v1.3.6 (d530ed99)
+
+ 2 pass
+ 9 filtered out
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [25.00ms]
