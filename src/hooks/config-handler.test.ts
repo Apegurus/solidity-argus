@@ -88,9 +88,36 @@ describe("createConfigHandler", () => {
       },
       skill: "allow",
     })
-    expect(config.agent?.sentinel?.permission).toEqual({ skill: "allow" })
-    expect(config.agent?.pythia?.permission).toEqual({ skill: "allow" })
-    expect(config.agent?.scribe?.permission).toEqual({ skill: "allow" })
+    expect(config.agent?.sentinel?.permission).toEqual({
+      argus_slither_analyze: "allow",
+      argus_forge_test: "allow",
+      argus_forge_fuzz: "allow",
+      argus_analyze_contract: "allow",
+      argus_check_patterns: "allow",
+      skill: "allow",
+    })
+    expect(config.agent?.pythia?.permission).toEqual({
+      argus_solodit_search: "allow",
+      argus_check_patterns: "allow",
+      skill: "allow",
+    })
+    expect(config.agent?.scribe?.permission).toEqual({
+      argus_generate_report: "allow",
+      skill: "allow",
+    })
+  })
+
+  test("subagents do not use deprecated tools config", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.sentinel?.tools).toBeUndefined()
+    expect(config.agent?.pythia?.tools).toBeUndefined()
+    expect(config.agent?.scribe?.tools).toBeUndefined()
+    // argus still uses tools for wildcard denials
+    expect(config.agent?.argus?.tools).toBeDefined()
   })
 
   test("applies model override for argus", async () => {

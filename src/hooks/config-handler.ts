@@ -77,14 +77,12 @@ export function createConfigHandler(
         model: argusConfig.agents?.sentinel?.model ?? DEFAULT_MODELS.sentinel,
         description: "Static analysis and testing specialist",
         prompt: SENTINEL_PROMPT,
-        tools: {
-          argus_slither_analyze: true,
-          argus_forge_test: true,
-          argus_forge_fuzz: true,
-          argus_analyze_contract: true,
-          argus_check_patterns: true,
-        } satisfies Record<string, boolean>,
         permission: {
+          argus_slither_analyze: "allow",
+          argus_forge_test: "allow",
+          argus_forge_fuzz: "allow",
+          argus_analyze_contract: "allow",
+          argus_check_patterns: "allow",
           skill: "allow",
         },
       },
@@ -93,11 +91,9 @@ export function createConfigHandler(
         model: argusConfig.agents?.pythia?.model ?? DEFAULT_MODELS.pythia,
         description: "Vulnerability researcher",
         prompt: PYTHIA_PROMPT,
-        tools: {
-          argus_solodit_search: true,
-          argus_check_patterns: true,
-        } satisfies Record<string, boolean>,
         permission: {
+          argus_solodit_search: "allow",
+          argus_check_patterns: "allow",
           skill: "allow",
         },
       },
@@ -106,10 +102,8 @@ export function createConfigHandler(
         model: argusConfig.agents?.scribe?.model ?? DEFAULT_MODELS.scribe,
         description: "Audit report writer",
         prompt: SCRIBE_PROMPT,
-        tools: {
-          argus_generate_report: true,
-        } satisfies Record<string, boolean>,
         permission: {
+          argus_generate_report: "allow",
           skill: "allow",
         },
       },
