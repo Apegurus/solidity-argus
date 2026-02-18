@@ -112,29 +112,28 @@ describe("CliProgram", () => {
     });
   });
 
-  describe("stub commands", () => {
+  describe("registered commands", () => {
     it("should have doctor command", async () => {
       const program = createCliProgram();
       const exitCode = await program.dispatch(["doctor"]);
 
-      expect(exitCode).toBe(0);
-      expect(output.join("\n")).toContain("argus doctor: not yet implemented");
+      expect(output.join("\n")).toContain("Argus Doctor");
     });
 
     it("should have init command", async () => {
       const program = createCliProgram();
       const exitCode = await program.dispatch(["init"]);
 
-      expect(exitCode).toBe(0);
-      expect(output.join("\n")).toContain("argus init: not yet implemented");
+      const combined = output.join("\n") + errorOutput.join("\n");
+      expect(combined).toMatch(/solidity-argus/);
     });
 
     it("should have install command", async () => {
       const program = createCliProgram();
       const exitCode = await program.dispatch(["install"]);
 
-      expect(exitCode).toBe(0);
-      expect(output.join("\n")).toContain("argus install: not yet implemented");
+      const combined = output.join("\n") + errorOutput.join("\n");
+      expect(combined).toMatch(/solidity-argus|opencode/);
     });
   });
 });

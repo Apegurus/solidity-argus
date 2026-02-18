@@ -1,4 +1,7 @@
 import type { CliCommand } from "./types";
+import { doctorCommand } from "./commands/doctor";
+import { initCommand } from "./commands/init";
+import { installCommand } from "./commands/install";
 
 const HELP_TEXT = `argus — Solidity Security Auditor for OpenCode
 
@@ -35,33 +38,8 @@ export class CliProgram {
 
 export function createCliProgram(): CliProgram {
   const program = new CliProgram();
-
-  program.registerCommand({
-    name: "doctor",
-    description: "Check Slither/Foundry installation and config health",
-    execute: async () => {
-      console.log("argus doctor: not yet implemented");
-      return 0;
-    },
-  });
-
-  program.registerCommand({
-    name: "init",
-    description: "Create solidity-argus config file",
-    execute: async () => {
-      console.log("argus init: not yet implemented");
-      return 0;
-    },
-  });
-
-  program.registerCommand({
-    name: "install",
-    description: "Configure argus plugin in opencode config",
-    execute: async () => {
-      console.log("argus install: not yet implemented");
-      return 0;
-    },
-  });
-
+  program.registerCommand(doctorCommand);
+  program.registerCommand(initCommand);
+  program.registerCommand(installCommand);
   return program;
 }
