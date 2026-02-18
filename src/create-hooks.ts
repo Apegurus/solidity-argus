@@ -3,14 +3,11 @@ import type { ArgusConfig } from "./config/types"
 import type { Managers } from "./managers/types"
 import type { HookName } from "./hooks/types"
 import { createConfigHandler } from "./hooks/config-handler"
-import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
 import { createEventHookV2 } from "./hooks/event-hook-v2"
 import { safeCreateHook } from "./hooks/safe-create-hook"
-import { createContextMonitor } from "./features/context-monitor"
 import { createToolOutputTruncator } from "./features/context-monitor"
-import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
 import { createSessionRecoveryHandler } from "./features/error-recovery"
 import { createToolErrorRecoveryHandler } from "./features/error-recovery"
 
@@ -32,11 +29,9 @@ export function createHooks(args: {
   const { config, managers, projectDir, isHookEnabled } = args
   const { auditStateManager, backgroundManager } = managers
 
-  const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
-  const toolErrorRecoveryHandler = createToolErrorRecoveryHandler()
-  const contextMonitor = createContextMonitor()
-  const outputTruncator = createToolOutputTruncator()
-  const auditEnforcer = createAuditEnforcer()
+   const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
+   const toolErrorRecoveryHandler = createToolErrorRecoveryHandler()
+   const outputTruncator = createToolOutputTruncator()
 
   const { hook: eventHook, getAuditState, setAuditState } = createEventHookV2(projectDir, [
     async ({ type, auditState, setAuditState: setState }) => {
@@ -67,23 +62,12 @@ export function createHooks(args: {
     },
   ])
 
-  const initialState = auditStateManager.get()
-  if (initialState) {
-    setAuditState(initialState)
-  }
+   const initialState = auditStateManager.get()
+   if (initialState) {
+     setAuditState(initialState)
+   }
 
-  const systemPromptHook = isHookEnabled("system-prompt")
-    ? safeCreateHook(
-        () =>
-          createSystemPromptHook(getAuditState, {
-            argusConfig: config,
-            projectDir,
-          }),
-        "system-prompt"
-      )
-    : undefined
-
-  const compactionHook = isHookEnabled("compaction")
+   const compactionHook = isHookEnabled("compaction")
     ? safeCreateHook(() => createCompactionHook(getAuditState), "compaction")
     : undefined
 
@@ -95,27 +79,9 @@ export function createHooks(args: {
     ? safeCreateHook(() => eventHook, "event")
     : undefined
 
-  return {
-    config: createConfigHandler(config, projectDir),
-    "experimental.chat.system.transform": systemPromptHook
-      ? async (_input, output) => {
-          const currentSystem = output.system.join("\n\n")
-          const block = await systemPromptHook({ system: currentSystem, cwd: projectDir })
-          if (!block) return
-
-          output.system.push(block)
-
-          const currentAuditState = getAuditState()
-          const status = contextMonitor.getContextStatus(
-            output.system.join("\n\n"),
-            currentAuditState,
-          )
-          if (status.reminder) output.system.push(status.reminder)
-
-          const enforcerNote = auditEnforcer(currentAuditState)
-          if (enforcerNote) output.system.push(enforcerNote)
-        }
-      : undefined,
+   return {
+     config: createConfigHandler(config, projectDir),
+     "experimental.chat.system.transform": undefined,
     "experimental.session.compacting": compactionHook
       ? async (_input, output) => {
           const block = await compactionHook({ summary: output.context.join("\n") })

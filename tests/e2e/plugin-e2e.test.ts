@@ -58,12 +58,12 @@ describe("E2E A: Plugin Load", () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
-    expect(result.tool).toBeDefined()
-    expect(typeof result.config).toBe("function")
-    expect(typeof result["experimental.chat.system.transform"]).toBe("function")
-    expect(typeof result["experimental.session.compacting"]).toBe("function")
-    expect(typeof result["tool.execute.after"]).toBe("function")
-    expect(typeof result.event).toBe("function")
+     expect(result.tool).toBeDefined()
+     expect(typeof result.config).toBe("function")
+     expect(result["experimental.chat.system.transform"]).toBeUndefined()
+     expect(typeof result["experimental.session.compacting"]).toBe("function")
+     expect(typeof result["tool.execute.after"]).toBe("function")
+     expect(typeof result.event).toBe("function")
   })
 
   test("tool map contains all 8 argus tools", async () => {
@@ -308,46 +308,7 @@ describe("E2E C: Config Merge", () => {
 })
 
 describe("E2E D: Hook Lifecycle", () => {
-  test("system-prompt injects audit context in Solidity project", async () => {
-    const config = ArgusConfigSchema.parse({})
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
-    const hooks = createHooks({
-      config,
-      managers,
-      projectDir: FIXTURE_DIR,
-      isHookEnabled: () => true,
-    })
-
-    const output = { system: ["You are a helpful assistant."] }
-    await hooks["experimental.chat.system.transform"]!({} as any, output)
-
-    expect(output.system.length).toBeGreaterThanOrEqual(2)
-    expect(output.system[1]).toContain("<argus-context>")
-    expect(output.system[1]).toContain("argus_slither_analyze")
-  })
-
-  test("system-prompt hook skips injection for non-Solidity project", async () => {
-    const tmpDir = makeTempDir("non-sol-hook")
-    try {
-      const config = ArgusConfigSchema.parse({})
-      const managers = createManagers({ projectDir: tmpDir, config })
-      const hooks = createHooks({
-        config,
-        managers,
-        projectDir: tmpDir,
-        isHookEnabled: () => true,
-      })
-
-      const output = { system: ["You are a helpful assistant."] }
-      await hooks["experimental.chat.system.transform"]!({} as any, output)
-
-      expect(output.system.length).toBe(1)
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true })
-    }
-  })
-
-  test("compaction hook serializes audit state as XML block", async () => {
+   test("compaction hook serializes audit state as XML block", async () => {
     const config = ArgusConfigSchema.parse({})
     const managers = createManagers({ projectDir: FIXTURE_DIR, config })
     const hooks = createHooks({
@@ -467,33 +428,6 @@ describe("E2E D: Hook Lifecycle", () => {
     expect(typeof iface.config).toBe("function")
   })
 
-  test("hooks use push-only mutation — never replace system/context arrays", async () => {
-    const config = ArgusConfigSchema.parse({})
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
-    const hooks = createHooks({
-      config,
-      managers,
-      projectDir: FIXTURE_DIR,
-      isHookEnabled: () => true,
-    })
-
-    const systemOutput = {
-      system: ["Other plugin's system prompt", "OpenCode's default prompt"],
-    }
-    const contextOutput = {
-      context: ["Other plugin's compaction context"],
-    }
-
-    await hooks["experimental.chat.system.transform"]!({} as any, systemOutput)
-    await hooks["experimental.session.compacting"]!({} as any, contextOutput)
-
-    expect(systemOutput.system[0]).toBe("Other plugin's system prompt")
-    expect(systemOutput.system[1]).toBe("OpenCode's default prompt")
-    expect(contextOutput.context[0]).toBe("Other plugin's compaction context")
-
-    expect(systemOutput.system.length).toBeGreaterThanOrEqual(2)
-    expect(contextOutput.context.length).toBeGreaterThanOrEqual(1)
-  })
 })
 
 describe("E2E E: Persistent State", () => {

@@ -4,7 +4,6 @@
  */
 
 export type HookName =
-  | "system-prompt"
   | "compaction"
   | "tool-tracking"
   | "event"

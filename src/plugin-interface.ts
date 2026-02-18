@@ -11,17 +11,12 @@ export function createPluginInterface(args: {
 }): PluginReturn {
   const { tools, hooks } = args
 
-  const result: PluginReturn = {
-    tool: tools,
-    config: hooks.config,
-  }
+   const result: PluginReturn = {
+     tool: tools,
+     config: hooks.config,
+   }
 
-  if (hooks["experimental.chat.system.transform"]) {
-    result["experimental.chat.system.transform"] =
-      hooks["experimental.chat.system.transform"]
-  }
-
-  if (hooks["experimental.session.compacting"]) {
+   if (hooks["experimental.session.compacting"]) {
     result["experimental.session.compacting"] =
       hooks["experimental.session.compacting"]
   }

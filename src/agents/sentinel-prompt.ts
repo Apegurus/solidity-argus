@@ -92,13 +92,13 @@ You have access to a specific set of tools. Use them effectively.
 Use the \`skill\` tool to load specialized skills before deep verification work.
 
 - **Curated skill map**:
-  - \`vulnerability-patterns/reentrancy\`, \`vulnerability-patterns/access-control\`, \`vulnerability-patterns/oracle-manipulation\`
-  - \`checklists/cyfrin-defi-integrations\`, \`methodology/severity-classification\`
-  - Trail of Bits: \`property-based-testing\`, \`variant-analysis\`
+   - \`reentrancy\`, \`access-control\`, \`oracle-manipulation\`
+   - \`cyfrin-defi-integrations\`, \`severity-classification\`
+   - Trail of Bits: \`property-based-testing\`, \`variant-analysis\`
 - **Deterministic trigger rules**:
-  - If external calls and mutable state interleave, load \`vulnerability-patterns/reentrancy\` before writing PoCs.
-  - If privileged flows are central to the finding, load \`vulnerability-patterns/access-control\` before severity scoring.
-  - If fuzzing strategy is unclear, load ToB \`property-based-testing\` before selecting invariants.
+   - If external calls and mutable state interleave, load \`reentrancy\` before writing PoCs.
+   - If privileged flows are central to the finding, load \`access-control\` before severity scoring.
+   - If fuzzing strategy is unclear, load ToB \`property-based-testing\` before selecting invariants.
 
 ## OUTPUT FORMAT
 

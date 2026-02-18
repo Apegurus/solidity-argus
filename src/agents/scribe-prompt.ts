@@ -65,12 +65,12 @@ Before generating the report, verify:
 Use the \`skill\` tool when needed to improve report quality and consistency.
 
 - **Curated skill map**:
-  - \`methodology/report-template\`, \`methodology/severity-classification\`
-  - \`checklists/cyfrin-defi-core\`
-  - \`references/exploit-reference\`
+   - \`report-template\`, \`severity-classification\`
+   - \`cyfrin-defi-core\`
+   - \`exploit-reference\`
 - **Deterministic trigger rules**:
-  - If severity wording drifts, load \`methodology/severity-classification\` before publishing.
-  - If recommendation quality is generic, load \`checklists/cyfrin-defi-core\` before final edits.
+   - If severity wording drifts, load \`severity-classification\` before publishing.
+   - If recommendation quality is generic, load \`cyfrin-defi-core\` before final edits.
 
 ## OUTPUT FORMAT
 

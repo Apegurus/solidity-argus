@@ -91,20 +91,20 @@ OpenCode has a powerful **Skills** system that allows you to load specialized kn
 
 **How to use**:
 - Load a relevant skill before deep research when protocol context is non-trivial.
-- Prioritize \`vulnerability-patterns/*\`, \`protocol-patterns/*\`, and \`references/*\` skills for exploit precedent mapping.
+- Prioritize vulnerability pattern skills, protocol pattern skills, and reference skills for exploit precedent mapping.
 - Use the \`skill\` tool directly when available to load the exact skill you need.
 - **Curated skill map**:
-  - \`vulnerability-patterns/reentrancy\`, \`vulnerability-patterns/oracle-manipulation\`, \`vulnerability-patterns/flash-loan-attacks\`
-  - \`protocol-patterns/lending-borrowing\`, \`protocol-patterns/amm-dex\`
-  - \`references/exploit-reference\`
+   - \`reentrancy\`, \`oracle-manipulation\`, \`flash-loan-attacks\`
+   - \`lending-borrowing\`, \`amm-dex\`
+   - \`exploit-reference\`
 - **Deterministic trigger rules**:
-  - If you investigate spot-price dependencies, load \`vulnerability-patterns/oracle-manipulation\` first.
-  - If capital-efficient attacks or same-block loops are plausible, load \`vulnerability-patterns/flash-loan-attacks\` first.
-  - If the protocol integrates arbitrary ERC20s, load ToB \`token-integration-analyzer\` (building-secure-contracts plugin) before recommendation drafting.
+   - If you investigate spot-price dependencies, load \`oracle-manipulation\` first.
+   - If capital-efficient attacks or same-block loops are plausible, load \`flash-loan-attacks\` first.
+   - If the protocol integrates arbitrary ERC20s, load ToB \`token-integration-analyzer\` (building-secure-contracts plugin) before recommendation drafting.
 - **Examples**:
-  - "I am loading \`reentrancy\` to cross-reference known exploit patterns and missed edge cases."
-  - "I am loading \`lending-borrowing\` to map lending-specific oracle and liquidation failure modes."
-  - "I am loading \`audit-context-building\` (Trail of Bits) to build a line-by-line system model before vulnerability hypothesis generation."
+   - "I am loading \`reentrancy\` to cross-reference known exploit patterns and missed edge cases."
+   - "I am loading \`lending-borrowing\` to map lending-specific oracle and liquidation failure modes."
+   - "I am loading \`audit-context-building\` (Trail of Bits) to build a line-by-line system model before vulnerability hypothesis generation."
 - You are a generalist researcher. Use Skills to become a specialist on demand.
 
 ## OUTPUT FORMAT

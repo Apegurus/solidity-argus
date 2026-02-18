@@ -38,12 +38,12 @@ describe("createPluginInterface", () => {
 
     const result = createPluginInterface({ tools, hooks })
 
-    expect(result.tool).toBeDefined()
-    expect(result.config).toBeDefined()
-    expect(result["experimental.chat.system.transform"]).toBeDefined()
-    expect(result["experimental.session.compacting"]).toBeDefined()
-    expect(result["tool.execute.after"]).toBeDefined()
-    expect(result.event).toBeDefined()
+     expect(result.tool).toBeDefined()
+     expect(result.config).toBeDefined()
+     expect(result["experimental.chat.system.transform"]).toBeUndefined()
+     expect(result["experimental.session.compacting"]).toBeDefined()
+     expect(result["tool.execute.after"]).toBeDefined()
+     expect(result.event).toBeDefined()
   })
 
   it("tool map has 8 entries", () => {
@@ -67,7 +67,7 @@ describe("createPluginInterface", () => {
       config,
       managers: makeManagers(),
       projectDir: "/tmp/test-project",
-      isHookEnabled: (name) => name !== "system-prompt" && name !== "compaction" && name !== "event",
+       isHookEnabled: (name) => name !== "compaction" && name !== "event",
     })
 
     const result = createPluginInterface({ tools, hooks })
