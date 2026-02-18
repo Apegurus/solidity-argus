@@ -68,7 +68,7 @@ export const doctorCommand: CliCommand = {
     }
 
     try {
-      const response = await fetch("https://api.scvd.dev", { signal: AbortSignal.timeout(5000) })
+      const response = await fetch("https://api.scvd.dev/stats", { signal: AbortSignal.timeout(5000) })
       if (response.ok) {
         console.log(`${GREEN}✓${RESET} SCVD API: reachable`)
       } else {

@@ -1,0 +1,17 @@
+{
+  "agents": {},
+  "tools": {},
+  "knowledge": {
+    "scvd": {
+      "enabled": true
+    },
+    "autoSync": true
+  },
+  "reporting": {
+    "format": "markdown",
+    "severityThreshold": "low"
+  },
+  "solodit": {
+    "enabled": true
+  }
+}
