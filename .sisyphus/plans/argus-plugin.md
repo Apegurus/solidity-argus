@@ -2023,7 +2023,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 32. Plugin Entry Point Assembly
+- [x] 32. Plugin Entry Point Assembly
 
   **What to do**:
   - Assemble `src/index.ts` — the final plugin entry point
@@ -2089,7 +2089,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 33. Integration Test — Full Audit Pipeline
+- [x] 33. Integration Test — Full Audit Pipeline
 
   **What to do**:
   - Create `tests/integration/full-audit.test.ts`
@@ -2143,7 +2143,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 34. Package.json, README, npm Publish Prep
+- [x] 34. Package.json, README, npm Publish Prep
 
   **What to do**:
   - Update `package.json` with: name "opencode-argus", version "0.1.0", description, keywords (solidity, security, audit, opencode, plugin), main entry point, files to include, peer dependencies (slither-analyzer, foundry), repository, license
@@ -2171,7 +2171,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 35. Config Schema + Example Config File
+- [x] 35. Config Schema + Example Config File
 
   **What to do**:
   - Generate JSON schema for `opencode-argus.jsonc` from Zod schema (Task 2)

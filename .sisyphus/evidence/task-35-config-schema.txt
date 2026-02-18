@@ -1,0 +1,43 @@
+Task 35: Create Example Config Files
+=====================================
+Date: 2026-02-17
+
+## Files Created
+
+1. examples/opencode-argus.jsonc
+   - Full plugin configuration with all options documented via JSONC comments
+   - Location: /Users/ignacioblitzer/Develop/defizoo/solidity-auditor/examples/opencode-argus.jsonc
+
+2. examples/opencode.json
+   - Minimal OpenCode config showing plugin installation
+   - Location: /Users/ignacioblitzer/Develop/defizoo/solidity-auditor/examples/opencode.json
+
+## Config Options Documented (from src/plugin-config.ts)
+
+### agents (all optional, each has optional `model` field)
+- agents.argus.model — Primary orchestrator model
+- agents.sentinel.model — Static analysis specialist model
+- agents.pythia.model — Research specialist model
+- agents.scribe.model — Report writer model
+
+### tools (all optional)
+- tools.slitherPath — Path to slither executable (default: "slither" from PATH)
+- tools.forgePath — Path to forge executable (default: "forge" from PATH)
+NOTE: The task template used `executable` + `timeout` but the actual schema uses `slitherPath` and `forgePath` with no timeout fields.
+
+### knowledge
+- knowledge.scvd.enabled — Enable SCVD local index (default: true)
+- knowledge.scvd.apiUrl — SCVD API URL (default: "https://api.scvd.dev")
+- knowledge.autoSync — Auto-sync SCVD index on plugin init (default: true)
+- knowledge.customSkillsDir — Optional path to custom SKILL.md files directory
+
+### reporting
+- reporting.format — Report format (default: "markdown", only option in v1)
+- reporting.severityThreshold — Minimum severity (default: "low", options: critical/high/medium/low/informational)
+- reporting.gasAnalysis — Include gas analysis (default: false)
+
+### solodit
+- solodit.enabled — Enable Solodit MCP server auto-registration (default: true)
+
+## Test Verification
+bun test: 174 pass, 0 fail (253ms)

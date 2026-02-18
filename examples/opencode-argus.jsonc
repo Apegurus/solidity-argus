@@ -1,0 +1,69 @@
+// opencode-argus.jsonc — Argus Plugin Configuration
+// Place this file at: .opencode/opencode-argus.jsonc (project-level)
+// Or at: ~/.config/opencode/opencode-argus.jsonc (global)
+//
+// All fields are optional — the plugin works with zero configuration.
+// Defaults are shown below.
+{
+  // Agent model overrides — defaults shown
+  // Models must be valid OpenCode model identifiers
+  "agents": {
+    "argus": {
+      // Primary orchestrator — use a powerful model
+      "model": "anthropic/claude-opus-4-6"
+    },
+    "sentinel": {
+      // Static analysis specialist
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "pythia": {
+      // Research specialist
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "scribe": {
+      // Report writer — sonnet is sufficient
+      "model": "anthropic/claude-sonnet-4-5-20250929"
+    }
+  },
+
+  // Tool configuration
+  "tools": {
+    // Path to slither executable (default: "slither" from PATH)
+    "slitherPath": "slither",
+    // Path to forge executable (default: "forge" from PATH)
+    "forgePath": "forge"
+  },
+
+  // Knowledge base configuration
+  "knowledge": {
+    // SCVD (Smart Contract Vulnerability Database) integration
+    "scvd": {
+      // Enable SCVD local index (default: true)
+      "enabled": true,
+      // SCVD API URL (default: "https://api.scvd.dev")
+      "apiUrl": "https://api.scvd.dev"
+    },
+    // Auto-sync SCVD index on plugin init (default: true)
+    // Sync is non-blocking — plugin loads immediately
+    "autoSync": true
+    // Optional: path to custom SKILL.md files directory
+    // "customSkillsDir": "/path/to/your/custom/skills"
+  },
+
+  // Reporting configuration
+  "reporting": {
+    // Report format (default: "markdown") — only markdown supported in v1
+    "format": "markdown",
+    // Minimum severity to include in reports (default: "low")
+    // Options: "critical", "high", "medium", "low", "informational"
+    "severityThreshold": "low",
+    // Include gas analysis in reports (default: false)
+    "gasAnalysis": false
+  },
+
+  // Solodit MCP configuration
+  "solodit": {
+    // Enable Solodit MCP server auto-registration (default: true)
+    "enabled": true
+  }
+}

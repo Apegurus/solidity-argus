@@ -1,0 +1,10 @@
+Bundled 171 modules in 13ms
+
+  index.js  0.95 MB  (entry point)
+
+function
+
+ 174 pass
+ 0 fail
+ 607 expect() calls
+Ran 174 tests across 22 files. [245.00ms]

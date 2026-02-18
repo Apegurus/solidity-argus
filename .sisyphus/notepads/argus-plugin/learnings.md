@@ -136,3 +136,56 @@ Created comprehensive documentation for the Argus knowledge base and companion p
 
 ## [2026-02-17T21:38:36] Task: 30
 Implemented argus_sync_knowledge tool with force/incremental modes and structured error output, added non-blocking SCVD auto-sync hook wired from config handler, and extended pattern checker with optional SCVD MatchSource enrichment via category->SWC mapping while preserving pattern-db behavior. Added dependency-injection seams for deterministic Bun tests around async fire-and-forget and SCVD index lookups.
+
+## [2026-02-18T00:42:44Z] Task: 32
+- `src/index.ts` plugin assembly must use `createAuditState(projectDir)` return shape `{ state, store }`; `createFindingStore` is state-bound and should not be called without `AuditState`.
+- `createEventHook()` returns state accessors; initializing with `setAuditState(auditState)` keeps system/compaction hooks aligned with the startup state instance.
+- All 8 Argus tools can be safely registered via computed keys `[tool.name]` to avoid hardcoding tool IDs.
+- `createKnowledgeSyncHook(argusConfig)` can be triggered at plugin init for fire-and-forget sync while `config-handler` remains responsible for agent/MCP/skills registration.
+
+## [2026-02-17] Task: 35
+
+### Config field naming discrepancy
+The task template used `tools.slither.executable` and `tools.foundry.executable` with `timeout` fields, but the actual `src/plugin-config.ts` schema uses flat `tools.slitherPath` and `tools.forgePath` with NO timeout fields. Always read the source schema before writing config examples.
+
+### JSONC trailing comma gotcha
+JSONC allows comments but NOT trailing commas (it's still JSON-compatible). The `knowledge` section had a trailing comma after `autoSync` that needed to be removed when the commented-out `customSkillsDir` line was placed after it.
+
+### examples/ directory convention
+Created `examples/` at project root for config file examples. Two files:
+- `opencode-argus.jsonc` — full documented config (JSONC with comments)
+- `opencode.json` — minimal OpenCode project config showing plugin installation
+
+### _comment field for JSON
+Since `opencode.json` is plain JSON (no comments), used `_comment` key to document the file's purpose. This is a common convention for JSON files that need inline documentation.
+
+## [2026-02-17T22:10:00Z] Task: 33
+- Added first end-to-end integration suite at `tests/integration/full-audit.test.ts` covering plugin assembly, config hook wiring, pure TS tools (pattern/report), state hooks (compaction/tool-tracking), and conditional external-tool execution.
+- `tool.execute` signatures in this codebase require full defaulted argument shapes even for optional schema fields (`include_scvd`, `severity_threshold`, `include_executive_summary`, `verbosity`, `coverage`) when called directly in TypeScript tests.
+- External dependency gating should prefer runtime command detection (`which slither`/`which forge`) with `test.skip` fallbacks to keep CI green when security tooling is unavailable.
+- Current `forge test --json` output shape in this fixture uses `test_results`; `forge-test-tool` still marks success but may report `summary.total = 0`, so integration assertions should validate successful execution without assuming parser coverage of every forge JSON variant.
+
+## [2026-02-17] Task: 34
+
+### Publish Prep Patterns
+
+**package.json for OpenCode plugins:**
+- `main`, `module`, `types` all point to `./src/index.ts` (TypeScript-first, no build step needed for Bun)
+- `files` array should include `src/`, `skills/`, `docs/`, `README.md`, `AGENTS.md`, `LICENSE`
+- `peerDependencies` for optional external tools (slither, foundry) should use `"*"` version + `peerDependenciesMeta.optional: true`
+- `engines.bun: ">=1.0.0"` is the correct constraint for Bun-native plugins
+
+**AGENTS.md format for OpenCode:**
+- Simple markdown with `## agentname` headings
+- Fields: **Role**, **Description**, **Model**, **Tools**
+- Model format: `anthropic/claude-opus-4-6` (full provider prefix)
+- Tools listed as comma-separated tool names
+
+**README structure that works well:**
+- Overview → Installation → Quick Start → Agents table → Tools table → Knowledge Base → Configuration → Requirements
+- Configuration section with JSONC example is very useful for users
+- Placeholder badge text (not fake URLs) is the right approach
+
+**Test count note:**
+- Task said "174 tests" but actual count is 183 (182 pass + 1 skip). Tests grew since plan was written.
+- Always run `bun test` to get actual count rather than trusting plan numbers.

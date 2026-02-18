@@ -1,0 +1,47 @@
+Task 34: Publish Prep — Evidence
+Date: 2026-02-17
+
+## Files Modified
+- package.json — updated with description, keywords, files, module, types, peerDependencies, peerDependenciesMeta, repository, license, engines
+
+## Files Created
+- README.md — replaced bun init boilerplate with comprehensive project README (12 sections)
+- AGENTS.md — created for OpenCode agent discovery (4 agents: argus, sentinel, pythia, scribe)
+
+## Test Results
+bun test: 182 pass, 1 skip, 0 fail (183 total across 23 files)
+Tests were NOT broken by these changes.
+
+## package.json Changes Summary
+Added fields:
+  - description: "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 8 tools, and a curated vulnerability knowledge base"
+  - keywords: ["solidity", "security", "audit", "opencode", "plugin", "smart-contract", "ethereum", "defi", "slither", "foundry"]
+  - module: "./src/index.ts"
+  - types: "./src/index.ts"
+  - files: ["src/", "skills/", "docs/", "README.md", "AGENTS.md", "LICENSE"]
+  - peerDependencies: { "slither-analyzer": "*", "foundry": "*" }
+  - peerDependenciesMeta: both optional
+  - repository: { "type": "git", "url": "https://github.com/your-org/opencode-argus" }
+  - license: "MIT"
+  - engines: { "bun": ">=1.0.0" }
+
+## README.md Sections
+1. Header with tagline
+2. Badges (placeholder text)
+3. Overview (what/why)
+4. Installation
+5. Quick Start
+6. Agents table + descriptions
+7. Tools table (all 8)
+8. Knowledge Base (55 SKILL.md files, SCVD)
+9. Configuration (opencode-argus.jsonc example)
+10. Companion Plugins
+11. Requirements table
+12. License
+
+## AGENTS.md
+OpenCode agent discovery format with 4 agents:
+- argus (claude-opus-4-6) — orchestrator, all 8 tools
+- sentinel (claude-sonnet-4-6) — static analysis + testing, 5 tools
+- pythia (claude-sonnet-4-6) — vulnerability research, 2 tools
+- scribe (claude-sonnet-4-5) — report writer, 1 tool
