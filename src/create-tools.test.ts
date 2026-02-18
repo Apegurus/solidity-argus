@@ -8,17 +8,18 @@ const ALL_TOOL_KEYS = [
   "argus_forge_fuzz",
   "argus_analyze_contract",
   "argus_check_patterns",
+  "argus_skill_load",
   "argus_solodit_search",
   "argus_generate_report",
   "argus_sync_knowledge",
 ] as const
 
 describe("createTools", () => {
-  it("returns exactly 8 tools with default config", () => {
+  it("returns exactly 9 tools with default config", () => {
     const config = ArgusConfigSchema.parse({})
     const tools = createTools(config)
 
-    expect(Object.keys(tools)).toHaveLength(8)
+    expect(Object.keys(tools)).toHaveLength(9)
     for (const key of ALL_TOOL_KEYS) {
       expect(tools).toHaveProperty(key)
     }
@@ -41,7 +42,7 @@ describe("createTools", () => {
     const config = ArgusConfigSchema.parse({ solodit: { enabled: false } })
     const tools = createTools(config)
 
-    expect(Object.keys(tools)).toHaveLength(7)
+    expect(Object.keys(tools)).toHaveLength(8)
     expect(tools).not.toHaveProperty("argus_solodit_search")
 
     const otherKeys = ALL_TOOL_KEYS.filter((k) => k !== "argus_solodit_search")
@@ -54,7 +55,7 @@ describe("createTools", () => {
     const config = ArgusConfigSchema.parse({ solodit: { enabled: true } })
     const tools = createTools(config)
 
-    expect(Object.keys(tools)).toHaveLength(8)
+    expect(Object.keys(tools)).toHaveLength(9)
     expect(tools).toHaveProperty("argus_solodit_search")
   })
 

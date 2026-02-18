@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import type { CliCommand } from "../types"
 import { loadArgusConfig } from "../../config/loader"
+import { getRequiredAuditSkills, resolveArgusSkills } from "../../skills/argus-skill-resolver"
 
 const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
@@ -63,8 +64,30 @@ export const doctorCommand: CliCommand = {
     try {
       const config = loadArgusConfig(cwd)
       console.log(`${GREEN}✓${RESET} Config: valid`)
+
+      const requiredSkills = getRequiredAuditSkills()
+      const resolvedSkills = resolveArgusSkills(cwd, config)
+      const missingSkills = requiredSkills.filter((skillName) => !resolvedSkills.has(skillName))
+
+      if (missingSkills.length === 0) {
+        console.log(`${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`)
+      } else {
+        console.log(`${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`)
+        hasFailure = true
+      }
     } catch {
       console.log(`${YELLOW}⚠${RESET} Config: using defaults`)
+
+      const requiredSkills = getRequiredAuditSkills()
+      const resolvedSkills = resolveArgusSkills(cwd)
+      const missingSkills = requiredSkills.filter((skillName) => !resolvedSkills.has(skillName))
+
+      if (missingSkills.length === 0) {
+        console.log(`${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`)
+      } else {
+        console.log(`${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`)
+        hasFailure = true
+      }
     }
 
     try {

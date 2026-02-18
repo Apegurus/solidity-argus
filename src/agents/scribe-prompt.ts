@@ -62,15 +62,15 @@ Before generating the report, verify:
 
 ## SKILL SYSTEM
 
-Use the \`skill\` tool when needed to improve report quality and consistency.
+Use \`argus_skill_load\` only when needed to improve report quality and consistency.
 
 - **Curated skill map**:
    - \`report-template\`, \`severity-classification\`
    - \`cyfrin-defi-core\`
    - \`exploit-reference\`
 - **Deterministic trigger rules**:
-   - If severity wording drifts, load \`severity-classification\` before publishing.
-   - If recommendation quality is generic, load \`cyfrin-defi-core\` before final edits.
+   - If severity wording drifts, load \`severity-classification\` with \`argus_skill_load\` before publishing.
+   - If recommendation quality is generic, load \`cyfrin-defi-core\` with \`argus_skill_load\` before final edits.
 
 ## OUTPUT FORMAT
 

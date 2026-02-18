@@ -93,6 +93,7 @@ export function createConfigHandler(
           argus_forge_fuzz: "allow",
           argus_analyze_contract: "allow",
           argus_check_patterns: "allow",
+          argus_skill_load: "allow",
           skill: "allow",
         },
       },
@@ -104,6 +105,7 @@ export function createConfigHandler(
         permission: {
           argus_solodit_search: "allow",
           argus_check_patterns: "allow",
+          argus_skill_load: "allow",
           skill: "allow",
         },
       },
@@ -114,6 +116,7 @@ export function createConfigHandler(
         prompt: SCRIBE_PROMPT,
         permission: {
           argus_generate_report: "allow",
+          argus_skill_load: "allow",
           skill: "allow",
         },
       },

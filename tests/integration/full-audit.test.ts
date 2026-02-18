@@ -92,7 +92,7 @@ describe("full audit integration", () => {
     const plugin = await ArgusPlugin(pluginContext)
 
     const toolNames = Object.keys(plugin.tool ?? {})
-    expect(toolNames).toHaveLength(8)
+    expect(toolNames).toHaveLength(9)
     expect(toolNames).toContain("argus_slither_analyze")
     expect(toolNames).toContain("argus_forge_test")
     expect(toolNames).toContain("argus_forge_fuzz")
@@ -100,6 +100,7 @@ describe("full audit integration", () => {
     expect(toolNames).toContain("argus_check_patterns")
     expect(toolNames).toContain("argus_solodit_search")
     expect(toolNames).toContain("argus_generate_report")
+    expect(toolNames).toContain("argus_skill_load")
     expect(toolNames).toContain("argus_sync_knowledge")
     expect(typeof plugin.config).toBe("function")
     expect(typeof plugin.event).toBe("function")

@@ -8,6 +8,7 @@ import { patternCheckerTool } from "./tools/pattern-checker-tool"
 import { soloditSearchTool } from "./tools/solodit-search-tool"
 import { reportGeneratorTool } from "./tools/report-generator-tool"
 import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
+import { argusSkillLoadTool } from "./tools/argus-skill-load-tool"
 
 export function createTools(
   config: ArgusConfig,
@@ -18,6 +19,7 @@ export function createTools(
     argus_forge_fuzz: forgeFuzzTool,
     argus_analyze_contract: contractAnalyzerTool,
     argus_check_patterns: patternCheckerTool,
+    argus_skill_load: argusSkillLoadTool,
     argus_generate_report: reportGeneratorTool,
     argus_sync_knowledge: syncKnowledgeTool,
   }

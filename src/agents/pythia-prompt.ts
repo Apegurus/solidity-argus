@@ -92,15 +92,15 @@ OpenCode has a powerful **Skills** system that allows you to load specialized kn
 **How to use**:
 - Load a relevant skill before deep research when protocol context is non-trivial.
 - Prioritize vulnerability pattern skills, protocol pattern skills, and reference skills for exploit precedent mapping.
-- Use the \`skill\` tool directly when available to load the exact skill you need.
+- Use \`argus_skill_load\` only when specialized context is needed, and load the exact skill you need.
 - **Curated skill map**:
    - \`reentrancy\`, \`oracle-manipulation\`, \`flash-loan-attacks\`
    - \`lending-borrowing\`, \`amm-dex\`
    - \`exploit-reference\`
 - **Deterministic trigger rules**:
-   - If you investigate spot-price dependencies, load \`oracle-manipulation\` first.
-   - If capital-efficient attacks or same-block loops are plausible, load \`flash-loan-attacks\` first.
-   - If the protocol integrates arbitrary ERC20s, load ToB \`token-integration-analyzer\` (building-secure-contracts plugin) before recommendation drafting.
+   - If you investigate spot-price dependencies, load \`oracle-manipulation\` with \`argus_skill_load\` first.
+   - If capital-efficient attacks or same-block loops are plausible, load \`flash-loan-attacks\` with \`argus_skill_load\` first.
+   - If the protocol integrates arbitrary ERC20s, load ToB \`token-integration-analyzer\` (building-secure-contracts plugin) with \`argus_skill_load\` before recommendation drafting.
 - **Examples**:
    - "I am loading \`reentrancy\` to cross-reference known exploit patterns and missed edge cases."
    - "I am loading \`lending-borrowing\` to map lending-specific oracle and liquidation failure modes."
