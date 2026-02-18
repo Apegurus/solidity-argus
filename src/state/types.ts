@@ -53,3 +53,9 @@ export interface AuditState {
   scope: string[];
   startTime: number;
 }
+
+export interface PersistentAuditState extends AuditState {
+  savedAt: number;
+  version: string;
+  filePath: string;
+}
