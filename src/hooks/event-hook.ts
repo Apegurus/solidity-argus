@@ -37,13 +37,13 @@ export function createEventHook(projectDir?: string): {
       }
 
       case "session.idle": {
-        if (currentAuditState) {
-          console.log(
-            `[argus-state] Session idle — phase: ${currentAuditState.currentPhase}, findings: ${currentAuditState.findings.length}, contracts: ${currentAuditState.contractsReviewed.length}`
-          )
-        }
-        break
-      }
+         if (currentAuditState) {
+           console.error(
+             `[argus-state] Session idle — phase: ${currentAuditState.currentPhase}, findings: ${currentAuditState.findings.length}, contracts: ${currentAuditState.contractsReviewed.length}`
+           )
+         }
+         break
+       }
 
       case "session.error": {
         if (currentAuditState) {

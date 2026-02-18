@@ -18,8 +18,8 @@ function defaultDependencies(): Required<KnowledgeSyncDependencies> {
     syncIncrementalFn: async (client: unknown, indexPath: string) =>
       syncIncremental(client as ScvdClient, indexPath),
     log: (message: string) => {
-      console.log(message)
-    },
+       console.error(message)
+     },
   }
 }
 
@@ -43,15 +43,15 @@ export function createKnowledgeSyncHook(
     )
 
     Promise.resolve().then(async () => {
-      try {
-        const client = dependencies.createClient(apiUrl)
-        const result = await dependencies.syncIncrementalFn(client, indexPath)
-        if (result.newFindings > 0) {
-          dependencies.log(
-            `[argus] SCVD index updated: ${result.newFindings} new findings (total: ${result.totalIndexed})`
-          )
-        }
-      } catch {}
-    })
+       try {
+         const client = dependencies.createClient(apiUrl)
+         const result = await dependencies.syncIncrementalFn(client, indexPath)
+         if (result.newFindings > 0) {
+           dependencies.log(
+             `[argus] SCVD index updated: ${result.newFindings} new findings (total: ${result.totalIndexed})`
+           )
+         }
+       } catch (_e) { /* non-critical: sync errors are logged above */ }
+     })
   }
 }

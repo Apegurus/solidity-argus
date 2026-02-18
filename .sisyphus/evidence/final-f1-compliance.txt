@@ -1,0 +1,124 @@
+F1 Plan Compliance Audit
+========================
+Date: 2026-02-18
+Plan: .sisyphus/plans/argus-plugin.md
+
+Must Have: [14/15 verified]
+Must NOT Have: [5/8 clean]
+Tasks: [35/35 complete]
+
+Must Have Details (per F1 checklist)
+-----------------------------------
+1. Publishable npm package `opencode-argus`:
+   - FAIL: `package.json` has name/version/license/files, but root `LICENSE` file is missing.
+   - Evidence: `package.json` (name/version/files/license); missing `LICENSE` (glob `LICEN*` only finds fixture licenses).
+
+2. 4 agents registered:
+   - PASS: `argus`, `sentinel`, `pythia`, `scribe` registered in `config.agent`.
+   - Evidence: `src/hooks/config-handler.ts`.
+
+3. 8 custom tools registered:
+   - PASS: 8 tool exports present.
+   - Evidence: `src/index.ts` (argus_slither_analyze, argus_forge_test, argus_forge_fuzz, argus_analyze_contract, argus_check_patterns, argus_solodit_search, argus_generate_report, argus_sync_knowledge).
+
+4. Curated SKILL.md knowledge base:
+   - PASS: 55 SKILL.md files present.
+   - Evidence: glob `skills/**/SKILL.md` => 55; `skills/INVENTORY.md`.
+
+5. SCVD searchable local index:
+   - PASS: index build/search/load/save implemented.
+   - Evidence: `src/knowledge/scvd-index.ts`.
+
+6. Auto-sync via API:
+   - PASS: sync orchestration implemented (full + incremental) and auto-sync hook exists.
+   - Evidence: `src/knowledge/scvd-sync.ts`, `src/hooks/knowledge-sync-hook.ts`.
+
+7. Audit state management:
+   - PASS: audit state factory + finding store used.
+   - Evidence: `src/state/audit-state.ts`, `src/state/finding-store.ts`.
+
+8. Compaction hook:
+   - PASS: XML serialization into compaction context.
+   - Evidence: `src/hooks/compaction-hook.ts`.
+
+9. Event hook:
+   - PASS: session lifecycle hook manages audit state.
+   - Evidence: `src/hooks/event-hook.ts`.
+
+10. Solodit MCP registration:
+   - PASS: `solodit-mcp` configured under `config.mcp`.
+   - Evidence: `src/hooks/config-handler.ts`.
+
+11. Companion plugin docs:
+   - PASS: Trail of Bits marketplace reference + Solodit MCP + SCVD documented.
+   - Evidence: `docs/companion-plugins.md`.
+
+12. Full TDD test suite:
+   - PASS (by existing evidence; tests not re-run in F1): bun test reported 182 pass, 1 skip, 0 fail.
+   - Evidence: `.sisyphus/evidence/task-34-publish-prep.txt`.
+
+13. Markdown report generation:
+   - PASS: report generator outputs markdown with Executive Summary/Scope/Methodology/Findings/Recommendations/Appendix.
+   - Evidence: `src/tools/report-generator-tool.ts`.
+
+14. AGENTS.md:
+   - PASS: 4 agents documented with roles/models/tools.
+   - Evidence: `AGENTS.md`.
+
+15. README.md:
+   - PASS: installation + quick start present.
+   - Evidence: `README.md`.
+
+Must NOT Have Details (per F1 checklist)
+---------------------------------------
+1. NO PDF generation:
+   - CLEAN (no pdf generation libs / code paths found in src).
+   - NOTE: string "pdf" appears in tests as an invalid config example.
+   - Evidence: `src/plugin-config.test.ts` (format: "pdf" comment); grep for pdfkit/puppeteer in src => none.
+
+2. NO OhO-specific hooks:
+   - CLEAN: no `oho` / `oh-my-opencode` references in `src/`.
+   - Evidence: grep in `src/` => no matches.
+
+3. NO direct Solodit API scraping:
+   - CLEAN: no `solodit.io` usage or fetch-to-solodit patterns in `src/`.
+   - Evidence: grep in `src/` => no matches; `src/tools/solodit-search-tool.ts` uses MCP (`callMcpTool`).
+
+4. NO `as any`:
+   - FOUND: `(Bun as any)` used in test file.
+   - Evidence: `src/utils/solidity-parser.test.ts`.
+
+5. NO `@ts-ignore`:
+   - CLEAN: no matches in `src/`.
+   - Evidence: grep in `src/` => no matches.
+
+6. NO hardcoded paths:
+   - FOUND: absolute paths used in test fixtures ("/usr/local/bin/...", "/path/to/skills").
+   - Evidence: `src/plugin-config.test.ts`.
+
+7. NO global state:
+   - FOUND: module-scope `let tempDir: string;` in test file.
+   - Evidence: `src/utils/project-detector.test.ts`.
+
+8. NO Trail of Bits content duplication:
+   - CLEAN (reference-only links observed; no Trail of Bits skills content copied).
+   - Evidence: `docs/companion-plugins.md`, `skills/README.md`; `skills/**` contains links to trailofbits repos (references).
+
+Task Completion
+---------------
+- Tasks T1-T35 in plan are all marked [x].
+  Evidence: `.sisyphus/plans/argus-plugin.md` contains 35 lines matching `- [x] {1..35}. ...`.
+- Final verification tasks F1-F4 are still [ ] (expected before running final wave).
+  Evidence: `.sisyphus/plans/argus-plugin.md` (Final Verification Wave section).
+
+Plan Must-Have / Must-NOT Cross-Check (from plan sections)
+---------------------------------------------------------
+- FAIL: Plan Must NOT Have "NO `as any`" violated by `src/utils/solidity-parser.test.ts`.
+- FAIL: Plan Must NOT Have "NO hardcoded file paths" violated by `src/plugin-config.test.ts`.
+- FAIL (likely): Plan Must Have "Enhanced `argus_check_patterns` queries SKILL.md patterns AND SCVD" is not implemented; current implementation uses built-in regex patterns + optional SCVD index only.
+  Evidence: `src/tools/pattern-checker-tool.ts` (does not read `skills/**/SKILL.md`).
+- FAIL (likely): Plan Must Have "Agent prompts ... registered via config handler" not wired; config handler currently uses placeholder strings.
+  Evidence: `src/hooks/config-handler.ts` defines ARGUS_PLACEHOLDER/SENTINEL_PLACEHOLDER/PYTHIA_PLACEHOLDER/SCRIBE_PLACEHOLDER.
+
+VERDICT: REJECT
+Reason: Must-NOT violations found in `src/` ("as any", hardcoded absolute paths, module-scope let in tests), root `LICENSE` file missing, and multiple plan Must-Haves appear not wired/implemented as specified.

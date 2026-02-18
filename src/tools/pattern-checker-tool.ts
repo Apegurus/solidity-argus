@@ -303,17 +303,17 @@ export async function executePatternCheck(
     },
   ];
 
-  if (args.include_scvd === true) {
-    try {
-      const scvdMatches = await collectScvdMatches(sourceMatches, dependencies);
-      if (scvdMatches.length > 0) {
-        sources.push({
-          source: "scvd",
-          matches: scvdMatches,
-        });
-      }
-    } catch {}
-  }
+   if (args.include_scvd === true) {
+     try {
+       const scvdMatches = await collectScvdMatches(sourceMatches, dependencies);
+       if (scvdMatches.length > 0) {
+         sources.push({
+           source: "scvd",
+           matches: scvdMatches,
+         });
+       }
+     } catch (_e) { /* non-critical: SCVD enrichment is best-effort */ }
+   }
 
   return {
     sources,

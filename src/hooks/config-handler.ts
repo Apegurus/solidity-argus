@@ -3,11 +3,10 @@ import type { Config } from "@opencode-ai/sdk"
 import type { ArgusConfig } from "../plugin-config"
 import { DEFAULT_MODELS } from "../constants/defaults"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
-
-const ARGUS_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
-const SENTINEL_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
-const PYTHIA_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
-const SCRIBE_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
+import { ARGUS_PROMPT } from "../agents/argus-prompt"
+import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
+import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
+import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
 export function createConfigHandler(
   argusConfig: ArgusConfig
@@ -21,7 +20,7 @@ export function createConfigHandler(
         mode: "primary",
         model: argusConfig.agents?.argus?.model ?? DEFAULT_MODELS.argus,
         description: "Solidity security auditor — the All-Seeing Guardian",
-        prompt: ARGUS_PLACEHOLDER,
+        prompt: ARGUS_PROMPT,
         tools: {
           argus_slither_analyze: true,
           argus_forge_test: true,
@@ -37,7 +36,7 @@ export function createConfigHandler(
         mode: "subagent",
         model: argusConfig.agents?.sentinel?.model ?? DEFAULT_MODELS.sentinel,
         description: "Static analysis and testing specialist",
-        prompt: SENTINEL_PLACEHOLDER,
+        prompt: SENTINEL_PROMPT,
         tools: {
           argus_slither_analyze: true,
           argus_forge_test: true,
@@ -50,7 +49,7 @@ export function createConfigHandler(
         mode: "subagent",
         model: argusConfig.agents?.pythia?.model ?? DEFAULT_MODELS.pythia,
         description: "Vulnerability researcher",
-        prompt: PYTHIA_PLACEHOLDER,
+        prompt: PYTHIA_PROMPT,
         tools: {
           argus_solodit_search: true,
           argus_check_patterns: true,
@@ -60,7 +59,7 @@ export function createConfigHandler(
         mode: "subagent",
         model: argusConfig.agents?.scribe?.model ?? DEFAULT_MODELS.scribe,
         description: "Audit report writer",
-        prompt: SCRIBE_PLACEHOLDER,
+        prompt: SCRIBE_PROMPT,
         tools: {
           argus_generate_report: true,
         } satisfies Record<string, boolean>,

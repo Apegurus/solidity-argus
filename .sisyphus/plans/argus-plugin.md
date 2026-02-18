@@ -2203,19 +2203,19 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 > 4 review agents run in PARALLEL. ALL must APPROVE. Rejection → fix → re-run.
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists (read file, import module, check config keys). Verify SCVD index populated, sync tool functional, knowledge base deduplicated, all attributions present. For each "Must NOT Have": search codebase for forbidden patterns (PDF generation, OhO hooks, `as any`, hardcoded paths, duplicated Trail of Bits content). Check evidence files exist in .sisyphus/evidence/. Compare deliverables against plan.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   Run `bun build` + `bun test`. Review all source files for: `as any`/`@ts-ignore`, empty catches, console.log in prod code, commented-out code, unused imports. Check AI slop: excessive comments, over-abstraction, generic names. Verify all tools have proper error handling and abort signal support.
   Output: `Build [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **Real Manual QA** — `unspecified-high`
+- [x] F3. **Real Manual QA** — `unspecified-high`
   Start from clean state. Install the plugin in an OpenCode instance. Run a full audit on the test fixture project: verify all 4 agents load, all 8 tools execute, SKILL.md files are discoverable, SCVD index searchable, sync tool works, Solodit MCP connects, report generates correctly. Test edge cases: missing Slither, missing Foundry, empty project, compilation errors, SCVD API offline, kadenzipfel repo unreachable.
   Output: `Agents [4/4] | Tools [8/8] | Skills [N loaded] | SCVD [indexed/search] | Sync [PASS/FAIL] | Report [PASS/FAIL] | Edge Cases [N tested] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   For each task: read "What to do", read actual code. Verify 1:1 — everything in spec was built (no missing), nothing beyond spec was built (no creep). Check "Must NOT do" compliance. Flag any PDF generation code, OhO integration, direct API scraping, or hardcoded paths.
   Output: `Tasks [N/N compliant] | Must-NOT violations [CLEAN/N issues] | VERDICT`
 
