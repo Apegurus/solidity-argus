@@ -1432,7 +1432,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
   - Message: `feat(agents+hooks): add agent prompts, system transform, compaction, tool tracking, events`
   - Pre-commit: `bun test`
 
-- [ ] 24. Fork & Restructure DeFiFoFum Knowledge Base
+- [x] 24. Fork & Restructure DeFiFoFum Knowledge Base
 
   **What to do**:
   - Fork content from DeFiFoFum's `fofum-solidity-skills` repository (MIT license — attribute in each file header)
@@ -1514,7 +1514,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 25. Import & Merge kadenzipfel Vulnerability References
+- [x] 25. Import & Merge kadenzipfel Vulnerability References
 
   **What to do**:
   - Import from https://github.com/kadenzipfel/smart-contract-vulnerabilities (MIT license)
@@ -1583,7 +1583,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 26. Import & Transform Cyfrin Checklist + SmartBugs Examples
+- [x] 26. Import & Transform Cyfrin Checklist + SmartBugs Examples
 
   **What to do**:
   - **Write all output to staging directory**: `skills/.staging/cyfrin-smartbugs/` (NOT directly to `skills/`)
@@ -1655,7 +1655,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 27. SCVD Sync Pipeline + Local Search Index
+- [x] 27. SCVD Sync Pipeline + Local Search Index
 
   **What to do**:
   - Create `src/knowledge/scvd-client.ts` — REST API client for SCVD (https://api.scvd.dev)
@@ -1737,7 +1737,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 28. DeFiHackLabs Exploit PoC References
+- [x] 28. DeFiHackLabs Exploit PoC References
 
   **What to do**:
   - **Write output to staging directory**: `skills/.staging/exploit-case-studies/`

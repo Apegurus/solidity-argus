@@ -1,0 +1,50 @@
+# Task 25: kadenzipfel Staging Import
+Date: 2026-02-18T00:15:08.834Z
+
+## Summary
+- Files discovered: 38
+- Files created: 38
+- Files failed: 0
+
+## Files Created (38)
+- skills/.staging/kadenzipfel/vulnerability-patterns/floating-pragma/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/asserting-contract-from-code-size/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/authorization-txorigin/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/delegatecall-untrusted-callee/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/default-visibility/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/dos-gas-limit/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/dos-revert/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/hash-collision/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/arbitrary-storage-location/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/assert-violation/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/incorrect-inheritance-order/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/outdated-compiler-version/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/off-by-one/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/insufficient-access-control/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/incorrect-constructor/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/inadherence-to-standards/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/lack-of-precision/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/missing-protection-signature-replay/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/msgvalue-loop/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/insufficient-gas-griefing/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/shadowing-state-variables/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unchecked-return-values/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/requirement-violation/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unbounded-return-data/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/signature-malleability/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/transaction-ordering-dependence/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/overflow-underflow/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unencrypted-private-data-on-chain/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/timestamp-dependence/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/reentrancy/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unsecure-signatures/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unused-variables/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/weak-sources-randomness/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unexpected-ecrecover-null-address/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unsupported-opcodes/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/use-of-deprecated-functions/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/unsafe-low-level-call/SKILL.md
+- skills/.staging/kadenzipfel/vulnerability-patterns/uninitialized-storage-pointer/SKILL.md
+
+## Files Failed (0)
+None

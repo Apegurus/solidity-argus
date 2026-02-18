@@ -53,3 +53,66 @@
 - Used `toRecord()` helper for safe `unknown → Record<string, unknown>` narrowing — standard TS JSON parsing pattern, not type suppression.
 - Cross-tool dedup works via FindingStore's ID generation: `hash(check:file:lines[0]-lines[1])` — same check+file+lines from different tools collide.
 - 11 tests: no-op non-argus, slither extraction, pattern extraction, cross-tool dedup, contract path tracking, tool recording, malformed JSON, empty findings, duplicate tool exec, fuzz no-findings, duplicate contract paths.
+
+## [2026-02-18] Task: 25
+- kadenzipfel/smart-contract-vulnerabilities has 38 reference files (not 39 as initially estimated)
+- All files follow consistent structure: Preconditions, Vulnerable Pattern, Detection Heuristics, False Positives, Remediation
+- Repo uses different naming than task spec: e.g. `weak-sources-randomness` not `weak-randomness`, `authorization-txorigin` not `tx-origin-phishing`
+- Additional files not in task spec: `unsecure-signatures`, `unused-variables`, `unsupported-opcodes`, `use-of-deprecated-functions`, `unbounded-return-data`, `asserting-contract-from-code-size`, `assert-violation`, `requirement-violation`, etc.
+- Description extraction: first non-header paragraph from content works well as description
+- Bun.write auto-creates intermediate directories — no need to mkdir each topic dir
+- SKILL.md frontmatter pattern: `name` matches directory name, `description` quoted to handle special chars
+## [2026-02-17 21:16:19] Task: 24
+- Forked DeFiFoFum Solidity audit content into 15 modular SKILL files under `skills/.staging/defifofum/`.
+- Standardized each file with YAML frontmatter (`name` = directory slug, concise `description`) and MIT attribution header.
+- Preserved source markdown/code blocks while excluding agent-instruction boilerplate from staged artifacts.
+- Captured verifiable output in `.sisyphus/evidence/task-24-defifofum-fork.txt` with file inventory and URL failure status.
+
+
+## [2026-02-17] Task: 28
+
+### Exploit Case Study SKILL.md Files
+
+**Pattern: GitHub URL format for DeFiHackLabs references**
+- Always use: `https://github.com/SunWeb3Sec/DeFiHackLabs/blob/main/src/test/{ExploitName}.sol`
+- Never use local submodule paths — skills must be self-contained with external references
+
+**SKILL.md structure that works for OpenCode's skills system:**
+- YAML frontmatter with `name` and `description` fields
+- Attribution comment immediately after frontmatter: `<!-- Source: ... -->`
+- Markdown content with tables, code blocks, and sections
+
+**15 exploit filenames confirmed (from task spec):**
+TheDAO_exp.sol, Parity_exp.sol, bZx_exp.sol, Harvest_exp.sol, Compound_exp.sol,
+Cream_exp.sol, PolyNetwork_exp.sol, Wormhole_exp.sol, Ronin_exp.sol, Beanstalk_exp.sol,
+Nomad_exp.sol, MangoMarkets_exp.sol, Euler_exp.sol, Wintermute_exp.sol, BadgerDAO_exp.sol
+
+**Vulnerability taxonomy used:**
+- Reentrancy: The DAO, Cream Finance
+- Access Control: Parity, Poly Network, Ronin, Wintermute, BadgerDAO
+- Flash Loan + Oracle: bZx, Harvest, Mango Markets
+- Flash Loan + Governance: Beanstalk
+- Flash Loan + Logic: Euler Finance
+- Logic Error: Compound, Nomad
+- Signature Verification: Wormhole
+
+**Staging workflow:**
+- All content goes to `skills/.staging/` — Task 29 will merge into final `skills/` structure
+- This pattern allows review before promotion to production skills
+
+## [2026-02-18] Task: 26
+- Cyfrin audit-checklist has 370 items total (not 221 as initially estimated — grew since last count)
+- Cyfrin JSON has non-uniform nesting: some categories have 3-level depth (top > subcat > items), others have direct items (top > items)
+- Must use recursive flattener to handle the tree — can't assume uniform depth
+- Cyfrin focuses heavily on security, minimal gas optimization content (only 5 items matched gas criteria)
+- SmartBugs curated has 143 contracts across 10 DASP categories, with `master` branch (not `main`)
+- DASP category from SmartBugs path: `dataset/{category}/{filename}` — extract via `path.split("/")[1]`
+- Categorization approach: define Set of known category names for DeFi and BestPractices buckets, rest goes to General, then extract gas items post-hoc
+- DeFi bucket is largest (151 items) due to Cyfrin's emphasis on DeFi-specific checks + integrations
+- Unchecked Low Level Calls is the largest SmartBugs category with 52 contracts
+
+## [2026-02-17 21:20:24] Task: 27
+- Implemented `ScvdClient` with `/stats` and paginated `/findings` support, abort forwarding, strict payload parsing, and resilient list-fetch fallback to empty arrays on fetch failures.
+- Implemented JSON-based SCVD local index (`buildIndex`, `searchIndex`, `saveIndex`, `loadIndex`) using `Bun.file()`/`Bun.write()` only, with AND-combined filters for SWC/severity/keyword and default result cap.
+- Implemented sync orchestration (`syncAll`, `syncIncremental`, `getSyncStatus`) with early return when remote totals match local index and structured `SyncResult` error handling.
+- Added full TDD coverage across `scvd-client`, `scvd-index`, and `scvd-sync`; `bun test src/knowledge/` passes (20 tests).

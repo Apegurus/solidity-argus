@@ -1,0 +1,27 @@
+Task 26: Cyfrin Checklist & SmartBugs Import
+============================================
+Date: 2026-02-18T00:19:17.022Z
+
+## Files Created
+1. skills/.staging/cyfrin-smartbugs/checklists/cyfrin-general/SKILL.md (102 items)
+2. skills/.staging/cyfrin-smartbugs/checklists/cyfrin-defi/SKILL.md (151 items)
+3. skills/.staging/cyfrin-smartbugs/checklists/cyfrin-gas/SKILL.md (5 items)
+4. skills/.staging/cyfrin-smartbugs/checklists/cyfrin-best-practices/SKILL.md (112 items)
+5. skills/.staging/cyfrin-smartbugs/references/smartbugs-examples/SKILL.md (143 contracts)
+
+## Counts
+- Total SKILL.md files: 5
+- Total Cyfrin checklist items: 370
+- Placed into categories: 370
+- SmartBugs contracts: 143
+- SmartBugs DASP categories: 10
+
+## URLs
+- Cyfrin: https://raw.githubusercontent.com/Cyfrin/audit-checklist/main/checklist.json OK
+- SmartBugs (master): https://raw.githubusercontent.com/smartbugs/smartbugs-curated/master/vulnerabilities.json OK
+
+## Notes
+- All Cyfrin IDs preserved (e.g., SOL-AM-DOSA-1, SOL-Basics-AC-1)
+- SmartBugs referenced via GitHub URLs only
+- YAML frontmatter + attribution on all files
+- Cyfrin has minimal gas-specific content (security-focused checklist)
