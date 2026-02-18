@@ -90,13 +90,13 @@ Restructure opencode-argus into a modular, factory-based architecture while addi
 - Updated `package.json` with `bin` entry for CLI
 
 ### Definition of Done
-- [ ] `bun test` passes (all 23 existing + all new tests)
-- [ ] `bun run typecheck` passes (zero type errors)
-- [ ] Plugin loads in OpenCode and registers 4 agents + 8 tools
-- [ ] `argus doctor` CLI command executes and reports Slither/Foundry status
-- [ ] Config reads from both user-level and project-level locations
-- [ ] Audit state persists across session restarts (verified by file existence)
-- [ ] Hooks can be individually disabled via `disabled_hooks` config array
+- [x] `bun test` passes (all 23 existing + all new tests)
+- [x] `bun run typecheck` passes (zero type errors)
+- [x] Plugin loads in OpenCode and registers 4 agents + 8 tools
+- [x] `argus doctor` CLI command executes and reports Slither/Foundry status
+- [x] Config reads from both user-level and project-level locations
+- [x] Audit state persists across session restarts (verified by file existence)
+- [x] Hooks can be individually disabled via `disabled_hooks` config array
 
 ### Must Have
 - All 8 existing tools work identically (slither, forge test, forge fuzz, analyze contract, check patterns, solodit search, generate report, sync knowledge)
@@ -2119,19 +2119,19 @@ Max Concurrent: 10 (Wave 3)
 
 ## Final Verification Wave
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists (read file, run command). For each "Must NOT Have": search codebase for forbidden patterns — reject with file:line if found. Check evidence files exist in .sisyphus/evidence/. Compare deliverables against plan.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   Run `bun run typecheck` + `bun test`. Review all changed files for: `as any`/`@ts-ignore`, empty catches, console.log in prod (except logger), commented-out code, unused imports. Check AI slop: excessive comments, over-abstraction, generic names (data/result/item/temp).
   Output: `Build [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **Real Manual QA** — `unspecified-high`
+- [x] F3. **Real Manual QA** — `unspecified-high`
   Start from clean state. Run `bun test` — all 23+ existing tests pass. Run `bun run typecheck` — zero errors. Test `argus doctor` CLI command in tmux. Verify config reads from both user and project locations. Verify plugin exports correct shape. Test hook disable by setting `disabled_hooks` in config.
   Output: `Tests [N/N pass] | Typecheck [PASS/FAIL] | CLI [N/N commands] | Config [PASS/FAIL] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   For each task: read "What to do", read actual diff. Verify 1:1 — everything in spec was built (no missing), nothing beyond spec was built (no creep). Check "Must NOT do" compliance: no prompt changes, no tool behavior changes, no new deps. Flag unaccounted changes.
   Output: `Tasks [N/N compliant] | Must NOT [CLEAN/N issues] | Unaccounted [CLEAN/N files] | VERDICT`
 
@@ -2170,14 +2170,14 @@ node dist/index.js --help 2>&1    # Expected: CLI help output (after build)
 ```
 
 ### Final Checklist
-- [ ] All 8 existing tools work identically
-- [ ] All 4 agents register correctly
-- [ ] All 55 SKILL.md files accessible
-- [ ] SCVD integration works
-- [ ] Solodit MCP starts correctly
-- [ ] Config loads from user + project locations
-- [ ] Hook disable works via disabled_hooks
-- [ ] Audit state persists to disk
-- [ ] CLI doctor reports Slither/Foundry status
-- [ ] All tests pass
-- [ ] Zero type errors
+- [x] All 8 existing tools work identically
+- [x] All 4 agents register correctly
+- [x] All 55 SKILL.md files accessible
+- [x] SCVD integration works
+- [x] Solodit MCP starts correctly
+- [x] Config loads from user + project locations
+- [x] Hook disable works via disabled_hooks
+- [x] Audit state persists to disk
+- [x] CLI doctor reports Slither/Foundry status
+- [x] All tests pass
+- [x] Zero type errors
