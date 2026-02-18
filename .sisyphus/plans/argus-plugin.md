@@ -1869,7 +1869,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 30. `argus_sync_knowledge` Tool + Auto-Sync Hook
+- [x] 30. `argus_sync_knowledge` Tool + Auto-Sync Hook
 
   **What to do**:
   - Create `src/tools/sync-knowledge-tool.ts` using `tool()` helper from `@opencode-ai/plugin`
@@ -1955,7 +1955,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 31. Companion Plugin Docs + Knowledge README
+- [x] 31. Companion Plugin Docs + Knowledge README
 
   **What to do**:
   - Create `skills/README.md` documenting the knowledge base:

@@ -89,6 +89,66 @@ test("executePatternCheck accepts include_scvd false without changing output sha
   expect(result.sources[0]?.source).toBe("pattern-db");
 });
 
+test("executePatternCheck adds SCVD match source when include_scvd=true and index is available", async () => {
+  const queriedSwc: string[] = [];
+  const result = await executePatternCheck(
+    {
+      target: "tests/fixtures/vulnerable-vault/src/VulnerableVault.sol",
+      patterns: ["reentrancy"],
+      include_scvd: true,
+    },
+    createContext(),
+    {
+      loadIndexFn: async () => ({
+        version: 1,
+        lastSync: "2026-02-17T00:00:00.000Z",
+        totalFindings: 1,
+        entries: [
+          {
+            id: "SCVD-107-1",
+            title: "Reentrancy in withdraw",
+            severity: "High",
+            swc: ["SWC-107"],
+            cwe: ["CWE-841"],
+            keywords: ["reentrancy", "withdraw"],
+            repoUrl: "https://github.com/example/vault",
+          },
+        ],
+      }),
+      searchIndexFn: (index, query) => {
+        if (query.swc) {
+          queriedSwc.push(query.swc);
+        }
+        return index.entries.filter((entry) => entry.swc.includes(query.swc ?? ""));
+      },
+    }
+  );
+
+  expect(queriedSwc).toContain("SWC-107");
+  expect(result.sources).toHaveLength(2);
+  expect(result.sources[1]?.source).toBe("scvd");
+  expect(result.sources[1]?.matches).toHaveLength(1);
+  expect(result.sources[1]?.matches[0]?.pattern).toBe("SCVD-107-1");
+  expect(result.sources[1]?.matches[0]?.file).toBe("https://github.com/example/vault");
+});
+
+test("executePatternCheck silently skips SCVD when index is missing", async () => {
+  const result = await executePatternCheck(
+    {
+      target: "tests/fixtures/vulnerable-vault/src/VulnerableVault.sol",
+      patterns: ["reentrancy"],
+      include_scvd: true,
+    },
+    createContext(),
+    {
+      loadIndexFn: async () => null,
+    }
+  );
+
+  expect(result.sources).toHaveLength(1);
+  expect(result.sources[0]?.source).toBe("pattern-db");
+});
+
 test("patternCheckerTool execute returns stringified PatternCheckResult", async () => {
   const payload = await patternCheckerTool.execute(
     {

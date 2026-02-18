@@ -131,3 +131,8 @@ Nomad_exp.sol, MangoMarkets_exp.sol, Euler_exp.sol, Wintermute_exp.sol, BadgerDA
 - Inventory integrity depends on correct source-path parsing for non-standard staging trees (exploit-case-studies had 2-level paths), otherwise malformed destination slugs appear.
 - When splitting checklist files for word-count constraints, preserve attribution headers in every split artifact so inventory source attribution remains accurate.
 - If final SKILL count exceeds the required envelope, merge tightly related reference artifacts rather than dropping content to keep coverage intact.
+## [2026-02-17] Task: 31
+Created comprehensive documentation for the Argus knowledge base and companion plugins. Documented source attribution for all 6 knowledge sources and provided clear instructions for integrating Trail of Bits, Solodit, and SCVD. Ensured no licensing violations by referencing rather than duplicating Trail of Bits content.
+
+## [2026-02-17T21:38:36] Task: 30
+Implemented argus_sync_knowledge tool with force/incremental modes and structured error output, added non-blocking SCVD auto-sync hook wired from config handler, and extended pattern checker with optional SCVD MatchSource enrichment via category->SWC mapping while preserving pattern-db behavior. Added dependency-injection seams for deterministic Bun tests around async fire-and-forget and SCVD index lookups.

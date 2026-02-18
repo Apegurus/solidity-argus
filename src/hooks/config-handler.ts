@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 import type { Config } from "@opencode-ai/sdk"
 import type { ArgusConfig } from "../plugin-config"
 import { DEFAULT_MODELS } from "../constants/defaults"
+import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 
 const ARGUS_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
 const SENTINEL_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
@@ -11,6 +12,8 @@ const SCRIBE_PLACEHOLDER = "You are Argus Panoptes, the All-Seeing Guardian."
 export function createConfigHandler(
   argusConfig: ArgusConfig
 ): (config: Config) => Promise<void> {
+  const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
+
   return async (config: Config): Promise<void> => {
     config.agent = {
       ...config.agent,
@@ -85,6 +88,10 @@ export function createConfigHandler(
     configWithSkills.skills = {
       ...(configWithSkills.skills ?? {}),
       paths: [...(configWithSkills.skills?.paths ?? []), pluginSkillsDir],
+    }
+
+    if (argusConfig.knowledge?.autoSync !== false) {
+      triggerKnowledgeSync()
     }
   }
 }

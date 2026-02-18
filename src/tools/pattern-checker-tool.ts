@@ -1,6 +1,13 @@
+import os from "node:os";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
+import {
+  loadIndex,
+  searchIndex,
+  type ScvdIndex,
+  type ScvdIndexEntry,
+} from "../knowledge/scvd-index";
 
 export interface Match {
   pattern: string;
@@ -27,6 +34,14 @@ type PatternCheckArgs = {
   target: string;
   patterns?: string[];
   include_scvd?: boolean;
+};
+
+type PatternCheckDependencies = {
+  loadIndexFn?: (filePath: string) => Promise<ScvdIndex | null>;
+  searchIndexFn?: (
+    index: ScvdIndex,
+    query: { swc?: string; severity?: string; keyword?: string; limit?: number }
+  ) => ScvdIndexEntry[];
 };
 
 type BuiltinPattern = {
@@ -76,6 +91,85 @@ const BUILTIN_PATTERNS: BuiltinPattern[] = [
     description: "Potential missing zero-address validation",
   },
 ];
+
+const CATEGORY_TO_SWC: Record<string, string[]> = {
+  reentrancy: ["SWC-107"],
+  "access-control": ["SWC-105", "SWC-106"],
+  "oracle-manipulation": ["SWC-116"],
+  delegatecall: ["SWC-112"],
+  "signature-replay": ["SWC-121"],
+  "integer-overflow": ["SWC-101"],
+};
+
+const PATTERN_NAME_TO_CATEGORY = new Map(
+  BUILTIN_PATTERNS.map((pattern) => [pattern.name, pattern.category])
+);
+
+function normalizeSeverity(value: string): Match["severity"] {
+  if (value === "Critical") return "Critical";
+  if (value === "High") return "High";
+  if (value === "Medium") return "Medium";
+  if (value === "Low") return "Low";
+  return "Informational";
+}
+
+function uniqueScvdEntries(entries: ScvdIndexEntry[]): ScvdIndexEntry[] {
+  const deduped = new Map<string, ScvdIndexEntry>();
+  for (const entry of entries) {
+    deduped.set(entry.id, entry);
+  }
+  return Array.from(deduped.values());
+}
+
+async function collectScvdMatches(
+  matches: Match[],
+  dependencies: Required<PatternCheckDependencies>
+): Promise<Match[]> {
+  const detectedCategories = new Set<string>();
+  for (const match of matches) {
+    const category = PATTERN_NAME_TO_CATEGORY.get(match.pattern);
+    if (category) {
+      detectedCategories.add(category);
+    }
+  }
+
+  if (detectedCategories.size === 0) {
+    return [];
+  }
+
+  const swcCodes = new Set<string>();
+  for (const category of detectedCategories) {
+    const mappedSwcs = CATEGORY_TO_SWC[category] ?? [];
+    for (const swcCode of mappedSwcs) {
+      swcCodes.add(swcCode);
+    }
+  }
+
+  if (swcCodes.size === 0) {
+    return [];
+  }
+
+  const indexPath = join(os.homedir(), ".cache", "opencode-argus", "scvd-index.json");
+  const index = await dependencies.loadIndexFn(indexPath);
+
+  if (!index) {
+    return [];
+  }
+
+  const entries: ScvdIndexEntry[] = [];
+  for (const swcCode of swcCodes) {
+    entries.push(...dependencies.searchIndexFn(index, { swc: swcCode }));
+  }
+
+  return uniqueScvdEntries(entries).map((entry) => ({
+    pattern: entry.id,
+    severity: normalizeSeverity(entry.severity),
+    file: entry.repoUrl,
+    lines: [1, 1],
+    description: entry.title,
+    exploitReference: entry.repoUrl,
+  }));
+}
 
 function collectSolidityFiles(target: string): string[] {
   const absoluteTarget = resolve(target);
@@ -176,8 +270,15 @@ function selectPatterns(categories?: string[]): BuiltinPattern[] {
 
 export async function executePatternCheck(
   args: PatternCheckArgs,
-  context: ToolContext
+  context: ToolContext,
+  deps: PatternCheckDependencies = {}
 ): Promise<PatternCheckResult> {
+  const dependencies: Required<PatternCheckDependencies> = {
+    loadIndexFn: loadIndex,
+    searchIndexFn: searchIndex,
+    ...deps,
+  };
+
   const startedAt = Date.now();
   context.metadata({ title: `Pattern check: ${args.target}` });
 
@@ -195,13 +296,27 @@ export async function executePatternCheck(
     sourceMatches.push(...findMatches(solidityFile, selectedPatterns));
   }
 
+  const sources: MatchSource[] = [
+    {
+      source: "pattern-db",
+      matches: sourceMatches,
+    },
+  ];
+
+  if (args.include_scvd === true) {
+    try {
+      const scvdMatches = await collectScvdMatches(sourceMatches, dependencies);
+      if (scvdMatches.length > 0) {
+        sources.push({
+          source: "scvd",
+          matches: scvdMatches,
+        });
+      }
+    } catch {}
+  }
+
   return {
-    sources: [
-      {
-        source: "pattern-db",
-        matches: sourceMatches,
-      },
-    ],
+    sources,
     patternsChecked: selectedPatterns.length,
     executionTime: Date.now() - startedAt,
     target: args.target,
