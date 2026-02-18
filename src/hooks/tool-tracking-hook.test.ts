@@ -2,18 +2,15 @@ import { test, expect, describe, beforeEach } from "bun:test"
 import { createToolTrackingHook } from "./tool-tracking-hook"
 import { createAuditState } from "../state/audit-state"
 import type { AuditState } from "../state/types"
-import type { FindingStore } from "../state/finding-store"
 
 describe("createToolTrackingHook", () => {
   let auditState: AuditState
-  let store: FindingStore
   let hook: (input: { tool: string; args: unknown; result: string }) => Promise<void>
 
   beforeEach(() => {
     const created = createAuditState("/test/project")
     auditState = created.state
-    store = created.store
-    hook = createToolTrackingHook(auditState, store)
+    hook = createToolTrackingHook(() => auditState)
   })
 
   test("no-op for non-argus tools", async () => {
@@ -313,5 +310,15 @@ describe("createToolTrackingHook", () => {
     })
 
     expect(auditState.contractsReviewed).toHaveLength(1)
+  })
+
+  test("no-op when audit state is unavailable", async () => {
+    const hookWithoutState = createToolTrackingHook(() => null)
+
+    await hookWithoutState({
+      tool: "argus_slither_analyze",
+      args: { target: "." },
+      result: JSON.stringify({ success: true, findings: [] }),
+    })
   })
 })

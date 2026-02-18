@@ -1,5 +1,6 @@
 import type { AuditState, FindingSeverity } from "../state/types"
 import type { FindingStore } from "../state/finding-store"
+import { createFindingStore } from "../state/finding-store"
 
 type ToolHookInput = {
   tool: string
@@ -193,13 +194,32 @@ function recordToolExecution(
  * Findings are deduplicated via the FindingStore (by check+file+lines).
  */
 export function createToolTrackingHook(
-  auditState: AuditState,
-  store: FindingStore
+  getAuditState: () => AuditState | null
 ): (input: ToolHookInput) => Promise<void> {
+  const storesByState = new WeakMap<AuditState, FindingStore>()
+
+  function resolveStateAndStore(): { state: AuditState; store: FindingStore } | null {
+    const state = getAuditState()
+    if (!state) return null
+
+    let store = storesByState.get(state)
+    if (!store) {
+      store = createFindingStore(state)
+      storesByState.set(state, store)
+    }
+
+    return { state, store }
+  }
+
   return async (input: ToolHookInput): Promise<void> => {
     if (!input.tool.startsWith("argus_")) {
       return
     }
+
+    const resolved = resolveStateAndStore()
+    if (!resolved) return
+
+    const { state: auditState, store } = resolved
 
     let parsed: unknown
     try {

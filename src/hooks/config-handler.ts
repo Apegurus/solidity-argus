@@ -1,7 +1,6 @@
 import { resolve, join } from "node:path"
 import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
-import { execSync } from "node:child_process"
 import type { Config } from "@opencode-ai/sdk/v2"
 import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS } from "../constants/defaults"
@@ -13,6 +12,7 @@ import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
 const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
+let tobCloneInFlight = false
 
 function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
   const pluginsDir = join(rootDir, "plugins")
@@ -33,16 +33,26 @@ function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
 }
 
 function ensureTrailOfBitsSkills(): string[] {
-  if (existsSync(TOB_CACHE_DIR)) return getTrailOfBitsSkillsPaths(TOB_CACHE_DIR)
-  try {
-    execSync(`git clone --depth 1 ${TOB_REPO_URL} "${TOB_CACHE_DIR}"`, {
-      stdio: "ignore",
-      timeout: 30_000,
-    })
+  if (existsSync(TOB_CACHE_DIR)) {
     return getTrailOfBitsSkillsPaths(TOB_CACHE_DIR)
-  } catch (_e) {
-    return []
   }
+
+  if (!tobCloneInFlight) {
+    tobCloneInFlight = true
+    const cloneProcess = Bun.spawn(
+      ["git", "clone", "--depth", "1", TOB_REPO_URL, TOB_CACHE_DIR],
+      {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    )
+    cloneProcess.exited.finally(() => {
+      tobCloneInFlight = false
+    })
+  }
+
+    return []
 }
 
 export function createConfigHandler(

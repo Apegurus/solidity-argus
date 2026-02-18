@@ -1,8 +1,26 @@
 import { describe, expect, it } from "bun:test"
+import { resolve } from "node:path"
 import { createHooks } from "./create-hooks"
 import { ArgusConfigSchema } from "./config/schema"
 import type { Managers } from "./managers/types"
 import type { HookName } from "./hooks/types"
+import type { AuditState } from "./state/types"
+
+const FIXTURE_DIR = resolve(import.meta.dir, "../tests/fixtures/vulnerable-vault")
+
+function makeAuditState(overrides?: Partial<AuditState>): AuditState {
+  return {
+    sessionId: "test-session",
+    projectDir: FIXTURE_DIR,
+    contractsReviewed: [],
+    findings: [],
+    toolsExecuted: [],
+    currentPhase: "reconnaissance",
+    scope: [],
+    startTime: Date.now(),
+    ...overrides,
+  }
+}
 
 function makeManagers(): Managers {
   return {
@@ -95,5 +113,112 @@ describe("createHooks", () => {
       "tool-tracking",
       "event",
     ])
+  })
+
+  it("keeps tool tracking and system prompt on the same state after session.created", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredState = makeAuditState({ sessionId: "recovered" })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        load: async () => recoveredState,
+        save: async () => {},
+        get: () => makeAuditState({ sessionId: "initial" }),
+        update: async () => {},
+        reset: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event!(
+      ({ event: { type: "session.created", properties: {} } } as unknown) as Parameters<
+        NonNullable<typeof hooks.event>
+      >[0],
+    )
+    await hooks["tool.execute.after"]!(
+      {
+        tool: "argus_slither_analyze",
+        sessionID: "test",
+        callID: "call-1",
+        args: {},
+      },
+      {
+        title: "argus_slither_analyze",
+        output: JSON.stringify({
+          success: true,
+          findings: [
+            {
+              check: "reentrancy",
+              severity: "High",
+              confidence: "High",
+              description: "External call before state update",
+              file: "src/Vault.sol",
+              lines: [10, 20],
+            },
+          ],
+        }),
+        metadata: {},
+      },
+    )
+
+    expect(recoveredState.findings).toHaveLength(1)
+
+    const output = { system: ["You are a helpful assistant."] }
+    await hooks["experimental.chat.system.transform"]!({} as never, output)
+    expect(output.system.join("\n")).toContain("Findings: 1 total")
+  })
+
+  it("persists current state on session.idle", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const activeState = makeAuditState({ sessionId: "active" })
+    const savedStates: AuditState[] = []
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        load: async () => activeState,
+        save: async (state) => {
+          savedStates.push(state)
+        },
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event!(
+      ({ event: { type: "session.idle", properties: {} } } as unknown) as Parameters<
+        NonNullable<typeof hooks.event>
+      >[0],
+    )
+
+    expect(savedStates).toHaveLength(1)
+    expect(savedStates[0]?.sessionId).toBe("active")
   })
 })

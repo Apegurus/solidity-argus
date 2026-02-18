@@ -1,3 +1,4 @@
+import type { AuditState } from "../../state/types"
 import type { AuditStateManager } from "../../managers/types"
 import { createLogger } from "../../shared/logger"
 
@@ -6,7 +7,11 @@ export function createSessionRecoveryHandler(
 ) {
   const logger = createLogger()
 
-  return async (event: { type: string; sessionId?: string }): Promise<void> => {
+  return async (event: {
+    type: string
+    sessionId?: string
+    setAuditState?: (state: AuditState | null) => void
+  }): Promise<void> => {
     if (event.type !== "session.error") return
 
     logger.info("Session error detected, attempting state recovery...")
@@ -14,6 +19,7 @@ export function createSessionRecoveryHandler(
     try {
       const recovered = await auditStateManager.load()
       if (recovered) {
+        event.setAuditState?.(recovered)
         logger.info(
           `State recovered: phase=${recovered.currentPhase}, findings=${recovered.findings.length}`,
         )

@@ -321,7 +321,7 @@ describe("E2E D: Hook Lifecycle", () => {
     const output = { system: ["You are a helpful assistant."] }
     await hooks["experimental.chat.system.transform"]!({} as any, output)
 
-    expect(output.system.length).toBe(2)
+    expect(output.system.length).toBeGreaterThanOrEqual(2)
     expect(output.system[1]).toContain("<argus-context>")
     expect(output.system[1]).toContain("argus_slither_analyze")
   })

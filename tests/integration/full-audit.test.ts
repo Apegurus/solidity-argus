@@ -7,7 +7,6 @@ import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createCompactionHook } from "../../src/hooks/compaction-hook"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
 import { createAuditState } from "../../src/state/audit-state"
-import { createFindingStore } from "../../src/state/finding-store"
 import type { Finding } from "../../src/state/types"
 import { slitherTool } from "../../src/tools/slither-tool"
 import { forgeTestTool } from "../../src/tools/forge-test-tool"
@@ -242,8 +241,7 @@ describe("full audit integration", () => {
 
   test("tool tracking hook accumulates findings from slither output", async () => {
     const { state: auditState } = createAuditState(FIXTURE_DIR)
-    const store = createFindingStore(auditState)
-    const hook = createToolTrackingHook(auditState, store)
+    const hook = createToolTrackingHook(() => auditState)
 
     await hook({
       tool: "argus_slither_analyze",

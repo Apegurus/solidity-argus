@@ -1,4 +1,4 @@
-import type { AuditState, AuditPhase } from "../state/types"
+import type { AuditState } from "../state/types"
 import { createAuditState } from "../state/audit-state"
 import { createLogger } from "../shared/logger"
 
@@ -19,6 +19,7 @@ export type EventSubHandler = (event: {
   type: string
   sessionId?: string
   auditState: AuditState | null
+  setAuditState: (state: AuditState | null) => void
 }) => Promise<void>
 
 export function createEventHookV2(
@@ -82,7 +83,12 @@ export function createEventHookV2(
 
     for (const handler of subHandlers) {
       try {
-        await handler({ type, sessionId, auditState: currentAuditState })
+        await handler({
+          type,
+          sessionId,
+          auditState: currentAuditState,
+          setAuditState,
+        })
       } catch (error) {
         logger.error(`Sub-handler failed for event ${type}:`, error)
       }

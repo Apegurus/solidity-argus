@@ -1,5 +1,4 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { spawn } from "node:child_process"
 import { loadArgusConfig } from "./config/loader"
 import { createHookGuard } from "./hooks/hook-system"
 import { createTools } from "./create-tools"
@@ -8,13 +7,13 @@ import { createManagers } from "./create-managers"
 import { createPluginInterface } from "./plugin-interface"
 
 function startSoloditMcp(port: number): void {
-  const child = spawn("npx", ["-y", "@lyuboslavlyubenov/solodit-mcp"], {
-    stdio: "ignore",
-    detached: false,
+  const child = Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
     env: { ...process.env, PORT: String(port) },
   })
   child.unref()
-  child.on("error", () => {})
 }
 
 const ArgusPlugin: Plugin = async (ctx) => {
