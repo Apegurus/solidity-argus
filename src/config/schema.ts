@@ -1,0 +1,82 @@
+import { z } from "zod"
+
+const AgentConfigSchema = z.object({
+  model: z.string().optional(),
+  permission: z.record(z.string(), z.any()).optional(),
+  tools: z.record(z.string(), z.boolean()).optional(),
+})
+
+const ToolsConfigSchema = z.object({
+  slitherPath: z.string().optional(),
+  forgePath: z.string().optional(),
+})
+
+const ScvdConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  apiUrl: z.string().default("https://api.scvd.dev"),
+})
+
+const KnowledgeConfigSchema = z.object({
+  scvd: ScvdConfigSchema.default({
+    enabled: true,
+    apiUrl: "https://api.scvd.dev",
+  }),
+  autoSync: z.boolean().default(true),
+  customSkillsDir: z.string().optional(),
+})
+
+const ReportingConfigSchema = z.object({
+  format: z.enum(["markdown"]).default("markdown"),
+  severityThreshold: z
+    .enum(["critical", "high", "medium", "low", "informational"])
+    .default("low"),
+  gasAnalysis: z.boolean().default(false),
+})
+
+const SolditConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  port: z.number().default(3000),
+})
+
+const BackgroundConfigSchema = z.object({
+  max_concurrent: z.number().positive().default(3),
+})
+
+export const ArgusConfigSchema = z.object({
+  agents: z
+    .object({
+      argus: AgentConfigSchema.default({}),
+      sentinel: AgentConfigSchema.default({}),
+      pythia: AgentConfigSchema.default({}),
+      scribe: AgentConfigSchema.default({}),
+    })
+    .default({
+      argus: {},
+      sentinel: {},
+      pythia: {},
+      scribe: {},
+    }),
+  tools: ToolsConfigSchema.default({}),
+  knowledge: KnowledgeConfigSchema.default({
+    scvd: {
+      enabled: true,
+      apiUrl: "https://api.scvd.dev",
+    },
+    autoSync: true,
+  }),
+  reporting: ReportingConfigSchema.default({
+    format: "markdown",
+    severityThreshold: "low",
+    gasAnalysis: false,
+  }),
+  solodit: SolditConfigSchema.default({
+    enabled: true,
+    port: 3000,
+  }),
+  disabled_hooks: z.array(z.string()).default([]),
+  hooks: z.record(z.string(), z.any()).default({}),
+  cli: z.record(z.string(), z.any()).default({}),
+  background: BackgroundConfigSchema.default({
+    max_concurrent: 3,
+  }),
+})
