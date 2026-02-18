@@ -1,0 +1,200 @@
+import type { BackgroundManager } from "../../managers/types";
+import { createLogger } from "../../shared/logger";
+
+type TaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+type CompletionCallback = (taskId: string, result: unknown) => void;
+
+export interface BackgroundTaskOptions {
+  priority?: number;
+  max_concurrent?: number;
+}
+
+export interface BackgroundManagerWithTaskCallbacks extends BackgroundManager {
+  dispatch(agentName: string, prompt: string, options?: BackgroundTaskOptions): string;
+  onComplete(callback: CompletionCallback): void;
+  onComplete(taskId: string, callback: CompletionCallback): void;
+}
+
+interface TaskInfo {
+  status: TaskStatus;
+  agentName: string;
+  prompt: string;
+  options?: BackgroundTaskOptions;
+  result?: unknown;
+  error?: unknown;
+  callbacks: Set<CompletionCallback>;
+}
+
+type Dispatcher = (
+  agentName: string,
+  prompt: string,
+  options?: BackgroundTaskOptions,
+) => Promise<string>;
+
+export function createBackgroundManager(
+  dispatcher: Dispatcher,
+): BackgroundManagerWithTaskCallbacks {
+  const logger = createLogger();
+  const tasks = new Map<string, TaskInfo>();
+  const queue: string[] = [];
+  const globalCallbacks = new Set<CompletionCallback>();
+
+  let runningCount = 0;
+  let maxConcurrent = 3;
+  let taskCount = 0;
+
+  function invokeCallbacks(taskId: string, result: unknown): void {
+    const task = tasks.get(taskId);
+    if (!task) {
+      return;
+    }
+
+    for (const callback of globalCallbacks) {
+      callback(taskId, result);
+    }
+
+    for (const callback of task.callbacks) {
+      callback(taskId, result);
+    }
+
+    task.callbacks.clear();
+  }
+
+  function processQueue(): void {
+    while (runningCount < maxConcurrent && queue.length > 0) {
+      const nextTaskId = queue.shift();
+
+      if (!nextTaskId) {
+        return;
+      }
+
+      const task = tasks.get(nextTaskId);
+      if (!task || task.status === "cancelled") {
+        continue;
+      }
+
+      task.status = "running";
+      runningCount += 1;
+
+      dispatcher(task.agentName, task.prompt, task.options)
+        .then((result) => {
+          const currentTask = tasks.get(nextTaskId);
+
+          if (!currentTask || currentTask.status === "cancelled") {
+            return;
+          }
+
+          currentTask.status = "completed";
+          currentTask.result = result;
+          invokeCallbacks(nextTaskId, result);
+        })
+        .catch((error: unknown) => {
+          const currentTask = tasks.get(nextTaskId);
+
+          if (!currentTask || currentTask.status === "cancelled") {
+            return;
+          }
+
+          currentTask.status = "failed";
+          currentTask.error = error;
+          logger.error(`Background task failed: ${nextTaskId}`, error);
+        })
+        .finally(() => {
+          runningCount = Math.max(0, runningCount - 1);
+          processQueue();
+        });
+    }
+  }
+
+  function dispatch(
+    agentName: string,
+    prompt: string,
+    options?: BackgroundTaskOptions,
+  ): string {
+    if (typeof options?.max_concurrent === "number" && options.max_concurrent > 0) {
+      maxConcurrent = options.max_concurrent;
+    }
+
+    taskCount += 1;
+    const taskId = `task-${taskCount}`;
+
+    tasks.set(taskId, {
+      status: "queued",
+      agentName,
+      prompt,
+      options,
+      callbacks: new Set<CompletionCallback>(),
+    });
+
+    queue.push(taskId);
+    processQueue();
+
+    return taskId;
+  }
+
+  function cancel(taskId: string): void {
+    const task = tasks.get(taskId);
+    if (!task) {
+      return;
+    }
+
+    task.status = "cancelled";
+
+    const queuedTaskIndex = queue.indexOf(taskId);
+    if (queuedTaskIndex >= 0) {
+      queue.splice(queuedTaskIndex, 1);
+    }
+  }
+
+  function getResult(taskId: string): Promise<unknown> {
+    const task = tasks.get(taskId);
+    if (!task || task.status !== "completed") {
+      return Promise.resolve(undefined);
+    }
+
+    return Promise.resolve(task.result);
+  }
+
+  function onComplete(taskIdOrCallback: string | CompletionCallback, callback?: CompletionCallback): void {
+    if (typeof taskIdOrCallback === "function") {
+      globalCallbacks.add(taskIdOrCallback);
+      return;
+    }
+
+    if (!callback) {
+      return;
+    }
+
+    const task = tasks.get(taskIdOrCallback);
+    if (!task) {
+      return;
+    }
+
+    if (task.status === "completed") {
+      callback(taskIdOrCallback, task.result);
+      return;
+    }
+
+    task.callbacks.add(callback);
+  }
+
+  function getActiveCount(): number {
+    let activeCount = 0;
+
+    for (const task of tasks.values()) {
+      if (task.status === "queued" || task.status === "running") {
+        activeCount += 1;
+      }
+    }
+
+    return activeCount;
+  }
+
+  return {
+    dispatch,
+    cancel,
+    getResult,
+    onComplete,
+    getActiveCount,
+  };
+}
