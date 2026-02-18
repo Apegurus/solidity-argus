@@ -29,3 +29,6 @@
 
 ## [2026-02-17T23:59:00Z] Task 13
 - Tool schema defaults in `tool()` can produce stricter generated `execute` argument types for direct test invocations; tests calling `reportGeneratorTool.execute` must pass `include_executive_summary` and `severity_threshold` explicitly to satisfy TypeScript diagnostics.
+
+## [2026-02-17T23:50:28Z] Task 14
+- `Partial<ArgusConfig>` is shallow; test fixtures overriding only `agents.argus` fail diagnostics unless sibling keys (`sentinel`, `pythia`, `scribe`) are provided or a deep-partial helper is used.

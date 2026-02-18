@@ -1025,7 +1025,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
   - Message: `feat(tools): implement all 7 custom audit tools`
   - Pre-commit: `bun test`
 
-- [ ] 14. Config Handler — Agent Registration
+- [x] 14. Config Handler — Agent Registration
 
   **What to do**:
   - Create `src/hooks/config-handler.ts`
@@ -1103,7 +1103,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 15. Config Handler — MCP + Skills Registration
+- [x] 15. Config Handler — MCP + Skills Registration
 
   **What to do**:
   - Extend `src/hooks/config-handler.ts` (or create `src/hooks/mcp-skills-handler.ts`)
@@ -1160,7 +1160,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 16. Argus Orchestrator Prompt
+- [x] 16. Argus Orchestrator Prompt
 
   **What to do**:
   - Create `src/agents/argus-prompt.ts` — exports the Argus system prompt string
@@ -1207,7 +1207,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 17. Sentinel Agent Prompt
+- [x] 17. Sentinel Agent Prompt
 
   **What to do**:
   - Create `src/agents/sentinel-prompt.ts`
@@ -1239,7 +1239,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 18. Pythia Agent Prompt
+- [x] 18. Pythia Agent Prompt
 
   **What to do**:
   - Create `src/agents/pythia-prompt.ts`
@@ -1271,7 +1271,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 19. Scribe Agent Prompt
+- [x] 19. Scribe Agent Prompt
 
   **What to do**:
   - Create `src/agents/scribe-prompt.ts`
@@ -1303,7 +1303,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 20. System Prompt Transform Hook
+- [x] 20. System Prompt Transform Hook
 
   **What to do**:
   - Create `src/hooks/system-prompt-hook.ts`
@@ -1336,7 +1336,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 21. Compaction Hook — Audit State Preservation
+- [x] 21. Compaction Hook — Audit State Preservation
 
   **What to do**:
   - Create `src/hooks/compaction-hook.ts`
@@ -1369,7 +1369,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 22. Tool Tracking Hook — Finding Accumulation
+- [x] 22. Tool Tracking Hook — Finding Accumulation
 
   **What to do**:
   - Create `src/hooks/tool-tracking-hook.ts`
@@ -1402,7 +1402,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 23. Event Hook — Session Lifecycle
+- [x] 23. Event Hook — Session Lifecycle
 
   **What to do**:
   - Create `src/hooks/event-hook.ts`

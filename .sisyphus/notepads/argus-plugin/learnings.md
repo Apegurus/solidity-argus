@@ -1,70 +1,55 @@
-# Argus Plugin — Learnings & Conventions
+## [2026-02-17] Task: 18
+- Created `src/agents/pythia-prompt.ts` for the Pythia subagent.
+- Defined Pythia's role as a "Research Specialist" and "Vulnerability Historian".
+- Integrated instructions for `argus_solodit_search` and `argus_check_patterns`.
+- Added a section on using the OpenCode Skills system for domain-specific knowledge.
+- Established a structured research workflow: Protocol ID -> Pattern Scan -> Deep Dive -> Report.
+- Defined a specific Markdown output format for research findings, emphasizing "Precedent" and "Solodit Reference".
 
-<!-- Append entries below. Never overwrite. Format: ## [TIMESTAMP] Task: {N} -->
+## [2026-02-17] Task: 19
+- Created `src/agents/scribe-prompt.ts` for the Scribe subagent.
+- Defined Scribe's identity as the "Historian" and report writer.
+- Included detailed instructions for `argus_generate_report` usage.
+- Established a strict professional writing style and report structure.
+- Ensured alignment with `argus-prompt.ts` and `sentinel-prompt.ts` styles.
 
-## [2026-02-17T22:51:36Z] Bootstrap
-- Working directory: `/Users/ignacioblitzer/Develop/defizoo/solidity-auditor`
-- Project is greenfield — only `argus-planning-prompt.md` and `.sisyphus/` exist
-- npm package name: `opencode-argus`
-- Plugin entry point pattern: `const ArgusPlugin: Plugin = async (ctx) => { return { tool: {}, config: async (config) => {}, ... } }`
-- OpenCode plugin API: `@opencode-ai/plugin` provides `Plugin` type and `tool()` helper
-- Agent registration: via `config.agent` mutation in config handler
-- Skills registration: via `config.skills.paths` in config handler
-- MCP registration: via `config.mcp` mutation in config handler
-- System prompt injection: via `experimental.chat.system.transform` hook
-- All test output: `bun test` (NOT jest/mocha)
-- TypeScript strict mode, ES2022 target, moduleResolution bundler
-- NO `as any`, `@ts-ignore`, type suppression
-- All evidence files go to `.sisyphus/evidence/task-{N}-{slug}.txt`
+## [2026-02-17] Task: 21
+- Created `src/hooks/compaction-hook.ts` — session compaction hook that serializes audit state into XML.
+- `AuditState.startTime` is `number` (epoch millis), not `Date` — use `new Date(startTime).toISOString()`.
+- `AuditState.toolsExecuted` is `ToolExecution[]`, not `string[]` — need `.map(t => t.tool)` to get names.
+- Factory pattern: `createCompactionHook(getAuditState)` returns `async (input) => Promise<string>`.
+- Config handler pattern in `config-handler.ts` uses same factory-returns-handler shape.
+- Hook is for OpenCode's `experimental.session.compacting` — called during context window compression.
+- XML tag `<argus-audit-state>` wraps serialized state; prepended to the original summary string.
 
-## [2026-02-17T22:55:12Z] Task 1: Plugin Scaffold Complete
-- Initialized bun project with `bun init -y`
-- Created directory structure: src/{tools,hooks,state,utils,agents,constants,knowledge}, skills/, tests/fixtures/, .sisyphus/evidence/
-- Updated package.json: name="opencode-argus", version="0.1.0", main="./src/index.ts"
-- Added dependencies: @opencode-ai/plugin, zod
-- Added scripts: build, test, typecheck
-- tsconfig.json: target ES2022, module ESNext, moduleResolution bundler, strict: true
-- bunfig.toml: [test] preload = ["./test-setup.ts"]
-- src/index.ts: Plugin type from @opencode-ai/plugin, async function returning { tool: {}, config: async () => {} }
-- tests/smoke.test.ts: Basic smoke test using bun:test
-- Build output: 187 bytes, 1 module, successful
-- Test output: 1 pass, 0 fail
-- Commit: b5463b4 "chore(scaffold): initialize opencode-argus plugin with TDD infrastructure"
-- Evidence files saved: task-1-plugin-export.txt, task-1-test-infra.txt
+## [2026-02-17] Task: 20
+- Created `src/hooks/system-prompt-hook.ts` — system prompt transform hook for OpenCode's `experimental.chat.system.transform`.
+- Factory pattern: `createSystemPromptHook(getAuditState)` returns `async (input: { system: string; cwd: string }) => Promise<string>`.
+- Uses `Bun.file(path).exists()` (not `fs.existsSync`) for Solidity project detection — checks `foundry.toml`, `hardhat.config.{js,ts}`.
+- Runs all 3 file existence checks in parallel with `Promise.all()` for speed since this hook runs on EVERY agent interaction.
+- Injected context uses `<argus-context>` XML wrapper, kept concise (~500-600 tokens).
+- `countFindingsBySeverity()` iterates findings once and returns `Record<FindingSeverity, number>`.
+- Test fixture at `tests/fixtures/vulnerable-vault/` has `foundry.toml` — reliable positive test for Solidity detection.
+- For negative test: use a nonexistent directory path — `Bun.file().exists()` returns false for missing files.
 
-## [2026-02-17T23:18:59Z] Task 7: Slither Tool API + Parsing
-- `@opencode-ai/plugin` tool helper expects `execute` to return `Promise<string>`, so structured tool output must be JSON-stringified.
-- `ToolContext` supports `metadata({ title })`; adding a per-target title improves tool trace readability.
-- For resilient Slither handling: parse JSON even when exit code is non-zero and keep partial findings; attach stderr/payload errors in `errors`.
-- ENOENT handling should return user-facing install guidance: `pip install slither-analyzer`.
-- Slither source mapping line arrays can be single-line or ranges; normalize to `[start, end]` for `Finding.lines`.
+## [2026-02-17] Task: 23
+- Created `src/hooks/event-hook.ts` — session lifecycle event hook managing audit state.
+- Factory pattern: `createEventHook(projectDir?)` returns `{ hook, getAuditState, setAuditState }`.
+- This is the "state owner" — other hooks receive `getAuditState` accessor from this factory's return.
+- `createAuditState(projectDir)` returns `{ state: AuditState; store: FindingStore }` — we store only `state` in the closure since FindingStore is for finding-store consumers.
+- Event types handled: `session.created` (fresh state), `session.idle` (log), `session.error` (error log), `session.deleted` (null state).
+- Unknown events are no-op via `default: break` — never throw from event hooks.
+- `projectDir` param defaults to `process.cwd()` when not provided.
+- 10 tests covering all event types + state accessors + edge cases (null state on idle, error preserving state).
 
-## [2026-02-17T23:43:00Z] Task 8: Forge Test Tool
-- `forge test --json` output shape is not stable: implementation needs to support both a contract-keyed object map and a flat `tests[]` array.
-- Keep tool-level schema defaults (`target`, `verbosity`, `coverage`) and also normalize defaults inside executor for unit tests that call executor directly.
-- Coverage JSON can expose percent fields with mixed key names (`lineCoverage` vs `lines` etc.); normalizing aliases avoids brittle parsers.
-- Keep skipped tests out of returned `tests[]` to satisfy `status: pass|fail`, but still include them in summary counts.
-- Evidence capture for this task is generated by running individual named tests and storing output in `.sisyphus/evidence/task-8-*.txt`.
-
-## [2026-02-17T23:28:28Z] Task 9: Forge Fuzz Tool
-- Foundry verbose fuzz output is line-oriented, so robust parsing needs two passes in one scan: result lines (`[PASS]/[FAIL] ... (runs: ..., μ: ...)`) and separate `Counterexample:` lines.
-- Counterexample lines may omit the test name; keeping the most recent parsed fuzz test name provides a reliable fallback association.
-- To avoid over-capturing arguments, counterexample regex should stop at `)]` (`args=\((.*?)\)\]`) instead of a greedy `.*`.
-- Tool schemas enforce max runs, but executor-level clamping to 10000 is still required for direct unit calls that bypass Zod.
-
-## [2026-02-17T23:32:17Z] Task 10: Contract Analyzer Tool
-- Keep `contractName` derivation deterministic from `file_path` basename (`Vault.sol` -> `Vault`) before calling `extractContractInfo(contractName, projectDir)`.
-- `project_dir` can be optional by walking parent directories to nearest `foundry.toml`; fallback to the contract file's directory when not found.
-- Risk indicator enrichment works best as a post-processing merge (`Set`) so parser-provided indicators remain intact while adding source-scan flags (`delegatecall`, `selfdestruct`, `assembly`, `tx.origin`) and OpenZeppelin import markers.
-- Abort behavior for non-abort-aware dependencies can be wrapped with a signal-aware `Promise` guard to return a consistent aborted response shape.
-
-## [2026-02-17T23:36:31Z] Task 11: Pattern Checker Tool
-- `argus_check_patterns` is now structured around exported extensibility interfaces (`Match`, `MatchSource`, `PatternCheckResult`) so a second source (SCVD) can be appended later without changing result shape.
-- Regex scanning over Solidity files is deterministic and category-filtered; line ranges are approximated from match index using a +/-5 line window.
-- `include_scvd` is intentionally accepted in args schema with default `true` but ignored in execution to preserve forward compatibility for Task 30 wiring.
-
-## [2026-02-17T23:59:00Z] Task 13: Report Generator Tool
-- `argus_generate_report` is implemented as a stateless tool: it accepts `audit_state` JSON and supports both `{ findings: Finding[] }` and raw `Finding[]` payloads.
-- Severity threshold filtering is ordinal (`critical > high > medium > low > informational`) and applied before counting and rendering report sections.
-- Report format now includes all required markdown sections (Executive Summary, Scope, Methodology, Findings, Recommendations, Appendix) with normalized finding IDs (`CRIT/HIGH/MED/LOW/INFO`).
-- Tool output is always JSON-stringified and includes `{ report, findingsCount, filename }` with filename pattern `{project_name}-audit-report-{YYYY-MM-DD}.md`.
+## [2026-02-17] Task: 22
+- Created `src/hooks/tool-tracking-hook.ts` — tool execution hook intercepting argus_* tool results.
+- Factory pattern: `createToolTrackingHook(auditState, store)` — needs both AuditState AND FindingStore (store for dedup).
+- `AuditState.toolsExecuted` is `ToolExecution[]` with `{ tool, startTime, endTime?, success, findingsCount }` — not `string[]`.
+- `Finding.source` union is `"slither" | "manual" | "pattern" | "scvd"` — use `"pattern"` not `"pattern-checker"`.
+- Slither tool already maps findings to `Finding[]` with `id` — hook strips `id` and re-adds via `store.addFinding(Omit<Finding, "id">)`.
+- Contract analyzer returns `ContractProfile` directly (not wrapped in `{ contractProfile: ... }`), so `parsed.filePath` is correct.
+- Pattern checker `Match` lacks `confidence` field — defaulted to `"Medium"` for all pattern findings.
+- Used `toRecord()` helper for safe `unknown → Record<string, unknown>` narrowing — standard TS JSON parsing pattern, not type suppression.
+- Cross-tool dedup works via FindingStore's ID generation: `hash(check:file:lines[0]-lines[1])` — same check+file+lines from different tools collide.
+- 11 tests: no-op non-argus, slither extraction, pattern extraction, cross-tool dedup, contract path tracking, tool recording, malformed JSON, empty findings, duplicate tool exec, fuzz no-findings, duplicate contract paths.
