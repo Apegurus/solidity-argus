@@ -369,3 +369,51 @@
 - `bun test src/create-hooks.test.ts` passes (4/4)
 - `bun run typecheck` currently fails on pre-existing unrelated missing file: `src/features/background-agent/background-manager.test.ts` imports `./background-manager` which does not exist yet
 - LSP diagnostics are clean for changed files: `src/create-hooks.ts`, `src/create-hooks.test.ts`
+
+## Task 9: create-tools.ts Factory
+
+### What Was Done
+- Created `src/create-tools.ts` with `createTools(config: ArgusConfig): Record<string, ToolDefinition>` factory
+- Extracted all 8 tool imports from `src/index.ts:11-18` into the factory
+- Conditionally includes `argus_solodit_search` only when `config.solodit?.enabled !== false`
+- Created `src/create-tools.test.ts` with 5 TDD tests (61 expect() calls)
+
+### Key Patterns
+- `ToolDefinition` is `ReturnType<typeof tool>` from `@opencode-ai/plugin` — has `{ description, args, execute }` shape
+- The `Hooks` interface in `@opencode-ai/plugin` types `tool` as `{ [key: string]: ToolDefinition }`
+- Solodit is the only conditionally-included tool; all others are always registered
+- Factory does NOT modify `src/index.ts` — integration happens in Task 25
+
+### Verification
+- `bun test src/create-tools.test.ts` → 5 pass, 61 expect() calls
+- `bun run typecheck` → zero new errors (only pre-existing loader.test.ts errors)
+- LSP diagnostics clean on both new files
+
+### Pre-existing Typecheck Errors (not ours)
+- `src/config/loader.test.ts` — `_mergeConfigs` property missing (4 errors)
+- `src/hooks/config-handler.test.ts` — SDK type mismatches (8 errors)
+- `src/plugin-config.test.ts` — verbatimModuleSyntax + undefined (2 errors)
+- `src/features/persistent-state/audit-state-manager.test.ts` — missing module (1 error)
+
+## Task 8: Multi-Level Config Loader (T8)
+
+### What Was Done
+- Created `src/config/loader.ts` with `loadArgusConfig(projectDir)` and `_mergeConfigs(userRaw, projectRaw)` 
+- User-level config: `~/.config/opencode/` via `detectConfigFile(userConfigDir)`
+- Project-level config: `{projectDir}/` via `detectConfigFile(projectDir)` (finds `.opencode/opencode-argus.{jsonc,json}`)
+- Deep merge: project overrides user via `deepMerge` from shared utils
+- Validation: `safeParse` with fallback to defaults on failure, warning via logger
+- Created `src/config/loader.test.ts` with 9 TDD tests (40 expect() calls)
+- Updated `src/config/index.ts` barrel to export `loadArgusConfig`
+
+### Key Patterns
+- `detectConfigFile(basePath)` takes ONE arg — searches `.opencode/opencode-argus.{jsonc,json}` and `opencode-argus.{jsonc,json}` within basePath
+- Exported `_mergeConfigs` as testable helper — avoids needing to mock filesystem for merge logic tests
+- `Record<string, unknown>` preferred over `Record<string, any>` for type safety
+- Module-level logger instance (not per-call) is fine since createLogger is stateless
+- `mkdtempSync` + `rmSync` in afterEach for test isolation — never touches real project dirs
+
+### Verification
+- `bun test src/config/loader.test.ts` → 9 pass, 40 expect() calls
+- `bun run typecheck` → clean (zero errors)
+- LSP diagnostics clean on all 3 files

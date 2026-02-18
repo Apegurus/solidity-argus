@@ -110,18 +110,16 @@ Severity must follow classification above. Do not inflate severity.
  */
 export function createSystemPromptHook(
   getAuditState: () => AuditState | null
-): (input: SystemPromptInput) => Promise<string> {
-  return async (input: SystemPromptInput): Promise<string> => {
+): (input: SystemPromptInput) => Promise<string | null> {
+  return async (input: SystemPromptInput): Promise<string | null> => {
     const isSolidity = await isSolidityProject(input.cwd);
 
     if (!isSolidity) {
-      return input.system;
+      return null;
     }
 
     const auditState = getAuditState();
-    const contextBlock = buildAuditContextBlock(auditState);
-
-    return `${input.system}\n\n${contextBlock}`;
+    return buildAuditContextBlock(auditState);
   };
 }
 

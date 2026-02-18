@@ -2,6 +2,12 @@
 
 This file enables OpenCode agent discovery for the `opencode-argus` plugin.
 
+## Architecture
+
+Modular factory-based architecture: `create-tools.ts`, `create-hooks.ts`, `create-managers.ts`, `plugin-interface.ts`.
+Multi-level config (user + project) with deep merge. Hook enable/disable via `disabled_hooks` config.
+CLI: `argus doctor`, `argus init`, `argus install`.
+
 ## argus
 
 **Role**: Primary security audit orchestrator
@@ -27,5 +33,5 @@ This file enables OpenCode agent discovery for the `opencode-argus` plugin.
 
 **Role**: Audit report writer
 **Description**: Transforms raw findings into professional markdown audit reports. Produces structured output with severity classifications (Critical/High/Medium/Low/Informational), impact assessments, proof-of-concept steps, and actionable recommendations. Dispatched by Argus only after all analysis is complete.
-**Model**: anthropic/claude-sonnet-4-5
+**Model**: anthropic/claude-sonnet-4-6
 **Tools**: argus_generate_report

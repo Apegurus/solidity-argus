@@ -1,0 +1,34 @@
+TASK 6: CLI Framework — COMPLETED
+
+DELIVERABLES:
+✅ src/cli/types.ts — CliCommand interface
+✅ src/cli/cli-program.ts — CliProgram class + createCliProgram() factory
+✅ src/cli/index.ts — Entry point with Bun.argv parsing
+✅ src/cli/cli-program.test.ts — 10 comprehensive tests
+
+TEST RESULTS:
+✅ bun test src/cli/cli-program.test.ts → 10 pass, 22 expect() calls
+✅ bun src/cli/index.ts → Help output, exit 0
+✅ bun src/cli/index.ts unknown-cmd → Error message, exit 1
+✅ bun src/cli/index.ts doctor → "argus doctor: not yet implemented", exit 0
+✅ bun src/cli/index.ts init → "argus init: not yet implemented", exit 0
+✅ bun src/cli/index.ts install → "argus install: not yet implemented", exit 0
+
+COMMIT:
+ab6b8fa feat(scaffold): CLI framework and feature module structure
+  4 files changed, 229 insertions(+)
+
+IMPLEMENTATION NOTES:
+- Pure Bun.argv parsing (no external CLI framework)
+- CliCommand interface: { name, description, execute(args) => Promise<number> }
+- Help text matches spec exactly
+- Unknown command exits 1, success exits 0
+- All stub commands print "argus {cmd}: not yet implemented"
+- Comprehensive test coverage: help, dispatch, exit codes, unknown commands, stubs
+
+VERIFICATION:
+- All tests pass
+- CLI entry point works correctly
+- Exit codes correct (0 for success, 1 for error)
+- Help text formatted correctly
+- Stub commands implemented as specified

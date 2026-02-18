@@ -22,11 +22,11 @@ export type Hooks = Pick<
 export function createHooks(args: {
   config: ArgusConfig
   managers: Managers
+  projectDir: string
   isHookEnabled: (name: HookName) => boolean
 }): Hooks {
-  const { config, isHookEnabled } = args
+  const { config, projectDir, isHookEnabled } = args
 
-  const projectDir = process.cwd()
   const { state: auditState, store: findingStore } = createAuditState(projectDir)
   const { hook: eventHook, getAuditState, setAuditState } = createEventHook(projectDir)
   setAuditState(auditState)
@@ -57,19 +57,17 @@ export function createHooks(args: {
     config: createConfigHandler(config),
     "experimental.chat.system.transform": systemPromptHook
       ? async (_input, output) => {
-          const currentSystem = output.system.join("\n\n")
-          const transformedSystem = await systemPromptHook({
-            system: currentSystem,
+          const block = await systemPromptHook({
+            system: output.system.join("\n\n"),
             cwd: projectDir,
           })
-          output.system.push(transformedSystem)
+          if (block) output.system.push(block)
         }
       : undefined,
     "experimental.session.compacting": compactionHook
       ? async (_input, output) => {
-          const currentSummary = output.context.join("\n")
-          const compactedSummary = await compactionHook({ summary: currentSummary })
-          output.context.push(compactedSummary)
+          const block = await compactionHook({ summary: output.context.join("\n") })
+          if (block) output.context.push(block)
         }
       : undefined,
     "tool.execute.after": toolTrackingHook

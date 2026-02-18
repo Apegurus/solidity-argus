@@ -66,7 +66,7 @@ Argus will automatically:
 | `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-6 |
 | `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
 | `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
-| `@scribe` | Audit report writer | claude-sonnet-4-5 |
+| `@scribe` | Audit report writer | claude-sonnet-4-6 |
 
 ### @argus — The Orchestrator
 Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, and Scribe as needed.
@@ -126,7 +126,7 @@ Create `.opencode/opencode-argus.jsonc` in your project root:
     "argus": { "model": "anthropic/claude-opus-4-6" },
     "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
     "pythia": { "model": "anthropic/claude-sonnet-4-6" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-5" }
+    "scribe": { "model": "anthropic/claude-sonnet-4-6" }
   },
 
   // Tool paths (optional — auto-detected if in PATH)
@@ -160,6 +160,70 @@ Create `.opencode/opencode-argus.jsonc` in your project root:
   }
 }
 ```
+
+---
+
+## New in v2: Modular Architecture
+
+This release restructures opencode-argus into a modular factory-based architecture with several new infrastructure features:
+
+### CLI Tools
+
+Run diagnostics and setup from the command line:
+
+```bash
+# Check that Slither, Foundry, and SCVD are available
+argus doctor
+
+# Generate a starter .opencode/opencode-argus.jsonc config
+argus init
+
+# Install optional dependencies (Slither, Foundry)
+argus install
+```
+
+### Hook Enable/Disable
+
+Selectively disable any hook via config:
+
+```jsonc
+{
+  "disabled_hooks": ["context-monitor", "audit-enforcer"]
+}
+```
+
+### Multi-Level Configuration
+
+Config is resolved by merging three layers (last wins):
+
+1. **Defaults** — Built-in sensible defaults
+2. **User-level** — `~/.config/opencode-argus/config.jsonc`
+3. **Project-level** — `.opencode/opencode-argus.jsonc`
+
+### Background Agent Management
+
+Background tasks (knowledge sync, long-running analysis) are tracked with configurable concurrency limits and lifecycle callbacks:
+
+```jsonc
+{
+  "background": {
+    "max_concurrent": 3,
+    "cleanup_interval_ms": 60000
+  }
+}
+```
+
+### Persistent Audit State
+
+Audit progress survives session restarts. State is saved to `.opencode/argus-state.json` and automatically restored on next session.
+
+### Error Recovery
+
+Failed tool executions are captured with full context and automatically retried with exponential backoff when appropriate.
+
+### Context Window Monitoring
+
+Monitors token usage and adaptively reduces injection sizes when context pressure is high, preventing context window overflow during long audits.
 
 ---
 

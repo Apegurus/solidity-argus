@@ -31,11 +31,10 @@ function makeState(overrides: Partial<AuditState> = {}): AuditState {
 }
 
 describe("createCompactionHook", () => {
-  test("no-op when no audit state", async () => {
+  test("returns null when no audit state", async () => {
     const hook = createCompactionHook(() => null)
-    const summary = "This is the original summary."
-    const result = await hook({ summary })
-    expect(result).toBe(summary)
+    const result = await hook({ summary: "This is the original summary." })
+    expect(result).toBeNull()
   })
 
   test("prepends XML block when audit active", async () => {
@@ -76,21 +75,21 @@ describe("createCompactionHook", () => {
     const state = makeState()
     const hook = createCompactionHook(() => state)
     const result = await hook({ summary: "s" })
+    expect(result).not.toBeNull()
     expect(result).toContain("<argus-audit-state>")
     expect(result).toContain("</argus-audit-state>")
 
-    // Extract XML block and verify structure
-    const openIdx = result.indexOf("<argus-audit-state>")
-    const closeIdx = result.indexOf("</argus-audit-state>")
+    const openIdx = result!.indexOf("<argus-audit-state>")
+    const closeIdx = result!.indexOf("</argus-audit-state>")
     expect(openIdx).toBeLessThan(closeIdx)
   })
 
-  test("original summary preserved", async () => {
+  test("returns only XML block without original summary", async () => {
     const state = makeState()
     const hook = createCompactionHook(() => state)
-    const originalSummary = "Important audit context about the Vault contract."
-    const result = await hook({ summary: originalSummary })
-    expect(result).toContain(originalSummary)
+    const result = await hook({ summary: "Important audit context about the Vault contract." })
+    expect(result).toContain("<argus-audit-state>")
+    expect(result).not.toContain("Important audit context")
   })
 
   test("phase included", async () => {

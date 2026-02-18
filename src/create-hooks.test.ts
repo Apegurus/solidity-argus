@@ -30,6 +30,7 @@ describe("createHooks", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
 
@@ -46,6 +47,7 @@ describe("createHooks", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: process.cwd(),
       isHookEnabled: (name: HookName) => name !== "system-prompt",
     })
 
@@ -62,6 +64,7 @@ describe("createHooks", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: process.cwd(),
       isHookEnabled: () => false,
     })
 
@@ -79,6 +82,7 @@ describe("createHooks", () => {
     createHooks({
       config,
       managers: makeManagers(),
+      projectDir: process.cwd(),
       isHookEnabled: (name: HookName) => {
         checkedHooks.push(name)
         return true

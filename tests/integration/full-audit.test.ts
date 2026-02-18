@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import type { Config } from "@opencode-ai/sdk"
-import type { ArgusConfig } from "../../src/plugin-config"
+import type { ArgusConfig } from "../../src/config/types"
 import ArgusPlugin from "../../src/index"
 import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createCompactionHook } from "../../src/hooks/compaction-hook"
@@ -40,6 +40,13 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
   },
   solodit: {
     enabled: true,
+    port: 3000,
+  },
+  disabled_hooks: [],
+  hooks: {},
+  cli: {},
+  background: {
+    max_concurrent: 3,
   },
 }
 
@@ -229,8 +236,8 @@ describe("full audit integration", () => {
     const hook = createCompactionHook(() => auditState)
     const compacted = await hook({ summary: "Previous context" })
 
+    expect(compacted).not.toBeNull()
     expect(compacted).toContain("<argus-audit-state>")
-    expect(compacted).toContain("Previous context")
   })
 
   test("tool tracking hook accumulates findings from slither output", async () => {

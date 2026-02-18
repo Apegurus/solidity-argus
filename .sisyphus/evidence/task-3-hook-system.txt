@@ -1,0 +1,52 @@
+TASK 3: Hook System Types & Infrastructure
+============================================
+
+DELIVERABLES COMPLETED:
+✅ src/hooks/types.ts — HookName union with all 10 hook names
+✅ src/hooks/hook-system.ts — createHookGuard(disabledHooks) returning isHookEnabled
+✅ src/hooks/safe-create-hook.ts — safeCreateHook<T>(factory, hookName) with error handling
+✅ src/hooks/hook-system.test.ts — 4 comprehensive tests (all passing)
+✅ src/hooks/index.ts — barrel export for new modules
+✅ bun test src/hooks/hook-system.test.ts → 4 pass, 0 fail
+✅ bun run typecheck → zero errors on new files
+✅ Existing files NOT modified (verified)
+✅ Commit created: feat(hooks): add hook system types and isHookEnabled infrastructure
+
+HOOK NAMES (10 total):
+1. system-prompt
+2. compaction
+3. tool-tracking
+4. event
+5. knowledge-sync
+6. session-recovery
+7. tool-error-recovery
+8. context-window-monitor
+9. tool-output-truncator
+10. audit-continuation
+
+GUARD BEHAVIOR VERIFIED:
+- createHookGuard(["system-prompt"]) → isHookEnabled("system-prompt") = false
+- createHookGuard(["system-prompt"]) → isHookEnabled("compaction") = true
+- createHookGuard([]) → all hooks = true
+- createHookGuard([all 10]) → all hooks = false
+
+SAFE CREATE HOOK BEHAVIOR:
+- Catches all errors (Error and non-Error types)
+- Logs via console.error with hook name
+- Returns undefined on error
+- Returns factory result on success
+
+TYPECHECK: ✅ CLEAN
+- No errors on: types.ts, hook-system.ts, safe-create-hook.ts, hook-system.test.ts, index.ts
+- Pre-existing errors in other files are unrelated
+
+TEST RESULTS: ✅ ALL PASS
+- 4 tests, 32 expect() calls
+- Coverage: empty list, selective disable, all disabled, single disable
+
+COMMIT HASH: 5d9314e
+COMMIT MESSAGE: feat(hooks): add hook system types and isHookEnabled infrastructure
+FILES CHANGED: 5 (all new)
+INSERTIONS: 123
+
+READY FOR: Task 10 (create-hooks.ts) which will use createHookGuard and safeCreateHook

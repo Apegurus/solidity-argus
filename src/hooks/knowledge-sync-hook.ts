@@ -2,7 +2,7 @@ import os from "node:os"
 import path from "node:path"
 import { ScvdClient } from "../knowledge/scvd-client"
 import { syncIncremental, type SyncResult } from "../knowledge/scvd-sync"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 
 export type KnowledgeSyncDependencies = {
   createClient?: (apiUrl: string) => unknown

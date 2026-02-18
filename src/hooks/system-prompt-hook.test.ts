@@ -25,22 +25,22 @@ function createMockAuditState(
 }
 
 describe("createSystemPromptHook", () => {
-  let nullStateHook: (input: { system: string; cwd: string }) => Promise<string>;
+  let nullStateHook: (input: { system: string; cwd: string }) => Promise<string | null>;
 
   beforeEach(() => {
     nullStateHook = createSystemPromptHook(() => null);
   });
 
-  test("returns system prompt unchanged for non-Solidity project", async () => {
+  test("returns null for non-Solidity project", async () => {
     const result = await nullStateHook({
       system: BASE_SYSTEM_PROMPT,
       cwd: NON_SOLIDITY_DIR,
     });
 
-    expect(result).toBe(BASE_SYSTEM_PROMPT);
+    expect(result).toBeNull();
   });
 
-  test("injects context for Foundry project", async () => {
+  test("returns only context block for Foundry project", async () => {
     const result = await nullStateHook({
       system: BASE_SYSTEM_PROMPT,
       cwd: FOUNDRY_PROJECT_DIR,
@@ -48,7 +48,7 @@ describe("createSystemPromptHook", () => {
 
     expect(result).toContain("<argus-context>");
     expect(result).toContain("</argus-context>");
-    expect(result).toStartWith(BASE_SYSTEM_PROMPT);
+    expect(result).not.toContain(BASE_SYSTEM_PROMPT);
   });
 
   test("severity definitions are present in injected content", async () => {

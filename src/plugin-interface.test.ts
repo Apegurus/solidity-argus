@@ -32,6 +32,7 @@ describe("createPluginInterface", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: "/tmp/test-project",
       isHookEnabled: () => true,
     })
 
@@ -51,6 +52,7 @@ describe("createPluginInterface", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: "/tmp/test-project",
       isHookEnabled: () => true,
     })
 
@@ -64,6 +66,7 @@ describe("createPluginInterface", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: "/tmp/test-project",
       isHookEnabled: (name) => name !== "system-prompt" && name !== "compaction" && name !== "event",
     })
 
@@ -82,6 +85,7 @@ describe("createPluginInterface", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: "/tmp/test-project",
       isHookEnabled: () => false,
     })
 
@@ -95,6 +99,7 @@ describe("createPluginInterface", () => {
     const hooks = createHooks({
       config,
       managers: makeManagers(),
+      projectDir: "/tmp/test-project",
       isHookEnabled: () => true,
     })
 

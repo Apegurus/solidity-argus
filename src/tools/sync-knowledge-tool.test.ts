@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 import {
   executeSyncKnowledge,
   syncKnowledgeTool,
@@ -55,7 +55,12 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
     },
     solodit: {
       enabled: true,
+      port: 3000,
     },
+    disabled_hooks: [],
+    hooks: {},
+    cli: {},
+    background: { max_concurrent: 3 },
   }
 }
 

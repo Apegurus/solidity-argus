@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { execSync } from "node:child_process"
 import type { Config } from "@opencode-ai/sdk/v2"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS } from "../constants/defaults"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
@@ -86,13 +86,13 @@ export function createConfigHandler(
       },
     }
 
-    // Register Solodit MCP server (HTTP-based, runs on localhost:3000/mcp)
     if (argusConfig.solodit?.enabled !== false) {
+      const port = argusConfig.solodit?.port ?? 3000
       config.mcp = {
         ...(config.mcp ?? {}),
         "solodit-mcp": {
           type: "remote",
-          url: "http://localhost:3000/mcp",
+          url: `http://localhost:${port}/mcp`,
           enabled: true,
         },
       }

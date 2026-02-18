@@ -9,11 +9,11 @@ import type { AuditState, FindingSeverity } from "../state/types"
  */
 export function createCompactionHook(
   getAuditState: () => AuditState | null
-): (input: { summary: string }) => Promise<string> {
-  return async (input: { summary: string }): Promise<string> => {
+): (input: { summary: string }) => Promise<string | null> {
+  return async (_input: { summary: string }): Promise<string | null> => {
     const state = getAuditState()
     if (!state) {
-      return input.summary
+      return null
     }
 
     const severityCounts: Record<FindingSeverity, number> = {
@@ -32,7 +32,7 @@ export function createCompactionHook(
     const contracts = state.contractsReviewed.join(", ")
     const started = new Date(state.startTime).toISOString()
 
-    const xml = [
+    return [
       "<argus-audit-state>",
       `Phase: ${state.currentPhase}`,
       `Contracts Reviewed: ${contracts}`,
@@ -46,7 +46,5 @@ export function createCompactionHook(
       `Started: ${started}`,
       "</argus-audit-state>",
     ].join("\n")
-
-    return `${xml}\n${input.summary}`
   }
 }

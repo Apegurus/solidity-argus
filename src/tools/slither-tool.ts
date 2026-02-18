@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import type { Finding, FindingSeverity } from "../state/types";
+import { hasBinary as hasBinaryShared, parseSolcVersion as parseSolcVersionShared, extractContractNames as extractContractNamesShared } from "../shared/binary-utils";
 
 type SlitherArgs = {
   target: string;
@@ -141,67 +142,9 @@ function shouldTryFlattenFallback(errors: string[], stderr: string): boolean {
   return FALLBACK_TRIGGERS.some((trigger) => combined.includes(trigger));
 }
 
-function parseSolcVersion(target: string): string | undefined {
-  const foundryToml = join(target, "foundry.toml");
-  if (existsSync(foundryToml)) {
-    const content = readFileSync(foundryToml, "utf-8");
-    const match = content.match(/solc\s*=\s*["']([^"']+)["']/);
-    if (match?.[1]) return match[1];
-  }
-
-  const solFiles = [target];
-  if (existsSync(target) && target.endsWith(".sol")) {
-    solFiles.push(target);
-  } else {
-    const srcDir = join(target, "src");
-    if (existsSync(srcDir)) {
-      try {
-        const files = execSync(`find "${srcDir}" -name "*.sol" -maxdepth 3`, {
-          encoding: "utf-8",
-          timeout: 5_000,
-        })
-          .trim()
-          .split("\n")
-          .filter(Boolean);
-        solFiles.push(...files);
-      } catch (_findErr) {
-        // non-critical: src directory listing failed, fall through to pragma scan
-      }
-    }
-  }
-
-  for (const file of solFiles) {
-    if (!existsSync(file) || !file.endsWith(".sol")) continue;
-    try {
-      const content = readFileSync(file, "utf-8");
-      const pragma = content.match(/pragma\s+solidity\s+[\^~>=<]*\s*([\d.]+)/);
-      if (pragma?.[1]) return pragma[1];
-    } catch (_readErr) {
-      // non-critical: unreadable .sol file, try next
-    }
-  }
-  return undefined;
-}
-
-function extractContractNames(filePath: string): string[] {
-  if (!existsSync(filePath)) return [];
-  try {
-    const content = readFileSync(filePath, "utf-8");
-    const matches = content.matchAll(/\b(?:contract|library|interface)\s+(\w+)/g);
-    return Array.from(matches, (m) => m[1]).filter(Boolean) as string[];
-  } catch (_e) {
-    return [];
-  }
-}
-
-function hasBinary(name: string): boolean {
-  try {
-    execSync(`which ${name}`, { stdio: "ignore", timeout: 3_000 });
-    return true;
-  } catch (_e) {
-    return false;
-  }
-}
+const parseSolcVersion = parseSolcVersionShared
+const extractContractNames = extractContractNamesShared
+const hasBinary = hasBinaryShared
 
 function ensureSolc(version: string): boolean {
   if (hasBinary("solc")) return true;

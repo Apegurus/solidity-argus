@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { createConfigHandler } from "./config-handler"
 import { DEFAULT_MODELS } from "../constants/defaults"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
   return {
@@ -33,7 +33,15 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
     },
     solodit: {
       enabled: true,
+      port: 3000,
       ...overrides?.solodit,
+    },
+    disabled_hooks: overrides?.disabled_hooks ?? [],
+    hooks: overrides?.hooks ?? {},
+    cli: overrides?.cli ?? {},
+    background: {
+      max_concurrent: 3,
+      ...overrides?.background,
     },
   }
 }
@@ -136,6 +144,7 @@ describe("createConfigHandler", () => {
       createArgusConfig({
         solodit: {
           enabled: false,
+          port: 3000,
         },
       })
     )

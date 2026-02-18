@@ -1,0 +1,37 @@
+TASK 4: Manager Interfaces - Typecheck Evidence
+================================================
+
+Command: bun run typecheck
+Status: ✅ PASS
+
+Files Created:
+- src/managers/types.ts (86 lines)
+- src/managers/index.ts (1 line)
+
+Interfaces Defined:
+✅ BackgroundManager
+  - dispatch(agentName, prompt, options?): string
+  - cancel(taskId): void
+  - getResult(taskId): Promise<unknown>
+  - onComplete(callback): void
+  - getActiveCount(): number
+
+✅ AuditStateManager
+  - load(): Promise<AuditState | null>
+  - save(state): Promise<void>
+  - get(): AuditState | null
+  - update(patch): Promise<void>
+  - reset(): Promise<void>
+
+✅ Managers type
+  - Container for both manager instances
+
+Imports:
+✅ AuditState imported from ../state/types
+
+Typecheck Result:
+✅ Zero errors on src/managers/*
+✅ No new errors introduced
+
+Commit: eff42ad
+Message: feat(types): add manager interfaces and plugin state types

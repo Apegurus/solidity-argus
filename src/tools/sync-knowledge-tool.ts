@@ -3,7 +3,8 @@ import path from "node:path"
 import { tool, type ToolContext } from "@opencode-ai/plugin"
 import { ScvdClient } from "../knowledge/scvd-client"
 import { syncAll, syncIncremental, type SyncResult } from "../knowledge/scvd-sync"
-import { loadArgusConfig, type ArgusConfig } from "../plugin-config"
+import { loadArgusConfig } from "../config/loader"
+import type { ArgusConfig } from "../config/types"
 
 type SyncKnowledgeArgs = {
   force?: boolean
