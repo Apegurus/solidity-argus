@@ -1,4 +1,8 @@
 import { createHash } from "crypto";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import type { Finding, FindingSeverity } from "../state/types";
 
@@ -123,25 +127,94 @@ function buildCommand(args: SlitherArgs): string[] {
   return command;
 }
 
-function parseFindings(payload: SlitherPayload): Finding[] {
-  const detectors = payload.results?.detectors ?? [];
+const FALLBACK_TRIGGERS = [
+  "Contract",
+  "not found",
+  "AssertionError",
+  "crytic_compile",
+  "empty AST",
+  "Compilation failed",
+];
 
-  return detectors.map((detector) => {
-    const file = detector.elements?.[0]?.source_mapping?.filename_relative ?? "unknown";
-    const lines = findingLines(detector.elements?.[0]?.source_mapping?.lines);
-    const check = detector.check ?? "unknown-check";
+function shouldTryFlattenFallback(errors: string[], stderr: string): boolean {
+  const combined = [...errors, stderr].join(" ");
+  return FALLBACK_TRIGGERS.some((trigger) => combined.includes(trigger));
+}
 
-    return {
-      id: createFindingID(check, file, lines),
-      check,
-      severity: mapSeverity(detector.impact),
-      confidence: mapConfidence(detector.confidence),
-      description: detector.description ?? "",
-      file,
-      lines,
-      source: "slither",
-    };
-  });
+function parseSolcVersion(target: string): string | undefined {
+  const foundryToml = join(target, "foundry.toml");
+  if (existsSync(foundryToml)) {
+    const content = readFileSync(foundryToml, "utf-8");
+    const match = content.match(/solc\s*=\s*["']([^"']+)["']/);
+    if (match?.[1]) return match[1];
+  }
+
+  const solFiles = [target];
+  if (existsSync(target) && target.endsWith(".sol")) {
+    solFiles.push(target);
+  } else {
+    const srcDir = join(target, "src");
+    if (existsSync(srcDir)) {
+      try {
+        const files = execSync(`find "${srcDir}" -name "*.sol" -maxdepth 3`, {
+          encoding: "utf-8",
+          timeout: 5_000,
+        })
+          .trim()
+          .split("\n")
+          .filter(Boolean);
+        solFiles.push(...files);
+      } catch (_findErr) {
+        // non-critical: src directory listing failed, fall through to pragma scan
+      }
+    }
+  }
+
+  for (const file of solFiles) {
+    if (!existsSync(file) || !file.endsWith(".sol")) continue;
+    try {
+      const content = readFileSync(file, "utf-8");
+      const pragma = content.match(/pragma\s+solidity\s+[\^~>=<]*\s*([\d.]+)/);
+      if (pragma?.[1]) return pragma[1];
+    } catch (_readErr) {
+      // non-critical: unreadable .sol file, try next
+    }
+  }
+  return undefined;
+}
+
+function extractContractNames(filePath: string): string[] {
+  if (!existsSync(filePath)) return [];
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const matches = content.matchAll(/\b(?:contract|library|interface)\s+(\w+)/g);
+    return Array.from(matches, (m) => m[1]).filter(Boolean) as string[];
+  } catch (_e) {
+    return [];
+  }
+}
+
+function hasBinary(name: string): boolean {
+  try {
+    execSync(`which ${name}`, { stdio: "ignore", timeout: 3_000 });
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+function ensureSolc(version: string): boolean {
+  if (hasBinary("solc")) return true;
+  if (!hasBinary("solc-select")) return false;
+  try {
+    execSync(`solc-select install ${version} && solc-select use ${version}`, {
+      stdio: "ignore",
+      timeout: 60_000,
+    });
+    return true;
+  } catch (_e) {
+    return false;
+  }
 }
 
 export const runSlitherCommand: RunSlitherCommand = async (command, signal) => {
@@ -163,6 +236,174 @@ export const runSlitherCommand: RunSlitherCommand = async (command, signal) => {
     exitCode,
   };
 };
+
+export type FlattenFallbackDeps = {
+  runCommand: RunSlitherCommand;
+  hasBinary: (name: string) => boolean;
+  ensureSolc: (version: string) => boolean;
+  parseSolcVersion: (target: string) => string | undefined;
+  extractContractNames: (filePath: string) => string[];
+  execSyncFn: typeof execSync;
+};
+
+const defaultFlattenDeps: FlattenFallbackDeps = {
+  runCommand: runSlitherCommand,
+  hasBinary,
+  ensureSolc,
+  parseSolcVersion,
+  extractContractNames,
+  execSyncFn: execSync,
+};
+
+export async function flattenFallback(
+  args: SlitherArgs,
+  context: ToolContext,
+  deps: FlattenFallbackDeps = defaultFlattenDeps,
+): Promise<SlitherAnalyzeResult | undefined> {
+  const startedAt = Date.now();
+
+  if (!deps.hasBinary("forge")) {
+    return undefined;
+  }
+
+  const solcVersion = args.solc_version ?? deps.parseSolcVersion(args.target);
+  if (!solcVersion) {
+    return undefined;
+  }
+
+  if (!deps.ensureSolc(solcVersion)) {
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: ["solc not available and solc-select not found"],
+      error: "Flatten fallback requires solc on PATH. Install with: pipx install solc-select && solc-select install " + solcVersion,
+    };
+  }
+
+  const srcDir = join(args.target, "src");
+  let solFiles: string[] = [];
+  if (args.target.endsWith(".sol")) {
+    solFiles = [args.target];
+  } else if (existsSync(srcDir)) {
+    try {
+      solFiles = deps.execSyncFn(`find "${srcDir}" -name "*.sol" -maxdepth 3 -not -path "*/mocks/*" -not -path "*/test/*"`, {
+        encoding: "utf-8",
+        timeout: 5_000,
+      })
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+    } catch (_e) {
+      return undefined;
+    }
+  }
+
+  if (solFiles.length === 0) return undefined;
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "argus-slither-"));
+  const allFindings: Finding[] = [];
+  const errors: string[] = [];
+
+  try {
+    for (const solFile of solFiles) {
+      if (context.abort.aborted) break;
+
+      const baseName = solFile.split("/").pop()?.replace(".sol", "") ?? "Contract";
+      const flatFile = join(tmpDir, `${baseName}.flat.sol`);
+      const originalContracts = deps.extractContractNames(solFile);
+
+      try {
+        const flattened = deps.execSyncFn(`forge flatten "${solFile}"`, {
+          encoding: "utf-8",
+          timeout: 30_000,
+          cwd: args.target.endsWith(".sol") ? undefined : args.target,
+        });
+        writeFileSync(flatFile, flattened);
+      } catch (_e) {
+        errors.push(`forge flatten failed for ${solFile}`);
+        continue;
+      }
+
+      const command = [
+        "slither",
+        flatFile,
+        "--json",
+        "-",
+        "--solc-solcs-select",
+        solcVersion,
+      ];
+
+      try {
+        const runResult = await deps.runCommand(command, context.abort);
+
+        let payload: SlitherPayload;
+        try {
+          payload = JSON.parse(runResult.stdout) as SlitherPayload;
+        } catch (_e) {
+          if (runResult.stderr.trim()) errors.push(runResult.stderr.trim());
+          continue;
+        }
+
+        const rawFindings = parseFindings(payload);
+        const filtered = originalContracts.length > 0
+          ? rawFindings.filter((f) => {
+              if (f.file.includes(".flat.sol") || f.file === flatFile) return true;
+              return originalContracts.some(
+                (name) => f.description.includes(name) || f.file.includes(name)
+              );
+            })
+          : rawFindings;
+
+        const remapped = filtered.map((f) => ({
+          ...f,
+          file: f.file.includes(".flat.sol") ? solFile.replace(args.target + "/", "") : f.file,
+        }));
+
+        allFindings.push(...remapped);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`Slither flatten fallback failed for ${baseName}: ${msg}`);
+      }
+    }
+
+    return {
+      success: allFindings.length > 0 || errors.length === 0,
+      findingsCount: allFindings.length,
+      findings: allFindings,
+      executionTime: Date.now() - startedAt,
+      errors: errors.length > 0 ? [`[flatten-fallback] ${errors.join("; ")}`] : ["[flatten-fallback] Analysis completed via forge flatten"],
+    };
+  } finally {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch (_cleanupErr) {
+      // best-effort: temp dir cleanup failure is non-fatal
+    }
+  }
+}
+
+function parseFindings(payload: SlitherPayload): Finding[] {
+  const detectors = payload.results?.detectors ?? [];
+
+  return detectors.map((detector) => {
+    const file = detector.elements?.[0]?.source_mapping?.filename_relative ?? "unknown";
+    const lines = findingLines(detector.elements?.[0]?.source_mapping?.lines);
+    const check = detector.check ?? "unknown-check";
+
+    return {
+      id: createFindingID(check, file, lines),
+      check,
+      severity: mapSeverity(detector.impact),
+      confidence: mapConfidence(detector.confidence),
+      description: detector.description ?? "",
+      file,
+      lines,
+      source: "slither",
+    };
+  });
+}
 
 export async function executeSlitherAnalyze(
   args: SlitherArgs,
@@ -189,6 +430,13 @@ export async function executeSlitherAnalyze(
       payload = JSON.parse(runResult.stdout) as SlitherPayload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown parse error";
+      if (shouldTryFlattenFallback(errors, runResult.stderr)) {
+        const fallbackResult = await flattenFallback(args, context, {
+          ...defaultFlattenDeps,
+          runCommand,
+        });
+        if (fallbackResult) return fallbackResult;
+      }
       return {
         success: false,
         findingsCount: 0,
@@ -205,6 +453,14 @@ export async function executeSlitherAnalyze(
 
     const findings = parseFindings(payload);
     const success = findings.length > 0 || (runResult.exitCode === 0 && payload.success !== false);
+
+    if (!success && findings.length === 0 && shouldTryFlattenFallback(errors, runResult.stderr)) {
+      const fallbackResult = await flattenFallback(args, context, {
+        ...defaultFlattenDeps,
+        runCommand,
+      });
+      if (fallbackResult) return fallbackResult;
+    }
 
     return {
       success,

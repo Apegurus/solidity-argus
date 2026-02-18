@@ -1,9 +1,14 @@
 import { test, expect } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeFileSync, rmSync } from "node:fs";
 import type { ToolContext } from "@opencode-ai/plugin";
 import {
   slitherTool,
   executeSlitherAnalyze,
+  flattenFallback,
   type SlitherRunResult,
+  type FlattenFallbackDeps,
 } from "./slither-tool";
 
 function createContext(): { context: ToolContext; metadataCalls: Array<{ title?: string }> } {
@@ -194,4 +199,186 @@ test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async
   expect(calls.length).toBe(1);
   expect(result.success).toBe(true);
   expect(result.findingsCount).toBe(0);
+});
+
+function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): FlattenFallbackDeps {
+  return {
+    runCommand: async () => ({ stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }),
+    hasBinary: () => true,
+    ensureSolc: () => true,
+    parseSolcVersion: () => "0.8.20",
+    extractContractNames: () => ["Vault"],
+    execSyncFn: (() => "") as unknown as typeof import("node:child_process").execSync,
+    ...overrides,
+  };
+}
+
+test("flattenFallback returns undefined when forge is missing", async () => {
+  const { context } = createContext();
+  const deps = createFlattenDeps({ hasBinary: (name) => name !== "forge" });
+
+  const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
+  expect(result).toBeUndefined();
+});
+
+test("flattenFallback returns undefined when no solc version found", async () => {
+  const { context } = createContext();
+  const deps = createFlattenDeps({ parseSolcVersion: () => undefined });
+
+  const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
+  expect(result).toBeUndefined();
+});
+
+test("flattenFallback returns error when solc unavailable and solc-select missing", async () => {
+  const { context } = createContext();
+  const deps = createFlattenDeps({ ensureSolc: () => false });
+
+  const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
+  expect(result).toBeDefined();
+  expect(result!.success).toBe(false);
+  expect(result!.error).toContain("Flatten fallback requires solc on PATH");
+  expect(result!.error).toContain("solc-select install 0.8.20");
+});
+
+test("flattenFallback processes flattened files and returns findings", async () => {
+  const { context } = createContext();
+  const tmpFile = join(tmpdir(), `argus-test-${Date.now()}.sol`);
+  writeFileSync(tmpFile, "pragma solidity ^0.8.20;\ncontract Vault { function withdraw() external {} }");
+
+  const slitherJSON = JSON.stringify({
+    success: true,
+    results: {
+      detectors: [{
+        check: "reentrancy-eth",
+        impact: "High",
+        confidence: "High",
+        description: "Reentrancy in Vault.withdraw()",
+        elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [10, 20] } }],
+      }],
+    },
+  });
+
+  const deps = createFlattenDeps({
+    runCommand: async () => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
+    execSyncFn: ((cmd: string) => {
+      if (typeof cmd === "string" && cmd.startsWith("forge flatten")) return "// flattened content";
+      return "";
+    }) as unknown as typeof import("node:child_process").execSync,
+    extractContractNames: () => ["Vault"],
+  });
+
+  try {
+    const result = await flattenFallback({ target: tmpFile }, context, deps);
+    expect(result).toBeDefined();
+    expect(result!.success).toBe(true);
+    expect(result!.findingsCount).toBe(1);
+    expect(result!.findings[0]?.check).toBe("reentrancy-eth");
+    expect(result!.errors[0]).toContain("[flatten-fallback]");
+  } finally {
+    rmSync(tmpFile, { force: true });
+  }
+});
+
+test("flattenFallback filters findings to original contract names", async () => {
+  const { context } = createContext();
+  const tmpFile = join(tmpdir(), `argus-filter-test-${Date.now()}.sol`);
+  writeFileSync(tmpFile, "pragma solidity ^0.8.20;\ncontract Vault { function deposit() external {} }");
+
+  const slitherJSON = JSON.stringify({
+    success: true,
+    results: {
+      detectors: [
+        {
+          check: "reentrancy-eth",
+          impact: "High",
+          confidence: "High",
+          description: "Reentrancy in Vault.withdraw()",
+          elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [10] } }],
+        },
+        {
+          check: "naming-convention",
+          impact: "Informational",
+          confidence: "High",
+          description: "OpenZeppelin ERC20._approve() naming issue",
+          elements: [{ source_mapping: { filename_relative: "lib/ERC20.sol", lines: [50] } }],
+        },
+      ],
+    },
+  });
+
+  const deps = createFlattenDeps({
+    runCommand: async () => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
+    execSyncFn: ((cmd: string) => {
+      if (typeof cmd === "string" && cmd.startsWith("forge flatten")) return "// flattened";
+      return "";
+    }) as unknown as typeof import("node:child_process").execSync,
+    extractContractNames: () => ["Vault"],
+  });
+
+  try {
+    const result = await flattenFallback({ target: tmpFile }, context, deps);
+    expect(result).toBeDefined();
+    expect(result!.findingsCount).toBe(1);
+    expect(result!.findings[0]?.description).toContain("Vault");
+  } finally {
+    rmSync(tmpFile, { force: true });
+  }
+});
+
+test("executeSlitherAnalyze triggers flatten fallback on parse error with crytic_compile stderr", async () => {
+  const { context } = createContext();
+  let callCount = 0;
+  const slitherJSON = JSON.stringify({
+    success: true,
+    results: {
+      detectors: [{
+        check: "unchecked-transfer",
+        impact: "Medium",
+        confidence: "High",
+        description: "Unchecked return in Vault.deposit()",
+        elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [5] } }],
+      }],
+    },
+  });
+
+  const result = await executeSlitherAnalyze(
+    { target: "/tmp/project" },
+    context,
+    async (_command) => {
+      callCount++;
+      if (callCount === 1) {
+        return { stdout: "not json", stderr: "crytic_compile error: Contract not found", exitCode: 1 };
+      }
+      return { stdout: slitherJSON, stderr: "", exitCode: 0 };
+    }
+  );
+
+  expect(result.success).toBe(false);
+  expect(result.error).toContain("Slither output parse error");
+});
+
+test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with findings", async () => {
+  const { context } = createContext();
+  const slitherJSON = JSON.stringify({
+    success: true,
+    results: {
+      detectors: [{
+        check: "reentrancy-eth",
+        impact: "High",
+        confidence: "High",
+        description: "Reentrancy vulnerability",
+        elements: [{ source_mapping: { filename_relative: "src/Vault.sol", lines: [10, 15] } }],
+      }],
+    },
+  });
+
+  const result = await executeSlitherAnalyze(
+    { target: "." },
+    context,
+    async () => ({ stdout: slitherJSON, stderr: "", exitCode: 0 })
+  );
+
+  expect(result.success).toBe(true);
+  expect(result.findingsCount).toBe(1);
+  expect(result.findings[0]?.check).toBe("reentrancy-eth");
 });
