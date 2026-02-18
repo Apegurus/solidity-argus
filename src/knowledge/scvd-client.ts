@@ -207,7 +207,7 @@ export class ScvdClient {
       const body = (await response.json()) as unknown;
       return parseFindings(body);
     } catch {
-      return [];
+      return []; // network error — treat as empty page
     }
   }
 

@@ -68,14 +68,19 @@ function emptyCounts(): FindingsCount {
 }
 
 function parseAuditState(auditState: string): Finding[] {
-  const parsed = JSON.parse(auditState) as AuditState | Finding[];
-
-  if (Array.isArray(parsed)) {
-    return parsed;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(auditState);
+  } catch {
+    throw new Error("audit_state is not valid JSON — expected an AuditState object or Finding[] array");
   }
 
-  if (typeof parsed === "object" && parsed !== null && Array.isArray(parsed.findings)) {
-    return parsed.findings;
+  if (Array.isArray(parsed)) {
+    return parsed as Finding[];
+  }
+
+  if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as AuditState).findings)) {
+    return (parsed as AuditState).findings;
   }
 
   return [];

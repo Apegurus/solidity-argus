@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Config } from "@opencode-ai/sdk"
+import type { Config } from "@opencode-ai/sdk/v2"
 import { createConfigHandler } from "./config-handler"
 import { DEFAULT_MODELS } from "../constants/defaults"
 import type { ArgusConfig } from "../plugin-config"
@@ -122,15 +122,13 @@ describe("createConfigHandler", () => {
 
     await handler(config)
 
-    expect(config.mcp?.["solodit-mcp"]).toBeDefined()
-    expect(config.mcp?.["solodit-mcp"]?.type).toBe("local")
-    expect(config.mcp?.["solodit-mcp"]?.command).toEqual([
-      "npx",
-      "-y",
-      "@lyuboslavlyubenov/solodit-mcp",
-    ])
-    expect(config.mcp?.["solodit-mcp"]?.enabled).toBe(true)
-    expect(config.mcp?.["solodit-mcp"]?.timeout).toBe(10000)
+    const solodit = config.mcp?.["solodit-mcp"] as
+      | { type: string; url: string; enabled?: boolean }
+      | undefined
+    expect(solodit).toBeDefined()
+    expect(solodit?.type).toBe("remote")
+    expect(solodit?.url).toBe("http://localhost:3000/mcp")
+    expect(solodit?.enabled).toBe(true)
   })
 
   test("does not register Solodit MCP when disabled", async () => {

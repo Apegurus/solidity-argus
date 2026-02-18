@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { spawn } from "node:child_process"
 import { loadArgusConfig } from "./plugin-config"
 import { createAuditState } from "./state/audit-state"
 import { createConfigHandler } from "./hooks/config-handler"
@@ -6,7 +7,7 @@ import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
 import { createEventHook } from "./hooks/event-hook"
-import { createKnowledgeSyncHook } from "./hooks/knowledge-sync-hook"
+
 import { slitherTool } from "./tools/slither-tool"
 import { forgeTestTool } from "./tools/forge-test-tool"
 import { forgeFuzzTool } from "./tools/forge-fuzz-tool"
@@ -16,9 +17,24 @@ import { soloditSearchTool } from "./tools/solodit-search-tool"
 import { reportGeneratorTool } from "./tools/report-generator-tool"
 import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
 
+function startSoloditMcp(): void {
+  const child = spawn("npx", ["-y", "@lyuboslavlyubenov/solodit-mcp"], {
+    stdio: "ignore",
+    detached: false,
+  })
+  child.unref()
+  child.on("error", () => {
+    /* non-critical: solodit MCP is optional; search still works via REST fallback */
+  })
+}
+
 const ArgusPlugin: Plugin = async (ctx) => {
   const projectDir = ctx.directory ?? process.cwd()
   const argusConfig = loadArgusConfig(projectDir)
+
+  if (argusConfig.solodit?.enabled !== false) {
+    startSoloditMcp()
+  }
 
   const { state: auditState, store: findingStore } = createAuditState(projectDir)
   const { hook: eventHook, getAuditState, setAuditState } = createEventHook(ctx.directory)
@@ -27,9 +43,6 @@ const ArgusPlugin: Plugin = async (ctx) => {
   const systemPromptHook = createSystemPromptHook(getAuditState)
   const compactionHook = createCompactionHook(getAuditState)
   const toolTrackingHook = createToolTrackingHook(auditState, findingStore)
-
-  const triggerAutoSync = createKnowledgeSyncHook(argusConfig)
-  triggerAutoSync()
 
   return {
     tool: {

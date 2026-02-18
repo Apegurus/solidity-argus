@@ -205,7 +205,7 @@ export function createToolTrackingHook(
     try {
       parsed = JSON.parse(input.result)
     } catch {
-      return
+      return // non-JSON tool output — nothing to track
     }
 
     const record = toRecord(parsed)

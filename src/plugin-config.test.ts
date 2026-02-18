@@ -1,7 +1,8 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
-import { loadArgusConfig, ArgusConfig } from "./plugin-config";
+import { loadArgusConfig } from "./plugin-config";
+import type { ArgusConfig } from "./plugin-config";
 import { ZodError } from "zod";
 
 // Test fixtures
@@ -143,7 +144,7 @@ test("loadArgusConfig throws ZodError with descriptive path for nested invalid f
     expect.unreachable("Should have thrown ZodError");
   } catch (error) {
     if (error instanceof ZodError) {
-      const errorPath = error.issues[0].path.join(".");
+      const errorPath = error.issues[0]!.path.join(".");
       expect(errorPath).toContain("scvd");
       expect(errorPath).toContain("enabled");
     } else {
