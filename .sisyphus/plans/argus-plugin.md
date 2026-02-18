@@ -1794,7 +1794,7 @@ Max Concurrent: 7 (Wave 2), 5 (Wave 4a)
 
 ---
 
-- [ ] 29. Knowledge Deduplication & Quality Pass
+- [x] 29. Knowledge Deduplication & Quality Pass
 
   **What to do**:
   - After Tasks 24-26 and 28 complete, merge all staging directories into the final `skills/` structure

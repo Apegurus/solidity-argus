@@ -116,3 +116,18 @@ Nomad_exp.sol, MangoMarkets_exp.sol, Euler_exp.sol, Wintermute_exp.sol, BadgerDA
 - Implemented JSON-based SCVD local index (`buildIndex`, `searchIndex`, `saveIndex`, `loadIndex`) using `Bun.file()`/`Bun.write()` only, with AND-combined filters for SWC/severity/keyword and default result cap.
 - Implemented sync orchestration (`syncAll`, `syncIncremental`, `getSyncStatus`) with early return when remote totals match local index and structured `SyncResult` error handling.
 - Added full TDD coverage across `scvd-client`, `scvd-index`, and `scvd-sync`; `bun test src/knowledge/` passes (20 tests).
+
+## [2026-02-18T00:25:55.288Z] Task: 29
+- Merged overlap topics into authoritative destination slugs and preserved source attribution headers from each origin.
+- Enforced frontmatter normalization (`name` matches parent directory and non-empty `description`) during migration to final skills tree.
+- Generated inventory with per-file source attribution and word counts to support future dedup and coverage checks.
+
+## [2026-02-18T00:27:44.303Z] Task: 29
+- For oversized checklist SKILL files, split at section boundaries and preserve source attribution/comments to keep each artifact under 5000 words.
+- Keep merge-topic destinations stable while mapping related secondary taxonomy slugs into supplemental heuristic sections for deduplicated coverage.
+- Regenerate inventory from final tree only (excluding .staging) to provide accurate source attribution and size metadata.
+
+## [2026-02-18T00:31:43.383123Z] Task: 29
+- Inventory integrity depends on correct source-path parsing for non-standard staging trees (exploit-case-studies had 2-level paths), otherwise malformed destination slugs appear.
+- When splitting checklist files for word-count constraints, preserve attribution headers in every split artifact so inventory source attribution remains accurate.
+- If final SKILL count exceeds the required envelope, merge tightly related reference artifacts rather than dropping content to keep coverage intact.

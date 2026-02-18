@@ -1,0 +1,32 @@
+Task 29 Dedup Check
+Generated: 2026-02-18T00:27:44.303Z
+
+Staging input file count: 60
+Final SKILL.md file count: 55
+Merged topics:
+- vulnerability-patterns/reentrancy
+- vulnerability-patterns/access-control
+- vulnerability-patterns/oracle-manipulation
+- vulnerability-patterns/flash-loan-attacks
+- vulnerability-patterns/logic-errors
+- checklists/general-audit
+
+Merged source mappings:
+- vulnerability-patterns/reentrancy: defifofum/vulnerability-patterns/reentrancy/SKILL.md + kadenzipfel/vulnerability-patterns/reentrancy/SKILL.md
+- vulnerability-patterns/access-control: defifofum/vulnerability-patterns/access-control/SKILL.md + kadenzipfel/vulnerability-patterns/insufficient-access-control/SKILL.md
+- vulnerability-patterns/oracle-manipulation: defifofum/vulnerability-patterns/oracle-manipulation/SKILL.md + kadenzipfel/vulnerability-patterns/transaction-ordering-dependence/SKILL.md
+- vulnerability-patterns/flash-loan-attacks: defifofum/vulnerability-patterns/flash-loan-attacks/SKILL.md + kadenzipfel/vulnerability-patterns/timestamp-dependence/SKILL.md
+- vulnerability-patterns/logic-errors: defifofum/vulnerability-patterns/logic-errors/SKILL.md + kadenzipfel/vulnerability-patterns/requirement-violation/SKILL.md
+- checklists/general-audit: defifofum/checklists/general-audit/SKILL.md + cyfrin-smartbugs/checklists/cyfrin-general/SKILL.md
+
+Split files for word-count compliance:
+- checklists/cyfrin-best-practices -> checklists/cyfrin-best-practices-upgrades + checklists/cyfrin-best-practices-runtime
+- checklists/cyfrin-defi -> checklists/cyfrin-defi-core + checklists/cyfrin-defi-integrations
+
+Validation results:
+- PASS: frontmatter, name matching, description length, word-count, and count constraints all satisfied
+Post-merge fixups:
+- Consolidated exploit-case-studies references into references/exploit-reference/SKILL.md with embedded reproduction workflow section.
+- Removed references/how-to-reproduce after content merge to keep final SKILL count within required range.
+- Final SKILL.md count: 55
+- Validation after fixups: PASS
