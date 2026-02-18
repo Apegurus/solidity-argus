@@ -1,5 +1,5 @@
 import { resolve, join } from "node:path"
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { execSync } from "node:child_process"
 import type { Config } from "@opencode-ai/sdk/v2"
@@ -14,21 +14,40 @@ import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
 
-function ensureTrailOfBitsSkills(): string | undefined {
-  if (existsSync(TOB_CACHE_DIR)) return TOB_CACHE_DIR
+function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
+  const pluginsDir = join(rootDir, "plugins")
+  if (!existsSync(pluginsDir)) return []
+
+  const pluginEntries = readdirSync(pluginsDir, { withFileTypes: true })
+  const skillDirs: string[] = []
+
+  for (const entry of pluginEntries) {
+    if (!entry.isDirectory()) continue
+    const pluginSkillsDir = join(pluginsDir, entry.name, "skills")
+    if (existsSync(pluginSkillsDir)) {
+      skillDirs.push(pluginSkillsDir)
+    }
+  }
+
+  return skillDirs
+}
+
+function ensureTrailOfBitsSkills(): string[] {
+  if (existsSync(TOB_CACHE_DIR)) return getTrailOfBitsSkillsPaths(TOB_CACHE_DIR)
   try {
     execSync(`git clone --depth 1 ${TOB_REPO_URL} "${TOB_CACHE_DIR}"`, {
       stdio: "ignore",
       timeout: 30_000,
     })
-    return TOB_CACHE_DIR
+    return getTrailOfBitsSkillsPaths(TOB_CACHE_DIR)
   } catch (_e) {
-    return undefined
+    return []
   }
 }
 
 export function createConfigHandler(
-  argusConfig: ArgusConfig
+  argusConfig: ArgusConfig,
+  projectDir: string = process.cwd()
 ): (config: Config) => Promise<void> {
   const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
 
@@ -50,6 +69,7 @@ export function createConfigHandler(
             pythia: "allow",
             scribe: "allow",
           },
+          skill: "allow",
         },
       },
       sentinel: {
@@ -64,6 +84,9 @@ export function createConfigHandler(
           argus_analyze_contract: true,
           argus_check_patterns: true,
         } satisfies Record<string, boolean>,
+        permission: {
+          skill: "allow",
+        },
       },
       pythia: {
         mode: "subagent",
@@ -74,6 +97,9 @@ export function createConfigHandler(
           argus_solodit_search: true,
           argus_check_patterns: true,
         } satisfies Record<string, boolean>,
+        permission: {
+          skill: "allow",
+        },
       },
       scribe: {
         mode: "subagent",
@@ -83,6 +109,9 @@ export function createConfigHandler(
         tools: {
           argus_generate_report: true,
         } satisfies Record<string, boolean>,
+        permission: {
+          skill: "allow",
+        },
       },
     }
 
@@ -101,8 +130,18 @@ export function createConfigHandler(
     const skillsPaths = [...(config.skills?.paths ?? [])]
     skillsPaths.push(resolve(import.meta.dir, "../../skills"))
 
-    const tobDir = ensureTrailOfBitsSkills()
-    if (tobDir) skillsPaths.push(tobDir)
+    const customSkillsDir = argusConfig.knowledge?.customSkillsDir
+    if (customSkillsDir) {
+      const resolvedCustomSkillsDir = customSkillsDir.startsWith("/")
+        ? customSkillsDir
+        : resolve(projectDir, customSkillsDir)
+      if (existsSync(resolvedCustomSkillsDir)) {
+        skillsPaths.push(resolvedCustomSkillsDir)
+      }
+    }
+
+    const tobSkillDirs = ensureTrailOfBitsSkills()
+    if (tobSkillDirs.length > 0) skillsPaths.push(...tobSkillDirs)
 
     config.skills = {
       ...(config.skills ?? {}),

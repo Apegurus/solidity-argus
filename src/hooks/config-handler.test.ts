@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { createConfigHandler } from "./config-handler"
 import { DEFAULT_MODELS } from "../constants/defaults"
@@ -69,6 +72,25 @@ describe("createConfigHandler", () => {
     expect(config.agent?.sentinel?.mode).toBe("subagent")
     expect(config.agent?.pythia?.mode).toBe("subagent")
     expect(config.agent?.scribe?.mode).toBe("subagent")
+  })
+
+  test("grants skill permission to all Argus agents", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.argus?.permission).toEqual({
+      task: {
+        sentinel: "allow",
+        pythia: "allow",
+        scribe: "allow",
+      },
+      skill: "allow",
+    })
+    expect(config.agent?.sentinel?.permission).toEqual({ skill: "allow" })
+    expect(config.agent?.pythia?.permission).toEqual({ skill: "allow" })
+    expect(config.agent?.scribe?.permission).toEqual({ skill: "allow" })
   })
 
   test("applies model override for argus", async () => {
@@ -196,5 +218,73 @@ describe("createConfigHandler", () => {
 
     expect(config.skills?.paths).toContain("/existing/skills")
     expect(config.skills?.paths?.length).toBeGreaterThan(1)
+  })
+
+  test("registers customSkillsDir when directory exists", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "argus-custom-skills-"))
+    const customDir = join(tempRoot, "my-skills")
+    mkdirSync(customDir, { recursive: true })
+
+    try {
+      const handler = createConfigHandler(
+        createArgusConfig({
+          knowledge: {
+            scvd: {
+              enabled: true,
+              apiUrl: "https://api.scvd.dev",
+            },
+            autoSync: true,
+            customSkillsDir: customDir,
+          },
+        })
+      )
+      const config: Config = {}
+
+      await handler(config)
+
+      expect(config.skills?.paths).toContain(customDir)
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("skips customSkillsDir when directory does not exist", async () => {
+    const missingDir = join(tmpdir(), "argus-missing-skills", "does-not-exist")
+
+    const handler = createConfigHandler(
+      createArgusConfig({
+        knowledge: {
+          scvd: {
+            enabled: true,
+            apiUrl: "https://api.scvd.dev",
+          },
+          autoSync: true,
+          customSkillsDir: missingDir,
+        },
+      })
+    )
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.skills?.paths).not.toContain(missingDir)
+  })
+
+  test("registers Trail of Bits plugin skill directories", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    const tobPaths =
+      config.skills?.paths?.filter((path) =>
+        path.includes("trailofbits-skills/plugins/")
+      ) ?? []
+
+    if (tobPaths.length > 0) {
+      expect(
+        tobPaths.every((path) => path.endsWith("/skills"))
+      ).toBe(true)
+    }
   })
 })

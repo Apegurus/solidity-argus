@@ -1,10 +1,26 @@
-import { join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import type { ArgusConfig } from "../config/types";
 import type { AuditState, FindingSeverity } from "../state/types";
 
 interface SystemPromptInput {
   system: string;
   cwd: string;
 }
+
+interface SkillIndexEntry {
+  count: number;
+  sample: string[];
+}
+
+interface SkillIndexSnapshot {
+  bundled: SkillIndexEntry;
+  trailOfBits: SkillIndexEntry;
+  custom: SkillIndexEntry;
+}
+
+const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills");
 
 /**
  * Checks if the given directory contains a Solidity project
@@ -66,11 +82,106 @@ function buildAuditStateSummary(state: AuditState | null): string {
   ].join("\n");
 }
 
+function collectSkillNamesFromRoot(rootPath: string): string[] {
+  if (!existsSync(rootPath)) {
+    return [];
+  }
+
+  const rootEntries = readdirSync(rootPath, { withFileTypes: true });
+  const names = new Set<string>();
+
+  for (const rootEntry of rootEntries) {
+    if (!rootEntry.isDirectory()) continue;
+
+    const directSkill = join(rootPath, rootEntry.name, "SKILL.md");
+    if (existsSync(directSkill)) {
+      names.add(rootEntry.name);
+      continue;
+    }
+
+    const categoryDir = join(rootPath, rootEntry.name);
+    const categoryEntries = readdirSync(categoryDir, { withFileTypes: true });
+
+    for (const categoryEntry of categoryEntries) {
+      if (!categoryEntry.isDirectory()) continue;
+      const categorySkill = join(categoryDir, categoryEntry.name, "SKILL.md");
+      if (existsSync(categorySkill)) {
+        names.add(`${rootEntry.name}/${categoryEntry.name}`);
+      }
+    }
+  }
+
+  return Array.from(names).sort();
+}
+
+function getTrailOfBitsSkillRoots(): string[] {
+  const pluginsDir = join(TOB_CACHE_DIR, "plugins");
+  if (!existsSync(pluginsDir)) {
+    return [];
+  }
+
+  const pluginEntries = readdirSync(pluginsDir, { withFileTypes: true });
+  const roots: string[] = [];
+
+  for (const pluginEntry of pluginEntries) {
+    if (!pluginEntry.isDirectory()) continue;
+    const pluginSkillsRoot = join(pluginsDir, pluginEntry.name, "skills");
+    if (existsSync(pluginSkillsRoot)) {
+      roots.push(pluginSkillsRoot);
+    }
+  }
+
+  return roots;
+}
+
+function toSkillIndexEntry(skillNames: string[]): SkillIndexEntry {
+  return {
+    count: skillNames.length,
+    sample: skillNames.slice(0, 3),
+  };
+}
+
+function buildSkillIndexSnapshot(args: {
+  argusConfig?: ArgusConfig;
+  projectDir?: string;
+}): SkillIndexSnapshot {
+  const bundledRoot = resolve(import.meta.dir, "../../skills");
+  const bundledSkills = collectSkillNamesFromRoot(bundledRoot);
+
+  const trailOfBitsSkills = new Set<string>();
+  for (const tobRoot of getTrailOfBitsSkillRoots()) {
+    for (const name of collectSkillNamesFromRoot(tobRoot)) {
+      trailOfBitsSkills.add(name);
+    }
+  }
+
+  const customDir = args.argusConfig?.knowledge?.customSkillsDir;
+  const customRoot = customDir
+    ? customDir.startsWith("/")
+      ? customDir
+      : resolve(args.projectDir ?? process.cwd(), customDir)
+    : undefined;
+  const customSkills = customRoot ? collectSkillNamesFromRoot(customRoot) : [];
+
+  return {
+    bundled: toSkillIndexEntry(bundledSkills),
+    trailOfBits: toSkillIndexEntry(Array.from(trailOfBitsSkills).sort()),
+    custom: toSkillIndexEntry(customSkills),
+  };
+}
+
+function formatSkillSample(entry: SkillIndexEntry): string {
+  return entry.sample.length > 0 ? entry.sample.join(", ") : "none";
+}
+
 /**
  * Builds the full audit context block to inject into the system prompt.
  * Designed to be concise (500-800 tokens).
  */
-function buildAuditContextBlock(state: AuditState | null): string {
+function buildAuditContextBlock(
+  state: AuditState | null,
+  skillIndex: SkillIndexSnapshot
+): string {
   return `
 <argus-context>
 ## Solidity Audit Context
@@ -92,6 +203,20 @@ function buildAuditContextBlock(state: AuditState | null): string {
 - \`argus_generate_report\`: Compile findings into structured audit report
 - \`argus_sync_knowledge\`: Update local vulnerability database (SCVD)
 
+### Available Skills
+- \`vulnerability-patterns/*\`: 35+ exploit classes (reentrancy, oracle manipulation, flash loans)
+- \`protocol-patterns/*\`: AMM/DEX, lending, bridges, governance, staking-specific heuristics
+- \`methodology/*\`: audit workflow, severity calibration, and report structure guidance
+- \`checklists/*\`: structured review checklists for upgrades, integrations, and DeFi best practices
+- \`references/*\`: exploit references and vulnerable examples for historical precedent
+- Trail of Bits skills include both audit-relevant and general engineering skills; prioritize security-audit-oriented skills
+
+### Skill Index Snapshot
+- Bundled skills: ${skillIndex.bundled.count} (examples: ${formatSkillSample(skillIndex.bundled)})
+- Trail of Bits skills: ${skillIndex.trailOfBits.count} (examples: ${formatSkillSample(skillIndex.trailOfBits)})
+- Custom project skills: ${skillIndex.custom.count} (examples: ${formatSkillSample(skillIndex.custom)})
+- Use the \`skill\` tool with exact skill names from the catalog
+
 ### Audit State
 ${buildAuditStateSummary(state)}
 
@@ -109,8 +234,14 @@ Severity must follow classification above. Do not inflate severity.
  * @returns Async transform function compatible with OpenCode's experimental.chat.system.transform
  */
 export function createSystemPromptHook(
-  getAuditState: () => AuditState | null
+  getAuditState: () => AuditState | null,
+  options?: { argusConfig?: ArgusConfig; projectDir?: string }
 ): (input: SystemPromptInput) => Promise<string | null> {
+  const skillIndex = buildSkillIndexSnapshot({
+    argusConfig: options?.argusConfig,
+    projectDir: options?.projectDir,
+  });
+
   return async (input: SystemPromptInput): Promise<string | null> => {
     const isSolidity = await isSolidityProject(input.cwd);
 
@@ -119,7 +250,7 @@ export function createSystemPromptHook(
     }
 
     const auditState = getAuditState();
-    return buildAuditContextBlock(auditState);
+    return buildAuditContextBlock(auditState, skillIndex);
   };
 }
 

@@ -20,18 +20,18 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 **Role**: Static analysis and testing specialist
 **Description**: Finds vulnerabilities through Slither static analysis, Foundry testing, fuzzing, and pattern matching. The tactical executor — runs tools, writes PoC tests, and verifies findings. Dispatched by Argus during Automated Scanning and Testing & Verification phases.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_slither_analyze, argus_forge_test, argus_forge_fuzz, argus_analyze_contract, argus_check_patterns
+**Tools**: argus_slither_analyze, argus_forge_test, argus_forge_fuzz, argus_analyze_contract, argus_check_patterns, skill
 
 ## pythia
 
 **Role**: Vulnerability researcher
 **Description**: Consults Solodit, SCVD, and the knowledge base to find historical precedents and known attack vectors. Searches 7,769+ real-world audit findings and 55 curated vulnerability pattern files. Dispatched by Argus during Vulnerability Research phase.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_solodit_search, argus_check_patterns
+**Tools**: argus_solodit_search, argus_check_patterns, skill
 
 ## scribe
 
 **Role**: Audit report writer
 **Description**: Transforms raw findings into professional markdown audit reports. Produces structured output with severity classifications (Critical/High/Medium/Low/Informational), impact assessments, proof-of-concept steps, and actionable recommendations. Dispatched by Argus only after all analysis is complete.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_generate_report
+**Tools**: argus_generate_report, skill

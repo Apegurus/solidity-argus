@@ -80,6 +80,31 @@ describe("createSystemPromptHook", () => {
     expect(result).toContain("argus_sync_knowledge");
   });
 
+  test("skills section is present in injected content", async () => {
+    const result = await nullStateHook({
+      system: BASE_SYSTEM_PROMPT,
+      cwd: FOUNDRY_PROJECT_DIR,
+    });
+
+    expect(result).toContain("Available Skills");
+    expect(result).toContain("vulnerability-patterns");
+    expect(result).toContain("protocol-patterns");
+    expect(result).toContain("methodology");
+    expect(result).toContain("skill");
+  });
+
+  test("skill index snapshot is present in injected content", async () => {
+    const result = await nullStateHook({
+      system: BASE_SYSTEM_PROMPT,
+      cwd: FOUNDRY_PROJECT_DIR,
+    });
+
+    expect(result).toContain("Skill Index Snapshot");
+    expect(result).toContain("Bundled skills:");
+    expect(result).toContain("Trail of Bits skills:");
+    expect(result).toContain("Custom project skills:");
+  });
+
   test("includes audit state when active", async () => {
     const state = createMockAuditState({
       currentPhase: "manual-review",

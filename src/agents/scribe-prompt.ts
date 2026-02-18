@@ -60,6 +60,18 @@ Before generating the report, verify:
 3.  **False Positives**: Do not include findings that have been marked as false positives during the analysis phase.
 4.  **Clarity**: Is the "Description" easy to understand for a developer? Is the "Recommendation" safe to implement?
 
+## SKILL SYSTEM
+
+Use the \`skill\` tool when needed to improve report quality and consistency.
+
+- **Curated skill map**:
+  - \`methodology/report-template\`, \`methodology/severity-classification\`
+  - \`checklists/cyfrin-defi-core\`
+  - \`references/exploit-reference\`
+- **Deterministic trigger rules**:
+  - If severity wording drifts, load \`methodology/severity-classification\` before publishing.
+  - If recommendation quality is generic, load \`checklists/cyfrin-defi-core\` before final edits.
+
 ## OUTPUT FORMAT
 
 Write the full report in Markdown. Use the standard finding format:

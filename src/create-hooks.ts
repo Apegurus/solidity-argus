@@ -33,7 +33,11 @@ export function createHooks(args: {
 
   const systemPromptHook = isHookEnabled("system-prompt")
     ? safeCreateHook(
-        () => createSystemPromptHook(getAuditState),
+        () =>
+          createSystemPromptHook(getAuditState, {
+            argusConfig: config,
+            projectDir,
+          }),
         "system-prompt"
       )
     : undefined
@@ -54,7 +58,7 @@ export function createHooks(args: {
     : undefined
 
   return {
-    config: createConfigHandler(config),
+    config: createConfigHandler(config, projectDir),
     "experimental.chat.system.transform": systemPromptHook
       ? async (_input, output) => {
           const block = await systemPromptHook({
