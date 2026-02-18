@@ -31,14 +31,14 @@ describe("installCommand", () => {
 
     expect(exitCode).toBe(0)
     const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf-8"))
-    expect(config.plugin).toContain("opencode-argus")
+    expect(config.plugin).toContain("solidity-argus")
   })
 
   it("is idempotent", async () => {
     const dir = makeTempDir()
     writeFileSync(
       join(dir, "opencode.json"),
-      JSON.stringify({ plugin: ["opencode-argus"] }),
+      JSON.stringify({ plugin: ["solidity-argus"] }),
     )
     process.cwd = () => dir
 
@@ -46,7 +46,7 @@ describe("installCommand", () => {
 
     expect(exitCode).toBe(0)
     const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf-8"))
-    expect(config.plugin.filter((p: string) => p === "opencode-argus")).toHaveLength(1)
+    expect(config.plugin.filter((p: string) => p === "solidity-argus")).toHaveLength(1)
   })
 
   it("returns null when no config exists", () => {

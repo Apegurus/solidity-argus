@@ -20,7 +20,7 @@ export const initCommand: CliCommand = {
   async execute(args: string[]): Promise<number> {
     const cwd = process.cwd()
     const configDir = join(cwd, ".opencode")
-    const configPath = join(configDir, "opencode-argus.json")
+    const configPath = join(configDir, "solidity-argus.json")
 
     if (existsSync(configPath)) {
       console.error(`${YELLOW}⚠${RESET} Config already exists: ${configPath}`)

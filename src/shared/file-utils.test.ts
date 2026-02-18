@@ -52,12 +52,12 @@ describe("file-utils", () => {
     it("should detect config in .opencode subdirectory", () => {
       const opencodeDir = join(testDir, ".opencode");
       mkdirSync(opencodeDir, { recursive: true });
-      const configPath = join(opencodeDir, "opencode-argus.jsonc");
+      const configPath = join(opencodeDir, "solidity-argus.jsonc");
       writeFileSync(configPath, '{"agents": {}}');
 
       const result = detectConfigFile(testDir);
       expect(result.format).toBe("jsonc");
-      expect(result.path).toContain("opencode-argus.jsonc");
+      expect(result.path).toContain("solidity-argus.jsonc");
     });
   });
 

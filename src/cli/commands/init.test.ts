@@ -29,14 +29,14 @@ describe("initCommand", () => {
     const exitCode = await initCommand.execute([])
 
     expect(exitCode).toBe(0)
-    expect(existsSync(join(dir, ".opencode", "opencode-argus.json"))).toBe(true)
+    expect(existsSync(join(dir, ".opencode", "solidity-argus.json"))).toBe(true)
   })
 
   it("refuses to overwrite existing config", async () => {
     const dir = makeTempDir()
     const configDir = join(dir, ".opencode")
     mkdirSync(configDir, { recursive: true })
-    writeFileSync(join(configDir, "opencode-argus.json"), "{}")
+    writeFileSync(join(configDir, "solidity-argus.json"), "{}")
     process.cwd = () => dir
 
     const exitCode = await initCommand.execute([])
@@ -51,7 +51,7 @@ describe("initCommand", () => {
     await initCommand.execute([])
 
     const content = require("fs").readFileSync(
-      join(dir, ".opencode", "opencode-argus.json"),
+      join(dir, ".opencode", "solidity-argus.json"),
       "utf-8",
     )
     const parsed = JSON.parse(content)

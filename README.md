@@ -1,14 +1,14 @@
-# opencode-argus
+# solidity-argus
 
 **The All-Seeing Solidity Security Auditor for OpenCode**
 
-`[npm version badge placeholder]` `[license badge placeholder]` `[bun badge placeholder]`
+[![npm version](https://img.shields.io/npm/v/solidity-argus)](https://www.npmjs.com/package/solidity-argus) [![license](https://img.shields.io/npm/l/solidity-argus)](./LICENSE)
 
 ---
 
 ## Overview
 
-**opencode-argus** is a security auditing plugin for [OpenCode](https://opencode.ai) that brings professional-grade Solidity smart contract auditing directly into your AI coding workflow.
+**solidity-argus** is a security auditing plugin for [OpenCode](https://opencode.ai) that brings professional-grade Solidity smart contract auditing directly into your AI coding workflow.
 
 Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 4 specialized AI agents to conduct comprehensive security audits: static analysis, vulnerability research, dynamic testing, and professional report generation.
 
@@ -28,18 +28,18 @@ Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 
 
 ## Installation
 
-Add `opencode-argus` to your OpenCode configuration:
+Add `solidity-argus` to your OpenCode configuration:
 
 ```json
 {
-  "plugin": ["opencode-argus"]
+  "plugin": ["solidity-argus"]
 }
 ```
 
 Or install via npm/bun:
 
 ```bash
-bun add opencode-argus
+bun add solidity-argus
 ```
 
 ---
@@ -117,11 +117,10 @@ The plugin ships with **55 curated SKILL.md files** organized into 5 categories:
 
 ## Configuration
 
-Create `.opencode/opencode-argus.jsonc` in your project root:
+Create `.opencode/solidity-argus.jsonc` in your project root:
 
 ```jsonc
 {
-  // Agent model overrides (optional — defaults shown)
   "agents": {
     "argus": { "model": "anthropic/claude-opus-4-6" },
     "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
@@ -129,34 +128,32 @@ Create `.opencode/opencode-argus.jsonc` in your project root:
     "scribe": { "model": "anthropic/claude-sonnet-4-6" }
   },
 
-  // Tool paths (optional — auto-detected if in PATH)
   "tools": {
     "slitherPath": "/usr/local/bin/slither",
     "forgePath": "/usr/local/bin/forge"
   },
 
-  // Knowledge base configuration
   "knowledge": {
-    "scvd": {
-      "enabled": true,
-      "apiUrl": "https://api.scvd.dev"
-    },
+    "scvd": { "enabled": true, "apiUrl": "https://api.scvd.dev" },
     "autoSync": true,
-    // Optional: path to additional custom SKILL.md files
     "customSkillsDir": "./my-custom-skills"
   },
 
-  // Reporting configuration
   "reporting": {
     "format": "markdown",
-    // Minimum severity to include in reports: critical | high | medium | low | informational
     "severityThreshold": "low",
     "gasAnalysis": false
   },
 
-  // Solodit integration
   "solodit": {
-    "enabled": true
+    "enabled": true,
+    "port": 3000
+  },
+
+  "disabled_hooks": [],
+
+  "background": {
+    "max_concurrent": 3
   }
 }
 ```
@@ -165,7 +162,7 @@ Create `.opencode/opencode-argus.jsonc` in your project root:
 
 ## New in v2: Modular Architecture
 
-This release restructures opencode-argus into a modular factory-based architecture with several new infrastructure features:
+This release restructures solidity-argus into a modular factory-based architecture with several new infrastructure features:
 
 ### CLI Tools
 
@@ -175,7 +172,7 @@ Run diagnostics and setup from the command line:
 # Check that Slither, Foundry, and SCVD are available
 argus doctor
 
-# Generate a starter .opencode/opencode-argus.jsonc config
+# Generate a starter .opencode/solidity-argus.jsonc config
 argus init
 
 # Install optional dependencies (Slither, Foundry)
@@ -197,8 +194,8 @@ Selectively disable any hook via config:
 Config is resolved by merging three layers (last wins):
 
 1. **Defaults** — Built-in sensible defaults
-2. **User-level** — `~/.config/opencode-argus/config.jsonc`
-3. **Project-level** — `.opencode/opencode-argus.jsonc`
+2. **User-level** — `~/.config/solidity-argus/config.jsonc`
+3. **Project-level** — `.opencode/solidity-argus.jsonc`
 
 ### Background Agent Management
 

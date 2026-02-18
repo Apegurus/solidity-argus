@@ -11,10 +11,10 @@ export interface ConfigFileInfo {
 
 export function detectConfigFile(basePath: string): ConfigFileInfo {
   const candidates = [
-    { path: join(basePath, ".opencode", "opencode-argus.jsonc"), format: "jsonc" as const },
-    { path: join(basePath, ".opencode", "opencode-argus.json"), format: "json" as const },
-    { path: join(basePath, "opencode-argus.jsonc"), format: "jsonc" as const },
-    { path: join(basePath, "opencode-argus.json"), format: "json" as const },
+    { path: join(basePath, ".opencode", "solidity-argus.jsonc"), format: "jsonc" as const },
+    { path: join(basePath, ".opencode", "solidity-argus.json"), format: "json" as const },
+    { path: join(basePath, "solidity-argus.jsonc"), format: "jsonc" as const },
+    { path: join(basePath, "solidity-argus.json"), format: "json" as const },
     { path: join(basePath, "config.jsonc"), format: "jsonc" as const },
     { path: join(basePath, "config.json"), format: "json" as const },
   ];

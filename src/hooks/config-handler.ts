@@ -11,7 +11,7 @@ import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
 import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
 import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
-const TOB_CACHE_DIR = join(homedir(), ".cache", "opencode-argus", "trailofbits-skills")
+const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
 
 function ensureTrailOfBitsSkills(): string | undefined {

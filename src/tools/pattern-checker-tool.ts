@@ -149,7 +149,7 @@ async function collectScvdMatches(
     return [];
   }
 
-  const indexPath = join(os.homedir(), ".cache", "opencode-argus", "scvd-index.json");
+  const indexPath = join(os.homedir(), ".cache", "solidity-argus", "scvd-index.json");
   const index = await dependencies.loadIndexFn(indexPath);
 
   if (!index) {

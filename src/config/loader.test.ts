@@ -38,11 +38,11 @@ describe("loadArgusConfig", () => {
     expect(config.background.max_concurrent).toBe(3)
   })
 
-  it("loads config from project path .opencode/opencode-argus.json", async () => {
+  it("loads config from project path .opencode/solidity-argus.json", async () => {
     const opencodeDir = join(tempDir, ".opencode")
     mkdirSync(opencodeDir, { recursive: true })
     writeFileSync(
-      join(opencodeDir, "opencode-argus.json"),
+      join(opencodeDir, "solidity-argus.json"),
       JSON.stringify({
         agents: {
           argus: { model: "custom-model" },
@@ -62,11 +62,11 @@ describe("loadArgusConfig", () => {
     expect(config.knowledge.autoSync).toBe(true)
   })
 
-  it("loads config from project path .opencode/opencode-argus.jsonc", async () => {
+  it("loads config from project path .opencode/solidity-argus.jsonc", async () => {
     const opencodeDir = join(tempDir, ".opencode")
     mkdirSync(opencodeDir, { recursive: true })
     writeFileSync(
-      join(opencodeDir, "opencode-argus.jsonc"),
+      join(opencodeDir, "solidity-argus.jsonc"),
       `{
   // Agent configuration
   "agents": {
@@ -120,7 +120,7 @@ describe("loadArgusConfig", () => {
     const opencodeDir = join(tempDir, ".opencode")
     mkdirSync(opencodeDir, { recursive: true })
     writeFileSync(
-      join(opencodeDir, "opencode-argus.json"),
+      join(opencodeDir, "solidity-argus.json"),
       JSON.stringify({
         background: { max_concurrent: -5 },
       })
@@ -146,7 +146,7 @@ describe("loadArgusConfig", () => {
     const opencodeDir = join(tempDir, ".opencode")
     mkdirSync(opencodeDir, { recursive: true })
     writeFileSync(
-      join(opencodeDir, "opencode-argus.json"),
+      join(opencodeDir, "solidity-argus.json"),
       "{ not valid json at all"
     )
 

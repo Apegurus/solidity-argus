@@ -1,6 +1,6 @@
 # Argus Plugin Agents
 
-This file enables OpenCode agent discovery for the `opencode-argus` plugin.
+This file enables OpenCode agent discovery for the `solidity-argus` plugin.
 
 ## Architecture
 

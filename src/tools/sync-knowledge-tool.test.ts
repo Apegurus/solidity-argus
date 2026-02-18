@@ -109,7 +109,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
   expect(calls.some((call) => call.startsWith("syncAll:"))).toBe(true)
   expect(calls.includes("syncIncremental")).toBe(false)
   expect(calls[0]).toContain("client:https://api.scvd.dev:true")
-  expect(calls[1]).toContain(".cache/opencode-argus/scvd-index.json")
+  expect(calls[1]).toContain(".cache/solidity-argus/scvd-index.json")
   expect(metadataCalls[0]?.title).toBe("Syncing SCVD knowledge index...")
 })
 

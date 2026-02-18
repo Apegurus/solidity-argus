@@ -4,7 +4,7 @@ const HELP_TEXT = `argus — Solidity Security Auditor for OpenCode
 
 Commands:
   doctor   Check Slither/Foundry installation and config health
-  init     Create opencode-argus config file
+  init     Create solidity-argus config file
   install  Configure argus plugin in opencode config
 `;
 
@@ -47,7 +47,7 @@ export function createCliProgram(): CliProgram {
 
   program.registerCommand({
     name: "init",
-    description: "Create opencode-argus config file",
+    description: "Create solidity-argus config file",
     execute: async () => {
       console.log("argus init: not yet implemented");
       return 0;

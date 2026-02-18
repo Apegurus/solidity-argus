@@ -21,7 +21,7 @@ export function findOpencodeConfig(homeOverride?: string): string | null {
 
 export const installCommand: CliCommand = {
   name: "install",
-  description: "Register opencode-argus in your OpenCode config",
+  description: "Register solidity-argus in your OpenCode config",
   async execute(args: string[]): Promise<number> {
     const configPath = findOpencodeConfig()
 
@@ -36,16 +36,16 @@ export const installCommand: CliCommand = {
       const config = JSON.parse(content)
       const plugins: string[] = config.plugin ?? []
 
-      if (plugins.includes("opencode-argus")) {
-        console.log(`${GREEN}✓${RESET} opencode-argus already registered in ${configPath}`)
+      if (plugins.includes("solidity-argus")) {
+        console.log(`${GREEN}✓${RESET} solidity-argus already registered in ${configPath}`)
         return 0
       }
 
-      plugins.push("opencode-argus")
+      plugins.push("solidity-argus")
       config.plugin = plugins
       writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
 
-      console.log(`${GREEN}✓${RESET} Added opencode-argus to ${configPath}`)
+      console.log(`${GREEN}✓${RESET} Added solidity-argus to ${configPath}`)
       return 0
     } catch (error) {
       console.error(`${YELLOW}⚠${RESET} Failed to update ${configPath}`)

@@ -1,18 +1,23 @@
 {
-  "name": "opencode-argus",
+  "name": "solidity-argus",
   "version": "0.1.0",
   "description": "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 8 tools, and a curated vulnerability knowledge base",
   "keywords": ["solidity", "security", "audit", "opencode", "plugin", "smart-contract", "ethereum", "defi", "slither", "foundry"],
+  "author": "Apegurus",
+  "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
   "module": "./src/index.ts",
   "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "argus": "./src/cli/index.ts"
   },
-  "files": ["src/", "skills/", "docs/", "README.md", "AGENTS.md", "LICENSE"],
+  "files": ["src/", "!src/**/*.test.ts", "skills/", "README.md", "AGENTS.md", "LICENSE"],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "cli": "bun src/cli/index.ts",
@@ -20,25 +25,19 @@
     "init": "bun src/cli/index.ts init"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "latest",
-    "zod": "latest"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5"
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "slither-analyzer": "*",
-    "foundry": "*"
+    "@opencode-ai/plugin": "^1.2.6"
   },
-  "peerDependenciesMeta": {
-    "slither-analyzer": { "optional": true },
-    "foundry": { "optional": true }
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.2.6",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/opencode-argus"
+    "url": "https://github.com/Apegurus/solidity-argus"
   },
-  "license": "MIT",
   "engines": { "bun": ">=1.0.0" }
 }

@@ -44,7 +44,7 @@ test("loadArgusConfig merges partial config with defaults", () => {
   mkdirSync(configDir, { recursive: true })
 
   writeFileSync(
-    join(configDir, "opencode-argus.jsonc"),
+    join(configDir, "solidity-argus.jsonc"),
     JSON.stringify({
       agents: { argus: { model: "anthropic/claude-opus-4-6" } },
       reporting: { gasAnalysis: true },
@@ -65,7 +65,7 @@ test("loadArgusConfig handles JSONC comments", () => {
   const configDir = join(testDir, ".opencode")
   mkdirSync(configDir, { recursive: true })
 
-  writeFileSync(join(configDir, "opencode-argus.jsonc"), `{
+  writeFileSync(join(configDir, "solidity-argus.jsonc"), `{
     // This is a comment
     "agents": {
       "argus": {
@@ -89,7 +89,7 @@ test("loadArgusConfig falls back to defaults for invalid config", () => {
   mkdirSync(configDir, { recursive: true })
 
   writeFileSync(
-    join(configDir, "opencode-argus.jsonc"),
+    join(configDir, "solidity-argus.jsonc"),
     JSON.stringify({ agents: { argus: { model: 123 } } })
   )
 
@@ -102,7 +102,7 @@ test("loadArgusConfig accepts valid full config", () => {
   mkdirSync(configDir, { recursive: true })
 
   writeFileSync(
-    join(configDir, "opencode-argus.jsonc"),
+    join(configDir, "solidity-argus.jsonc"),
     JSON.stringify({
       agents: {
         argus: { model: "anthropic/claude-opus-4-6" },
@@ -143,7 +143,7 @@ test("loadArgusConfig handles empty JSONC file", () => {
   const configDir = join(testDir, ".opencode")
   mkdirSync(configDir, { recursive: true })
 
-  writeFileSync(join(configDir, "opencode-argus.jsonc"), "{}")
+  writeFileSync(join(configDir, "solidity-argus.jsonc"), "{}")
 
   const config = loadArgusConfig(testDir)
 

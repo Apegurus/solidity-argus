@@ -38,7 +38,7 @@ export function createKnowledgeSyncHook(
     const indexPath = path.join(
       os.homedir(),
       ".cache",
-      "opencode-argus",
+      "solidity-argus",
       "scvd-index.json"
     )
 

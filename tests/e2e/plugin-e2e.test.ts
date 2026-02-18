@@ -142,7 +142,7 @@ describe("E2E B: CLI Commands", () => {
       out.restore()
 
       expect(exitCode).toBe(0)
-      const configPath = join(tmpDir, ".opencode", "opencode-argus.json")
+      const configPath = join(tmpDir, ".opencode", "solidity-argus.json")
       expect(existsSync(configPath)).toBe(true)
 
       const content = JSON.parse(await Bun.file(configPath).text())
@@ -158,7 +158,7 @@ describe("E2E B: CLI Commands", () => {
 
   test("argus init fails gracefully if config already exists", async () => {
     mkdirSync(join(tmpDir, ".opencode"), { recursive: true })
-    writeFileSync(join(tmpDir, ".opencode", "opencode-argus.json"), "{}")
+    writeFileSync(join(tmpDir, ".opencode", "solidity-argus.json"), "{}")
 
     const out = captureConsole()
     try {
@@ -246,7 +246,7 @@ describe("E2E C: Config Merge", () => {
     try {
       mkdirSync(join(tmpDir, ".opencode"), { recursive: true })
       writeFileSync(
-        join(tmpDir, ".opencode", "opencode-argus.jsonc"),
+        join(tmpDir, ".opencode", "solidity-argus.jsonc"),
         [
           "{",
           '  "agents": {',
