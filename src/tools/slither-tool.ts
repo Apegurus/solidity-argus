@@ -12,6 +12,7 @@ type SlitherArgs = {
   detectors?: string[];
   exclude?: string[];
   solc_version?: string;
+  via_ir?: boolean;
 };
 
 type SlitherDetector = {
@@ -135,6 +136,12 @@ const FALLBACK_TRIGGERS = [
   "crytic_compile",
   "empty AST",
   "Compilation failed",
+  "via_ir",
+  "via-ir",
+  "viaIR",
+  "YulException",
+  "StackTooDeep",
+  "Stack too deep",
 ];
 
 function shouldTryFlattenFallback(errors: string[], stderr: string): boolean {
@@ -354,8 +361,25 @@ export async function executeSlitherAnalyze(
   runCommand: RunSlitherCommand = runSlitherCommand
 ): Promise<SlitherAnalyzeResult> {
   const startedAt = Date.now();
-  const command = buildCommand(args);
   context.metadata({ title: `Slither analysis: ${args.target}` });
+
+  if (args.via_ir) {
+    const fallbackResult = await flattenFallback(args, context, {
+      ...defaultFlattenDeps,
+      runCommand,
+    });
+    if (fallbackResult) return fallbackResult;
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: ["via_ir enabled — flatten fallback failed. Ensure forge and solc are available."],
+      error: "Project uses via_ir which is incompatible with Slither direct analysis. Flatten fallback also failed.",
+    };
+  }
+
+  const command = buildCommand(args);
 
   try {
     const runResult = await runCommand(command, context.abort);
@@ -449,6 +473,18 @@ export async function executeSlitherAnalyze(
   }
 }
 
+export function detectViaIr(target: string): boolean {
+  const projectDir = target.endsWith(".sol") ? join(target, "..") : target;
+  const foundryTomlPath = join(projectDir, "foundry.toml");
+  if (!existsSync(foundryTomlPath)) return false;
+  try {
+    const content = readFileSync(foundryTomlPath, "utf-8");
+    return /^\s*via[_-]ir\s*=\s*true/m.test(content);
+  } catch {
+    return false;
+  }
+}
+
 export const slitherTool = tool({
   description:
     "Run Slither static analysis and return normalized findings for Solidity targets.",
@@ -459,7 +495,8 @@ export const slitherTool = tool({
     solc_version: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    const result = await executeSlitherAnalyze(args, context);
+    const viaIr = detectViaIr(args.target);
+    const result = await executeSlitherAnalyze({ ...args, via_ir: viaIr }, context);
     return JSON.stringify(result);
   },
 });

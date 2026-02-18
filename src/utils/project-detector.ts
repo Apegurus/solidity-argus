@@ -7,6 +7,7 @@ export interface ProjectConfig {
   testDir: string;
   solcVersion?: string;
   remappings: string[];
+  viaIr: boolean;
   rootDir: string;
 }
 
@@ -43,6 +44,7 @@ export async function detectProject(dir: string): Promise<ProjectConfig> {
   let testDir = "test";
   let solcVersion: string | undefined;
   let remappings: string[] = [];
+  let viaIr = false;
 
   // Parse Foundry config if present
   if (hasFoundry) {
@@ -51,6 +53,7 @@ export async function detectProject(dir: string): Promise<ProjectConfig> {
     testDir = foundryConfig.testDir || testDir;
     solcVersion = foundryConfig.solcVersion;
     remappings = foundryConfig.remappings;
+    viaIr = foundryConfig.viaIr;
   }
 
   // Set Hardhat defaults if it's a Hardhat project
@@ -64,6 +67,7 @@ export async function detectProject(dir: string): Promise<ProjectConfig> {
     testDir,
     solcVersion,
     remappings,
+    viaIr,
     rootDir,
   };
 }
@@ -78,6 +82,7 @@ async function parseFoundryToml(
   testDir?: string;
   solcVersion?: string;
   remappings: string[];
+  viaIr: boolean;
 }> {
   const content = await Bun.file(filePath).text();
 
@@ -86,6 +91,7 @@ async function parseFoundryToml(
     testDir: undefined as string | undefined,
     solcVersion: undefined as string | undefined,
     remappings: [] as string[],
+    viaIr: false,
   };
 
   // Extract [profile.default] section - stop at next section or EOF
@@ -114,6 +120,12 @@ async function parseFoundryToml(
   const solcMatch = profileSection.match(/^\s*solc\s*=\s*["']([^"']+)["']/m);
   if (solcMatch && solcMatch[1]) {
     result.solcVersion = solcMatch[1];
+  }
+
+  // Parse via_ir = true/false
+  const viaIrMatch = profileSection.match(/^\s*via[_-]ir\s*=\s*(true|false)/m);
+  if (viaIrMatch && viaIrMatch[1] === "true") {
+    result.viaIr = true;
   }
 
   // Parse remappings array - handles both single line and multiline

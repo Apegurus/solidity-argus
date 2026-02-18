@@ -7,6 +7,7 @@ import {
   slitherTool,
   executeSlitherAnalyze,
   flattenFallback,
+  detectViaIr,
   type SlitherRunResult,
   type FlattenFallbackDeps,
 } from "./slither-tool";
@@ -381,4 +382,83 @@ test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with
   expect(result.success).toBe(true);
   expect(result.findingsCount).toBe(1);
   expect(result.findings[0]?.check).toBe("reentrancy-eth");
+});
+
+test("executeSlitherAnalyze skips primary run and uses flatten fallback when via_ir is true", async () => {
+  const { context } = createContext();
+  let primaryCalled = false;
+
+  const result = await executeSlitherAnalyze(
+    { target: "/tmp/project", via_ir: true },
+    context,
+    async (command) => {
+      if (command.includes("slither") && !command.some(c => c.includes(".flat.sol"))) {
+        primaryCalled = true;
+      }
+      return { stdout: "{}", stderr: "", exitCode: 1 };
+    }
+  );
+
+  expect(primaryCalled).toBe(false);
+  expect(result.success).toBe(false);
+  expect(result.errors.some(e => e.includes("via_ir"))).toBe(true);
+});
+
+test("executeSlitherAnalyze runs primary when via_ir is false", async () => {
+  const { context } = createContext();
+  const slitherJSON = JSON.stringify({
+    success: true,
+    results: { detectors: [] },
+  });
+
+  const result = await executeSlitherAnalyze(
+    { target: "/tmp/project", via_ir: false },
+    context,
+    async () => ({ stdout: slitherJSON, stderr: "", exitCode: 0 })
+  );
+
+  expect(result.success).toBe(true);
+});
+
+test("detectViaIr returns true for foundry.toml with via_ir = true", () => {
+  const tmpDir = join(tmpdir(), `argus-via-ir-${Date.now()}`);
+  const { mkdirSync } = require("node:fs");
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia_ir = true\nsolc = "0.8.20"\n`);
+
+  try {
+    expect(detectViaIr(tmpDir)).toBe(true);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("detectViaIr returns false when no foundry.toml exists", () => {
+  expect(detectViaIr("/tmp/nonexistent-dir-" + Date.now())).toBe(false);
+});
+
+test("detectViaIr returns false for foundry.toml without via_ir", () => {
+  const tmpDir = join(tmpdir(), `argus-via-ir-no-${Date.now()}`);
+  const { mkdirSync } = require("node:fs");
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nsolc = "0.8.20"\n`);
+
+  try {
+    expect(detectViaIr(tmpDir)).toBe(false);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("detectViaIr detects via-ir (hyphenated) in foundry.toml", () => {
+  const tmpDir = join(tmpdir(), `argus-via-ir-hyph-${Date.now()}`);
+  const { mkdirSync } = require("node:fs");
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia-ir = true\n`);
+
+  try {
+    expect(detectViaIr(tmpDir)).toBe(true);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
 });

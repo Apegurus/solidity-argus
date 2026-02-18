@@ -120,6 +120,62 @@ test("handles Foundry foundry.toml without optional fields", async () => {
   expect(config.testDir).toBe("test");
   expect(config.remappings).toEqual([]);
   expect(config.solcVersion).toBeUndefined();
+  expect(config.viaIr).toBe(false);
+});
+
+test("detects via_ir = true in foundry.toml", async () => {
+  const foundryToml = `[profile.default]
+src = "src"
+solc = "0.8.20"
+via_ir = true
+`;
+  writeFileSync(join(tempDir, "foundry.toml"), foundryToml);
+
+  const config = await detectProject(tempDir);
+
+  expect(config.type).toBe("foundry");
+  expect(config.viaIr).toBe(true);
+});
+
+test("detects via_ir = false in foundry.toml", async () => {
+  const foundryToml = `[profile.default]
+via_ir = false
+`;
+  writeFileSync(join(tempDir, "foundry.toml"), foundryToml);
+
+  const config = await detectProject(tempDir);
+
+  expect(config.viaIr).toBe(false);
+});
+
+test("detects via-ir (hyphenated) in foundry.toml", async () => {
+  const foundryToml = `[profile.default]
+via-ir = true
+`;
+  writeFileSync(join(tempDir, "foundry.toml"), foundryToml);
+
+  const config = await detectProject(tempDir);
+
+  expect(config.viaIr).toBe(true);
+});
+
+test("viaIr defaults to false when not in foundry.toml", async () => {
+  const foundryToml = `[profile.default]
+src = "src"
+`;
+  writeFileSync(join(tempDir, "foundry.toml"), foundryToml);
+
+  const config = await detectProject(tempDir);
+
+  expect(config.viaIr).toBe(false);
+});
+
+test("viaIr is false for non-foundry projects", async () => {
+  writeFileSync(join(tempDir, "hardhat.config.ts"), "export default {};");
+
+  const config = await detectProject(tempDir);
+
+  expect(config.viaIr).toBe(false);
 });
 
 test("prioritizes foundry.toml over hardhat.config when both exist", async () => {

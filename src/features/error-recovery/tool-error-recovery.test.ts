@@ -51,4 +51,25 @@ describe("createToolErrorRecoveryHandler", () => {
 
     expect(result).toBeNull()
   })
+
+  it("returns via_ir hint when slither output mentions via_ir", () => {
+    const handler = createToolErrorRecoveryHandler()
+    const result = handler({
+      tool: "argus_slither_analyze",
+      result: "via_ir enabled — flatten fallback failed. Ensure forge and solc are available.",
+    })
+
+    expect(result).toContain("via_ir")
+    expect(result).toContain("forge-flatten fallback")
+  })
+
+  it("returns via_ir hint when slither output mentions flatten fallback", () => {
+    const handler = createToolErrorRecoveryHandler()
+    const result = handler({
+      tool: "argus_slither_analyze",
+      result: "[flatten-fallback] Analysis completed via forge flatten",
+    })
+
+    expect(result).toContain("via_ir")
+  })
 })
