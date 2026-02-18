@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { createCliProgram } from "./cli-program";
 
 async function main(): Promise<void> {
