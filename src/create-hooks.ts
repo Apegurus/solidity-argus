@@ -7,7 +7,7 @@ import { createConfigHandler } from "./hooks/config-handler"
 import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
-import { createEventHook } from "./hooks/event-hook"
+import { createEventHookV2 } from "./hooks/event-hook-v2"
 import { safeCreateHook } from "./hooks/safe-create-hook"
 
 export type Hooks = Pick<
@@ -28,7 +28,7 @@ export function createHooks(args: {
   const { config, projectDir, isHookEnabled } = args
 
   const { state: auditState, store: findingStore } = createAuditState(projectDir)
-  const { hook: eventHook, getAuditState, setAuditState } = createEventHook(projectDir)
+  const { hook: eventHook, getAuditState, setAuditState } = createEventHookV2(projectDir)
   setAuditState(auditState)
 
   const systemPromptHook = isHookEnabled("system-prompt")

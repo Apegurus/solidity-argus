@@ -1,6 +1,6 @@
 {
   "name": "solidity-argus",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 8 tools, and a curated vulnerability knowledge base",
   "keywords": ["solidity", "security", "audit", "opencode", "plugin", "smart-contract", "ethereum", "defi", "slither", "foundry"],
   "author": "Apegurus",
