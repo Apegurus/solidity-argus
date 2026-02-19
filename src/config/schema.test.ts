@@ -223,6 +223,31 @@ describe("ArgusConfigSchema", () => {
     }
   })
 
+  it("defaults skillPrecedence to bundled-first", () => {
+    const result = ArgusConfigSchema.safeParse({})
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.knowledge.skillPrecedence).toBe("bundled-first")
+    }
+  })
+
+  it("accepts custom-first skillPrecedence", () => {
+    const result = ArgusConfigSchema.safeParse({
+      knowledge: { skillPrecedence: "custom-first" },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.knowledge.skillPrecedence).toBe("custom-first")
+    }
+  })
+
+  it("rejects invalid skillPrecedence value", () => {
+    const result = ArgusConfigSchema.safeParse({
+      knowledge: { skillPrecedence: "invalid-value" },
+    })
+    expect(result.success).toBe(false)
+  })
+
   it("validates solodit port configuration", () => {
     const config = {
       solodit: {

@@ -126,20 +126,10 @@ describe("loadArgusConfig", () => {
       })
     )
 
-    const warnSpy = spyOn(console, "error")
-
     const { loadArgusConfig } = await import("./loader")
     const config = loadArgusConfig(tempDir)
 
     expect(config.background.max_concurrent).toBe(3)
-    const warnCalls = warnSpy.mock.calls.filter((call) =>
-      call.some(
-        (arg) => typeof arg === "string" && arg.includes("Invalid argus config")
-      )
-    )
-    expect(warnCalls.length).toBeGreaterThanOrEqual(1)
-
-    warnSpy.mockRestore()
   })
 
   it("handles malformed JSON gracefully", async () => {

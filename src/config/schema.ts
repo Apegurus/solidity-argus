@@ -23,6 +23,7 @@ const KnowledgeConfigSchema = z.object({
   }),
   autoSync: z.boolean().default(true),
   customSkillsDir: z.string().optional(),
+  skillPrecedence: z.enum(["bundled-first", "custom-first"]).default("bundled-first"),
 })
 
 const ReportingConfigSchema = z.object({
@@ -63,6 +64,7 @@ export const ArgusConfigSchema = z.object({
       apiUrl: "https://api.scvd.dev",
     },
     autoSync: true,
+    skillPrecedence: "bundled-first",
   }),
   reporting: ReportingConfigSchema.default({
     format: "markdown",
