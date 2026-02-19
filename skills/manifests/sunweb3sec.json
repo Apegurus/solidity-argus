@@ -1,0 +1,11 @@
+{
+  "name": "sunweb3sec",
+  "mode": "baked-in",
+  "url": "https://github.com/SunWeb3Sec/DeFiHackLabs",
+  "license": "reference-only",
+  "updateCadence": "per-release",
+  "lastVerified": "2026-02-19",
+  "files": [
+    "references/exploit-reference/SKILL.md"
+  ]
+}

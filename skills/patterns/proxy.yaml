@@ -1,0 +1,30 @@
+pack_name: proxy
+pack_version: "1.0"
+patterns:
+  - name: storage-collision
+    category: proxy
+    severity: Critical
+    swc: SWC-112
+    confidence: Medium
+    version: "1.0"
+    regex: 'delegatecall|IMPLEMENTATION_SLOT'
+    description: Delegatecall or implementation slot usage — potential storage collision between proxy and implementation contracts if storage layouts diverge
+    remediation: Use EIP-1967 standard storage slots; use OpenZeppelin TransparentUpgradeableProxy or UUPS; verify storage layout compatibility on upgrades
+
+  - name: uninitialized-proxy
+    category: proxy
+    severity: High
+    confidence: Medium
+    version: "1.0"
+    regex: '_disableInitializers|initializer'
+    description: Proxy initialization pattern detected — verify implementation contract calls _disableInitializers() in constructor and proxy calls initialize()
+    remediation: Call _disableInitializers() in implementation constructor; ensure initialize() is called atomically during proxy deployment
+
+  - name: selector-clash
+    category: proxy
+    severity: Medium
+    confidence: Low
+    version: "1.0"
+    regex: 'fallback\(\)|receive\(\).*delegatecall'
+    description: Fallback or receive function with delegatecall — risk of function selector clash between proxy admin functions and implementation functions
+    remediation: Use TransparentUpgradeableProxy pattern to separate admin and user call paths; verify no selector collisions with implementation ABI

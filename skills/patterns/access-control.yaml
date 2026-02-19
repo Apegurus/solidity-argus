@@ -1,0 +1,31 @@
+pack_name: access-control
+pack_version: "1.0"
+patterns:
+  - name: missing-access-modifier
+    category: access-control
+    severity: High
+    swc: SWC-105
+    confidence: Low
+    version: "1.0"
+    regex: 'function\s+\w+\s*\([^)]*\)\s+(external|public)'
+    description: External or public function — verify appropriate access control modifiers (onlyOwner, onlyRole, require(msg.sender)) are applied
+    remediation: Add access control modifiers to sensitive functions; use OpenZeppelin AccessControl or Ownable patterns
+
+  - name: unprotected-initialize
+    category: access-control
+    severity: Critical
+    confidence: High
+    version: "1.0"
+    regex: 'function\s+initialize'
+    description: Initializer function detected — if missing initializer modifier, anyone can call and take ownership of the contract
+    remediation: Use OpenZeppelin Initializable with initializer modifier; call _disableInitializers() in constructor for implementation contracts
+
+  - name: default-visibility
+    category: access-control
+    severity: Medium
+    swc: SWC-100
+    confidence: Low
+    version: "1.0"
+    regex: 'function\s+\w+\s*\([^)]*\)\s*\{'
+    description: Function without explicit visibility specifier — defaults to public in older Solidity versions, potentially exposing internal logic
+    remediation: Always specify visibility (external, public, internal, private) explicitly for every function

@@ -26,6 +26,7 @@
     "init": "bun src/cli/index.ts init"
   },
   "dependencies": {
+    "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
@@ -40,5 +41,7 @@
     "type": "git",
     "url": "https://github.com/Apegurus/solidity-argus"
   },
-  "engines": { "bun": ">=1.0.0" }
+  "engines": {
+    "bun": ">=1.0.0"
+  }
 }

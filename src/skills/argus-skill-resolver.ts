@@ -2,6 +2,8 @@ import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs"
 import { homedir } from "node:os"
 import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
+import { createLogger } from "../shared/logger"
+import { parseFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
 export type ResolvedSkill = {
   name: string
@@ -9,6 +11,10 @@ export type ResolvedSkill = {
   filePath: string
   source: "bundled" | "custom" | "trailofbits" | "opencode" | "claude"
   content: string
+  source_url?: string
+  source_license?: string
+  imported_at?: string
+  source_hash?: string
 }
 
 const OMO_PROJECT_SKILLS_DIR = [".opencode", "skills"]
@@ -129,12 +135,21 @@ function resolveCustomSkillsRoot(projectDir: string, argusConfig?: ArgusConfig):
 }
 
 export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig): SkillRoot[] {
-  const roots: SkillRoot[] = [
-    { path: resolve(import.meta.dir, "../../skills"), source: "bundled" },
-  ]
+  const precedence = argusConfig?.knowledge?.skillPrecedence ?? "bundled-first"
 
+  const bundledRoot: SkillRoot = { path: resolve(import.meta.dir, "../../skills"), source: "bundled" }
   const customRoot = resolveCustomSkillsRoot(projectDir, argusConfig)
-  if (customRoot) roots.push({ path: customRoot, source: "custom" })
+  const customSkillRoot: SkillRoot | null = customRoot ? { path: customRoot, source: "custom" } : null
+
+  const roots: SkillRoot[] = []
+
+  if (precedence === "custom-first") {
+    if (customSkillRoot) roots.push(customSkillRoot)
+    roots.push(bundledRoot)
+  } else {
+    roots.push(bundledRoot)
+    if (customSkillRoot) roots.push(customSkillRoot)
+  }
 
   for (const tobRoot of getTrailOfBitsRoots()) {
     roots.push({ path: tobRoot, source: "trailofbits" })
@@ -157,6 +172,7 @@ export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig)
 export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig): Map<string, ResolvedSkill> {
   const resolved = new Map<string, ResolvedSkill>()
   const roots = resolveSkillRoots(projectDir, argusConfig)
+  const logger = createLogger()
 
   for (const root of roots) {
     const markdownFiles = collectMarkdownFiles(root.path)
@@ -168,19 +184,37 @@ export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig
         continue
       }
 
+      const frontmatter = parseFrontmatter(content)
+      if (frontmatter) {
+        const validation = validateSkillFrontmatter(frontmatter)
+        if (!validation.success) {
+          logger.warn(`Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`)
+          continue
+        }
+      }
+
       const parsedName = parseSkillNameFromFrontmatter(content)
       const rawName = parsedName || inferSkillNameFromPath(markdownFile)
       const normalizedName = normalizeSkillName(rawName)
       if (!normalizedName) continue
       if (resolved.has(normalizedName)) continue
 
-      resolved.set(normalizedName, {
+      const skill: ResolvedSkill = {
         name: normalizedName,
         description: parseSkillDescriptionFromFrontmatter(content),
         filePath: markdownFile,
         source: root.source,
         content,
-      })
+      }
+
+      if (frontmatter) {
+        if (typeof frontmatter.source_url === "string") skill.source_url = frontmatter.source_url
+        if (typeof frontmatter.source_license === "string") skill.source_license = frontmatter.source_license
+        if (typeof frontmatter.imported_at === "string") skill.imported_at = frontmatter.imported_at
+        if (typeof frontmatter.source_hash === "string") skill.source_hash = frontmatter.source_hash
+      }
+
+      resolved.set(normalizedName, skill)
     }
   }
 
