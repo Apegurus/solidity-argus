@@ -31,6 +31,7 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
       apiUrl: "https://api.scvd.dev",
     },
     autoSync: false,
+    skillPrecedence: "bundled-first" as const,
   },
   reporting: {
     format: "markdown",

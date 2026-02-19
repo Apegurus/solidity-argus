@@ -15,6 +15,7 @@ import { ArgusConfigSchema } from "../../src/config/schema"
 import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
 import { doctorCommand } from "../../src/cli/commands/doctor"
 import { initCommand } from "../../src/cli/commands/init"
+import { cliOutput } from "../../src/cli/cli-output"
 import type { Config } from "@opencode-ai/sdk"
 
 const FIXTURE_DIR = path.resolve(import.meta.dir, "../fixtures/vulnerable-vault")
@@ -41,14 +42,17 @@ function captureConsole(): {
   const errors: string[] = []
   const origLog = console.log
   const origError = console.error
+  const origCliLog = cliOutput.log
   console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "))
   console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "))
+  cliOutput.log = (...args: unknown[]) => logs.push(args.map(String).join(" "))
   return {
     logs,
     errors,
     restore: () => {
       console.log = origLog
       console.error = origError
+      cliOutput.log = origCliLog
     },
   }
 }
@@ -60,7 +64,7 @@ describe("E2E A: Plugin Load", () => {
 
      expect(result.tool).toBeDefined()
      expect(typeof result.config).toBe("function")
-     expect(result["experimental.chat.system.transform"]).toBeUndefined()
+     expect(typeof result["experimental.chat.system.transform"]).toBe("function")
      expect(typeof result["experimental.session.compacting"]).toBe("function")
      expect(typeof result["tool.execute.after"]).toBe("function")
      expect(typeof result.event).toBe("function")
@@ -399,7 +403,7 @@ describe("E2E D: Hook Lifecycle", () => {
       hooks,
     })
 
-    expect(iface["experimental.chat.system.transform"]).toBeUndefined()
+    expect(typeof iface["experimental.chat.system.transform"]).toBe("function")
     expect(iface["experimental.session.compacting"]).toBeUndefined()
     expect(iface.event).toBeUndefined()
 
