@@ -47,6 +47,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
         apiUrl: "https://api.scvd.dev",
       },
       autoSync: true,
+      skillPrecedence: "bundled-first" as const,
     },
     reporting: {
       format: "markdown",
@@ -83,6 +84,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
     syncAllFn: async (_client, indexPath) => {
       calls.push(`syncAll:${indexPath}`)
       return {
+        status: "success" as const,
         success: true,
         newFindings: 4,
         totalIndexed: 42,
@@ -92,6 +94,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
     syncIncrementalFn: async () => {
       calls.push("syncIncremental")
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -124,6 +127,7 @@ test("executeSyncKnowledge runs incremental sync by default", async () => {
     syncAllFn: async () => {
       syncAllCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -133,6 +137,7 @@ test("executeSyncKnowledge runs incremental sync by default", async () => {
     syncIncrementalFn: async () => {
       syncIncrementalCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 1,
         totalIndexed: 10,
@@ -160,6 +165,7 @@ test("executeSyncKnowledge returns disabled error when SCVD is off", async () =>
     syncAllFn: async () => {
       syncCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -169,6 +175,7 @@ test("executeSyncKnowledge returns disabled error when SCVD is off", async () =>
     syncIncrementalFn: async () => {
       syncCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -193,12 +200,14 @@ test("executeSyncKnowledge handles thrown errors with structured response", asyn
     },
     createClient: () => ({ kind: "client" }),
     syncAllFn: async () => ({
+      status: "success" as const,
       success: true,
       newFindings: 0,
       totalIndexed: 0,
       lastSync: "",
     }),
     syncIncrementalFn: async () => ({
+      status: "success" as const,
       success: true,
       newFindings: 0,
       totalIndexed: 0,

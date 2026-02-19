@@ -3,6 +3,8 @@ import { tool, type ToolContext } from "@opencode-ai/plugin";
 const SOLODIT_MCP_SERVER = "solodit-mcp";
 const SOLODIT_MCP_TOOL = "search_findings";
 const DEFAULT_LIMIT = 10;
+const DEFAULT_SOLODIT_PORT = 3000;
+const SOLODIT_HTTP_TIMEOUT_MS = 10_000;
 
 type SoloditSearchArgs = {
   query: string;
@@ -68,6 +70,91 @@ function parseFindings(response: unknown): SoloditFinding[] {
   return response.map(parseFinding);
 }
 
+function parseSseData(body: string): unknown {
+  for (const line of body.split("\n")) {
+    if (line.startsWith("data: ")) {
+      try {
+        return JSON.parse(line.slice(6));
+      } catch {
+        continue;
+      }
+    }
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+function extractFindingsFromMcpResponse(envelope: unknown): SoloditFinding[] {
+  if (typeof envelope !== "object" || envelope === null) return [];
+  const result = (envelope as Record<string, unknown>).result;
+  if (typeof result !== "object" || result === null) return [];
+
+  const structured = (result as Record<string, unknown>).structuredContent;
+  const reportsJson =
+    typeof structured === "object" && structured !== null
+      ? (structured as Record<string, unknown>).reportsJSON
+      : undefined;
+
+  if (typeof reportsJson === "string") {
+    try {
+      const parsed = JSON.parse(reportsJson);
+      if (Array.isArray(parsed)) return parsed.map(parseFinding);
+    } catch { /* fall through */ }
+  }
+
+  const content = (result as Record<string, unknown>).content;
+  if (Array.isArray(content) && content.length > 0) {
+    const first = content[0] as Record<string, unknown> | undefined;
+    if (typeof first?.text === "string") {
+      try {
+        const parsed = JSON.parse(first.text);
+        if (Array.isArray(parsed)) return parsed.map(parseFinding);
+      } catch { /* fall through */ }
+    }
+  }
+
+  return [];
+}
+
+async function callSoloditHttp(
+  query: string,
+  limit: number,
+  port: number = DEFAULT_SOLODIT_PORT,
+): Promise<SoloditSearchResult> {
+  try {
+    const response = await fetch(`http://localhost:${port}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { name: "search", arguments: { keywords: query } },
+        id: 1,
+      }),
+      signal: AbortSignal.timeout(SOLODIT_HTTP_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return { results: [], totalFound: 0, query, error: `Solodit HTTP ${response.status}` };
+    }
+
+    const body = await response.text();
+    const envelope = parseSseData(body);
+    const findings = extractFindingsFromMcpResponse(envelope);
+
+    return { results: findings.slice(0, limit), totalFound: findings.length, query };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return { results: [], totalFound: 0, query, error: `Solodit MCP unreachable: ${message}` };
+  }
+}
+
 export async function executeSoloditSearch(
   args: SoloditSearchArgs,
   context: ToolContext,
@@ -82,12 +169,7 @@ export async function executeSoloditSearch(
     callMcpTool ?? (hasMcpCapability(context) ? context.callMcpTool : undefined);
 
   if (!mcpCaller) {
-    return {
-      results: [],
-      totalFound: 0,
-      query,
-      error: `Solodit MCP not available. Add to opencode.json mcp section or ensure solodit-mcp is running. Use @solodit-mcp directly: search_findings({query: '${query}', limit: ${limit}})`,
-    };
+    return callSoloditHttp(query, limit);
   }
 
   try {
@@ -105,14 +187,10 @@ export async function executeSoloditSearch(
       totalFound: findings.length,
       query,
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return {
-      results: [],
-      totalFound: 0,
-      query,
-      error: `Solodit MCP error: ${message}`,
-    };
+  } catch {
+    // MCP bridge failed (upstream crash, connection error, etc.)
+    // Fall through to HTTP fallback before giving up
+    return callSoloditHttp(query, limit);
   }
 }
 

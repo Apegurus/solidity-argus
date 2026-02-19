@@ -1,6 +1,6 @@
 import os from "node:os";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import {
   loadIndex,
@@ -8,6 +8,13 @@ import {
   type ScvdIndex,
   type ScvdIndexEntry,
 } from "../knowledge/scvd-index";
+import {
+  extractDetectionRulesFromSkills,
+  loadPatternPacks,
+} from "./pattern-loader";
+import type { PatternDefinition } from "./pattern-schema";
+
+export type PatternSource = "builtin" | "yaml" | "skill";
 
 export interface Match {
   pattern: string;
@@ -16,6 +23,8 @@ export interface Match {
   lines: [number, number];
   description: string;
   exploitReference?: string;
+  patternSource?: PatternSource;
+  category?: string;
 }
 
 export interface MatchSource {
@@ -28,6 +37,7 @@ export interface PatternCheckResult {
   patternsChecked: number;
   executionTime: number;
   target: string;
+  patternVersion?: string;
 }
 
 type PatternCheckArgs = {
@@ -51,7 +61,10 @@ type BuiltinPattern = {
   regex: RegExp;
   description: string;
   exploitReference?: string;
+  source?: PatternSource;
 };
+
+export const PATTERN_PACK_VERSION = "1.0.0";
 
 const BUILTIN_PATTERNS: BuiltinPattern[] = [
   {
@@ -113,6 +126,21 @@ function normalizeSeverity(value: string): Match["severity"] {
   return "Informational";
 }
 
+function normalizePatternDefinitions(
+  patterns: PatternDefinition[],
+  source: PatternSource
+): BuiltinPattern[] {
+  return patterns.map((patternDef) => ({
+    name: patternDef.name,
+    category: patternDef.category,
+    severity: patternDef.severity,
+    regex: new RegExp(patternDef.regex),
+    description: patternDef.description,
+    ...(patternDef.exploit_ref ? { exploitReference: patternDef.exploit_ref } : {}),
+    source,
+  }));
+}
+
 function uniqueScvdEntries(entries: ScvdIndexEntry[]): ScvdIndexEntry[] {
   const deduped = new Map<string, ScvdIndexEntry>();
   for (const entry of entries) {
@@ -127,7 +155,7 @@ async function collectScvdMatches(
 ): Promise<Match[]> {
   const detectedCategories = new Set<string>();
   for (const match of matches) {
-    const category = PATTERN_NAME_TO_CATEGORY.get(match.pattern);
+    const category = match.category ?? PATTERN_NAME_TO_CATEGORY.get(match.pattern);
     if (category) {
       detectedCategories.add(category);
     }
@@ -171,7 +199,7 @@ async function collectScvdMatches(
   }));
 }
 
-function collectSolidityFiles(target: string): string[] {
+function collectSolidityFiles(target: string, maxDepth = 8): string[] {
   const absoluteTarget = resolve(target);
   let stats: ReturnType<typeof statSync>;
 
@@ -190,19 +218,19 @@ function collectSolidityFiles(target: string): string[] {
   }
 
   const discovered: string[] = [];
-  const stack = [absoluteTarget];
+  const stack: Array<{ path: string; depth: number }> = [{ path: absoluteTarget, depth: 0 }];
 
   while (stack.length > 0) {
     const current = stack.pop();
-    if (!current) {
+    if (!current || current.depth > maxDepth) {
       continue;
     }
 
-    const entries = readdirSync(current, { withFileTypes: true });
+    const entries = readdirSync(current.path, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = resolve(current, entry.name);
+      const fullPath = resolve(current.path, entry.name);
       if (entry.isDirectory()) {
-        stack.push(fullPath);
+        stack.push({ path: fullPath, depth: current.depth + 1 });
         continue;
       }
 
@@ -252,6 +280,8 @@ function findMatches(file: string, patterns: BuiltinPattern[]): Match[] {
         lines: lineWindow(content, index),
         description: pattern.description,
         exploitReference: pattern.exploitReference,
+        patternSource: pattern.source ?? "builtin",
+        category: pattern.category,
       });
     }
   }
@@ -259,13 +289,16 @@ function findMatches(file: string, patterns: BuiltinPattern[]): Match[] {
   return matches;
 }
 
-function selectPatterns(categories?: string[]): BuiltinPattern[] {
+function selectPatterns(
+  availablePatterns: BuiltinPattern[],
+  categories?: string[]
+): BuiltinPattern[] {
   if (!categories || categories.length === 0) {
-    return BUILTIN_PATTERNS;
+    return availablePatterns;
   }
 
   const set = new Set(categories);
-  return BUILTIN_PATTERNS.filter((pattern) => set.has(pattern.category));
+  return availablePatterns.filter((pattern) => set.has(pattern.category));
 }
 
 export async function executePatternCheck(
@@ -282,7 +315,17 @@ export async function executePatternCheck(
   const startedAt = Date.now();
   context.metadata({ title: `Pattern check: ${args.target}` });
 
-  const selectedPatterns = selectPatterns(args.patterns);
+  const skillsDir = join(dirname(dirname(__dirname)), "skills");
+  const yamlPatterns = loadPatternPacks(join(skillsDir, "patterns"));
+  const skillDetectionRules = extractDetectionRulesFromSkills(skillsDir);
+
+  const allPatterns: BuiltinPattern[] = [
+    ...BUILTIN_PATTERNS.map((pattern) => ({ ...pattern, source: "builtin" as const })),
+    ...normalizePatternDefinitions(yamlPatterns, "yaml"),
+    ...normalizePatternDefinitions(skillDetectionRules, "skill"),
+  ];
+
+  const selectedPatterns = selectPatterns(allPatterns, args.patterns);
   const solidityFiles = collectSolidityFiles(args.target);
   if (solidityFiles.length === 0) {
     throw new Error(`No Solidity files found for target: ${args.target}`);
@@ -320,6 +363,7 @@ export async function executePatternCheck(
     patternsChecked: selectedPatterns.length,
     executionTime: Date.now() - startedAt,
     target: args.target,
+    patternVersion: PATTERN_PACK_VERSION,
   };
 }
 

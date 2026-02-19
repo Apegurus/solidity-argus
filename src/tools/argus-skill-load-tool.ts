@@ -39,12 +39,20 @@ export async function executeArgusSkillLoad(
     )
   }
 
+  const provenanceParts: string[] = []
+  if (skill.source_license) provenanceParts.push(skill.source_license)
+  if (skill.source_url) provenanceParts.push(skill.source_url)
+  if (skill.imported_at) provenanceParts.push(`Imported: ${skill.imported_at}`)
+
+  const provenanceLine = provenanceParts.length > 0 ? `[Provenance: ${provenanceParts.join(" | ")}]` : ""
+
   return [
-    `## Argus Skill: ${skill.name}`,
+    `## Argus Skill: ${skill.name} [Source: ${skill.source}]`,
     "",
     `**Source**: ${skill.source}`,
     `**Path**: ${skill.filePath}`,
     skill.description ? `**Description**: ${skill.description}` : "",
+    provenanceLine,
     "",
     skill.content,
   ]

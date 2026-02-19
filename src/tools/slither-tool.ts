@@ -259,6 +259,7 @@ export async function flattenFallback(
       solFiles = deps.execSyncFn(`find "${srcDir}" -name "*.sol" -maxdepth 3 -not -path "*/mocks/*" -not -path "*/test/*"`, {
         encoding: "utf-8",
         timeout: 5_000,
+        stdio: ["pipe", "pipe", "pipe"],
       })
         .trim()
         .split("\n")
@@ -287,6 +288,7 @@ export async function flattenFallback(
           encoding: "utf-8",
           timeout: 30_000,
           cwd: deps.cwd,
+          stdio: ["pipe", "pipe", "pipe"],
         });
         writeFileSync(flatFile, flattened);
       } catch (_e) {

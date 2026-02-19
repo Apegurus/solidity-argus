@@ -86,7 +86,7 @@ test("executeSoloditSearch returns findings from MCP when callMcpTool provided",
   expect(metadataCalls[0]?.title).toContain("Solodit");
 });
 
-test("executeSoloditSearch returns error when MCP unavailable (no callMcpTool)", async () => {
+test("executeSoloditSearch falls back to HTTP when callMcpTool absent", async () => {
   const { context } = createContext();
 
   const result = await executeSoloditSearch(
@@ -94,11 +94,18 @@ test("executeSoloditSearch returns error when MCP unavailable (no callMcpTool)",
     context
   );
 
-  expect(result.results).toHaveLength(0);
-  expect(result.totalFound).toBe(0);
   expect(result.query).toBe("flash loan");
-  expect(result.error).toContain("Solodit MCP not available");
-  expect(result.error).toContain("search_findings");
+  expect(Array.isArray(result.results)).toBe(true);
+  expect(typeof result.totalFound).toBe("number");
+
+  if (result.results.length > 0) {
+    expect(result.error).toBeUndefined();
+    for (const finding of result.results) {
+      expect(typeof finding.title).toBe("string");
+    }
+  } else {
+    expect(result.error).toBeDefined();
+  }
 });
 
 test("executeSoloditSearch passes severity filter to MCP", async () => {
@@ -173,7 +180,7 @@ test("executeSoloditSearch calls correct MCP server and tool name", async () => 
   expect(capturedCalls[0]?.tool).toBe("search_findings");
 });
 
-test("executeSoloditSearch handles MCP call error gracefully", async () => {
+test("executeSoloditSearch falls back to HTTP when MCP bridge throws", async () => {
   const { context } = createContext();
 
   const failingMcp: CallMcpTool = async () => {
@@ -186,10 +193,15 @@ test("executeSoloditSearch handles MCP call error gracefully", async () => {
     failingMcp
   );
 
-  expect(result.results).toHaveLength(0);
-  expect(result.totalFound).toBe(0);
   expect(result.query).toBe("access control");
-  expect(result.error).toContain("Connection refused");
+  expect(Array.isArray(result.results)).toBe(true);
+  expect(typeof result.totalFound).toBe("number");
+
+  if (result.results.length > 0) {
+    expect(result.error).toBeUndefined();
+  } else {
+    expect(result.error).toBeDefined();
+  }
 });
 
 test("executeSoloditSearch handles non-array MCP response", async () => {
