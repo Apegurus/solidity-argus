@@ -10,15 +10,42 @@ export interface ScvdIndexEntry {
   repoUrl: string;
 }
 
+export interface ScvdIndexMetadata {
+  lastSuccess: string | null;
+  lastAttempt: string | null;
+  errorCount: number;
+  lastError: string | null;
+  lastErrorReason: string | null;
+}
+
 export interface ScvdIndex {
   version: number;
   lastSync: string;
   totalFindings: number;
   entries: ScvdIndexEntry[];
+  metadata?: ScvdIndexMetadata;
 }
 
 const INDEX_VERSION = 1;
 const DEFAULT_LIMIT = 10;
+let syncInProgress = false;
+
+export function acquireSyncLock(): boolean {
+  if (syncInProgress) {
+    return false;
+  }
+
+  syncInProgress = true;
+  return true;
+}
+
+export function releaseSyncLock(): void {
+  syncInProgress = false;
+}
+
+export function isSyncLocked(): boolean {
+  return syncInProgress;
+}
 
 function normalizeKeywordInput(value: string): string[] {
   return value
@@ -96,8 +123,10 @@ export function searchIndex(
 }
 
 export async function saveIndex(index: ScvdIndex, filePath: string): Promise<void> {
-  const json = JSON.stringify(index, null, 2);
-  await Bun.write(filePath, json);
+  const tmpPath = `${filePath}.tmp.${Date.now()}`;
+  await Bun.write(tmpPath, JSON.stringify(index, null, 2));
+  const { renameSync } = await import("node:fs");
+  renameSync(tmpPath, filePath);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,6 +171,20 @@ function parseEntry(value: unknown): ScvdIndexEntry | null {
   };
 }
 
+function parseNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function parseMetadata(raw: Record<string, unknown>): ScvdIndexMetadata {
+  return {
+    lastSuccess: parseNullableString(raw.lastSuccess),
+    lastAttempt: parseNullableString(raw.lastAttempt),
+    errorCount: typeof raw.errorCount === "number" ? raw.errorCount : 0,
+    lastError: parseNullableString(raw.lastError),
+    lastErrorReason: parseNullableString(raw.lastErrorReason),
+  };
+}
+
 export async function loadIndex(filePath: string): Promise<ScvdIndex | null> {
   const file = Bun.file(filePath);
   const exists = await file.exists();
@@ -174,10 +217,17 @@ export async function loadIndex(filePath: string): Promise<ScvdIndex | null> {
     .map(parseEntry)
     .filter((entry): entry is ScvdIndexEntry => entry !== null);
 
-  return {
+  const index: ScvdIndex = {
     version,
     lastSync,
     totalFindings,
     entries,
   };
+
+  const rawMetadata = raw.metadata;
+  if (isRecord(rawMetadata)) {
+    index.metadata = parseMetadata(rawMetadata);
+  }
+
+  return index;
 }

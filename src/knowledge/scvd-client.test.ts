@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { ScvdClient, type ScvdFinding } from "./scvd-client";
+import { ScvdClient, ScvdNetworkError, type ScvdFinding } from "./scvd-client";
 
 type MockResponseInit = {
   ok?: boolean;
@@ -104,15 +104,20 @@ describe("ScvdClient", () => {
     expect(urls[0]).toContain("offset=20");
   });
 
-  test("fetchFindings returns empty array on network failure", async () => {
+  test("fetchFindings throws ScvdNetworkError on network failure", async () => {
     setMockFetch(async () => {
       throw new Error("network unreachable");
     });
 
     const client = new ScvdClient("https://api.scvd.dev");
-    const findings = await client.fetchFindings({ limit: 10, offset: 0 });
-
-    expect(findings).toEqual([]);
+    try {
+      await client.fetchFindings({ limit: 10, offset: 0 });
+      expect.unreachable("Expected fetchFindings to throw on network error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ScvdNetworkError);
+      const message = error instanceof Error ? error.message : "";
+      expect(message).toContain("network unreachable");
+    }
   });
 
   test("fetchAllFindings paginates and reports progress", async () => {

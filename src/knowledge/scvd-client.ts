@@ -150,6 +150,24 @@ function parseStats(raw: unknown): ScvdStats {
   };
 }
 
+export class ScvdNetworkError extends Error {
+  override readonly name = "ScvdNetworkError" as const;
+
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+export class ScvdApiError extends Error {
+  override readonly name = "ScvdApiError" as const;
+  readonly httpStatus: number;
+
+  constructor(httpStatus: number, message?: string) {
+    super(message ?? `SCVD API error: HTTP ${httpStatus}`);
+    this.httpStatus = httpStatus;
+  }
+}
+
 export class ScvdClient {
   private readonly baseUrl: string;
   private readonly signal?: AbortSignal;
@@ -167,11 +185,14 @@ export class ScvdClient {
       response = await fetch(url, { signal: this.signal });
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown network error";
-      throw new Error(`Failed to fetch SCVD stats from ${url}: ${message}`);
+      throw new ScvdNetworkError(`Failed to fetch SCVD stats from ${url}: ${message}`);
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch SCVD stats from ${url}: HTTP ${response.status}`);
+      throw new ScvdApiError(
+        response.status,
+        `Failed to fetch SCVD stats from ${url}: HTTP ${response.status}`
+      );
     }
 
     const body = (await response.json()) as unknown;
@@ -198,17 +219,23 @@ export class ScvdClient {
     const query = searchParams.toString();
     const url = `${this.baseUrl}/findings${query.length > 0 ? `?${query}` : ""}`;
 
+    let response: Response;
     try {
-      const response = await fetch(url, { signal: this.signal });
-      if (!response.ok) {
-        return [];
-      }
-
-      const body = (await response.json()) as unknown;
-      return parseFindings(body);
-    } catch {
-      return []; // network error — treat as empty page
+      response = await fetch(url, { signal: this.signal });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown network error";
+      throw new ScvdNetworkError(`Failed to fetch SCVD findings from ${url}: ${message}`);
     }
+
+    if (!response.ok) {
+      throw new ScvdApiError(
+        response.status,
+        `SCVD API error: HTTP ${response.status} for ${url}`
+      );
+    }
+
+    const body = (await response.json()) as unknown;
+    return parseFindings(body);
   }
 
   async fetchAllFindings(onProgress?: (count: number) => void): Promise<ScvdFinding[]> {
