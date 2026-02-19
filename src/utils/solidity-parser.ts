@@ -20,6 +20,20 @@ interface StorageLayout {
 }
 
 /**
+ * Extract the first JSON value from a string that may contain non-JSON
+ * prefix (e.g. forge table-format output, compilation progress).
+ * Falls back to the original string if no JSON delimiter is found.
+ */
+function extractJson(raw: string, opener: "[" | "{"): string {
+  const closer = opener === "[" ? "]" : "}";
+  const start = raw.indexOf(opener);
+  if (start === -1) return raw;
+  const end = raw.lastIndexOf(closer);
+  if (end === -1) return raw;
+  return raw.slice(start, end + 1);
+}
+
+/**
  * Extract contract information using forge inspect
  * Runs forge inspect <contractName> abi and storage-layout
  * Parses ABI to extract functions and state variables
@@ -43,7 +57,7 @@ export async function extractContractInfo(
   try {
     // Run forge inspect abi
     const abiResult = Bun.spawnSync(
-      ["forge", "inspect", contractName, "abi"],
+      ["forge", "inspect", contractName, "abi", "--json"],
       {
         cwd: projectDir,
         stdout: "pipe",
@@ -59,7 +73,7 @@ export async function extractContractInfo(
 
     // Run forge inspect storage-layout
     const storageResult = Bun.spawnSync(
-      ["forge", "inspect", contractName, "storage-layout"],
+      ["forge", "inspect", contractName, "storage-layout", "--json"],
       {
         cwd: projectDir,
         stdout: "pipe",
@@ -74,7 +88,8 @@ export async function extractContractInfo(
     }
 
     // Parse ABI
-    const abiOutput = abiResult.stdout?.toString() || "[]";
+    const abiRaw = abiResult.stdout?.toString() || "[]";
+    const abiOutput = extractJson(abiRaw, "[");
     let abi: ABIFunction[] = [];
     try {
       abi = JSON.parse(abiOutput);
@@ -84,7 +99,8 @@ export async function extractContractInfo(
     }
 
     // Parse storage layout
-    const storageOutput = storageResult.stdout?.toString() || "{}";
+    const storageRaw = storageResult.stdout?.toString() || "{}";
+    const storageOutput = extractJson(storageRaw, "{");
     let storageLayout: StorageLayout = { storage: [], types: {} };
     try {
       storageLayout = JSON.parse(storageOutput);
