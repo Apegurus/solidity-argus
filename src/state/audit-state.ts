@@ -19,6 +19,8 @@ export function createAuditState(projectDir: string): {
     currentPhase: "reconnaissance",
     scope: [],
     startTime: Date.now(),
+    soloditResults: [],
+    fuzzCounterexamples: [],
   };
 
   const store = createFindingStore(state);

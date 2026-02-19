@@ -22,6 +22,7 @@ describe("PluginState type shape", () => {
           apiUrl: "https://api.scvd.dev",
         },
         autoSync: true,
+        skillPrecedence: "bundled-first" as const,
       },
       reporting: {
         format: "markdown",
