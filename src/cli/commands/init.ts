@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { CliCommand } from "../types"
+import { cliOutput } from "../cli-output"
 
 const GREEN = "\x1b[32m"
 const YELLOW = "\x1b[33m"
@@ -23,8 +24,7 @@ export const initCommand: CliCommand = {
     const configPath = join(configDir, "solidity-argus.json")
 
     if (existsSync(configPath)) {
-      console.error(`${YELLOW}⚠${RESET} Config already exists: ${configPath}`)
-      console.error("  Remove it first if you want to reinitialize.")
+      cliOutput.error(`${YELLOW}⚠${RESET} Config already exists: ${configPath} — remove it first if you want to reinitialize.`)
       return 1
     }
 
@@ -37,9 +37,9 @@ export const initCommand: CliCommand = {
         ? "Hardhat"
         : "unknown"
 
-    console.log(`${GREEN}✓${RESET} Created ${configPath}`)
-    console.log(`  Project type: ${projectType}`)
-    console.log("  Run 'argus doctor' to check dependencies.")
+    cliOutput.log(`${GREEN}✓${RESET} Created ${configPath}`)
+    cliOutput.log(`  Project type: ${projectType}`)
+    cliOutput.log("  Run 'argus doctor' to check dependencies.")
 
     return 0
   },

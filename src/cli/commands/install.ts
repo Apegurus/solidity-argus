@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { homedir } from "node:os"
 import type { CliCommand } from "../types"
+import { cliOutput } from "../cli-output"
 
 const GREEN = "\x1b[32m"
 const YELLOW = "\x1b[33m"
@@ -26,8 +27,7 @@ export const installCommand: CliCommand = {
     const configPath = findOpencodeConfig()
 
     if (!configPath) {
-      console.error(`${YELLOW}⚠${RESET} opencode.json not found`)
-      console.error("  Create one first, or run: opencode init")
+      cliOutput.error(`${YELLOW}⚠${RESET} opencode.json not found — create one first, or run: opencode init`)
       return 1
     }
 
@@ -37,7 +37,7 @@ export const installCommand: CliCommand = {
       const plugins: string[] = config.plugin ?? []
 
       if (plugins.includes("solidity-argus")) {
-        console.log(`${GREEN}✓${RESET} solidity-argus already registered in ${configPath}`)
+        cliOutput.log(`${GREEN}✓${RESET} solidity-argus already registered in ${configPath}`)
         return 0
       }
 
@@ -45,10 +45,10 @@ export const installCommand: CliCommand = {
       config.plugin = plugins
       writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
 
-      console.log(`${GREEN}✓${RESET} Added solidity-argus to ${configPath}`)
+      cliOutput.log(`${GREEN}✓${RESET} Added solidity-argus to ${configPath}`)
       return 0
     } catch (error) {
-      console.error(`${YELLOW}⚠${RESET} Failed to update ${configPath}`)
+      cliOutput.error(`${YELLOW}⚠${RESET} Failed to update ${configPath}`)
       return 1
     }
   },

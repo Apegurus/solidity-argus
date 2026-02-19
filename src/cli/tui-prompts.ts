@@ -1,3 +1,5 @@
+import { cliOutput } from "./cli-output"
+
 const NON_INTERACTIVE =
   !process.stdin.isTTY || process.env.CI === "true" || process.env.ARGUS_NON_INTERACTIVE === "true"
 
@@ -29,10 +31,10 @@ export async function select(
 ): Promise<string> {
   if (NON_INTERACTIVE) return options[defaultIndex] ?? options[0] ?? ""
 
-  console.log(message)
+  cliOutput.log(message)
   for (let i = 0; i < options.length; i++) {
     const marker = i === defaultIndex ? ">" : " "
-    console.log(`  ${marker} ${i + 1}. ${options[i]}`)
+    cliOutput.log(`  ${marker} ${i + 1}. ${options[i]}`)
   }
 
   return new Promise((resolve) => {

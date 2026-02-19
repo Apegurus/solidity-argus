@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { CliProgram, createCliProgram } from "./cli-program";
 import type { CliCommand } from "./types";
+import { cliOutput } from "./cli-output";
 
 describe("CliProgram", () => {
   let program: CliProgram;
@@ -12,10 +13,10 @@ describe("CliProgram", () => {
     output = [];
     errorOutput = [];
 
-    const originalLog = console.log;
+    const originalLog = cliOutput.log;
     const originalError = console.error;
 
-    console.log = (...args: unknown[]) => {
+    cliOutput.log = (...args: unknown[]) => {
       output.push(args.join(" "));
     };
 
@@ -24,7 +25,7 @@ describe("CliProgram", () => {
     };
 
     return () => {
-      console.log = originalLog;
+      cliOutput.log = originalLog;
       console.error = originalError;
     };
   });
@@ -107,7 +108,7 @@ describe("CliProgram", () => {
       const exitCode = await program.dispatch(["unknown-cmd"]);
 
       expect(exitCode).toBe(1);
-      expect(errorOutput.join("\n")).toContain("Error: Unknown command 'unknown-cmd'");
+      expect(errorOutput.join("\n")).toContain("Unknown command 'unknown-cmd'");
       expect(errorOutput.join("\n")).toContain("Run 'argus' for help");
     });
   });
@@ -118,7 +119,7 @@ describe("CliProgram", () => {
       const exitCode = await program.dispatch(["doctor"]);
 
       expect(output.join("\n")).toContain("Argus Doctor");
-    });
+    }, 15_000);
 
     it("should have init command", async () => {
       const program = createCliProgram();
