@@ -29,6 +29,7 @@ export function parseSolcVersion(target: string): string | undefined {
         const files = execSync(`find "${srcDir}" -name "*.sol" -maxdepth 3`, {
           encoding: "utf-8",
           timeout: 5_000,
+          stdio: ["pipe", "pipe", "pipe"],
         })
           .trim()
           .split("\n")
