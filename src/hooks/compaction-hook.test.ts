@@ -1,6 +1,8 @@
 import { test, expect, describe } from "bun:test"
 import { createCompactionHook } from "./compaction-hook"
 import type { AuditState, Finding } from "../state/types"
+import type { ReconContext } from "./recon-context-builder"
+import type { ProjectConfig } from "../utils/project-detector"
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -97,5 +99,69 @@ describe("createCompactionHook", () => {
     const hook = createCompactionHook(() => state)
     const result = await hook({ summary: "s" })
     expect(result).toContain("Phase: manual-review")
+  })
+
+  test("includes reconnaissance block when provided", async () => {
+    const state = makeState()
+    const recon: ReconContext = {
+      projectConfig: {
+        type: "foundry",
+        srcDir: "src",
+        testDir: "test",
+        remappings: [],
+        viaIr: false,
+        rootDir: "/tmp",
+        hasFoundry: true,
+        hasHardhat: false,
+        isUpgradeable: false,
+        dependencyRisks: [],
+      } satisfies ProjectConfig,
+      dependencyRisks: [
+        {
+          package: "@openzeppelin/contracts",
+          version: "4.8.0",
+          risk: "high",
+          category: "known-vulnerability",
+          recommendation: "Upgrade",
+        },
+      ],
+      auditArtifacts: [],
+    }
+    const hook = createCompactionHook(() => state, () => recon)
+    const result = await hook({ summary: "s" })
+    expect(result).toContain("<argus-audit-state>")
+    expect(result).toContain("<argus-recon>")
+    expect(result).toContain("Framework: Foundry")
+    expect(result).toContain("@openzeppelin/contracts@4.8.0: high")
+  })
+
+  test("works without reconnaissance (backward compat)", async () => {
+    const state = makeState({ currentPhase: "scanning" })
+    const hook = createCompactionHook(() => state)
+    const result = await hook({ summary: "s" })
+    expect(result).toContain("<argus-audit-state>")
+    expect(result).toContain("Phase: scanning")
+    expect(result).not.toContain("<argus-recon>")
+  })
+
+  test("returns recon block alone when no audit state", async () => {
+    const recon: ReconContext = {
+      projectConfig: null,
+      dependencyRisks: [],
+      auditArtifacts: [
+        { type: "slither-output", path: "/tmp/slither.json", name: "slither.json" },
+      ],
+    }
+    const hook = createCompactionHook(() => null, () => recon)
+    const result = await hook({ summary: "s" })
+    expect(result).not.toContain("<argus-audit-state>")
+    expect(result).toContain("<argus-recon>")
+    expect(result).toContain("slither-output: /tmp/slither.json")
+  })
+
+  test("returns null when no state and recon returns null", async () => {
+    const hook = createCompactionHook(() => null, () => null)
+    const result = await hook({ summary: "s" })
+    expect(result).toBeNull()
   })
 })

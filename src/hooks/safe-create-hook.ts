@@ -1,3 +1,5 @@
+import { createLogger } from "../shared/logger"
+
 export function safeCreateHook<T>(
   factory: () => T,
   hookName: string
@@ -5,11 +7,8 @@ export function safeCreateHook<T>(
   try {
     return factory();
   } catch (error) {
-    console.error(
-      `[argus-hook-error] Failed to create hook "${hookName}": ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    const logger = createLogger()
+    logger.error(`Failed to create hook "${hookName}": ${error instanceof Error ? error.message : String(error)}`)
     return undefined;
   }
 }

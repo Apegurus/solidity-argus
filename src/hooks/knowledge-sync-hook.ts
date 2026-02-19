@@ -3,6 +3,7 @@ import path from "node:path"
 import { ScvdClient } from "../knowledge/scvd-client"
 import { syncIncremental, type SyncResult } from "../knowledge/scvd-sync"
 import type { ArgusConfig } from "../config/types"
+import { createLogger } from "../shared/logger"
 
 export type KnowledgeSyncDependencies = {
   createClient?: (apiUrl: string) => unknown
@@ -18,7 +19,7 @@ function defaultDependencies(): Required<KnowledgeSyncDependencies> {
     syncIncrementalFn: async (client: unknown, indexPath: string) =>
       syncIncremental(client as ScvdClient, indexPath),
     log: (message: string) => {
-       console.error(message)
+       createLogger().info(message)
      },
   }
 }

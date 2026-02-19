@@ -1,0 +1,128 @@
+import type { AuditState, FindingSeverity } from "../state/types"
+
+const DEFAULT_TOKEN_BUDGET = 2000
+const TOKENS_PER_CHAR = 4
+
+export interface SystemPromptHookDeps {
+  getAuditState: () => AuditState | null
+  getAgentForSession: (sessionID: string) => string | undefined
+  isArgusAgent: (sessionID: string) => boolean
+  getContextPressure?: (systemText: string) => number
+  getTokenBudget?: (agent: string, contextPressure: number) => number
+  getEnforcerReminder?: (state: AuditState) => string | null
+  getReconBlock?: () => string | null
+}
+
+const FALLBACK_DIRECTIVES: Record<string, string> = {
+  slither:
+    "DO NOT re-attempt argus_slither_analyze. Use `argus_analyze_contract` and `argus_check_patterns` instead. Note limitation in report.",
+  forge:
+    "DO NOT re-attempt argus_forge_test or argus_forge_fuzz. Verify findings via manual code tracing. Note limitation in report.",
+  solodit:
+    "DO NOT re-attempt argus_solodit_search. Use `argus_check_patterns` with local rules. Note limitation in report.",
+}
+
+export function buildFallbackDirectives(unavailableTools: string[]): string[] {
+  const directives: string[] = []
+  for (const tool of unavailableTools) {
+    const directive = FALLBACK_DIRECTIVES[tool]
+    if (directive) directives.push(directive)
+  }
+  return directives
+}
+
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / TOKENS_PER_CHAR)
+}
+
+export function buildDynamicContext(
+  auditState: AuditState,
+  agent: string,
+  tokenBudget: number = DEFAULT_TOKEN_BUDGET,
+): string {
+  const severityCounts: Record<FindingSeverity, number> = {
+    Critical: 0,
+    High: 0,
+    Medium: 0,
+    Low: 0,
+    Informational: 0,
+  }
+
+  for (const finding of auditState.findings) {
+    severityCounts[finding.severity]++
+  }
+
+  const tools = auditState.toolsExecuted.map((tool) => tool.tool).join(", ") || "none"
+  const unavailable = auditState.unavailableTools ?? []
+  const lines: string[] = [
+    `<argus-context agent="${agent}">`,
+    `Phase: ${auditState.currentPhase}`,
+    `Contracts: ${auditState.contractsReviewed.length} reviewed`,
+    `Findings: Critical=${severityCounts.Critical} High=${severityCounts.High} Medium=${severityCounts.Medium} Low=${severityCounts.Low} Info=${severityCounts.Informational}`,
+    `Tools: ${tools}`,
+  ]
+
+  if (unavailable.length > 0) {
+    lines.push(`Unavailable: ${unavailable.join(", ")}`)
+    lines.push(...buildFallbackDirectives(unavailable))
+  }
+
+  lines.push("</argus-context>")
+
+  let summary = lines.join("\n")
+
+  if (estimateTokens(summary) > tokenBudget) {
+    summary = [
+      `<argus-context agent="${agent}">`,
+      `Phase: ${auditState.currentPhase} | Findings: ${auditState.findings.length} | Contracts: ${auditState.contractsReviewed.length}`,
+      "</argus-context>",
+    ].join("\n")
+  }
+
+  return summary
+}
+
+export function createSystemPromptHook(deps: SystemPromptHookDeps) {
+  return async (
+    input: { sessionID?: string; model: unknown },
+    output: { system: string[] },
+  ): Promise<void> => {
+    if (!input.sessionID) {
+      return
+    }
+
+    if (!deps.isArgusAgent(input.sessionID)) {
+      return
+    }
+
+    const auditState = deps.getAuditState()
+    if (!auditState) {
+      return
+    }
+
+    const agent = deps.getAgentForSession(input.sessionID)
+    if (!agent) {
+      return
+    }
+
+    const currentSystem = output.system.join("\n")
+    const pressure = deps.getContextPressure?.(currentSystem) ?? 0
+    const budget = deps.getTokenBudget?.(agent, pressure) ?? DEFAULT_TOKEN_BUDGET
+
+    output.system.push(buildDynamicContext(auditState, agent, budget))
+
+    if (deps.getReconBlock) {
+      const reconBlock = deps.getReconBlock()
+      if (reconBlock && estimateTokens(reconBlock) <= budget) {
+        output.system.push(reconBlock)
+      }
+    }
+
+    if (agent === "argus" && deps.getEnforcerReminder) {
+      const reminder = deps.getEnforcerReminder(auditState)
+      if (reminder) {
+        output.system.push(reminder)
+      }
+    }
+  }
+}

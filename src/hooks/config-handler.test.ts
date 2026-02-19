@@ -26,6 +26,7 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
         ...overrides?.knowledge?.scvd,
       },
       autoSync: true,
+      skillPrecedence: "bundled-first" as const,
       customSkillsDir: overrides?.knowledge?.customSkillsDir,
     },
     reporting: {
@@ -257,16 +258,17 @@ describe("createConfigHandler", () => {
 
     try {
       const handler = createConfigHandler(
-        createArgusConfig({
-          knowledge: {
-            scvd: {
-              enabled: true,
-              apiUrl: "https://api.scvd.dev",
-            },
-            autoSync: true,
-            customSkillsDir: customDir,
-          },
-        })
+         createArgusConfig({
+           knowledge: {
+             scvd: {
+               enabled: true,
+               apiUrl: "https://api.scvd.dev",
+             },
+             autoSync: true,
+             skillPrecedence: "bundled-first" as const,
+             customSkillsDir: customDir,
+           },
+         })
       )
       const config: Config = {}
 
@@ -289,6 +291,7 @@ describe("createConfigHandler", () => {
             apiUrl: "https://api.scvd.dev",
           },
           autoSync: true,
+          skillPrecedence: "bundled-first" as const,
           customSkillsDir: missingDir,
         },
       })
