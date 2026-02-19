@@ -7,7 +7,7 @@ import { createLogger } from "../../shared/logger";
 
 const STATE_FILE_DIR = ".opencode";
 const STATE_FILE_NAME = "argus-state.json";
-const STATE_VERSION = "1";
+const STATE_VERSION = "2";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -39,9 +39,11 @@ function isPersistentAuditState(value: unknown): value is PersistentAuditState {
     return false;
   }
 
+  const hasSupportedVersion = value.version === "1" || value.version === "2";
+
   return (
     typeof value.savedAt === "number" &&
-    typeof value.version === "string" &&
+    hasSupportedVersion &&
     typeof value.filePath === "string"
   );
 }
@@ -69,7 +71,17 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
         return null;
       }
 
-      const { savedAt: _savedAt, version: _version, filePath: _filePath, ...state } = parsed;
+      const { savedAt: _savedAt, version, filePath: _filePath, ...state } = parsed;
+
+      if (version === "1") {
+        if (!state.soloditResults) {
+          state.soloditResults = [];
+        }
+        if (!state.fuzzCounterexamples) {
+          state.fuzzCounterexamples = [];
+        }
+      }
+
       currentState = state;
       return currentState;
     } catch (_error) {
@@ -77,20 +89,31 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
     }
   }
 
+  let saveInFlight = false;
+
   async function save(state: AuditState): Promise<void> {
     currentState = state;
 
-    const persistentState: PersistentAuditState = {
-      ...state,
-      savedAt: Date.now(),
-      version: STATE_VERSION,
-      filePath: stateFilePath,
-    };
+    if (saveInFlight) return;
+    saveInFlight = true;
 
-    const tempFilePath = `${stateFilePath}.tmp`;
-    await mkdir(dirname(stateFilePath), { recursive: true });
-    await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`);
-    await rename(tempFilePath, stateFilePath);
+    try {
+      const persistentState: PersistentAuditState = {
+        ...state,
+        savedAt: Date.now(),
+        version: STATE_VERSION,
+        filePath: stateFilePath,
+      };
+
+      const tempFilePath = `${stateFilePath}.${Date.now()}.tmp`;
+      await mkdir(dirname(stateFilePath), { recursive: true });
+      await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`);
+      await rename(tempFilePath, stateFilePath);
+    } catch {
+      // Non-critical: state persistence is best-effort
+    } finally {
+      saveInFlight = false;
+    }
   }
 
   function get(): AuditState {

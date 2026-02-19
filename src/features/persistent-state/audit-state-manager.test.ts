@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AuditState, Finding } from "../../state/types";
 import { createAuditStateManager } from "./audit-state-manager";
 
 const STATE_DIR = ".opencode";
@@ -22,6 +23,135 @@ describe("createAuditStateManager", () => {
     tempDirs.push(dir);
     return dir;
   }
+
+  function buildPersistentState(
+    projectDir: string,
+    version: "1" | "2",
+    statePatch: Partial<AuditState> = {},
+  ): Record<string, unknown> {
+    const baseState: AuditState = {
+      sessionId: "session-1",
+      projectDir,
+      contractsReviewed: [],
+      findings: [],
+      toolsExecuted: [],
+      currentPhase: "reconnaissance",
+      scope: [],
+      startTime: 1,
+      ...statePatch,
+    };
+
+    return {
+      ...baseState,
+      savedAt: 123,
+      version,
+      filePath: join(projectDir, STATE_DIR, STATE_FILE),
+    };
+  }
+
+  test("Finding supports source 'solodit'", () => {
+    const finding: Finding = {
+      id: "f-1",
+      check: "historical-reentrancy",
+      severity: "High",
+      confidence: "Medium",
+      description: "Similar issue found in Solodit reports",
+      file: "Vault.sol",
+      lines: [10, 12],
+      source: "solodit",
+    };
+
+    expect(finding.source).toBe("solodit");
+  });
+
+  test("Finding supports source 'fuzz'", () => {
+    const finding: Finding = {
+      id: "f-2",
+      check: "invariant-break",
+      severity: "Medium",
+      confidence: "Low",
+      description: "Invariant breaks under fuzzed input",
+      file: "Vault.sol",
+      lines: [42, 44],
+      source: "fuzz",
+    };
+
+    expect(finding.source).toBe("fuzz");
+  });
+
+  test("Finding supports optional provenance", () => {
+    const finding: Finding = {
+      id: "f-3",
+      check: "unchecked-transfer",
+      severity: "Low",
+      confidence: "High",
+      description: "Unchecked transfer return value",
+      file: "Token.sol",
+      lines: [4, 7],
+      source: "pattern",
+      provenance: {
+        timestamp: 100,
+        toolVersion: "1.0.0",
+        phase: "testing",
+      },
+    };
+
+    expect(finding.provenance?.phase).toBe("testing");
+  });
+
+  test("AuditState supports soloditResults", () => {
+    const state: AuditState = {
+      sessionId: "session-2",
+      projectDir: "/tmp/project",
+      contractsReviewed: [],
+      findings: [],
+      toolsExecuted: [],
+      currentPhase: "research",
+      scope: [],
+      startTime: 1,
+      soloditResults: [
+        {
+          query: "reentrancy",
+          timestamp: 10,
+          resultCount: 1,
+          topResults: [
+            {
+              title: "Reentrancy in Vault",
+              severity: "High",
+              url: "https://example.com/report",
+              protocol: "Vault",
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(state.soloditResults?.[0]?.query).toBe("reentrancy");
+  });
+
+  test("AuditState supports fuzzCounterexamples", () => {
+    const state: AuditState = {
+      sessionId: "session-3",
+      projectDir: "/tmp/project",
+      contractsReviewed: [],
+      findings: [],
+      toolsExecuted: [],
+      currentPhase: "testing",
+      scope: [],
+      startTime: 1,
+      fuzzCounterexamples: [
+        {
+          testName: "testFuzz_withdraw",
+          inputs: ["1", "2"],
+          runs: 256,
+          seed: 42,
+          timestamp: 10,
+        },
+      ],
+    };
+
+    expect(state.fuzzCounterexamples?.[0]?.testName).toBe("testFuzz_withdraw");
+  });
 
   test("saves and loads state round-trip", async () => {
     const projectDir = makeTempDir();
@@ -136,7 +266,98 @@ describe("createAuditStateManager", () => {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
     expect(typeof parsed.savedAt).toBe("number");
-    expect(parsed.version).toBe("1");
+    expect(parsed.version).toBe("2");
     expect(parsed.filePath).toBe(statePath);
+  });
+
+  test("v1 state migrates by adding empty arrays for new fields", async () => {
+    const projectDir = makeTempDir();
+    const stateDir = join(projectDir, STATE_DIR);
+    const statePath = join(stateDir, STATE_FILE);
+
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(statePath, `${JSON.stringify(buildPersistentState(projectDir, "1"))}\n`);
+
+    const manager = createAuditStateManager(projectDir);
+    const loaded = await manager.load();
+
+    expect(loaded).not.toBeNull();
+    expect(loaded?.soloditResults).toEqual([]);
+    expect(loaded?.fuzzCounterexamples).toEqual([]);
+  });
+
+  test("v2 state loads and preserves new fields", async () => {
+    const projectDir = makeTempDir();
+    const stateDir = join(projectDir, STATE_DIR);
+    const statePath = join(stateDir, STATE_FILE);
+
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(
+      statePath,
+      `${JSON.stringify(
+        buildPersistentState(projectDir, "2", {
+          soloditResults: [
+            {
+              query: "flash-loan",
+              timestamp: 11,
+              resultCount: 1,
+              topResults: [
+                {
+                  title: "Flash loan exploit",
+                  severity: "Critical",
+                  url: "https://example.com/flash",
+                  protocol: "Lending",
+                },
+              ],
+            },
+          ],
+          fuzzCounterexamples: [
+            {
+              testName: "testFuzz_liquidate",
+              inputs: ["1000", "0"],
+              runs: 512,
+              timestamp: 12,
+            },
+          ],
+          patternVersion: "patterns-v4",
+        }),
+      )}\n`,
+    );
+
+    const manager = createAuditStateManager(projectDir);
+    const loaded = await manager.load();
+
+    expect(loaded).not.toBeNull();
+    expect(loaded?.soloditResults?.[0]?.query).toBe("flash-loan");
+    expect(loaded?.fuzzCounterexamples?.[0]?.testName).toBe("testFuzz_liquidate");
+    expect(loaded?.patternVersion).toBe("patterns-v4");
+  });
+
+  test("isPersistentAuditState path accepts v1 state", async () => {
+    const projectDir = makeTempDir();
+    const stateDir = join(projectDir, STATE_DIR);
+    const statePath = join(stateDir, STATE_FILE);
+
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(statePath, `${JSON.stringify(buildPersistentState(projectDir, "1"))}\n`);
+
+    const manager = createAuditStateManager(projectDir);
+    const loaded = await manager.load();
+
+    expect(loaded).not.toBeNull();
+  });
+
+  test("isPersistentAuditState path accepts v2 state", async () => {
+    const projectDir = makeTempDir();
+    const stateDir = join(projectDir, STATE_DIR);
+    const statePath = join(stateDir, STATE_FILE);
+
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(statePath, `${JSON.stringify(buildPersistentState(projectDir, "2"))}\n`);
+
+    const manager = createAuditStateManager(projectDir);
+    const loaded = await manager.load();
+
+    expect(loaded).not.toBeNull();
   });
 });

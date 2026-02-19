@@ -1,7 +1,8 @@
-import { describe, expect, it, spyOn } from "bun:test"
+import { describe, expect, it, spyOn, beforeEach, afterEach } from "bun:test"
 import { createSessionRecoveryHandler } from "./session-recovery"
 import type { AuditStateManager } from "../../managers/types"
 import type { AuditState } from "../../state/types"
+import { resetLoggerSink } from "../../shared/logger"
 
 function makeMockManager(state: AuditState | null = null): AuditStateManager {
   return {
@@ -38,17 +39,31 @@ describe("createSessionRecoveryHandler", () => {
   })
 
   it("handles missing persisted state gracefully", async () => {
-    const manager = makeMockManager(null)
-    const warnSpy = spyOn(console, "error")
-    const handler = createSessionRecoveryHandler(manager)
+    // Logger writes to stderr when ARGUS_LOG=stderr, otherwise to file.
+    // We enable stderr mode so we can capture the warn output in-process.
+    process.env.ARGUS_LOG = "stderr"
+    resetLoggerSink()
 
-    await handler({ type: "session.error", sessionId: "s1" })
+    const stderrChunks: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : chunk.toString())
+      return true
+    }) as typeof process.stderr.write
 
-    const warnCalls = warnSpy.mock.calls.filter(
-      (call) => call.some((a) => typeof a === "string" && a.includes("No persisted state")),
-    )
-    expect(warnCalls.length).toBeGreaterThanOrEqual(1)
-    warnSpy.mockRestore()
+    try {
+      const manager = makeMockManager(null)
+      const handler = createSessionRecoveryHandler(manager)
+
+      await handler({ type: "session.error", sessionId: "s1" })
+
+      const hasWarn = stderrChunks.some((c) => c.includes("No persisted state"))
+      expect(hasWarn).toBe(true)
+    } finally {
+      process.stderr.write = origWrite
+      delete process.env.ARGUS_LOG
+      resetLoggerSink()
+    }
   })
 
   it("ignores non-error events", async () => {
