@@ -6,20 +6,53 @@ import { createConfigHandler } from "./hooks/config-handler"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
 import { createEventHookV2 } from "./hooks/event-hook-v2"
+import { createAgentTracker } from "./hooks/agent-tracker"
+import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { safeCreateHook } from "./hooks/safe-create-hook"
-import { createToolOutputTruncator } from "./features/context-monitor"
+import { createContextMonitor, createToolOutputTruncator } from "./features/context-monitor"
+import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
+import { getTokenBudgetForAgent } from "./hooks/context-budget"
 import { createSessionRecoveryHandler } from "./features/error-recovery"
 import { createToolErrorRecoveryHandler } from "./features/error-recovery"
+import { detectProject } from "./utils/project-detector"
+import type { ProjectConfig } from "./utils/project-detector"
+import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
+import type { ReconContext } from "./hooks/recon-context-builder"
+import { buildReconContextBlock } from "./hooks/recon-context-builder"
+import type { AuditState } from "./state/types"
+
+let latestAgentTracker: ReturnType<typeof createAgentTracker> | undefined
+
+export function getAgentForSession(sessionID: string): string | undefined {
+  return latestAgentTracker?.getAgentForSession(sessionID)
+}
+
+export function isArgusAgent(sessionID: string): boolean {
+  return latestAgentTracker?.isArgusAgent(sessionID) ?? false
+}
 
 export type Hooks = Pick<
   PluginHooks,
   | "config"
+  | "chat.params"
+  | "chat.message"
   | "experimental.chat.system.transform"
   | "experimental.session.compacting"
   | "tool.execute.after"
   | "event"
 >
 
+/**
+ * Creates the hook handlers for the Argus plugin.
+ *
+ * Context Delivery Strategy:
+ * - Prompt: Static agent identity (src/agents/*-prompt.ts) — methodology, personality, tool instructions
+ * - Hook: Dynamic state injection via experimental.chat.system.transform — audit progress, findings, phase
+ * - Skill-load: On-demand knowledge via argus_skill_load tool — vulnerability patterns, protocol knowledge
+ *
+ * The system.transform hook injects dynamic audit context only for Argus-family agents
+ * (argus, sentinel, pythia, scribe). Non-audit agents receive no injection.
+ */
 export function createHooks(args: {
   config: ArgusConfig
   managers: Managers
@@ -28,13 +61,17 @@ export function createHooks(args: {
 }): Hooks {
   const { config, managers, projectDir, isHookEnabled } = args
   const { auditStateManager, backgroundManager } = managers
+  const agentTracker = createAgentTracker()
+  latestAgentTracker = agentTracker
 
-   const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
-   const toolErrorRecoveryHandler = createToolErrorRecoveryHandler()
-   const outputTruncator = createToolOutputTruncator()
+  const contextMonitor = createContextMonitor()
+  const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
+  let auditStateGetter: (() => AuditState | null) | undefined
+  const toolErrorRecoveryHandler = createToolErrorRecoveryHandler(() => auditStateGetter?.() ?? null)
+  const outputTruncator = createToolOutputTruncator()
 
   const { hook: eventHook, getAuditState, setAuditState } = createEventHookV2(projectDir, [
-    async ({ type, auditState, setAuditState: setState }) => {
+    async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {
         const recoveredState = await auditStateManager.load()
         if (recoveredState) {
@@ -49,6 +86,9 @@ export function createHooks(args: {
       }
 
       if (type === "session.deleted") {
+        if (sessionId) {
+          agentTracker.clearSession(sessionId)
+        }
         await auditStateManager.reset()
       }
     },
@@ -62,13 +102,50 @@ export function createHooks(args: {
     },
   ])
 
-   const initialState = auditStateManager.get()
-   if (initialState) {
-     setAuditState(initialState)
-   }
+  auditStateGetter = getAuditState
 
-   const compactionHook = isHookEnabled("compaction")
-    ? safeCreateHook(() => createCompactionHook(getAuditState), "compaction")
+  const initialState = auditStateManager.get()
+  if (initialState) {
+    setAuditState(initialState)
+  }
+
+  const auditEnforcer = createAuditEnforcer()
+
+  const systemPromptHook = createSystemPromptHook({
+    getAuditState,
+    getAgentForSession: agentTracker.getAgentForSession,
+    isArgusAgent: agentTracker.isArgusAgent,
+    getContextPressure: (systemText: string) => {
+      const status = contextMonitor.getContextStatus(systemText, getAuditState())
+      return status.usage
+    },
+    getTokenBudget: getTokenBudgetForAgent,
+    getEnforcerReminder: auditEnforcer,
+    getReconBlock: () => buildReconContextBlock({
+      projectConfig: reconProjectConfig,
+      dependencyRisks: reconProjectConfig?.dependencyRisks ?? [],
+      auditArtifacts: detectAuditArtifacts(projectDir),
+    }),
+  })
+
+  let reconProjectConfig: ProjectConfig | null = null
+
+  detectProject(projectDir)
+    .then((config) => {
+      reconProjectConfig = config
+    })
+    .catch(() => {
+      // Silent fallback — audit artifacts remain available
+    })
+
+  const getReconContext = (): ReconContext => ({
+    projectConfig: reconProjectConfig,
+    dependencyRisks: reconProjectConfig?.dependencyRisks ?? [],
+    auditArtifacts: detectAuditArtifacts(projectDir),
+  })
+
+  const compactionHook = isHookEnabled("compaction")
+    ? safeCreateHook(() => createCompactionHook(getAuditState, getReconContext), "compaction")
     : undefined
 
   const toolTrackingHook = isHookEnabled("tool-tracking")
@@ -79,9 +156,17 @@ export function createHooks(args: {
     ? safeCreateHook(() => eventHook, "event")
     : undefined
 
-   return {
-     config: createConfigHandler(config, projectDir),
-     "experimental.chat.system.transform": undefined,
+  return {
+    config: createConfigHandler(config, projectDir),
+    "chat.params": async (input) => {
+      agentTracker.chatParamsHook(input)
+    },
+    "chat.message": async (input) => {
+      agentTracker.chatMessageHook(input)
+    },
+    "experimental.chat.system.transform": async (input, output) => {
+      await systemPromptHook(input, output)
+    },
     "experimental.session.compacting": compactionHook
       ? async (_input, output) => {
           const block = await compactionHook({ summary: output.context.join("\n") })

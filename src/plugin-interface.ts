@@ -16,7 +16,20 @@ export function createPluginInterface(args: {
      config: hooks.config,
    }
 
-   if (hooks["experimental.session.compacting"]) {
+   if (hooks["chat.params"]) {
+    result["chat.params"] = hooks["chat.params"]
+  }
+
+  if (hooks["chat.message"]) {
+    result["chat.message"] = hooks["chat.message"]
+  }
+
+  if (hooks["experimental.chat.system.transform"]) {
+    result["experimental.chat.system.transform"] =
+      hooks["experimental.chat.system.transform"]
+  }
+
+  if (hooks["experimental.session.compacting"]) {
     result["experimental.session.compacting"] =
       hooks["experimental.session.compacting"]
   }

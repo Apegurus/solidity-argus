@@ -54,7 +54,7 @@ describe("createHooks", () => {
 
      expect(hooks.config).toBeDefined()
      expect(hooks.event).toBeDefined()
-     expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
+     expect(hooks["experimental.chat.system.transform"]).toBeDefined()
      expect(hooks["experimental.session.compacting"]).toBeDefined()
      expect(hooks["tool.execute.after"]).toBeDefined()
    })
@@ -69,7 +69,7 @@ describe("createHooks", () => {
        isHookEnabled: (name: HookName) => name !== "compaction",
      })
 
-     expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
+      expect(hooks["experimental.chat.system.transform"]).toBeDefined()
      expect(hooks["experimental.session.compacting"]).toBeUndefined()
      expect(hooks["tool.execute.after"]).toBeDefined()
      expect(hooks.event).toBeDefined()
@@ -87,10 +87,38 @@ describe("createHooks", () => {
     })
 
     expect(hooks.config).toBeDefined()
-    expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
+    expect(hooks["experimental.chat.system.transform"]).toBeDefined()
     expect(hooks["experimental.session.compacting"]).toBeUndefined()
     expect(hooks["tool.execute.after"]).toBeUndefined()
     expect(hooks.event).toBeUndefined()
+  })
+
+  it("includes chat.params hook", () => {
+    const config = ArgusConfigSchema.parse({})
+
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+
+    expect("chat.params" in hooks).toBe(true)
+    expect(hooks["chat.params"]).toBeDefined()
+  })
+
+  it("includes chat.message hook", () => {
+    const config = ArgusConfigSchema.parse({})
+
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+
+    expect("chat.message" in hooks).toBe(true)
+    expect(hooks["chat.message"]).toBeDefined()
   })
 
   it("checks isHookEnabled only for feature hooks", () => {

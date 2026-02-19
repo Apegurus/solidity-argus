@@ -40,7 +40,7 @@ describe("createPluginInterface", () => {
 
      expect(result.tool).toBeDefined()
      expect(result.config).toBeDefined()
-     expect(result["experimental.chat.system.transform"]).toBeUndefined()
+     expect(result["experimental.chat.system.transform"]).toBeDefined()
      expect(result["experimental.session.compacting"]).toBeDefined()
      expect(result["tool.execute.after"]).toBeDefined()
      expect(result.event).toBeDefined()
@@ -74,7 +74,7 @@ describe("createPluginInterface", () => {
 
     expect(result.config).toBeDefined()
     expect(result["tool.execute.after"]).toBeDefined()
-    expect(result["experimental.chat.system.transform"]).toBeUndefined()
+    expect(result["experimental.chat.system.transform"]).toBeDefined()
     expect(result["experimental.session.compacting"]).toBeUndefined()
     expect(result.event).toBeUndefined()
   })
@@ -91,6 +91,98 @@ describe("createPluginInterface", () => {
 
     const result = createPluginInterface({ tools, hooks })
     expect(result.config).toBeDefined()
+  })
+
+  it("includes chat.params in result when defined", () => {
+    const config = ArgusConfigSchema.parse({})
+    const tools = createTools(config)
+    const chatParamsHook = async () => {}
+    const hooks: Hooks = {
+      config: createHooks({
+        config,
+        managers: makeManagers(),
+        projectDir: "/tmp/test-project",
+        isHookEnabled: () => true,
+      }).config,
+      "chat.params": chatParamsHook as any,
+      "chat.message": undefined,
+      "experimental.chat.system.transform": undefined,
+      "experimental.session.compacting": undefined,
+      "tool.execute.after": undefined,
+      event: undefined,
+    }
+
+    const result = createPluginInterface({ tools, hooks })
+    expect(result["chat.params"]).toBe(chatParamsHook)
+  })
+
+  it("omits chat.params from result when undefined", () => {
+    const config = ArgusConfigSchema.parse({})
+    const tools = createTools(config)
+    const hooks: Hooks = {
+      config: createHooks({
+        config,
+        managers: makeManagers(),
+        projectDir: "/tmp/test-project",
+        isHookEnabled: () => true,
+      }).config,
+      "chat.params": undefined,
+      "chat.message": undefined,
+      "experimental.chat.system.transform": undefined,
+      "experimental.session.compacting": undefined,
+      "tool.execute.after": undefined,
+      event: undefined,
+    }
+
+    const result = createPluginInterface({ tools, hooks })
+    expect(result["chat.params"]).toBeUndefined()
+    expect("chat.params" in result).toBe(false)
+  })
+
+  it("includes chat.message in result when defined", () => {
+    const config = ArgusConfigSchema.parse({})
+    const tools = createTools(config)
+    const chatMessageHook = async () => {}
+    const hooks: Hooks = {
+      config: createHooks({
+        config,
+        managers: makeManagers(),
+        projectDir: "/tmp/test-project",
+        isHookEnabled: () => true,
+      }).config,
+      "chat.params": undefined,
+      "chat.message": chatMessageHook as any,
+      "experimental.chat.system.transform": undefined,
+      "experimental.session.compacting": undefined,
+      "tool.execute.after": undefined,
+      event: undefined,
+    }
+
+    const result = createPluginInterface({ tools, hooks })
+    expect(result["chat.message"]).toBe(chatMessageHook)
+  })
+
+  it("omits chat.message from result when undefined", () => {
+    const config = ArgusConfigSchema.parse({})
+    const tools = createTools(config)
+    const hooks: Hooks = {
+      config: createHooks({
+        config,
+        managers: makeManagers(),
+        projectDir: "/tmp/test-project",
+        isHookEnabled: () => true,
+      }).config,
+      "chat.params": undefined,
+      "chat.message": undefined,
+      "experimental.chat.system.transform": undefined,
+      "experimental.session.compacting": undefined,
+      "tool.execute.after": undefined,
+      event: undefined,
+    }
+
+    const result = createPluginInterface({ tools, hooks })
+    expect(result["chat.message"]).toBeUndefined()
+    expect("chat.message" in result).toBe(false)
   })
 
   it("passes tools through unchanged", () => {
