@@ -4,6 +4,7 @@ import { join } from "node:path"
 import type { CliCommand } from "../types"
 import { loadArgusConfig } from "../../config/loader"
 import { getRequiredAuditSkills, resolveArgusSkills } from "../../skills/argus-skill-resolver"
+import { detectViaIr } from "../../tools/slither-tool"
 
 const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
@@ -54,11 +55,29 @@ export const doctorCommand: CliCommand = {
       hasFailure = true
     }
 
+    const solcSelect = checkBinary("solc-select")
+    if (solcSelect.found) {
+      console.log(`${GREEN}✓${RESET} solc-select: installed (${solcSelect.version})`)
+    } else {
+      console.log(`${YELLOW}⚠${RESET} solc-select: not found — pipx install solc-select (needed for via_ir flatten fallback)`)
+    }
+
     const projectType = checkSolidityProject(cwd)
     if (projectType) {
       console.log(`${GREEN}✓${RESET} Project: ${projectType} detected`)
     } else {
       console.log(`${YELLOW}⚠${RESET} Project: no Solidity project detected`)
+    }
+
+    if (projectType === "foundry" && detectViaIr(cwd)) {
+      console.log(`${YELLOW}⚠${RESET} via_ir: enabled in foundry.toml — Slither will use flatten fallback`)
+      if (!forge.found) {
+        console.log(`${RED}✗${RESET}   forge is required for via_ir flatten fallback but is missing`)
+        hasFailure = true
+      }
+      if (!solcSelect.found) {
+        console.log(`${YELLOW}⚠${RESET}   solc-select is recommended for via_ir flatten fallback`)
+      }
     }
 
     try {
