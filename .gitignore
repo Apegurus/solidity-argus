@@ -38,3 +38,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # generated artifacts
 docs/assessment.md
+
+# work session artifacts
+.sisyphus/
+
+# local plugin state
+/.opencode/
