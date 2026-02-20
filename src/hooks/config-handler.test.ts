@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { createConfigHandler } from "./config-handler"
-import { DEFAULT_MODELS } from "../constants/defaults"
+import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import type { ArgusConfig } from "../config/types"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
@@ -92,9 +92,12 @@ describe("createConfigHandler", () => {
     expect(config.agent?.sentinel?.permission).toEqual({
       argus_slither_analyze: "allow",
       argus_forge_test: "allow",
+      argus_gas_analysis: "allow",
       argus_forge_fuzz: "allow",
       argus_analyze_contract: "allow",
       argus_check_patterns: "allow",
+      argus_proxy_detection: "allow",
+      argus_forge_coverage: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -175,6 +178,18 @@ describe("createConfigHandler", () => {
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
     expect(config.agent?.pythia?.model).toBe(DEFAULT_MODELS.pythia)
     expect(config.agent?.scribe?.model).toBe(DEFAULT_MODELS.scribe)
+  })
+
+  test("sets default steps for all Argus agents", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.argus?.steps).toBe(DEFAULT_STEPS)
+    expect(config.agent?.sentinel?.steps).toBe(DEFAULT_STEPS)
+    expect(config.agent?.pythia?.steps).toBe(DEFAULT_STEPS)
+    expect(config.agent?.scribe?.steps).toBe(DEFAULT_STEPS)
   })
 
   test("registers Solodit MCP server when enabled", async () => {

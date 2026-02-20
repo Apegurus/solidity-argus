@@ -2,6 +2,7 @@ import { z } from "zod"
 
 const AgentConfigSchema = z.object({
   model: z.string().optional(),
+  steps: z.number().positive().optional(),
   permission: z.record(z.string(), z.any()).optional(),
   tools: z.record(z.string(), z.boolean()).optional(),
 })

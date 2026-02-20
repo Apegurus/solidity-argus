@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import type { Config } from "@opencode-ai/sdk/v2"
 import type { ArgusConfig } from "../config/types"
-import { DEFAULT_MODELS } from "../constants/defaults"
+import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import { createLogger } from "../shared/logger"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
@@ -76,6 +76,7 @@ export function createConfigHandler(
       argus: {
         mode: "primary",
         model: argusConfig.agents?.argus?.model ?? DEFAULT_MODELS.argus,
+        steps: argusConfig.agents?.argus?.steps ?? DEFAULT_STEPS,
         description: "Solidity security auditor — the All-Seeing Guardian",
         prompt: ARGUS_PROMPT,
         tools: {
@@ -94,14 +95,18 @@ export function createConfigHandler(
       sentinel: {
         mode: "subagent",
         model: argusConfig.agents?.sentinel?.model ?? DEFAULT_MODELS.sentinel,
+        steps: argusConfig.agents?.sentinel?.steps ?? DEFAULT_STEPS,
         description: "Static analysis and testing specialist",
         prompt: SENTINEL_PROMPT,
         permission: {
           argus_slither_analyze: "allow",
           argus_forge_test: "allow",
+          argus_gas_analysis: "allow",
           argus_forge_fuzz: "allow",
           argus_analyze_contract: "allow",
           argus_check_patterns: "allow",
+          argus_proxy_detection: "allow",
+          argus_forge_coverage: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -109,6 +114,7 @@ export function createConfigHandler(
       pythia: {
         mode: "subagent",
         model: argusConfig.agents?.pythia?.model ?? DEFAULT_MODELS.pythia,
+        steps: argusConfig.agents?.pythia?.steps ?? DEFAULT_STEPS,
         description: "Vulnerability researcher",
         prompt: PYTHIA_PROMPT,
         permission: {
@@ -121,6 +127,7 @@ export function createConfigHandler(
       scribe: {
         mode: "subagent",
         model: argusConfig.agents?.scribe?.model ?? DEFAULT_MODELS.scribe,
+        steps: argusConfig.agents?.scribe?.steps ?? DEFAULT_STEPS,
         description: "Audit report writer",
         prompt: SCRIBE_PROMPT,
         permission: {

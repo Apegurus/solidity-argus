@@ -1,5 +1,4 @@
-import { execSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { existsSync } from "node:fs";
 import { join } from "path";
 
 export function hasBinary(name: string): boolean {
@@ -14,39 +13,39 @@ export function hasBinary(name: string): boolean {
   }
 }
 
-export function parseSolcVersion(target: string): string | undefined {
+export async function parseSolcVersion(target: string): Promise<string | undefined> {
   const foundryToml = join(target, "foundry.toml");
-  if (existsSync(foundryToml)) {
-    const content = readFileSync(foundryToml, "utf-8");
+  if (await Bun.file(foundryToml).exists()) {
+    const content = await Bun.file(foundryToml).text();
     const match = content.match(/solc\s*=\s*["']([^"']+)["']/);
     if (match?.[1]) return match[1];
   }
 
   const solFiles: string[] = [];
-  if (existsSync(target) && target.endsWith(".sol")) {
+  if (target.endsWith(".sol") && (await Bun.file(target).exists())) {
     solFiles.push(target);
   } else {
     const srcDir = join(target, "src");
     if (existsSync(srcDir)) {
       try {
-        const files = execSync(`find "${srcDir}" -maxdepth 3 -name "*.sol"`, {
-          encoding: "utf-8",
-          timeout: 5_000,
-          stdio: ["pipe", "pipe", "pipe"],
-        })
-          .trim()
-          .split("\n")
-          .filter(Boolean);
-        solFiles.push(...files);
+        const proc = Bun.spawn(["find", srcDir, "-maxdepth", "3", "-name", "*.sol"], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const exitCode = await proc.exited;
+        if (exitCode === 0) {
+          const output = await new Response(proc.stdout).text();
+          solFiles.push(...output.trim().split("\n").filter(Boolean));
+        }
       } catch (_findErr) {
       }
     }
   }
 
   for (const file of solFiles) {
-    if (!existsSync(file) || !file.endsWith(".sol")) continue;
+    if (!file.endsWith(".sol") || !(await Bun.file(file).exists())) continue;
     try {
-      const content = readFileSync(file, "utf-8");
+      const content = await Bun.file(file).text();
       const pragma = content.match(/pragma\s+solidity\s+[\^~>=<]*\s*([\d.]+)/);
       if (pragma?.[1]) return pragma[1];
     } catch (_readErr) {
@@ -55,10 +54,10 @@ export function parseSolcVersion(target: string): string | undefined {
   return undefined;
 }
 
-export function extractContractNames(filePath: string): string[] {
-  if (!existsSync(filePath)) return [];
+export async function extractContractNames(filePath: string): Promise<string[]> {
+  if (!(await Bun.file(filePath).exists())) return [];
   try {
-    const content = readFileSync(filePath, "utf-8");
+    const content = await Bun.file(filePath).text();
     const matches = content.matchAll(/\b(?:contract|library|interface)\s+(\w+)/g);
     return Array.from(matches, (m) => m[1]).filter(Boolean) as string[];
   } catch (_e) {

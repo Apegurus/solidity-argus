@@ -50,9 +50,10 @@ test("executeForgeTest parses contract-mapped forge test JSON", async () => {
   const result = await executeForgeTest(
     { target: "." },
     context,
-    async (command, signal) => {
+    async (command, signal, cwd) => {
       expect(command).toEqual(["forge", "test", "--json", "-vvv"]);
       expect(signal).toBe(context.abort);
+      expect(cwd).toBe("/tmp/project");
       return { stdout, stderr: "", exitCode: 1 };
     }
   );
@@ -128,6 +129,7 @@ test("executeForgeTest runs coverage command and parses report", async () => {
   ];
 
   const calls: string[][] = [];
+  const cwdCalls: string[] = [];
   const result = await executeForgeTest(
     {
       target: "contracts",
@@ -139,8 +141,9 @@ test("executeForgeTest runs coverage command and parses report", async () => {
       verbosity: 4,
     },
     context,
-    async (command) => {
+    async (command, _signal, cwd) => {
       calls.push(command);
+      cwdCalls.push(cwd);
       const next = responses.shift();
       if (!next) {
         throw new Error("missing mocked response");
@@ -165,6 +168,7 @@ test("executeForgeTest runs coverage command and parses report", async () => {
     ],
     ["forge", "coverage", "--report", "json"],
   ]);
+  expect(cwdCalls).toEqual(["/tmp/project", "/tmp/project"]);
   expect(result.success).toBe(true);
   expect(result.coverageReport).toEqual({
     files: [

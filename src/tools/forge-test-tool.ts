@@ -1,4 +1,5 @@
 import { tool, type ToolContext } from "@opencode-ai/plugin";
+import { resolveProjectDir } from "../shared/project-utils";
 
 type ForgeTestArgs = {
   target?: string;
@@ -294,6 +295,7 @@ export async function executeForgeTest(
 ): Promise<ForgeTestResult> {
   const startedAt = Date.now();
   const normalizedArgs = normalizeArgs(args);
+  const projectDir = resolveProjectDir(context);
   context.metadata({ title: `Run forge test: ${normalizedArgs.target}` });
 
   const fail = (error: string): ForgeTestResult => ({
@@ -308,7 +310,7 @@ export async function executeForgeTest(
     const testResult = await runCommand(
       buildForgeTestCommand(normalizedArgs),
       context.abort,
-      normalizedArgs.target
+      projectDir
     );
 
     let payload: ForgeTestPayload;
@@ -338,7 +340,7 @@ export async function executeForgeTest(
       const coverageResult = await runCommand(
         ["forge", "coverage", "--report", "json"],
         context.abort,
-        normalizedArgs.target
+        projectDir
       );
       if (coverageResult.exitCode !== 0) {
         output.error = coverageResult.stderr.trim() || "forge coverage failed";

@@ -4,3 +4,5 @@ export const DEFAULT_MODELS = {
   pythia: "anthropic/claude-sonnet-4-6",
   scribe: "anthropic/claude-sonnet-4-6",
 } as const
+
+export const DEFAULT_STEPS = 50 as const

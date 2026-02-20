@@ -33,6 +33,14 @@ export interface MatchSource {
 }
 
 export interface PatternCheckResult {
+  success?: boolean;
+  error?: string;
+  matches?: Match[];
+  summary?: {
+    total: number;
+    bySeverity: Record<string, number>;
+    byCategory: Record<string, number>;
+  };
   sources: MatchSource[];
   patternsChecked: number;
   executionTime: number;
@@ -66,44 +74,7 @@ type BuiltinPattern = {
 
 export const PATTERN_PACK_VERSION = "1.0.0";
 
-const BUILTIN_PATTERNS: BuiltinPattern[] = [
-  {
-    name: "reentrancy",
-    category: "reentrancy",
-    severity: "High",
-    regex: /\.call\{value:/,
-    description: "Potential reentrancy: ETH transfer via low-level call",
-    exploitReference: "DAO hack ($60M), 2016",
-  },
-  {
-    name: "tx-origin-auth",
-    category: "access-control",
-    severity: "High",
-    regex: /tx\.origin/,
-    description: "Use of tx.origin for authorization - vulnerable to phishing",
-  },
-  {
-    name: "selfdestruct",
-    category: "access-control",
-    severity: "High",
-    regex: /selfdestruct\(|suicide\(/,
-    description: "Contract uses selfdestruct - can destroy contract",
-  },
-  {
-    name: "delegatecall",
-    category: "delegatecall",
-    severity: "High",
-    regex: /\.delegatecall\(/,
-    description: "Use of delegatecall - can overwrite storage",
-  },
-  {
-    name: "missing-zero-check",
-    category: "access-control",
-    severity: "Medium",
-    regex: /address\(0\)/,
-    description: "Potential missing zero-address validation",
-  },
-];
+const BUILTIN_PATTERNS: BuiltinPattern[] = [];
 
 const CATEGORY_TO_SWC: Record<string, string[]> = {
   reentrancy: ["SWC-107"],
@@ -112,6 +83,11 @@ const CATEGORY_TO_SWC: Record<string, string[]> = {
   delegatecall: ["SWC-112"],
   "signature-replay": ["SWC-121"],
   "integer-overflow": ["SWC-101"],
+  governance: ["SWC-105", "SWC-106"],
+  "front-running": ["SWC-114"],
+  "logic-error": ["SWC-101", "SWC-116"],
+  "gas-optimization": ["SWC-128"],
+  dos: ["SWC-128"],
 };
 
 const PATTERN_NAME_TO_CATEGORY = new Map(
@@ -206,7 +182,7 @@ function collectSolidityFiles(target: string, maxDepth = 8): string[] {
   try {
     stats = statSync(absoluteTarget);
   } catch {
-    throw new Error(`Target does not exist: ${target}`);
+    return [];
   }
 
   if (stats.isFile()) {
@@ -328,7 +304,17 @@ export async function executePatternCheck(
   const selectedPatterns = selectPatterns(allPatterns, args.patterns);
   const solidityFiles = collectSolidityFiles(args.target);
   if (solidityFiles.length === 0) {
-    throw new Error(`No Solidity files found for target: ${args.target}`);
+    return {
+      success: false,
+      error: `No Solidity files found for target: ${args.target}`,
+      matches: [],
+      summary: { total: 0, bySeverity: {}, byCategory: {} },
+      sources: [],
+      patternsChecked: selectedPatterns.length,
+      executionTime: Date.now() - startedAt,
+      target: args.target,
+      patternVersion: PATTERN_PACK_VERSION,
+    };
   }
 
   const sourceMatches: Match[] = [];

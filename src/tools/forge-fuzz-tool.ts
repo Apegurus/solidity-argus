@@ -1,4 +1,5 @@
 import { tool, type ToolContext } from "@opencode-ai/plugin";
+import { resolveProjectDir } from "../shared/project-utils";
 
 type ForgeFuzzArgs = {
   target?: string;
@@ -203,6 +204,7 @@ export async function executeForgeFuzz(
 ): Promise<ForgeFuzzResult> {
   const startedAt = Date.now();
   const normalized = normalizeArgs(args);
+  const projectDir = resolveProjectDir(context);
   context.metadata({ title: `Run forge fuzz: ${normalized.target}` });
 
   const fail = (error: string): ForgeFuzzResult => ({
@@ -223,7 +225,7 @@ export async function executeForgeFuzz(
     const runResult = await runCommand(
       buildForgeFuzzCommand(normalized),
       context.abort,
-      normalized.target,
+      projectDir,
       env
     );
 

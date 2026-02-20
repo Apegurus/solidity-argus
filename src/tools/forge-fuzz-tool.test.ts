@@ -67,7 +67,7 @@ test("executeForgeFuzz parses fuzz results and counterexamples", async () => {
         "-v",
       ]);
       expect(signal).toBe(context.abort);
-      expect(cwd).toBe(".");
+      expect(cwd).toBe("/tmp/project");
       expect(env).toMatchObject({ FOUNDRY_FUZZ_RUNS: "256" });
 
       const response: ForgeFuzzCommandResult = {

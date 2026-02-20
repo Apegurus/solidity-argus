@@ -20,12 +20,12 @@ describe("binary-utils", () => {
   });
 
   describe("parseSolcVersion", () => {
-    it("should return undefined for non-existent path", () => {
-      const result = parseSolcVersion("/nonexistent/path");
+    it("should return undefined for non-existent path", async () => {
+      const result = await parseSolcVersion("/nonexistent/path");
       expect(result).toBeUndefined();
     });
 
-    it("should extract version from foundry.toml", () => {
+    it("should extract version from foundry.toml", async () => {
       const testDir = "/tmp/solc-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -35,13 +35,13 @@ describe("binary-utils", () => {
         'solc = "0.8.19"\nother = "value"'
       );
 
-      const result = parseSolcVersion(testDir);
+      const result = await parseSolcVersion(testDir);
       expect(result).toBe("0.8.19");
 
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should extract version from pragma in .sol file", () => {
+    it("should extract version from pragma in .sol file", async () => {
       const testDir = "/tmp/solc-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -51,13 +51,13 @@ describe("binary-utils", () => {
         "pragma solidity ^0.8.20;\n\ncontract Test {}"
       );
 
-      const result = parseSolcVersion(testDir);
+      const result = await parseSolcVersion(testDir);
       expect(result).toBe("0.8.20");
 
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should handle version with caret", () => {
+    it("should handle version with caret", async () => {
       const testDir = "/tmp/solc-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -67,13 +67,13 @@ describe("binary-utils", () => {
         "pragma solidity ^0.8.0;\n\ncontract Test {}"
       );
 
-      const result = parseSolcVersion(testDir);
+      const result = await parseSolcVersion(testDir);
       expect(result).toBe("0.8.0");
 
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should handle version with tilde", () => {
+    it("should handle version with tilde", async () => {
       const testDir = "/tmp/solc-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -83,7 +83,7 @@ describe("binary-utils", () => {
         "pragma solidity ~0.7.6;\n\ncontract Test {}"
       );
 
-      const result = parseSolcVersion(testDir);
+      const result = await parseSolcVersion(testDir);
       expect(result).toBe("0.7.6");
 
       rmSync(testDir, { recursive: true, force: true });
@@ -91,7 +91,7 @@ describe("binary-utils", () => {
   });
 
   describe("extractContractNames", () => {
-    it("should extract contract names from Solidity file", () => {
+    it("should extract contract names from Solidity file", async () => {
       const testDir = "/tmp/contract-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -110,7 +110,7 @@ contract AnotherContract {
 }`
       );
 
-      const result = extractContractNames(filePath);
+      const result = await extractContractNames(filePath);
       expect(result).toContain("MyContract");
       expect(result).toContain("AnotherContract");
       expect(result.length).toBe(2);
@@ -118,7 +118,7 @@ contract AnotherContract {
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should extract library names", () => {
+    it("should extract library names", async () => {
       const testDir = "/tmp/contract-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -135,13 +135,13 @@ library SafeMath {
 }`
       );
 
-      const result = extractContractNames(filePath);
+      const result = await extractContractNames(filePath);
       expect(result).toContain("SafeMath");
 
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should extract interface names", () => {
+    it("should extract interface names", async () => {
       const testDir = "/tmp/contract-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -156,18 +156,18 @@ interface IERC20 {
 }`
       );
 
-      const result = extractContractNames(filePath);
+      const result = await extractContractNames(filePath);
       expect(result).toContain("IERC20");
 
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should return empty array for non-existent file", () => {
-      const result = extractContractNames("/nonexistent/file.sol");
+    it("should return empty array for non-existent file", async () => {
+      const result = await extractContractNames("/nonexistent/file.sol");
       expect(result).toEqual([]);
     });
 
-    it("should return empty array for file with no contracts", () => {
+    it("should return empty array for file with no contracts", async () => {
       const testDir = "/tmp/contract-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -175,13 +175,13 @@ interface IERC20 {
       const filePath = testDir + "/Test.sol";
       writeFileSync(filePath, "pragma solidity ^0.8.0;\n\n// Just comments");
 
-      const result = extractContractNames(filePath);
+      const result = await extractContractNames(filePath);
       expect(result).toEqual([]);
 
       rmSync(testDir, { recursive: true, force: true });
     });
 
-    it("should handle multiple contracts and libraries", () => {
+    it("should handle multiple contracts and libraries", async () => {
       const testDir = "/tmp/contract-test-" + Date.now();
       const { mkdirSync, writeFileSync, rmSync } = require("fs");
 
@@ -206,7 +206,7 @@ interface IToken {
 }`
       );
 
-      const result = extractContractNames(filePath);
+      const result = await extractContractNames(filePath);
       expect(result).toContain("Token");
       expect(result).toContain("Math");
       expect(result).toContain("IToken");

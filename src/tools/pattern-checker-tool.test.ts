@@ -14,13 +14,7 @@ import {
   loadPatternPacks,
 } from "./pattern-loader";
 
-const BUILTIN_CATEGORIES = [
-  "reentrancy",
-  "access-control",
-  "access-control",
-  "delegatecall",
-  "access-control",
-];
+const BUILTIN_CATEGORIES: string[] = [];
 const SKILLS_DIR = join(dirname(dirname(__dirname)), "skills");
 const YAML_PATTERNS_DIR = join(SKILLS_DIR, "patterns");
 
@@ -59,7 +53,7 @@ function createContext(): ToolContext {
 function getReentrancyMatch(result: PatternCheckResult): Match | undefined {
   return result.sources
     .flatMap((source) => source.matches)
-    .find((match) => match.pattern === "reentrancy");
+    .find((match) => match.pattern === "reentrancy-call-value");
 }
 
 test("patternCheckerTool uses tool() helper contract", () => {
@@ -87,7 +81,6 @@ test("executePatternCheck detects reentrancy in VulnerableVault fixture", async 
   expect(match).toBeDefined();
   expect(match?.severity).toBe("High");
   expect(match?.description).toContain("reentrancy");
-  expect(match?.exploitReference).toContain("DAO hack");
   expect(match?.file.endsWith("VulnerableVault.sol")).toBe(true);
   expect((match?.lines[0] ?? 0) <= 20).toBe(true);
   expect((match?.lines[1] ?? 0) >= 20).toBe(true);
@@ -231,26 +224,30 @@ test("patternCheckerTool execute returns stringified PatternCheckResult", async 
   expect(typeof parsed.executionTime).toBe("number");
 });
 
-test("executePatternCheck throws when target does not exist", () => {
-  return expect(
-    executePatternCheck(
-      {
-        target: "tests/fixtures/vulnerable-vault/src/DoesNotExist.sol",
-      },
-      createContext()
-    )
-  ).rejects.toThrow("Target does not exist");
+test("executePatternCheck returns structured error when target does not exist", async () => {
+  const result = await executePatternCheck(
+    {
+      target: "tests/fixtures/vulnerable-vault/src/DoesNotExist.sol",
+    },
+    createContext()
+  );
+  expect(result).toHaveProperty("success", false);
+  expect(result).toHaveProperty("error");
+  expect((result as { error: string }).error).toContain("No Solidity files found");
 });
 
-test("executePatternCheck throws when no solidity files are found", () => {
-  return expect(
-    executePatternCheck(
-      {
-        target: "src/state",
-      },
-      createContext()
-    )
-  ).rejects.toThrow("No Solidity files found");
+test("executePatternCheck returns structured error when no solidity files are found", async () => {
+  const result = await executePatternCheck(
+    {
+      target: "src/state",
+    },
+    createContext()
+  );
+
+  expect(result.success).toBe(false);
+  expect(result.error).toContain("No Solidity files found");
+  expect(result.matches).toEqual([]);
+  expect(result.summary).toEqual({ total: 0, bySeverity: {}, byCategory: {} });
 });
 
 test("result includes patternVersion", async () => {
@@ -266,7 +263,7 @@ test("result includes patternVersion", async () => {
   expect(result.patternVersion).toBe("1.0.0");
 });
 
-test("builtin matches include patternSource and category", async () => {
+test("migrated builtin matches include patternSource yaml and category", async () => {
   const result = await executePatternCheck(
     {
       target: "tests/fixtures/vulnerable-vault/src/VulnerableVault.sol",
@@ -278,11 +275,11 @@ test("builtin matches include patternSource and category", async () => {
 
   const match = getReentrancyMatch(result);
   expect(match).toBeDefined();
-  expect(match?.patternSource).toBe("builtin");
+  expect(match?.patternSource).toBe("yaml");
   expect(match?.category).toBe("reentrancy");
 });
 
-test("all builtin matches carry patternSource builtin", async () => {
+test("all migrated builtin patterns carry patternSource yaml", async () => {
   const result = await executePatternCheck(
     {
       target: "tests/fixtures/pattern-corpus",
@@ -291,20 +288,20 @@ test("all builtin matches carry patternSource builtin", async () => {
     createContext()
   );
 
-  const builtinPatternNames = new Set([
-    "reentrancy",
+  const migratedPatternNames = new Set([
+    "reentrancy-call-value",
     "tx-origin-auth",
-    "selfdestruct",
-    "delegatecall",
+    "selfdestruct-usage",
+    "delegatecall-usage",
     "missing-zero-check",
   ]);
-  const builtinMatches = result.sources
+  const migratedMatches = result.sources
     .flatMap((source) => source.matches)
-    .filter((match) => builtinPatternNames.has(match.pattern));
+    .filter((match) => migratedPatternNames.has(match.pattern));
 
-  expect(builtinMatches.length).toBeGreaterThan(0);
-  for (const match of builtinMatches) {
-    expect(match.patternSource).toBe("builtin");
+  expect(migratedMatches.length).toBeGreaterThan(0);
+  for (const match of migratedMatches) {
+    expect(match.patternSource).toBe("yaml");
   }
 });
 
@@ -347,7 +344,126 @@ test("PatternCheckResult JSON serialization includes new fields", async () => {
   const parsed = JSON.parse(json) as PatternCheckResult;
 
   expect(parsed.patternVersion).toBe("1.0.0");
-  const match = parsed.sources.flatMap((s) => s.matches).find((m) => m.pattern === "reentrancy");
-  expect(match?.patternSource).toBe("builtin");
+  const match = parsed.sources.flatMap((s) => s.matches).find((m) => m.pattern === "reentrancy-call-value");
+  expect(match?.patternSource).toBe("yaml");
   expect(match?.category).toBe("reentrancy");
+});
+
+// --- Builtin migration tests ---
+
+import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
+import { PatternPackSchema } from "./pattern-schema";
+
+test("builtins.yaml loads and validates against PatternPackSchema", () => {
+  const builtinsPath = join(YAML_PATTERNS_DIR, "builtins.yaml");
+  const raw = readFileSync(builtinsPath, "utf-8");
+  const parsed = parseYaml(raw);
+  const result = PatternPackSchema.safeParse(parsed);
+
+  expect(result.success).toBe(true);
+  if (result.success) {
+    expect(result.data.pack_name).toBe("builtins");
+  }
+});
+
+test("builtins.yaml has exactly 5 patterns", () => {
+  const builtinsPath = join(YAML_PATTERNS_DIR, "builtins.yaml");
+  const raw = readFileSync(builtinsPath, "utf-8");
+  const parsed = parseYaml(raw);
+  const result = PatternPackSchema.safeParse(parsed);
+
+  expect(result.success).toBe(true);
+  if (result.success) {
+    expect(result.data.patterns).toHaveLength(5);
+  }
+});
+
+test("builtins.yaml regex parity — YAML regexes match same strings as old JS RegExps", () => {
+  const builtinsPath = join(YAML_PATTERNS_DIR, "builtins.yaml");
+  const raw = readFileSync(builtinsPath, "utf-8");
+  const parsed = parseYaml(raw);
+  const result = PatternPackSchema.safeParse(parsed);
+
+  expect(result.success).toBe(true);
+  if (!result.success) return;
+
+  const byName = new Map(result.data.patterns.map((p) => [p.name, p]));
+
+  // Old JS: /\.call\{value:/
+  const reentrancy = byName.get("reentrancy-call-value");
+  expect(reentrancy).toBeDefined();
+  expect(new RegExp(reentrancy!.regex).test('to.call{value: amount}("")')).toBe(true);
+  expect(new RegExp(reentrancy!.regex).test("transfer(to, amount)")).toBe(false);
+
+  // Old JS: /tx\.origin/
+  const txOrigin = byName.get("tx-origin-auth");
+  expect(txOrigin).toBeDefined();
+  expect(new RegExp(txOrigin!.regex).test("require(tx.origin == owner)")).toBe(true);
+  expect(new RegExp(txOrigin!.regex).test("require(msg.sender == owner)")).toBe(false);
+
+  // Old JS: /selfdestruct\(|suicide\(/
+  const selfdestructPat = byName.get("selfdestruct-usage");
+  expect(selfdestructPat).toBeDefined();
+  expect(new RegExp(selfdestructPat!.regex).test("selfdestruct(payable(owner))")).toBe(true);
+  expect(new RegExp(selfdestructPat!.regex).test("suicide(owner)")).toBe(true);
+  expect(new RegExp(selfdestructPat!.regex).test("transfer(owner)")).toBe(false);
+
+  // Old JS: /\.delegatecall\(/
+  const delegatecall = byName.get("delegatecall-usage");
+  expect(delegatecall).toBeDefined();
+  expect(new RegExp(delegatecall!.regex).test("target.delegatecall(data)")).toBe(true);
+  expect(new RegExp(delegatecall!.regex).test("target.call(data)")).toBe(false);
+
+  // Old JS: /address\(0\)/
+  const zeroCheck = byName.get("missing-zero-check");
+  expect(zeroCheck).toBeDefined();
+  expect(new RegExp(zeroCheck!.regex).test("require(addr != address(0))")).toBe(true);
+  expect(new RegExp(zeroCheck!.regex).test("require(addr != address(1))")).toBe(false);
+});
+
+test("CATEGORY_TO_SWC has exactly 11 entries (6 existing + 5 new)", async () => {
+  const toolPath = join(__dirname, "pattern-checker-tool.ts");
+  const content = await Bun.file(toolPath).text();
+  
+  const categoryToSwcMatch = content.match(/const CATEGORY_TO_SWC[^}]+}/s);
+  expect(categoryToSwcMatch).toBeDefined();
+  
+  const categoryToSwcStr = categoryToSwcMatch![0];
+  const entries = categoryToSwcStr.match(/\[\s*"SWC-\d+"/g) || [];
+  
+  expect(entries.length).toBe(11);
+});
+
+test("CATEGORY_TO_SWC maps new categories to correct SWC codes", async () => {
+  const toolPath = join(__dirname, "pattern-checker-tool.ts");
+  const content = await Bun.file(toolPath).text();
+  
+  const categoryToSwcMatch = content.match(/const CATEGORY_TO_SWC[^}]+}/s);
+  expect(categoryToSwcMatch).toBeDefined();
+  
+  const categoryToSwcStr = categoryToSwcMatch![0];
+  
+  expect(categoryToSwcStr).toContain('governance: ["SWC-105", "SWC-106"]');
+  expect(categoryToSwcStr).toContain('"front-running": ["SWC-114"]');
+  expect(categoryToSwcStr).toContain('"logic-error": ["SWC-101", "SWC-116"]');
+  expect(categoryToSwcStr).toContain('"gas-optimization": ["SWC-128"]');
+  expect(categoryToSwcStr).toContain('dos: ["SWC-128"]');
+});
+
+test("CATEGORY_TO_SWC preserves all 6 existing entries", async () => {
+  const toolPath = join(__dirname, "pattern-checker-tool.ts");
+  const content = await Bun.file(toolPath).text();
+  
+  const categoryToSwcMatch = content.match(/const CATEGORY_TO_SWC[^}]+}/s);
+  expect(categoryToSwcMatch).toBeDefined();
+  
+  const categoryToSwcStr = categoryToSwcMatch![0];
+  
+  expect(categoryToSwcStr).toContain('reentrancy: ["SWC-107"]');
+  expect(categoryToSwcStr).toContain('"access-control": ["SWC-105", "SWC-106"]');
+  expect(categoryToSwcStr).toContain('"oracle-manipulation": ["SWC-116"]');
+  expect(categoryToSwcStr).toContain('delegatecall: ["SWC-112"]');
+  expect(categoryToSwcStr).toContain('"signature-replay": ["SWC-121"]');
+  expect(categoryToSwcStr).toContain('"integer-overflow": ["SWC-101"]');
 });
