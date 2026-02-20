@@ -602,6 +602,34 @@ describe("createToolTrackingHook", () => {
       expect(ce.runs).toBe(256)
     })
 
+    test("fuzz counterexample supports array-shaped inputs", async () => {
+      const fuzzResult = {
+        success: false,
+        results: [],
+        counterexamples: [
+          {
+            testName: "testFuzz_swap(uint256,uint256)",
+            inputs: ["100", "0"],
+            revertReason: "Division by zero",
+          },
+        ],
+        totalRuns: 42,
+        executionTime: 600,
+      }
+
+      await hook({
+        tool: "argus_forge_fuzz",
+        args: { target: "." },
+        result: JSON.stringify(fuzzResult),
+      })
+
+      expect(auditState.fuzzCounterexamples).toHaveLength(1)
+      const ce = auditState.fuzzCounterexamples![0]!
+      expect(ce.inputs).toEqual(["100", "0"])
+      expect(ce.revertReason).toBe("Division by zero")
+      expect(ce.runs).toBe(42)
+    })
+
     test("multiple fuzz runs accumulate counterexamples", async () => {
       const firstRun = {
         success: false,

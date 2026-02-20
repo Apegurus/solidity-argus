@@ -185,8 +185,13 @@ function processFuzzResult(
     const testName = ce.testName
     if (typeof testName !== "string") continue
 
-    const rawInputs = toRecord(ce.inputs)
-    const inputs = rawInputs ? Object.values(rawInputs).map(String) : []
+    const rawInputs = ce.inputs
+    const inputs = Array.isArray(rawInputs)
+      ? rawInputs.map(String)
+      : (() => {
+          const rec = toRecord(rawInputs)
+          return rec ? Object.values(rec).map(String) : []
+        })()
 
     const entry: FuzzCounterexample = {
       testName,

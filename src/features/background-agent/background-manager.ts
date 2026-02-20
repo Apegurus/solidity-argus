@@ -46,6 +46,18 @@ export function createBackgroundManager(
   let maxConcurrent = options?.maxConcurrent ?? 3;
   let taskCount = 0;
 
+  function safeInvokeCallback(
+    callback: CompletionCallback,
+    taskId: string,
+    result: unknown,
+  ): void {
+    try {
+      callback(taskId, result);
+    } catch (error: unknown) {
+      logger.error(`Background callback failed: ${taskId}`, error);
+    }
+  }
+
   function invokeCallbacks(taskId: string, result: unknown): void {
     const task = tasks.get(taskId);
     if (!task) {
@@ -53,11 +65,11 @@ export function createBackgroundManager(
     }
 
     for (const callback of globalCallbacks) {
-      callback(taskId, result);
+      safeInvokeCallback(callback, taskId, result);
     }
 
     for (const callback of task.callbacks) {
-      callback(taskId, result);
+      safeInvokeCallback(callback, taskId, result);
     }
 
     task.callbacks.clear();
@@ -174,7 +186,7 @@ export function createBackgroundManager(
     }
 
     if (task.status === "completed") {
-      callback(taskIdOrCallback, task.result);
+      safeInvokeCallback(callback, taskIdOrCallback, task.result);
       return;
     }
 

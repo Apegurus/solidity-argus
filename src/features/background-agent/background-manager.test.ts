@@ -97,4 +97,25 @@ describe("createBackgroundManager", () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledWith(taskId, "complete");
   });
+
+  it("isolates callback errors from task completion", async () => {
+    const deferred = createDeferred<string>();
+    const dispatcher = mock(async () => deferred.promise);
+    const manager = createBackgroundManager(dispatcher);
+    const throwingCallback = mock(() => {
+      throw new Error("callback boom");
+    });
+    const healthyCallback = mock((_taskId: string, _result: unknown) => {});
+
+    const taskId = manager.dispatch("argus", "audit this");
+    manager.onComplete(taskId, throwingCallback);
+    manager.onComplete(taskId, healthyCallback);
+
+    deferred.resolve("complete");
+    await flushMicrotasks();
+
+    expect(throwingCallback).toHaveBeenCalledTimes(1);
+    expect(healthyCallback).toHaveBeenCalledTimes(1);
+    expect(await manager.getResult(taskId)).toBe("complete");
+  });
 });
