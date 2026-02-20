@@ -1,0 +1,42 @@
+pack_name: gas-optimization
+pack_version: "1.0"
+patterns:
+  - name: unbounded-loop
+    category: gas-optimization
+    severity: High
+    swc: SWC-128
+    confidence: Medium
+    version: "1.0"
+    regex: '(for|while)\s*\([^)]*\w+\.length'
+    description: Loop iterates over a dynamic array length — if the array can grow unboundedly, the transaction will eventually exceed the block gas limit and permanently revert (DoS)
+    remediation: Use pull-payment pattern instead of push-payment; add batching/pagination with startIndex and batchSize parameters; cap array size on push
+
+  - name: storage-write-in-loop
+    category: gas-optimization
+    severity: Medium
+    swc: SWC-128
+    confidence: Medium
+    version: "1.0"
+    regex: '(for|while)\s*\([^)]*\)\s*\{[^}]*\w+\s*\[.+\]\s*='
+    description: State variable assignment inside a loop — each SSTORE costs 5000-20000 gas, making the function vulnerable to gas griefing when loop count is attacker-influenced
+    remediation: Accumulate results in memory variables inside the loop and write to storage once after the loop completes
+
+  - name: external-call-in-loop
+    category: gas-optimization
+    severity: High
+    swc: SWC-128
+    confidence: High
+    version: "1.0"
+    regex: '(for|while)\s*\([^)]*\)\s*\{[^}]*(\.call\{|\.transfer\(|\.send\()'
+    description: External call (call/transfer/send) inside a loop — each external call forwards gas and can revert, enabling a single failing recipient to DoS the entire distribution
+    remediation: Use pull-payment pattern; if push-payment is required, skip failed transfers and emit events instead of reverting
+
+  - name: unchecked-array-growth
+    category: gas-optimization
+    severity: Medium
+    swc: SWC-128
+    confidence: Low
+    version: "1.0"
+    regex: '\.push\([^)]*\)'
+    description: Dynamic array push without apparent length bound — unbounded array growth enables DoS when the array is later iterated in a single transaction
+    remediation: Add a maximum length check before push (require(array.length < MAX_LENGTH)); consider using a mapping with a counter instead

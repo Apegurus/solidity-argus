@@ -138,6 +138,31 @@ const CORPUS: CorpusCase[] = [
     positive: "selfdestruct-positive.sol",
     negative: "selfdestruct-negative.sol",
   },
+
+  {
+    patternName: "missing-slippage-protection",
+    regex: yaml("missing-slippage-protection"),
+    positive: "frontrunning-vulnerable.sol",
+    negative: "frontrunning-safe.sol",
+  },
+  {
+    patternName: "missing-deadline",
+    regex: yaml("missing-deadline"),
+    positive: "frontrunning-vulnerable.sol",
+    negative: "frontrunning-safe.sol",
+  },
+  {
+    patternName: "predictable-randomness",
+    regex: yaml("predictable-randomness"),
+    positive: "frontrunning-vulnerable.sol",
+    negative: "frontrunning-safe.sol",
+  },
+  {
+    patternName: "commit-reveal-weakness",
+    regex: yaml("commit-reveal-weakness"),
+    positive: "frontrunning-vulnerable.sol",
+    negative: "frontrunning-safe.sol",
+  },
 ];
 
 describe("Pattern Test Corpus", () => {

@@ -1,0 +1,29 @@
+pack_name: donation-attacks
+pack_version: "1.0"
+patterns:
+  - name: first-depositor-inflation
+    category: logic-error
+    severity: Critical
+    confidence: Medium
+    version: "1.0"
+    regex: 'shares\s*=\s*(assets|amount)\b'
+    description: Direct asset-to-share mapping without virtual offset or conversion — first depositor can inflate share price by depositing minimal assets then donating to manipulate the exchange rate
+    remediation: Use virtual shares/assets offset (OpenZeppelin _decimalsOffset); mint dead shares on first deposit (e.g., 10**3 to address(0)); never map shares = assets directly
+
+  - name: direct-token-transfer
+    category: logic-error
+    severity: High
+    confidence: Medium
+    version: "1.0"
+    regex: '\.transfer\(address\(this\)|\.safeTransfer\(address\(this\)'
+    description: Direct ERC20 token transfer to vault address bypassing deposit accounting — enables donation attack to manipulate share-to-asset ratio without minting new shares
+    remediation: Use internal accounting (track deposits/withdrawals explicitly) instead of balanceOf for totalAssets; add sweep protection or use separate reward accounting
+
+  - name: empty-pool-exploit
+    category: logic-error
+    severity: Medium
+    confidence: Medium
+    version: "1.0"
+    regex: 'totalSupply\(\)\s*==\s*0|totalAssets\(\)\s*==\s*0'
+    description: Empty vault state check without minimum deposit or dead share enforcement — indicates vulnerable first-deposit handling where attacker can exploit zero-supply or zero-asset conditions
+    remediation: Enforce minimum initial deposit amount; mint dead shares to address(0) on vault creation; use virtual offset so totalSupply is never truly zero

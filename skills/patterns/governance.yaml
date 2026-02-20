@@ -1,0 +1,84 @@
+pack_name: governance
+pack_version: "1.0"
+patterns:
+  - name: timelock-bypass
+    category: governance
+    severity: High
+    confidence: Medium
+    version: "1.0"
+    regex: 'function\s+(execute|queue)\s*\([^)]*\)\s+(external|public)[^}]*\{(?![\s\S]*timelock)'
+    description: >-
+      Governance execute/queue function without timelock enforcement — critical
+      governance actions can be executed immediately without delay, enabling
+      flash-loan governance attacks (cf. Beanstalk $182M exploit)
+    exploit_ref: https://rekt.news/beanstalk-rekt/
+    remediation: >-
+      Enforce a minimum timelock delay between proposal passage and execution;
+      use OpenZeppelin TimelockController or Governor with TimelockController extension
+
+  - name: flash-loan-governance
+    category: governance
+    severity: Critical
+    confidence: Medium
+    version: "1.0"
+    regex: 'function\s+(propose|castVote|castVoteBySig|castVoteWithReason)\s*\('
+    description: >-
+      Governance voting or proposal function detected — verify that voting
+      power is snapshot-based (not live balance) to prevent flash-loan
+      governance attacks where attacker borrows tokens, votes, and repays in
+      one transaction (cf. Beanstalk BIP-18 exploit)
+    exploit_ref: https://rekt.news/beanstalk-rekt/
+    remediation: >-
+      Use ERC20Votes with checkpoint snapshots; require voting power to be
+      determined at proposal creation block, not at vote time; add vote
+      delay periods
+
+  - name: quorum-manipulation
+    category: governance
+    severity: High
+    confidence: Low
+    version: "1.0"
+    regex: '(getVotes|votingPower|balanceOf)\s*\([^)]*\)(?![\s\S]{0,120}(snapshot|Checkpoint|getPastVotes|getPastTotalSupply|blockNumber))'
+    description: >-
+      Voting power queried without snapshot or checkpoint mechanism — live
+      balance queries for governance are manipulable via flash loans or
+      token transfers; quorum can be artificially met or circumvented
+      (cf. Build Finance DAO takeover)
+    exploit_ref: https://rekt.news/build-finance-rekt/
+    remediation: >-
+      Use ERC20Votes.getPastVotes() with a historical block number; never
+      use current balanceOf() for governance weight; implement
+      ERC20Snapshot or ERC20Votes for checkpoint-based voting power
+
+  - name: unprotected-proposal
+    category: governance
+    severity: Medium
+    confidence: Low
+    version: "1.0"
+    regex: 'function\s+propose\s*\([^)]*\)\s+(external|public)(?![\s\S]{0,200}(require|_msgSender|proposalThreshold|getVotes|onlyRole))'
+    description: >-
+      Proposal creation function without apparent threshold or access check —
+      any address can submit proposals, enabling governance spam or malicious
+      proposal attacks (cf. Audius governance exploit)
+    exploit_ref: https://rekt.news/audius-rekt/
+    remediation: >-
+      Require minimum token holdings (proposalThreshold) to create proposals;
+      use OpenZeppelin Governor.proposalThreshold(); consider proposal deposits
+      that are slashed for failed proposals
+
+  - name: single-step-governance
+    category: governance
+    severity: High
+    confidence: Medium
+    version: "1.0"
+    regex: 'function\s+(execute|executeProposal)\s*\([^)]*\)\s+(external|public)[^}]*\{(?![\s\S]*(_execute|state\s*==|ProposalState|hasVoted))'
+    description: >-
+      Governance execution without multi-step state machine — proposals can
+      be executed without passing through proper lifecycle states (Pending,
+      Active, Succeeded, Queued, Executed), enabling bypass of voting periods
+      and quorum requirements (cf. Build Finance DAO hostile takeover)
+    exploit_ref: https://rekt.news/build-finance-rekt/
+    remediation: >-
+      Implement full proposal lifecycle with state machine (Pending -> Active
+      -> Succeeded -> Queued -> Executed); use OpenZeppelin Governor which
+      enforces state transitions; require explicit state checks before execution

@@ -314,9 +314,9 @@ description: Reentrancy patterns
 })
 
 describe("production pattern packs (skills/patterns/)", () => {
-  it("loads all 7 YAML files and produces exactly 20 patterns", () => {
+  it("loads all 13 YAML files and produces exactly 45 patterns", () => {
     const patterns = loadPatternPacks(PRODUCTION_PATTERNS_DIR)
-    expect(patterns).toHaveLength(20)
+    expect(patterns).toHaveLength(45)
   })
 
   it("contains expected pattern names from all categories", () => {
@@ -324,20 +324,43 @@ describe("production pattern packs (skills/patterns/)", () => {
     const names = new Set(patterns.map((p) => p.name))
 
     const expected = [
+      // reentrancy
       "reentrancy-eth-transfer", "reentrancy-erc20", "cross-function-reentrancy",
+      // oracle-manipulation
       "stale-price-check", "twap-manipulation", "price-feed-decimals",
+      // flash-loan
       "unchecked-flash-return", "balance-inflation",
+      // access-control
       "missing-access-modifier", "unprotected-initialize", "default-visibility",
+      // erc4626
       "inflation-attack", "donation-attack", "rounding-error",
+      // proxy
       "storage-collision", "uninitialized-proxy", "selector-clash",
+      // signature
       "replay-attack", "sig-malleability", "missing-nonce",
+      // builtins
+      "reentrancy-call-value", "tx-origin-auth", "selfdestruct-usage",
+      "delegatecall-usage", "missing-zero-check",
+      // cross-chain-bridge
+      "missing-chain-id-validation", "replay-across-chains",
+      "unverified-bridge-message", "hardcoded-bridge-address",
+      // governance
+      "timelock-bypass", "flash-loan-governance", "quorum-manipulation",
+      "unprotected-proposal", "single-step-governance",
+      // front-running
+      "missing-slippage-protection", "missing-deadline",
+      "predictable-randomness", "commit-reveal-weakness",
+      // donation-attacks
+      "first-depositor-inflation", "direct-token-transfer", "empty-pool-exploit",
+      // gas-optimization
+      "unbounded-loop", "storage-write-in-loop", "external-call-in-loop", "unchecked-array-growth",
     ]
     for (const name of expected) {
       expect(names.has(name)).toBe(true)
     }
   })
 
-  it("covers all 7 categories", () => {
+  it("covers all 12 categories", () => {
     const patterns = loadPatternPacks(PRODUCTION_PATTERNS_DIR)
     const categories = new Set(patterns.map((p) => p.category))
 
@@ -348,6 +371,11 @@ describe("production pattern packs (skills/patterns/)", () => {
     expect(categories.has("erc4626")).toBe(true)
     expect(categories.has("proxy")).toBe(true)
     expect(categories.has("signature")).toBe(true)
+    expect(categories.has("delegatecall")).toBe(true)
+    expect(categories.has("governance")).toBe(true)
+    expect(categories.has("logic-error")).toBe(true)
+    expect(categories.has("front-running")).toBe(true)
+    expect(categories.has("gas-optimization")).toBe(true)
   })
 
   it("all patterns have valid regex strings", () => {
@@ -361,8 +389,8 @@ describe("production pattern packs (skills/patterns/)", () => {
     const patterns = loadPatternPacks(PRODUCTION_PATTERNS_DIR)
     const bySeverity = (s: string) => patterns.filter((p) => p.severity === s)
 
-    expect(bySeverity("Critical")).toHaveLength(3)
-    expect(bySeverity("High")).toHaveLength(9)
-    expect(bySeverity("Medium")).toHaveLength(8)
+    expect(bySeverity("Critical")).toHaveLength(6)
+    expect(bySeverity("High")).toHaveLength(23)
+    expect(bySeverity("Medium")).toHaveLength(16)
   })
 })
