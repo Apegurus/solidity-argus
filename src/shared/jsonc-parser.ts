@@ -71,10 +71,65 @@ export function stripJsoncComments(jsonc: string): string {
     chars.push(ch);
   }
 
-  let result = chars.join("");
+  const result = chars.join("");
 
-  // Strip trailing commas before } or ]
-  result = result.replace(/,(\s*[}\]])/g, "$1");
+  // Strip trailing commas before } or ] using a string-aware scan.
+  const out: string[] = [];
+  let inString2 = false;
+  let escaped2 = false;
 
-  return result;
+  for (let i = 0; i < result.length; i++) {
+    const ch = result[i]!;
+
+    if (escaped2) {
+      escaped2 = false;
+      out.push(ch);
+      continue;
+    }
+
+    if (inString2) {
+      if (ch === "\\") {
+        escaped2 = true;
+      } else if (ch === '"') {
+        inString2 = false;
+      }
+      out.push(ch);
+      continue;
+    }
+
+    if (ch === '"') {
+      inString2 = true;
+      out.push(ch);
+      continue;
+    }
+
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < result.length) {
+        const lookahead = result[j]!;
+        if (lookahead === " " || lookahead === "\t" || lookahead === "\n" || lookahead === "\r") {
+          j++;
+          continue;
+        }
+
+        if (lookahead === "}" || lookahead === "]") {
+          // Structural trailing comma: skip it.
+          break;
+        }
+
+        out.push(ch);
+        break;
+      }
+
+      if (j >= result.length) {
+        out.push(ch);
+      }
+
+      continue;
+    }
+
+    out.push(ch);
+  }
+
+  return out.join("");
 }

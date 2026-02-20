@@ -148,4 +148,17 @@ describe("stripJsoncComments", () => {
     expect(parsed.note).toContain("/*");
     expect(parsed.note).toContain("//");
   });
+
+  it("should not strip structural-looking commas inside strings", () => {
+    const input = `{
+  "literal": ",}",
+  "arrayLiteral": ", ]",
+  "value": 1,
+}`;
+    const result = stripJsoncComments(input);
+    const parsed = JSON.parse(result);
+    expect(parsed.literal).toBe(",}");
+    expect(parsed.arrayLiteral).toBe(", ]");
+    expect(parsed.value).toBe(1);
+  });
 });
