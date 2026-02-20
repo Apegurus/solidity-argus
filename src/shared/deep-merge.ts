@@ -4,7 +4,7 @@ function deduplicateArray(arr: unknown[]): unknown[] {
   for (const item of arr) {
     const key = typeof item === "object" && item !== null
       ? JSON.stringify(item)
-      : String(item);
+      : `${typeof item}:${String(item)}`;
     if (!seen.has(key)) {
       seen.add(key);
       result.push(item);
