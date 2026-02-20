@@ -7,7 +7,7 @@ The Argus knowledge base provides a structured collection of Solidity security p
 ```
 OpenCode Skills System
 ├── skills/ (bundled with plugin)
-│   ├── vulnerability-patterns/ (44 patterns from kadenzipfel + DeFiFoFum + BailSec)
+│   ├── vulnerability-patterns/ (51 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
 │   ├── methodology/ (3 files from DeFiFoFum)
 │   ├── protocol-patterns/ (5 files from DeFiFoFum)
 │   ├── checklists/ (6 files from DeFiFoFum + Cyfrin)
@@ -80,25 +80,27 @@ By default, built-in skills take priority. You can change this behavior using th
 
 When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields.
 
-## Pattern Pack Authoring
+## Detection Rules
 
-Pattern packs are YAML files that define collections of regex-based vulnerability detectors.
+Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered and loaded by the pattern checker.
 
-### Structure
+### Adding Detection Rules to a Skill
 
 ```yaml
-pack_name: "My Security Pack"
-pack_version: "1.1"
-patterns:
-  - name: "Unprotected Selfdestruct"
-    category: "access-control"
-    severity: "Critical"
-    regex: "selfdestruct\\("
-    description: "Detects use of selfdestruct which may be unprotected"
-    swc: "SWC-106"
+---
+name: my-vulnerability
+description: Description of the vulnerability
+pattern_category: reentrancy
+detection_rules:
+  - regex: '\\.call\\{value:'
+    severity: High
+    confidence: High
+    swc: SWC-107
+    description: External value transfer via low-level call
+---
 ```
 
-### Available Categories
+### Available Pattern Categories
 
 - `reentrancy`
 - `oracle-manipulation`
@@ -117,4 +119,4 @@ patterns:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 75 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 82 SKILL.md files currently bundled with Argus.

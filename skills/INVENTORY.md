@@ -1,7 +1,7 @@
 # Argus Knowledge Base Inventory
 
 Generated: 2026-02-20
-Total SKILL.md files: 77
+Total SKILL.md files: 82
 
 ## Vulnerability Patterns
 | File | Source(s) | Topic | Word Count |
@@ -11,6 +11,7 @@ Total SKILL.md files: 77
 | vulnerability-patterns/assert-violation/SKILL.md | kadenzipfel | Assert Violation | 369 |
 | vulnerability-patterns/asserting-contract-from-code-size/SKILL.md | kadenzipfel | Asserting Contract from Code Size | 367 |
 | vulnerability-patterns/authorization-txorigin/SKILL.md | kadenzipfel | Authorization Through tx.origin | 295 |
+| vulnerability-patterns/cross-chain-bridge-vulnerabilities/SKILL.md | Argus | Cross-Chain Bridge Vulnerabilities | 1195 |
 | vulnerability-patterns/default-visibility/SKILL.md | kadenzipfel | Default Visibility | 331 |
 | vulnerability-patterns/delegatecall-untrusted-callee/SKILL.md | kadenzipfel | Delegatecall to Untrusted Callee | 356 |
 | vulnerability-patterns/dos-gas-limit/SKILL.md | kadenzipfel | DoS with Block Gas Limit | 355 |
@@ -19,6 +20,9 @@ Total SKILL.md files: 77
 | vulnerability-patterns/fee-on-transfer-tokens/SKILL.md | BailSec | Fee-on-Transfer Token Incompatibility | 540 |
 | vulnerability-patterns/flash-loan-attacks/SKILL.md | DeFiFoFum, kadenzipfel | Flash Loan Attack Exploits | 1116 |
 | vulnerability-patterns/floating-pragma/SKILL.md | kadenzipfel | Floating Pragma | 301 |
+| vulnerability-patterns/front-running-attacks/SKILL.md | Argus | Front-Running and MEV Vulnerabilities | 1147 |
+| vulnerability-patterns/gas-optimization-patterns/SKILL.md | Argus | Gas Optimization Vulnerability Patterns | 1219 |
+| vulnerability-patterns/governance-attacks/SKILL.md | Argus | Governance Attack Vulnerabilities | 1321 |
 | vulnerability-patterns/hash-collision/SKILL.md | kadenzipfel | Hash Collision with abi.encodePacked() | 326 |
 | vulnerability-patterns/inadherence-to-standards/SKILL.md | kadenzipfel | Inadherence to Standards | 369 |
 | vulnerability-patterns/incorrect-constructor/SKILL.md | kadenzipfel | Incorrect Constructor Name | 320 |
@@ -33,6 +37,7 @@ Total SKILL.md files: 77
 | vulnerability-patterns/oracle-manipulation/SKILL.md | DeFiFoFum, kadenzipfel | Oracle Manipulation Exploits | 1126 |
 | vulnerability-patterns/outdated-compiler-version/SKILL.md | kadenzipfel | Outdated Compiler Version | 342 |
 | vulnerability-patterns/overflow-underflow/SKILL.md | kadenzipfel | Integer Overflow and Underflow | 385 |
+| vulnerability-patterns/proxy-vulnerabilities/SKILL.md | Argus | Proxy Pattern Vulnerabilities | 1063 |
 | vulnerability-patterns/reentrancy/SKILL.md | DeFiFoFum, kadenzipfel | Reentrancy Exploits | 1160 |
 | vulnerability-patterns/shadowing-state-variables/SKILL.md | kadenzipfel | Shadowing State Variables | 404 |
 | vulnerability-patterns/share-accounting-desynchronization/SKILL.md | BailSec | Share Accounting Desynchronization | 390 |

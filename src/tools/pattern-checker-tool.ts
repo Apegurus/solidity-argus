@@ -10,11 +10,10 @@ import {
 } from "../knowledge/scvd-index";
 import {
   extractDetectionRulesFromSkills,
-  loadPatternPacks,
 } from "./pattern-loader";
 import type { PatternDefinition } from "./pattern-schema";
 
-export type PatternSource = "builtin" | "yaml" | "skill";
+export type PatternSource = "skill";
 
 export interface Match {
   pattern: string;
@@ -62,7 +61,7 @@ type PatternCheckDependencies = {
   ) => ScvdIndexEntry[];
 };
 
-type BuiltinPattern = {
+type LoadedPattern = {
   name: string;
   category: string;
   severity: Match["severity"];
@@ -73,8 +72,6 @@ type BuiltinPattern = {
 };
 
 export const PATTERN_PACK_VERSION = "1.0.0";
-
-const BUILTIN_PATTERNS: BuiltinPattern[] = [];
 
 const CATEGORY_TO_SWC: Record<string, string[]> = {
   reentrancy: ["SWC-107"],
@@ -90,9 +87,7 @@ const CATEGORY_TO_SWC: Record<string, string[]> = {
   dos: ["SWC-128"],
 };
 
-const PATTERN_NAME_TO_CATEGORY = new Map(
-  BUILTIN_PATTERNS.map((pattern) => [pattern.name, pattern.category])
-);
+
 
 function normalizeSeverity(value: string): Match["severity"] {
   if (value === "Critical") return "Critical";
@@ -105,7 +100,7 @@ function normalizeSeverity(value: string): Match["severity"] {
 function normalizePatternDefinitions(
   patterns: PatternDefinition[],
   source: PatternSource
-): BuiltinPattern[] {
+): LoadedPattern[] {
   return patterns.map((patternDef) => ({
     name: patternDef.name,
     category: patternDef.category,
@@ -131,7 +126,7 @@ async function collectScvdMatches(
 ): Promise<Match[]> {
   const detectedCategories = new Set<string>();
   for (const match of matches) {
-    const category = match.category ?? PATTERN_NAME_TO_CATEGORY.get(match.pattern);
+    const category = match.category;
     if (category) {
       detectedCategories.add(category);
     }
@@ -241,7 +236,7 @@ function lineWindow(content: string, index: number): [number, number] {
   return [start, end];
 }
 
-function findMatches(file: string, patterns: BuiltinPattern[]): Match[] {
+function findMatches(file: string, patterns: LoadedPattern[]): Match[] {
   const content = readFileSync(file, "utf8");
   const matches: Match[] = [];
 
@@ -256,7 +251,7 @@ function findMatches(file: string, patterns: BuiltinPattern[]): Match[] {
         lines: lineWindow(content, index),
         description: pattern.description,
         exploitReference: pattern.exploitReference,
-        patternSource: pattern.source ?? "builtin",
+        patternSource: pattern.source ?? "skill",
         category: pattern.category,
       });
     }
@@ -266,9 +261,9 @@ function findMatches(file: string, patterns: BuiltinPattern[]): Match[] {
 }
 
 function selectPatterns(
-  availablePatterns: BuiltinPattern[],
+  availablePatterns: LoadedPattern[],
   categories?: string[]
-): BuiltinPattern[] {
+): LoadedPattern[] {
   if (!categories || categories.length === 0) {
     return availablePatterns;
   }
@@ -292,12 +287,9 @@ export async function executePatternCheck(
   context.metadata({ title: `Pattern check: ${args.target}` });
 
   const skillsDir = join(dirname(dirname(__dirname)), "skills");
-  const yamlPatterns = loadPatternPacks(join(skillsDir, "patterns"));
   const skillDetectionRules = extractDetectionRulesFromSkills(skillsDir);
 
-  const allPatterns: BuiltinPattern[] = [
-    ...BUILTIN_PATTERNS.map((pattern) => ({ ...pattern, source: "builtin" as const })),
-    ...normalizePatternDefinitions(yamlPatterns, "yaml"),
+  const allPatterns: LoadedPattern[] = [
     ...normalizePatternDefinitions(skillDetectionRules, "skill"),
   ];
 
