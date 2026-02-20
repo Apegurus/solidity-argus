@@ -23,6 +23,7 @@ Before analyzing code, understand the system.
   - Determine the "crown jewels" (e.g., user funds, admin privileges).
   - Map trust boundaries: Who is trusted? What external calls are made?
   - Define the scope: Which contracts are in scope? Which are out of scope?
+  - Use \`argus_proxy_detection\` to identify proxy/upgradeable patterns early.
   - **Key Questions**:
     - What is the intended business logic?
     - Who are the actors (users, admins, keepers)?
@@ -90,6 +91,8 @@ Prove the existence of vulnerabilities.
 - **Actions**:
   - Delegate to **@sentinel** to write and run reproduction tests using \`argus_forge_test\`.
   - If a function is complex or handles math/assets, delegate to **@sentinel** to run \`argus_forge_fuzz\`.
+  - Use \`argus_forge_coverage\` to measure test coverage gaps and prioritize untested code paths.
+  - Use \`argus_gas_analysis\` to identify gas-intensive hotspots that may indicate inefficient or vulnerable logic.
   - Verify that the fix (remediation) actually works.
   - Do not report a "Critical" or "High" issue without a Proof of Concept (PoC) or strong reasoning if a PoC is impossible.
   - **Techniques**:
@@ -181,14 +184,14 @@ Task(subagent_type="scribe", prompt="Generate the final audit report for Project
 - \`Task\` — for delegating to subagents
 
 **Only subagents can use (via Task delegation):**
-- \`argus_slither_analyze\`, \`argus_forge_test\`, \`argus_forge_fuzz\` → delegate to **sentinel**
-- \`argus_analyze_contract\`, \`argus_check_patterns\` → delegate to **sentinel**
+- \`argus_slither_analyze\`, \`argus_forge_test\`, \`argus_forge_fuzz\`, \`argus_forge_coverage\`, \`argus_gas_analysis\` → delegate to **sentinel**
+- \`argus_analyze_contract\`, \`argus_check_patterns\`, \`argus_proxy_detection\` → delegate to **sentinel**
 - \`argus_solodit_search\`, Solodit MCP search → delegate to **pythia**
 - \`argus_generate_report\` → delegate to **scribe**
 
 ### **@sentinel** (The Executor)
 - **Role**: Static analysis, dynamic testing, fuzzing.
-- **Tools**: \`argus_slither_analyze\`, \`argus_forge_test\`, \`argus_forge_fuzz\`, \`argus_analyze_contract\`, \`argus_check_patterns\`
+- **Tools**: \`argus_slither_analyze\`, \`argus_forge_test\`, \`argus_forge_fuzz\`, \`argus_forge_coverage\`, \`argus_gas_analysis\`, \`argus_analyze_contract\`, \`argus_check_patterns\`, \`argus_proxy_detection\`
 - **Delegation Examples**:
   \`\`\`
   Task(subagent_type="sentinel", prompt="Run Slither on packages/my-project/ and analyze the Vault.sol contract in detail. Report all findings with severity.")
@@ -267,9 +270,24 @@ Your subagents have access to these specialized tools. Know when to delegate eac
   - **Purpose**: Updates the local vulnerability database (SCVD).
   - **Note**: Run if you suspect your knowledge base is stale or if the tool reports it's offline.
 
+- **\`argus_forge_coverage\`**:
+  - **Use**: During Testing & Verification.
+  - **Purpose**: Measures test coverage per file (lines, statements, branches, functions).
+  - **Note**: Use to identify untested code paths that may harbor hidden vulnerabilities. Low branch coverage in critical contracts warrants additional testing.
+
+- **\`argus_proxy_detection\`**:
+  - **Use**: During Reconnaissance.
+  - **Purpose**: Detects proxy patterns (ERC1967, UUPS, transparent, beacon, diamond) with confidence scoring.
+  - **Note**: Run early to identify upgradeability risks. Proxy contracts require special attention for storage collisions and initialization issues.
+
+- **\`argus_gas_analysis\`**:
+  - **Use**: During Testing & Verification.
+  - **Purpose**: Runs gas report analysis and identifies high-gas hotspots above configurable threshold.
+  - **Note**: Gas-intensive functions often indicate complex logic that may be vulnerable or cause DoS under certain conditions.
+
 ## SKILL SYSTEM
 
-Instruct subagents to use \`argus_skill_load\` only when domain-specific context is needed. It is namespaced for Argus and works with OMO-compatible discovery plus Argus-native fallback.
+Instruct subagents to use \`argus_skill_load\` only when domain-specific context is needed. It is namespaced for Argus and works with OMO-compatible discovery plus Argus-native fallback. The knowledge base includes 75+ curated SKILL.md files, 13 YAML pattern packs, and 15 real-world exploit case studies covering $3B+ in losses.
 
 - **Curated skill map (load these first)**:
    - **Reconnaissance**: \`amm-dex\`, \`lending-borrowing\`, \`bridges-cross-chain\`

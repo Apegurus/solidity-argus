@@ -301,6 +301,21 @@ export function createToolTrackingHook(
 
     const { state: auditState, store } = resolved
 
+    // Handle argus_skill_load first — it returns markdown, not JSON
+    if (input.tool === "argus_skill_load") {
+      // Extract skill name from markdown header: "## Argus Skill: {name} [Source: ...]"
+      const nameMatch = input.result.match(/^##\s+Argus Skill:\s+(.+?)(?:\s+\[|$)/m)
+      const skillName = nameMatch?.[1]?.trim()
+      if (skillName) {
+        auditState.skillsLoaded ??= []
+        if (!auditState.skillsLoaded.includes(skillName)) {
+          auditState.skillsLoaded.push(skillName)
+        }
+      }
+      recordToolExecution(auditState, input.tool, 0)
+      return
+    }
+
     let parsed: unknown
     try {
       parsed = JSON.parse(input.result)
@@ -331,6 +346,52 @@ export function createToolTrackingHook(
       case "argus_forge_fuzz":
         processFuzzResult(record, auditState)
         break
+      case "argus_generate_report": {
+        auditState.reportGenerated = true
+        break
+      }
+      case "argus_sync_knowledge": {
+        const success = record.success === true
+        auditState.knowledgeSynced = { success, timestamp: Date.now() }
+        break
+      }
+      case "argus_forge_coverage": {
+        const reportObj = toRecord(record.report)
+        const files = reportObj?.files
+        if (Array.isArray(files)) {
+          auditState.coverageReport = {
+            files: files.filter((f): f is Record<string, unknown> => !!f && typeof f === "object").map(f => ({
+              path: typeof f.path === "string" ? f.path : "unknown",
+              linesPct: typeof f.linesPct === "number" ? f.linesPct : 0,
+              branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
+              functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
+            }))
+          }
+        }
+        break
+      }
+      case "argus_proxy_detection": {
+        if (record.isProxy === true) {
+          auditState.proxyContracts ??= []
+          auditState.proxyContracts.push({
+            file: typeof record.file === "string" ? record.file : "unknown",
+            proxyType: typeof record.proxyType === "string" ? record.proxyType : "unknown",
+            indicators: Array.isArray(record.indicators) ? record.indicators.filter((i): i is string => typeof i === "string") : [],
+          })
+        }
+        break
+      }
+      case "argus_gas_analysis": {
+        const hotspots = record.hotspots
+        if (Array.isArray(hotspots)) {
+          auditState.gasHotspots = hotspots.filter((h): h is Record<string, unknown> => !!h && typeof h === "object").map(h => ({
+            contract: typeof h.contract === "string" ? h.contract : "unknown",
+            function: typeof h.function === "string" ? h.function : "unknown",
+            avgGas: typeof h.avgGas === "number" ? h.avgGas : 0,
+          }))
+        }
+        break
+      }
     }
 
     recordToolExecution(auditState, input.tool, findingsCount)

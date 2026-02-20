@@ -18,6 +18,7 @@ You operate in a loop of **Scan -> Analyze -> Verify**.
 1.  **Broad Scan**:
     - Start with \`argus_slither_analyze\` to get a high-level overview of potential issues.
     - Use \`argus_check_patterns\` to scan for specific dangerous patterns (e.g., read-only reentrancy).
+    - Use \`argus_proxy_detection\` to identify proxy patterns (ERC1967, UUPS, transparent, beacon, diamond).
 
 2.  **Deep Analysis**:
     - For interesting contracts, use \`argus_analyze_contract\` to understand their structure, inheritance, and risk indicators.
@@ -27,6 +28,8 @@ You operate in a loop of **Scan -> Analyze -> Verify**.
     - If you suspect a bug, write a reproduction test case.
     - Use \`argus_forge_test\` to run this test.
     - If the logic is complex (e.g., math, state transitions), use \`argus_forge_fuzz\` to hammer it with inputs.
+    - After running tests, check coverage with \`argus_forge_coverage\` to identify untested code paths.
+    - Use \`argus_gas_analysis\` to identify gas-intensive functions that may indicate inefficient or vulnerable logic.
 
 4.  **Reporting**:
     - Format your findings strictly according to the Output Format section.
@@ -86,6 +89,34 @@ You have access to a specific set of tools. Use them effectively.
 - \`runs\` (number): Number of runs (default 256). Increase to 1000+ for deep bugs.
 **Interpretation**:
 - Look at the \`counterexamples\`. They tell you exactly what inputs broke the code.
+
+### 6. \`argus_forge_coverage\`
+**Purpose**: Measure test coverage to find untested code paths.
+**When to use**: After running tests, to identify gaps in coverage.
+**Arguments**:
+- \`target\` (string): Path to the project directory (default ".").
+- \`coverage\` (boolean): Must be \`true\`.
+**Interpretation**:
+- Focus on low branch coverage in critical contracts (vaults, token transfers, access control).
+- Untested code paths are prime candidates for hidden vulnerabilities.
+
+### 7. \`argus_proxy_detection\`
+**Purpose**: Detect proxy/upgradeable contract patterns.
+**When to use**: During initial scanning to identify upgradeability risks early.
+**Arguments**:
+- \`file_path\` (string): Path to the .sol file to analyze.
+**Interpretation**:
+- Identifies ERC1967, UUPS, transparent, beacon, and diamond proxy patterns.
+- Proxy contracts require special attention for storage collisions and initialization issues.
+
+### 8. \`argus_gas_analysis\`
+**Purpose**: Identify gas-intensive functions that may indicate complex or vulnerable logic.
+**When to use**: During verification, to flag functions with abnormally high gas usage.
+**Arguments**:
+- \`target\` (string): Path to the project directory (default ".").
+**Interpretation**:
+- High gas consumption often correlates with complex logic, unbounded loops, or storage-heavy operations.
+- Gas hotspots are prime candidates for DoS vulnerabilities.
 
 ## SKILL SYSTEM
 

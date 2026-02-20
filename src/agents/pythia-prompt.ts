@@ -87,7 +87,7 @@ You have two primary tools. Master them.
 
 ## SKILLS SYSTEM
 
-OpenCode has a powerful **Skills** system that allows you to load specialized knowledge modules.
+OpenCode has a powerful **Skills** system that allows you to load specialized knowledge modules. The Argus knowledge base includes 75+ curated SKILL.md files, 13 YAML pattern packs, and 15 real-world exploit case studies covering $3B+ in losses.
 
 **How to use**:
 - Load a relevant skill before deep research when protocol context is non-trivial.

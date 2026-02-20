@@ -687,4 +687,255 @@ describe("createToolTrackingHook", () => {
       expect(auditState.fuzzCounterexamples![2]!.revertReason).toBe("Division by zero")
     })
   })
+
+  describe("skill load tracking", () => {
+    test("skill name extracted from markdown and added to skillsLoaded", async () => {
+      const skillResult = `## Argus Skill: reentrancy [Source: bundled]
+
+**Source**: bundled
+**Path**: skills/reentrancy.md
+**Description**: Reentrancy vulnerability patterns
+
+[Provenance: MIT | https://example.com]
+
+# Reentrancy Vulnerability
+
+Detailed content about reentrancy...`
+
+      await hook({
+        tool: "argus_skill_load",
+        args: { name: "reentrancy" },
+        result: skillResult,
+      })
+
+      expect(auditState.skillsLoaded).toBeDefined()
+      expect(auditState.skillsLoaded).toContain("reentrancy")
+      expect(auditState.toolsExecuted).toHaveLength(1)
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_skill_load")
+    })
+
+    test("duplicate skill names are not added twice", async () => {
+      const skillResult = `## Argus Skill: reentrancy [Source: bundled]
+
+**Source**: bundled
+**Path**: skills/reentrancy.md
+
+# Reentrancy Vulnerability
+
+Content...`
+
+      await hook({
+        tool: "argus_skill_load",
+        args: { name: "reentrancy" },
+        result: skillResult,
+      })
+
+      await hook({
+        tool: "argus_skill_load",
+        args: { name: "reentrancy" },
+        result: skillResult,
+      })
+
+      expect(auditState.skillsLoaded).toHaveLength(1)
+    })
+  })
+
+  describe("report generation tracking", () => {
+    test("report generation sets reportGenerated to true", async () => {
+      const reportResult = {
+        report: "# Audit Report\n...",
+        format: "markdown",
+        findingsCount: 5,
+      }
+
+      await hook({
+        tool: "argus_generate_report",
+        args: { project_name: "Vault" },
+        result: JSON.stringify(reportResult),
+      })
+
+      expect(auditState.reportGenerated).toBe(true)
+      expect(auditState.toolsExecuted).toHaveLength(1)
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_generate_report")
+    })
+  })
+
+  describe("knowledge sync tracking", () => {
+    test("sync event logged with success status", async () => {
+      const syncResult = {
+        success: true,
+        entriesCount: 7769,
+        source: "api.scvd.dev",
+      }
+
+      await hook({
+        tool: "argus_sync_knowledge",
+        args: { force: false },
+        result: JSON.stringify(syncResult),
+      })
+
+      expect(auditState.knowledgeSynced).toBeDefined()
+      expect(auditState.knowledgeSynced!.success).toBe(true)
+      expect(auditState.knowledgeSynced!.timestamp).toBeGreaterThan(0)
+      expect(auditState.toolsExecuted).toHaveLength(1)
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_sync_knowledge")
+    })
+
+    test("sync failure logged with success=false", async () => {
+      const syncResult = {
+        success: false,
+        error: "Network timeout",
+      }
+
+      await hook({
+        tool: "argus_sync_knowledge",
+        args: { force: true },
+        result: JSON.stringify(syncResult),
+      })
+
+      expect(auditState.knowledgeSynced).toBeDefined()
+      expect(auditState.knowledgeSynced!.success).toBe(false)
+      expect(auditState.knowledgeSynced!.timestamp).toBeGreaterThan(0)
+    })
+  })
+
+  describe("forge coverage tracking", () => {
+    test("coverage summary extracted to coverageReport", async () => {
+      const coverageResult = {
+        success: true,
+        report: {
+          files: [
+            {
+              path: "src/Vault.sol",
+              linesPct: 85.5,
+              statementsPct: 80.0,
+              branchesPct: 70.0,
+              functionsPct: 90.0,
+            },
+            {
+              path: "src/Token.sol",
+              linesPct: 100,
+              statementsPct: 100,
+              branchesPct: 95.0,
+              functionsPct: 100,
+            },
+          ],
+          summary: {
+            totalLinesPct: 92.75,
+            totalStatementsPct: 90.0,
+            totalBranchesPct: 82.5,
+            totalFunctionsPct: 95.0,
+          },
+        },
+        executionTime: 5000,
+      }
+
+      await hook({
+        tool: "argus_forge_coverage",
+        args: { target: "." },
+        result: JSON.stringify(coverageResult),
+      })
+
+      expect(auditState.coverageReport).toBeDefined()
+      expect(auditState.coverageReport!.files).toHaveLength(2)
+      expect(auditState.coverageReport!.files[0]!.path).toBe("src/Vault.sol")
+      expect(auditState.coverageReport!.files[0]!.linesPct).toBe(85.5)
+      expect(auditState.coverageReport!.files[0]!.branchesPct).toBe(70.0)
+      expect(auditState.coverageReport!.files[0]!.functionsPct).toBe(90.0)
+      expect(auditState.coverageReport!.files[1]!.path).toBe("src/Token.sol")
+      expect(auditState.toolsExecuted).toHaveLength(1)
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_forge_coverage")
+    })
+  })
+
+  describe("proxy detection tracking", () => {
+    test("proxy detection with isProxy=true creates proxyContracts entry", async () => {
+      const proxyResult = {
+        isProxy: true,
+        file: "src/VaultProxy.sol",
+        proxyType: "UUPS",
+        indicators: ["delegatecall", "ERC1967 storage slot"],
+        confidence: "High",
+      }
+
+      await hook({
+        tool: "argus_proxy_detection",
+        args: { file_path: "src/VaultProxy.sol" },
+        result: JSON.stringify(proxyResult),
+      })
+
+      expect(auditState.proxyContracts).toBeDefined()
+      expect(auditState.proxyContracts).toHaveLength(1)
+      expect(auditState.proxyContracts![0]!.file).toBe("src/VaultProxy.sol")
+      expect(auditState.proxyContracts![0]!.proxyType).toBe("UUPS")
+      expect(auditState.proxyContracts![0]!.indicators).toEqual(["delegatecall", "ERC1967 storage slot"])
+      // Should NOT create findings
+      expect(auditState.findings).toHaveLength(0)
+      expect(auditState.toolsExecuted).toHaveLength(1)
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_proxy_detection")
+    })
+
+    test("proxy detection with isProxy=false does not create proxyContracts entry", async () => {
+      const proxyResult = {
+        isProxy: false,
+        file: "src/Vault.sol",
+        indicators: [],
+        confidence: "High",
+      }
+
+      await hook({
+        tool: "argus_proxy_detection",
+        args: { file_path: "src/Vault.sol" },
+        result: JSON.stringify(proxyResult),
+      })
+
+      expect(auditState.proxyContracts).toBeUndefined()
+      expect(auditState.toolsExecuted).toHaveLength(1)
+    })
+  })
+
+  describe("gas analysis tracking", () => {
+    test("gas hotspots extracted to gasHotspots", async () => {
+      const gasResult = {
+        hotspots: [
+          { contract: "Vault", function: "withdraw", avgGas: 150000 },
+          { contract: "Vault", function: "deposit", avgGas: 85000 },
+        ],
+        threshold: 50000,
+        totalContracts: 1,
+      }
+
+      await hook({
+        tool: "argus_gas_analysis",
+        args: { target: "." },
+        result: JSON.stringify(gasResult),
+      })
+
+      expect(auditState.gasHotspots).toBeDefined()
+      expect(auditState.gasHotspots).toHaveLength(2)
+      expect(auditState.gasHotspots![0]!.contract).toBe("Vault")
+      expect(auditState.gasHotspots![0]!.function).toBe("withdraw")
+      expect(auditState.gasHotspots![0]!.avgGas).toBe(150000)
+      expect(auditState.gasHotspots![1]!.function).toBe("deposit")
+      expect(auditState.toolsExecuted).toHaveLength(1)
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_gas_analysis")
+    })
+
+    test("gas analysis with empty hotspots stores empty array", async () => {
+      const gasResult = {
+        hotspots: [],
+        threshold: 50000,
+        totalContracts: 1,
+      }
+
+      await hook({
+        tool: "argus_gas_analysis",
+        args: { target: "." },
+        result: JSON.stringify(gasResult),
+      })
+
+      expect(auditState.gasHotspots).toBeDefined()
+      expect(auditState.gasHotspots).toHaveLength(0)
+    })
+  })
 })

@@ -24,6 +24,11 @@ Your output must always follow this professional structure:
 5.  **Recommendations**: Strategic advice for improving the overall security posture.
 6.  **Appendix**: Tool execution logs or supplementary data.
 
+### Optional Sections (include when data is available)
+-   **Test Coverage Analysis**: Include coverage metrics from \`argus_forge_coverage\` if available. Highlight files with low branch/statement coverage.
+-   **Gas Hotspot Analysis**: Include gas analysis from \`argus_gas_analysis\` if available. Flag functions exceeding gas thresholds.
+-   **Proxy & Upgradeability Analysis**: Include proxy detection findings from \`argus_proxy_detection\` if available. Document proxy patterns identified and associated risks.
+
 ## WRITING STYLE GUIDE
 
 You must adhere to these strict writing standards:

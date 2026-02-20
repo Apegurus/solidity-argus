@@ -70,7 +70,7 @@ describe("E2E A: Plugin Load", () => {
      expect(typeof result.event).toBe("function")
   })
 
-  test("tool map contains all 9 argus tools", async () => {
+  test("tool map contains all 12 argus tools", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
@@ -78,9 +78,12 @@ describe("E2E A: Plugin Load", () => {
     expect(toolNames).toEqual([
       "argus_analyze_contract",
       "argus_check_patterns",
+      "argus_forge_coverage",
       "argus_forge_fuzz",
       "argus_forge_test",
+      "argus_gas_analysis",
       "argus_generate_report",
+      "argus_proxy_detection",
       "argus_skill_load",
       "argus_slither_analyze",
       "argus_solodit_search",
@@ -117,7 +120,7 @@ describe("E2E A: Plugin Load", () => {
       const result = await ArgusPlugin(ctx)
 
       expect(result.tool).toBeDefined()
-      expect(Object.keys(result.tool ?? {})).toHaveLength(9)
+      expect(Object.keys(result.tool ?? {})).toHaveLength(12)
       expect(typeof result.config).toBe("function")
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
@@ -409,7 +412,7 @@ describe("E2E D: Hook Lifecycle", () => {
 
     expect(iface.config).toBeDefined()
     expect(iface["tool.execute.after"]).toBeDefined()
-    expect(Object.keys(iface.tool)).toHaveLength(9)
+    expect(Object.keys(iface.tool)).toHaveLength(12)
   })
 
   test("config hook is always present even with all feature hooks disabled", async () => {
