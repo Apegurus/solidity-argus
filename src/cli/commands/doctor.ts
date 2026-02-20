@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { basename, dirname, extname, join } from "node:path"
 import type { CliCommand } from "../types"
@@ -23,13 +22,12 @@ const RESET = "\x1b[0m"
 
 function checkBinary(name: string): { found: boolean; version: string | null } {
   try {
-    const version = execSync(`${name} --version`, {
+    const result = Bun.spawnSync([name, "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
       timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
     })
-      .toString()
-      .trim()
-      .split("\n")[0] ?? null
+    const version = new TextDecoder().decode(result.stdout).trim().split("\n")[0] ?? null
     return { found: true, version }
   } catch {
     return { found: false, version: null }

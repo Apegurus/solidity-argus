@@ -89,9 +89,12 @@ Transforms raw findings into professional, structured markdown audit reports wit
 | `argus_slither_analyze` | Sentinel | Runs Slither static analysis on Solidity contracts; detects reentrancy, uninitialized variables, unchecked returns, and more |
 | `argus_analyze_contract` | Sentinel | Generates a deep structural profile of a contract: functions, state variables, modifiers, inheritance tree |
 | `argus_check_patterns` | Sentinel, Pythia | Scans code against a library of complex vulnerability patterns (regex/AST-based) covering 35+ vulnerability classes |
+| `argus_proxy_detection` | Sentinel | Detects proxy patterns in Solidity contracts (ERC1967, UUPS, transparent, beacon, diamond) with confidence scoring |
 | `argus_solodit_search` | Pythia | Searches Solodit's database of real-world audit reports for similar protocols and historical findings |
 | `argus_forge_test` | Sentinel | Runs existing or newly written Foundry/Forge tests; essential for PoC verification |
+| `argus_gas_analysis` | Sentinel | Runs forge gas report analysis, parses per-function gas metrics, and identifies high-gas hotspots above configurable threshold |
 | `argus_forge_fuzz` | Sentinel | Fuzzes specific functions with random inputs to find edge cases and invariant violations |
+| `argus_forge_coverage` | Sentinel | Runs forge coverage analysis and returns structured per-file coverage metrics (lines, statements, branches, functions) |
 | `argus_generate_report` | Scribe | Generates the final structured audit report in professional markdown format |
 | `argus_sync_knowledge` | Argus | Syncs the local vulnerability database from SCVD (api.scvd.dev) |
 
@@ -311,7 +314,7 @@ This channel is **lazy-loaded** — agents request skills only when needed, redu
 
 ### Implementation Notes
 
-- **Phase 1 (Current):** `system.transform` is `undefined` (line 84 in `src/create-hooks.ts`). Agent-gated injection will replace this in Phase 2.
+- **Phase 1 (Current):** `system.transform` uses agent-gated dynamic audit state injection via `createSystemPromptHook` (see `src/create-hooks.ts`).
 - **Global transforms forbidden:** No global system context injection unless agent-gated and minimal. Prevents context window overflow.
 - **Audit state persistence:** State is saved to `.opencode/argus-state.json` and restored on session restart (see `Persistent Audit State` section).
 
