@@ -1,7 +1,7 @@
 # Argus Knowledge Base Inventory
 
 Generated: 2026-02-20
-Total SKILL.md files: 75
+Total SKILL.md files: 77
 
 ## Vulnerability Patterns
 | File | Source(s) | Topic | Word Count |
@@ -16,6 +16,7 @@ Total SKILL.md files: 75
 | vulnerability-patterns/dos-gas-limit/SKILL.md | kadenzipfel | DoS with Block Gas Limit | 355 |
 | vulnerability-patterns/dos-revert/SKILL.md | kadenzipfel | DoS with (Unexpected) Revert | 481 |
 | vulnerability-patterns/erc4626-exchange-rate-manipulation/SKILL.md | BailSec | ERC4626 Exchange Rate Manipulation | 381 |
+| vulnerability-patterns/fee-on-transfer-tokens/SKILL.md | BailSec | Fee-on-Transfer Token Incompatibility | 540 |
 | vulnerability-patterns/flash-loan-attacks/SKILL.md | DeFiFoFum, kadenzipfel | Flash Loan Attack Exploits | 1116 |
 | vulnerability-patterns/floating-pragma/SKILL.md | kadenzipfel | Floating Pragma | 301 |
 | vulnerability-patterns/hash-collision/SKILL.md | kadenzipfel | Hash Collision with abi.encodePacked() | 326 |
@@ -42,6 +43,7 @@ Total SKILL.md files: 75
 | vulnerability-patterns/unencrypted-private-data-on-chain/SKILL.md | kadenzipfel | Unencrypted Private Data On-Chain | 360 |
 | vulnerability-patterns/unexpected-ecrecover-null-address/SKILL.md | kadenzipfel | Unexpected ecrecover Null Address | 339 |
 | vulnerability-patterns/uninitialized-storage-pointer/SKILL.md | kadenzipfel | Uninitialized Storage Pointer | 337 |
+| vulnerability-patterns/unsafe-erc20-transfers/SKILL.md | BailSec | Unsafe ERC20 Transfer and Approve Calls | 620 |
 | vulnerability-patterns/unsafe-low-level-call/SKILL.md | kadenzipfel | Unsafe Low-Level Call | 347 |
 | vulnerability-patterns/unsecure-signatures/SKILL.md | kadenzipfel | Unsecure Signatures | 459 |
 | vulnerability-patterns/unsupported-opcodes/SKILL.md | kadenzipfel | Unsupported Opcodes on EVM-Compatible Chains | 432 |
