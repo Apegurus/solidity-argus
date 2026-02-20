@@ -3,15 +3,17 @@ import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
 import { installCommand } from "./commands/install";
 import { lintSkillsCommand } from "./commands/lint-skills";
+import { checkSkillsCommand } from "./commands/check-skills";
 import { cliOutput } from "./cli-output";
 
 const HELP_TEXT = `argus — Solidity Security Auditor for OpenCode
 
 Commands:
-  doctor       Check Slither/Foundry installation and config health
-  init         Create solidity-argus config file
-  install      Configure argus plugin in opencode config
-  lint-skills  Validate SKILL.md files against schema
+  doctor        Check Slither/Foundry installation and config health
+  init          Create solidity-argus config file
+  install       Configure argus plugin in opencode config
+  lint-skills   Validate SKILL.md files against schema
+  check-skills  Analyze skills for duplicates, near-duplicates, and conflicts
 `;
 
 export class CliProgram {
@@ -45,5 +47,6 @@ export function createCliProgram(): CliProgram {
   program.registerCommand(initCommand);
   program.registerCommand(installCommand);
   program.registerCommand(lintSkillsCommand);
+  program.registerCommand(checkSkillsCommand);
   return program;
 }
