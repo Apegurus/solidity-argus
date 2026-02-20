@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parse as parseYaml } from "yaml"
+import { PATTERN_CATEGORIES } from "../tools/pattern-schema"
 
 export const DetectionRuleSchema = z.object({
   regex: z.string(),
@@ -36,6 +37,7 @@ export const SkillFrontmatterSchema = z.object({
   imported_at: z.string().optional(),
   source_hash: z.string().optional(),
   detection_rules: z.array(DetectionRuleSchema).optional(),
+  pattern_category: z.enum(PATTERN_CATEGORIES).optional(),
 })
 
 export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>

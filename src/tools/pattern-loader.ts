@@ -9,19 +9,6 @@ const logger = createLogger()
 
 const YAML_EXTENSIONS = new Set([".yaml", ".yml"])
 
-const SKILL_NAME_TO_PATTERN_CATEGORY: Record<string, PatternDefinition["category"]> = {
-  "reentrancy": "reentrancy",
-  "access-control": "access-control",
-  "oracle-manipulation": "oracle-manipulation",
-  "flash-loan-attacks": "flash-loan",
-  "delegatecall-untrusted-callee": "proxy",
-  "authorization-txorigin": "access-control",
-  "unchecked-return-values": "logic-error",
-  "dos-revert": "dos",
-  "overflow-underflow": "logic-error",
-  "signature-malleability": "signature",
-}
-
 export function loadPatternPacks(patternsDir: string): PatternDefinition[] {
   if (!existsSync(patternsDir)) {
     logger.warn(`Patterns directory does not exist: ${patternsDir}`)
@@ -103,7 +90,7 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefin
       if (!parsed.success) continue
 
       const skillName = parsed.data.name
-      const category = SKILL_NAME_TO_PATTERN_CATEGORY[skillName]
+      const category = parsed.data.pattern_category
       if (!category) continue
 
       const rules = parsed.data.detection_rules
