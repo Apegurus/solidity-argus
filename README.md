@@ -15,12 +15,12 @@ Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 
 **What it does:**
 - Runs Slither static analysis and Foundry tests automatically
 - Searches 7,769+ real-world audit findings via SCVD and Solodit
-- Matches code against 55 curated vulnerability pattern files
+- Matches code against 82 curated SKILL.md knowledge files
 - Generates professional markdown audit reports with severity classifications
 - Follows a rigorous 7-step audit methodology (Reconnaissance → Report)
 
 **Why it's useful:**
-- Catches reentrancy, oracle manipulation, access control flaws, flash loan vectors, and 35+ other vulnerability classes
+- Catches reentrancy, oracle manipulation, access control flaws, flash loan vectors, and 50+ vulnerability classes across 14 pattern categories
 - Integrates seamlessly into OpenCode's agent system — no separate tooling setup required
 - Knowledge base sourced from Trail of Bits, Cyfrin, DeFiFoFum, and the broader security community
 
@@ -88,7 +88,7 @@ Transforms raw findings into professional, structured markdown audit reports wit
 |------|-------|-------------|
 | `argus_slither_analyze` | Sentinel | Runs Slither static analysis on Solidity contracts; detects reentrancy, uninitialized variables, unchecked returns, and more |
 | `argus_analyze_contract` | Sentinel | Generates a deep structural profile of a contract: functions, state variables, modifiers, inheritance tree |
-| `argus_check_patterns` | Sentinel, Pythia | Scans code against a library of complex vulnerability patterns (regex/AST-based) covering 35+ vulnerability classes |
+| `argus_check_patterns` | Sentinel, Pythia | Scans code against a library of complex vulnerability patterns (regex/AST-based) covering 50+ vulnerability classes across 14 pattern categories |
 | `argus_proxy_detection` | Sentinel | Detects proxy patterns in Solidity contracts (ERC1967, UUPS, transparent, beacon, diamond) with confidence scoring |
 | `argus_solodit_search` | Pythia | Searches Solodit's database of real-world audit reports for similar protocols and historical findings |
 | `argus_forge_test` | Sentinel | Runs existing or newly written Foundry/Forge tests; essential for PoC verification |
@@ -102,45 +102,40 @@ Transforms raw findings into professional, structured markdown audit reports wit
 
 ## Knowledge Base
 
-The plugin ships with **55 curated SKILL.md files** organized into 5 categories:
+The plugin ships with **82 curated SKILL.md files** organized into 6 categories:
 
 | Category | Files | Description |
 |----------|-------|-------------|
-| Vulnerability Patterns | 38 | Reentrancy, oracle manipulation, flash loans, access control, overflow/underflow, and 33 more |
+| Vulnerability Patterns | 51 | Reentrancy, oracle manipulation, flash loans, access control, ERC4626, governance, front-running, and 44 more |
 | Methodology | 3 | Audit workflow, report templates, severity classification |
 | Protocol Patterns | 5 | AMM/DEX, bridges, governance, lending, staking security guides |
 | Checklists | 6 | Cyfrin audit checklists (DeFi core, integrations, upgrades, gas, best practices) |
 | References | 2 | DeFi exploit reference index, SmartBugs vulnerable contract examples |
+| Case Studies | 15 | Major DeFi exploit analyses (Euler, Nomad Bridge, Ronin, Cream Finance, etc.) |
 
-**Sources:** Trail of Bits, Cyfrin, DeFiFoFum, kadenzipfel, SunWeb3Sec, smartbugs
+**Sources:** Trail of Bits, Cyfrin, DeFiFoFum, kadenzipfel, SunWeb3Sec, smartbugs, BailSec, Argus
 
-### Pattern Packs
+### Detection Rules
 
-Pattern packs are YAML files containing collections of regular expression patterns used for vulnerability detection. These packs allow Argus to scan code for known security flaws without requiring full static analysis tools.
+Vulnerability detection patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered by the pattern checker — no separate configuration needed.
 
-- **Location:** `skills/patterns/`
-- **Available Packs:**
-  - `access-control.yaml` — Ownership and permission checks
-  - `erc4626.yaml` — Vault standard security patterns
-  - `flash-loan.yaml` — Flash loan attack vectors
-  - `oracle.yaml` — Price manipulation and staleness checks
-  - `proxy.yaml` — Upgradeability and initialization flaws
-  - `reentrancy.yaml` — State change and external call ordering
-  - `signature.yaml` — Malleability and replay protection
+- **51 vulnerability pattern skills** with detection rules across **14 categories**
+- Categories: `reentrancy`, `oracle-manipulation`, `flash-loan`, `access-control`, `erc4626`, `proxy`, `signature`, `dos`, `front-running`, `governance`, `token-standard`, `gas-optimization`, `logic-error`, `delegatecall`
 
-#### Custom Pattern Packs
+#### Adding Custom Detection Rules
 
-You can create custom pattern packs by adding YAML files to your configured `customSkillsDir`. Each pack must follow this structure:
+Add custom detection rules by creating SKILL.md files in your `customSkillsDir`:
 
 ```yaml
-pack_name: "My Custom Pack"
-pack_version: "1.0"
-patterns:
-  - name: "Insecure Transfer"
-    category: "access-control"
-    severity: "High"
-    regex: "transfer\\(msg\\.sender, .+\\)"
-    description: "Detects potentially insecure transfers to the caller"
+---
+name: my-custom-pattern
+description: Detects insecure transfer patterns
+pattern_category: access-control
+detection_rules:
+  - regex: 'transfer\(msg\.sender, .+\)'
+    severity: High
+    description: Potentially insecure transfer to caller
+---
 ```
 
 **SCVD Integration:** The plugin connects to [api.scvd.dev](https://api.scvd.dev) for 7,769+ real-world audit findings. Sync with `argus_sync_knowledge` or configure `knowledge.autoSync: true`.
@@ -233,7 +228,7 @@ Argus classifies knowledge sources into three trust tiers:
 Knowledge freshness is monitored automatically:
 
 - **SCVD local index** — Stale if not synced within 7 days. `argus doctor` will warn if stale and suggest running `argus_sync_knowledge`.
-- **Pattern packs** — Versioned via `PATTERN_PACK_VERSION` and updated on package release.
+- **Detection rules** — Versioned via `DETECTION_RULE_VERSION` and updated on package release.
 - **Baked-in curated skills** — Updated only on package release; no automatic refresh.
 - **On-demand live sources** — Retrieved per-request; never cached locally.
 
@@ -361,7 +356,7 @@ This prevents context pollution and ensures non-audit agents operate independent
 
 Agents load specialized knowledge on-demand via the `argus_skill_load` tool:
 
-- **Vulnerability Patterns** — 38 SKILL.md files covering reentrancy, oracle manipulation, flash loans, etc.
+- **Vulnerability Patterns** — 51 SKILL.md files covering reentrancy, oracle manipulation, flash loans, etc.
 - **Protocol Patterns** — 5 files for AMM/DEX, bridges, governance, lending, staking
 - **Methodology** — 3 files for audit workflow, report templates, severity classification
 - **Checklists** — 6 Cyfrin audit checklists
@@ -371,13 +366,13 @@ This channel is **lazy-loaded** — agents request skills only when needed, redu
 
 ### Implementation Notes
 
-- **Phase 1 (Current):** `system.transform` uses agent-gated dynamic audit state injection via `createSystemPromptHook` (see `src/create-hooks.ts`).
+- **Dynamic injection:** `system.transform` uses agent-gated dynamic audit state injection via `createSystemPromptHook` (see `src/create-hooks.ts`).
 - **Global transforms forbidden:** No global system context injection unless agent-gated and minimal. Prevents context window overflow.
 - **Audit state persistence:** State is saved to `.opencode/argus-state.json` and restored on session restart (see `Persistent Audit State` section).
 
 ---
 
-## New in v2: Modular Architecture
+## Modular Architecture
 
 This release restructures solidity-argus into a modular factory-based architecture with several new infrastructure features:
 
