@@ -86,8 +86,10 @@ export function createToolErrorRecoveryHandler(
       if (state) {
         const existing = state.unavailableTools ?? []
         if (!existing.includes(toolBase)) {
-          updateAuditState({
+          void updateAuditState({
             unavailableTools: [...existing, toolBase],
+          }).catch((error: unknown) => {
+            logger.warn(`Failed to persist unavailable tool state for ${toolBase}`, error)
           })
           logger.info(`Recorded ${toolBase} as unavailable — fallback activated`)
         }

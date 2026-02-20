@@ -13,7 +13,7 @@ import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
 const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
-const TOB_PINNED_REF = "main"
+const TOB_BRANCH = "main"
 let tobCloneInFlight = false
 
 function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
@@ -42,7 +42,7 @@ function ensureTrailOfBitsSkills(): string[] {
   if (!tobCloneInFlight) {
     tobCloneInFlight = true
     const cloneProcess = Bun.spawn(
-      ["git", "clone", "--depth", "1", "--branch", TOB_PINNED_REF, TOB_REPO_URL, TOB_CACHE_DIR],
+      ["git", "clone", "--depth", "1", "--branch", TOB_BRANCH, TOB_REPO_URL, TOB_CACHE_DIR],
       {
         stdin: "ignore",
         stdout: "ignore",
