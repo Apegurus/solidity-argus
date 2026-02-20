@@ -75,6 +75,18 @@ describe("stripJsoncComments", () => {
 }`;
     const result = stripJsoncComments(input);
     expect(result).toContain('"key": "value"');
+    expect(result).not.toContain("outer */");
+  });
+
+  it("should preserve /* */ sequences inside strings", () => {
+    const input = `{
+  "pattern": "/* not a comment */",
+  "note": "ok"
+}`;
+    const result = stripJsoncComments(input);
+    expect(result).toContain('"pattern": "/* not a comment */"');
+    const parsed = JSON.parse(result);
+    expect(parsed.pattern).toBe("/* not a comment */");
   });
 
   it("should handle empty input", () => {
