@@ -5,6 +5,7 @@ import { ScvdClient } from "../knowledge/scvd-client"
 import { syncAll, syncIncremental, type SyncResult } from "../knowledge/scvd-sync"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
+import { resolveProjectDir } from "../shared/project-utils"
 
 type SyncKnowledgeArgs = {
   force?: boolean
@@ -69,7 +70,7 @@ export async function executeSyncKnowledge(
   context.metadata({ title: "Syncing SCVD knowledge index..." })
 
   try {
-    const projectDir = context.directory ?? context.worktree ?? process.cwd()
+    const projectDir = resolveProjectDir(context)
     const argusConfig = dependencies.loadConfig(projectDir)
 
     if (!argusConfig.knowledge?.scvd?.enabled) {

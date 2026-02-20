@@ -2,6 +2,7 @@ import { tool, type ToolContext } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
 import { normalizeSkillName, resolveArgusSkills } from "../skills/argus-skill-resolver"
+import { resolveProjectDir } from "../shared/project-utils"
 
 type ArgusSkillLoadArgs = {
   name: string
@@ -17,7 +18,7 @@ export async function executeArgusSkillLoad(
   context: ToolContext,
   deps: ArgusSkillLoadDependencies = {}
 ): Promise<string> {
-  const projectDir = context.directory ?? context.worktree ?? process.cwd()
+  const projectDir = resolveProjectDir(context)
   const loadConfig = deps.loadConfig ?? loadArgusConfig
   const resolveSkills = deps.resolveSkills ?? resolveArgusSkills
 

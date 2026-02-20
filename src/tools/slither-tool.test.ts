@@ -207,10 +207,10 @@ function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): Flatte
   return {
     runCommand: async (_command, _signal, _cwd) => ({ stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }),
     hasBinary: () => true,
-    ensureSolc: () => true,
+    ensureSolc: async () => true,
     parseSolcVersion: () => "0.8.20",
     extractContractNames: () => ["Vault"],
-    execSyncFn: (() => "") as unknown as typeof import("node:child_process").execSync,
+    spawnFn: async () => ({ stdout: "", exitCode: 0 }),
     cwd: "/tmp/project",
     ...overrides,
   };
@@ -238,7 +238,7 @@ test("flattenFallback returns structured error when no solc version found", asyn
 
 test("flattenFallback returns error when solc unavailable and solc-select missing", async () => {
   const { context } = createContext();
-  const deps = createFlattenDeps({ ensureSolc: () => false });
+  const deps = createFlattenDeps({ ensureSolc: async () => false });
 
   const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
   expect(result).toBeDefined();
@@ -267,10 +267,10 @@ test("flattenFallback processes flattened files and returns findings", async () 
 
   const deps = createFlattenDeps({
     runCommand: async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
-    execSyncFn: ((cmd: string) => {
-      if (typeof cmd === "string" && cmd.startsWith("forge flatten")) return "// flattened content";
-      return "";
-    }) as unknown as typeof import("node:child_process").execSync,
+    spawnFn: async (command) => {
+      if (command[0] === "forge" && command[1] === "flatten") return { stdout: "// flattened content", exitCode: 0 };
+      return { stdout: "", exitCode: 0 };
+    },
     extractContractNames: () => ["Vault"],
   });
 
@@ -315,10 +315,10 @@ test("flattenFallback filters findings to original contract names", async () => 
 
   const deps = createFlattenDeps({
     runCommand: async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
-    execSyncFn: ((cmd: string) => {
-      if (typeof cmd === "string" && cmd.startsWith("forge flatten")) return "// flattened";
-      return "";
-    }) as unknown as typeof import("node:child_process").execSync,
+    spawnFn: async (command) => {
+      if (command[0] === "forge" && command[1] === "flatten") return { stdout: "// flattened", exitCode: 0 };
+      return { stdout: "", exitCode: 0 };
+    },
     extractContractNames: () => ["Vault"],
   });
 

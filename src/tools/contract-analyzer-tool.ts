@@ -1,8 +1,9 @@
-import { dirname, basename, join } from "node:path";
+import { basename } from "node:path";
 import { existsSync } from "node:fs";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import { extractContractInfo } from "../utils/solidity-parser";
 import type { ContractProfile } from "../state/types";
+import { findFoundryProjectDir } from "../shared/project-utils";
 
 type ContractAnalyzerArgs = {
   file_path: string;
@@ -34,22 +35,6 @@ function createFailureProfile(contractName: string, filePath: string, error: str
     riskIndicators: [],
     error,
   };
-}
-
-function findFoundryProjectDir(fromPath: string): string {
-  let current = dirname(fromPath);
-
-  while (true) {
-    if (existsSync(join(current, "foundry.toml"))) {
-      return current;
-    }
-
-    const parent = dirname(current);
-    if (parent === current) {
-      return dirname(fromPath);
-    }
-    current = parent;
-  }
 }
 
 function addIndicator(indicators: Set<string>, source: string, indicator: string): void {

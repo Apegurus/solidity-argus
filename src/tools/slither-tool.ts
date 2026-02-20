@@ -2,10 +2,11 @@ import { createHash } from "crypto";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve, dirname, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
+
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import type { Finding, FindingSeverity } from "../state/types";
 import { hasBinary as hasBinaryShared, parseSolcVersion as parseSolcVersionShared, extractContractNames as extractContractNamesShared } from "../shared/binary-utils";
+import { resolveProjectDir } from "../shared/project-utils";
 
 type SlitherArgs = {
   target: string;
@@ -154,15 +155,23 @@ const parseSolcVersion = parseSolcVersionShared
 const extractContractNames = extractContractNamesShared
 const hasBinary = hasBinaryShared
 
-function ensureSolc(version: string): boolean {
+async function ensureSolc(version: string): Promise<boolean> {
   if (hasBinary("solc")) return true;
   if (!hasBinary("solc-select")) return false;
   try {
-    execSync(`solc-select install ${version} && solc-select use ${version}`, {
-      stdio: "ignore",
-      timeout: 60_000,
+    const installProc = Bun.spawn(["solc-select", "install", version], {
+      stdout: "pipe",
+      stderr: "pipe",
     });
-    return true;
+    const installExit = await installProc.exited;
+    if (installExit !== 0) return false;
+
+    const useProc = Bun.spawn(["solc-select", "use", version], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const useExit = await useProc.exited;
+    return useExit === 0;
   } catch (_e) {
     return false;
   }
@@ -189,15 +198,35 @@ export const runSlitherCommand: RunSlitherCommand = async (command, signal, cwd)
   };
 };
 
+export type SpawnFn = (
+  command: string[],
+  options?: { cwd?: string; timeout?: number },
+) => Promise<{ stdout: string; exitCode: number }>;
+
 export type FlattenFallbackDeps = {
   runCommand: RunSlitherCommand;
   hasBinary: (name: string) => boolean;
-  ensureSolc: (version: string) => boolean;
-  parseSolcVersion: (target: string) => string | undefined;
-  extractContractNames: (filePath: string) => string[];
-  execSyncFn: typeof execSync;
+  ensureSolc: (version: string) => Promise<boolean>;
+  parseSolcVersion: (target: string) => Promise<string | undefined> | string | undefined;
+  extractContractNames: (filePath: string) => Promise<string[]> | string[];
+  spawnFn: SpawnFn;
   cwd: string;
 };
+
+async function defaultSpawnFn(
+  command: string[],
+  options?: { cwd?: string; timeout?: number },
+): Promise<{ stdout: string; exitCode: number }> {
+  const proc = Bun.spawn(command, {
+    stdout: "pipe",
+    stderr: "pipe",
+    cwd: options?.cwd,
+    ...(options?.timeout ? { signal: AbortSignal.timeout(options.timeout) } : {}),
+  });
+  const exitCode = await proc.exited;
+  const stdout = await new Response(proc.stdout).text();
+  return { stdout, exitCode };
+}
 
 const defaultFlattenDeps: FlattenFallbackDeps = {
   runCommand: runSlitherCommand,
@@ -205,7 +234,7 @@ const defaultFlattenDeps: FlattenFallbackDeps = {
   ensureSolc,
   parseSolcVersion,
   extractContractNames,
-  execSyncFn: execSync,
+  spawnFn: defaultSpawnFn,
   cwd: process.cwd(),
 };
 
@@ -227,7 +256,7 @@ export async function flattenFallback(
     };
   }
 
-  const solcVersion = args.solc_version ?? deps.parseSolcVersion(args.target);
+  const solcVersion = args.solc_version ?? await deps.parseSolcVersion(args.target);
   if (!solcVersion) {
     return {
       success: false,
@@ -239,7 +268,7 @@ export async function flattenFallback(
     };
   }
 
-  if (!deps.ensureSolc(solcVersion)) {
+  if (!(await deps.ensureSolc(solcVersion))) {
     return {
       success: false,
       findingsCount: 0,
@@ -256,11 +285,12 @@ export async function flattenFallback(
     solFiles = [args.target];
   } else if (existsSync(srcDir)) {
     try {
-      solFiles = deps.execSyncFn(`find "${srcDir}" -maxdepth 3 -name "*.sol" -not -path "*/mocks/*" -not -path "*/test/*"`, {
-        encoding: "utf-8",
-        timeout: 5_000,
-        stdio: ["pipe", "pipe", "pipe"],
-      })
+      const findResult = await deps.spawnFn(
+        ["find", srcDir, "-maxdepth", "3", "-name", "*.sol", "-not", "-path", "*/mocks/*", "-not", "-path", "*/test/*"],
+        { timeout: 5_000 },
+      );
+      if (findResult.exitCode !== 0) return undefined;
+      solFiles = findResult.stdout
         .trim()
         .split("\n")
         .filter(Boolean);
@@ -281,16 +311,18 @@ export async function flattenFallback(
 
       const baseName = solFile.split("/").pop()?.replace(".sol", "") ?? "Contract";
       const flatFile = join(tmpDir, `${baseName}.flat.sol`);
-      const originalContracts = deps.extractContractNames(solFile);
+      const originalContracts = await deps.extractContractNames(solFile);
 
       try {
-        const flattened = deps.execSyncFn(`forge flatten "${solFile}"`, {
-          encoding: "utf-8",
-          timeout: 30_000,
-          cwd: deps.cwd,
-          stdio: ["pipe", "pipe", "pipe"],
-        });
-        writeFileSync(flatFile, flattened);
+        const flatResult = await deps.spawnFn(
+          ["forge", "flatten", solFile],
+          { cwd: deps.cwd, timeout: 30_000 },
+        );
+        if (flatResult.exitCode !== 0) {
+          errors.push(`forge flatten failed for ${solFile}`);
+          continue;
+        }
+        writeFileSync(flatFile, flatResult.stdout);
       } catch (_e) {
         errors.push(`forge flatten failed for ${solFile}`);
         continue;
@@ -381,7 +413,7 @@ export async function executeSlitherAnalyze(
   runCommand: RunSlitherCommand = runSlitherCommand,
   cwd?: string
 ): Promise<SlitherAnalyzeResult> {
-  const projectDir = cwd ?? context.directory ?? context.worktree ?? process.cwd();
+  const projectDir = cwd ?? resolveProjectDir(context);
   const startedAt = Date.now();
   context.metadata({ title: `Slither analysis: ${args.target}` });
 
@@ -530,7 +562,7 @@ export const slitherTool = tool({
     via_ir: tool.schema.boolean().optional(),
   },
   async execute(args, context) {
-    const projectDir = context.directory ?? context.worktree ?? process.cwd();
+    const projectDir = resolveProjectDir(context);
     const resolvedTarget = isAbsolute(args.target) ? args.target : resolve(projectDir, args.target);
     const viaIr = args.via_ir ?? detectViaIr(resolvedTarget);
     const result = await executeSlitherAnalyze(
