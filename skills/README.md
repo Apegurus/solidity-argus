@@ -13,7 +13,7 @@ OpenCode Skills System
 │   ├── checklists/ (6 files from DeFiFoFum + Cyfrin)
 │   ├── references/ (2 files: SmartBugs + DeFiHackLabs)
 │   └── case-studies/ (15 case studies from DeFiFoFum)
-├── SCVD Local Index (~/.cache/opencode-argus/scvd-index.json)
+├── SCVD Local Index (~/.cache/solidity-argus/scvd-index.json)
 │   └── 7,769+ findings, auto-synced from api.scvd.dev
 └── Companion Plugins (installed separately)
     ├── Trail of Bits Skills (trailofbits/skills)
@@ -117,4 +117,4 @@ patterns:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 55 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 75 SKILL.md files currently bundled with Argus.
