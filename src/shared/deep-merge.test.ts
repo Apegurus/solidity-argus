@@ -144,4 +144,16 @@ describe("deepMerge", () => {
 
     expect(result.values).toEqual([1, "1", true, "true"]);
   });
+
+  it("should not throw when deduplicating arrays with circular objects", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    const obj1 = { values: [circular] };
+    const obj2 = { values: [circular] };
+
+    expect(() => deepMerge(obj1, obj2)).not.toThrow();
+    const result = deepMerge(obj1, obj2) as Record<string, unknown>;
+    expect(result.values).toHaveLength(1);
+  });
 });
