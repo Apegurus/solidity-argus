@@ -15,6 +15,21 @@ export interface FindingStore {
  * Creates a finding store with deduplication by check+file+lines
  * Deduplication key: `${check}:${file}:${lines[0]}-${lines[1]}`
  */
+function isValidHydrationFinding(f: unknown): f is Finding {
+  if (typeof f !== "object" || f === null) return false;
+  const obj = f as Record<string, unknown>;
+  return (
+    typeof obj.check === "string" &&
+    obj.check.length > 0 &&
+    typeof obj.file === "string" &&
+    obj.file.length > 0 &&
+    Array.isArray(obj.lines) &&
+    obj.lines.length === 2 &&
+    typeof obj.lines[0] === "number" &&
+    typeof obj.lines[1] === "number"
+  );
+}
+
 export function createFindingStore(state: AuditState): FindingStore {
   const findingMap = new Map<string, Finding>();
 
@@ -26,6 +41,15 @@ export function createFindingStore(state: AuditState): FindingStore {
     const key = `${check}:${file}:${lines[0]}-${lines[1]}`;
     // Use deterministic hash for stable IDs
     return createHash("sha256").update(key).digest("hex").substring(0, 16);
+  }
+
+  // Hydrate findingMap from persisted state.findings
+  for (const f of state.findings) {
+    if (!isValidHydrationFinding(f)) continue;
+    const id = generateId(f.check, f.file, f.lines);
+    if (!findingMap.has(id)) {
+      findingMap.set(id, f);
+    }
   }
 
   function addFinding(finding: Omit<Finding, "id">): Finding {

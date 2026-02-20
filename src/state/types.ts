@@ -83,6 +83,11 @@ export interface AuditState {
   patternVersion?: string;
   skillsLoaded?: string[];
   unavailableTools?: string[];
+  reportGenerated?: boolean;
+  knowledgeSynced?: { success: boolean; timestamp: number };
+  coverageReport?: { files: Array<{ path: string; linesPct: number; branchesPct: number; functionsPct: number }> };
+  gasHotspots?: Array<{ contract: string; function: string; avgGas: number }>;
+  proxyContracts?: Array<{ file: string; proxyType: string; indicators: string[] }>;
 }
 
 export interface PersistentAuditState extends AuditState {

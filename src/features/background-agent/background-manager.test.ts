@@ -15,6 +15,9 @@ function createDeferred<T>() {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 describe("createBackgroundManager", () => {
@@ -96,6 +99,51 @@ describe("createBackgroundManager", () => {
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledWith(taskId, "complete");
+  });
+
+  it("fires onComplete callback when task fails", async () => {
+    const deferred = createDeferred<string>();
+    const dispatcher = mock(async () => deferred.promise);
+    const manager = createBackgroundManager(dispatcher);
+    const onComplete = mock((_taskId: string, _result: unknown) => {});
+
+    const taskId = manager.dispatch("argus", "audit this");
+    manager.onComplete(taskId, onComplete);
+
+    const error = new Error("task failed");
+    deferred.reject(error);
+    await flushMicrotasks();
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalledWith(taskId, error);
+  });
+
+  it("uses real dispatcher when provided (ctx.task wiring pattern)", async () => {
+    const mockCtxTask = mock(async (agentName: string, _prompt: string) => {
+      return { task_id: `remote-${agentName}-${Date.now()}` };
+    });
+
+    const realDispatcher = async (agentName: string, prompt: string) => {
+      const result = await mockCtxTask(agentName, prompt);
+      if (typeof result === "object" && result !== null) {
+        const taskId = (result as Record<string, unknown>)["task_id"];
+        if (typeof taskId === "string") {
+          return taskId;
+        }
+      }
+      return `task-${Date.now()}`;
+    };
+
+    const manager = createBackgroundManager(realDispatcher);
+    const taskId = manager.dispatch("sentinel", "run slither");
+
+    await flushMicrotasks();
+
+    expect(mockCtxTask).toHaveBeenCalledTimes(1);
+    expect(mockCtxTask).toHaveBeenCalledWith("sentinel", "run slither");
+    const result = await manager.getResult(taskId);
+    expect(typeof result).toBe("string");
+    expect((result as string).startsWith("remote-sentinel-")).toBe(true);
   });
 
   it("isolates callback errors from task completion", async () => {

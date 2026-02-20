@@ -13,7 +13,6 @@ export interface BackgroundManagerWithTaskCallbacks extends BackgroundManager {
   dispatch(agentName: string, prompt: string, options?: BackgroundTaskOptions): string;
   onComplete(callback: CompletionCallback): void;
   onComplete(taskId: string, callback: CompletionCallback): void;
-  setDispatcher(newDispatcher: Dispatcher): void;
 }
 
 interface TaskInfo {
@@ -41,7 +40,7 @@ export function createBackgroundManager(
   const queue: string[] = [];
   const globalCallbacks = new Set<CompletionCallback>();
 
-  let dispatcher = initialDispatcher;
+  const dispatcher = initialDispatcher;
   let runningCount = 0;
   let maxConcurrent = options?.maxConcurrent ?? 3;
   let taskCount = 0;
@@ -113,16 +112,13 @@ export function createBackgroundManager(
           currentTask.status = "failed";
           currentTask.error = error;
           logger.error(`Background task failed: ${nextTaskId}`, error);
+          invokeCallbacks(nextTaskId, error);
         })
         .finally(() => {
           runningCount = Math.max(0, runningCount - 1);
           processQueue();
         });
     }
-  }
-
-  function setDispatcher(newDispatcher: Dispatcher): void {
-    dispatcher = newDispatcher;
   }
 
   function dispatch(
@@ -211,6 +207,5 @@ export function createBackgroundManager(
     getResult,
     onComplete,
     getActiveCount,
-    setDispatcher,
   };
 }
