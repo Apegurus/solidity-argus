@@ -54,6 +54,7 @@ function resolveToolBase(tool: string): string {
 
 export function createToolErrorRecoveryHandler(
   getAuditState?: () => AuditState | null,
+  updateAuditState?: (patch: Partial<AuditState>) => Promise<void>,
 ) {
   const logger = createLogger()
 
@@ -80,12 +81,14 @@ export function createToolErrorRecoveryHandler(
 
     const unavailable = isToolUnavailable(lowerResult)
 
-    if (unavailable && getAuditState) {
+    if (unavailable && getAuditState && updateAuditState) {
       const state = getAuditState()
       if (state) {
-        state.unavailableTools ??= []
-        if (!state.unavailableTools.includes(toolBase)) {
-          state.unavailableTools.push(toolBase)
+        const existing = state.unavailableTools ?? []
+        if (!existing.includes(toolBase)) {
+          updateAuditState({
+            unavailableTools: [...existing, toolBase],
+          })
           logger.info(`Recorded ${toolBase} as unavailable — fallback activated`)
         }
       }

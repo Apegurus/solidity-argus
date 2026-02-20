@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { CliProgram, createCliProgram } from "./cli-program";
 import type { CliCommand } from "./types";
 import { cliOutput } from "./cli-output";
@@ -7,14 +7,16 @@ describe("CliProgram", () => {
   let program: CliProgram;
   let output: string[];
   let errorOutput: string[];
+  let originalLog: typeof cliOutput.log;
+  let originalError: typeof console.error;
 
   beforeEach(() => {
     program = new CliProgram();
     output = [];
     errorOutput = [];
 
-    const originalLog = cliOutput.log;
-    const originalError = console.error;
+    originalLog = cliOutput.log;
+    originalError = console.error;
 
     cliOutput.log = (...args: unknown[]) => {
       output.push(args.join(" "));
@@ -23,11 +25,11 @@ describe("CliProgram", () => {
     console.error = (...args: unknown[]) => {
       errorOutput.push(args.join(" "));
     };
+  });
 
-    return () => {
-      cliOutput.log = originalLog;
-      console.error = originalError;
-    };
+  afterEach(() => {
+    cliOutput.log = originalLog;
+    console.error = originalError;
   });
 
   describe("help output", () => {

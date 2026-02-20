@@ -8,25 +8,26 @@ import { createPluginInterface } from "./plugin-interface"
 import { checkSoloditHealth } from "./utils/solodit-health"
 import { createLogger } from "./shared/logger"
 
+let soloditChild: ReturnType<typeof Bun.spawn> | null = null
+
 async function startSoloditMcp(port: number): Promise<void> {
   const logger = createLogger()
 
-  // Health check before spawn: if already reachable, skip spawn
   const health = await checkSoloditHealth(port, true)
   if (health.reachable) {
     logger.debug(`Solodit MCP already running on port ${port} — skipping spawn`)
     return
   }
 
-  const child = Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
+  soloditChild = Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
     env: { ...process.env, PORT: String(port) },
   })
-  child.unref()
+  soloditChild.unref()
 
-  // Health check after spawn: wait 2s, then ping
+  const child = soloditChild
   setTimeout(async () => {
     const health = await checkSoloditHealth(port, true)
     if (!health.reachable) {
@@ -35,6 +36,15 @@ async function startSoloditMcp(port: number): Promise<void> {
       logger.debug(`Solodit MCP healthy on port ${port}`)
     }
   }, 2000)
+
+  child.exited.then((code) => {
+    if (code !== 0 && code !== null) {
+      logger.warn(`Solodit MCP exited with code ${code}`)
+    }
+    if (soloditChild === child) {
+      soloditChild = null
+    }
+  })
 }
 
 const ArgusPlugin: Plugin = async (ctx) => {

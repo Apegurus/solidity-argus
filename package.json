@@ -30,7 +30,8 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "^1.2.6"
+    "@opencode-ai/plugin": "^1.2.6",
+    "@opencode-ai/sdk": "^1.0.0"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.2.6",

@@ -24,9 +24,22 @@ function ensureLogDir(): void {
   }
 }
 
+function safeStringify(a: unknown): string {
+  if (typeof a === "string") return a
+  try {
+    return JSON.stringify(a)
+  } catch {
+    try {
+      return String(a)
+    } catch {
+      return "[Unserializable value]"
+    }
+  }
+}
+
 function formatLine(level: string, args: unknown[]): string {
   const ts = new Date().toISOString()
-  const msg = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ")
+  const msg = args.map(safeStringify).join(" ")
   return `${ts} [${level}] ${msg}\n`
 }
 

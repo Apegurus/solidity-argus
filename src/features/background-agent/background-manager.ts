@@ -13,6 +13,7 @@ export interface BackgroundManagerWithTaskCallbacks extends BackgroundManager {
   dispatch(agentName: string, prompt: string, options?: BackgroundTaskOptions): string;
   onComplete(callback: CompletionCallback): void;
   onComplete(taskId: string, callback: CompletionCallback): void;
+  setDispatcher(newDispatcher: Dispatcher): void;
 }
 
 interface TaskInfo {
@@ -25,22 +26,24 @@ interface TaskInfo {
   callbacks: Set<CompletionCallback>;
 }
 
-type Dispatcher = (
+export type Dispatcher = (
   agentName: string,
   prompt: string,
   options?: BackgroundTaskOptions,
 ) => Promise<string>;
 
 export function createBackgroundManager(
-  dispatcher: Dispatcher,
+  initialDispatcher: Dispatcher,
+  options?: { maxConcurrent?: number },
 ): BackgroundManagerWithTaskCallbacks {
   const logger = createLogger();
   const tasks = new Map<string, TaskInfo>();
   const queue: string[] = [];
   const globalCallbacks = new Set<CompletionCallback>();
 
+  let dispatcher = initialDispatcher;
   let runningCount = 0;
-  let maxConcurrent = 3;
+  let maxConcurrent = options?.maxConcurrent ?? 3;
   let taskCount = 0;
 
   function invokeCallbacks(taskId: string, result: unknown): void {
@@ -106,15 +109,15 @@ export function createBackgroundManager(
     }
   }
 
+  function setDispatcher(newDispatcher: Dispatcher): void {
+    dispatcher = newDispatcher;
+  }
+
   function dispatch(
     agentName: string,
     prompt: string,
     options?: BackgroundTaskOptions,
   ): string {
-    if (typeof options?.max_concurrent === "number" && options.max_concurrent > 0) {
-      maxConcurrent = options.max_concurrent;
-    }
-
     taskCount += 1;
     const taskId = `task-${taskCount}`;
 
@@ -196,5 +199,6 @@ export function createBackgroundManager(
     getResult,
     onComplete,
     getActiveCount,
+    setDispatcher,
   };
 }

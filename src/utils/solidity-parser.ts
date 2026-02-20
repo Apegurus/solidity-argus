@@ -28,9 +28,45 @@ function extractJson(raw: string, opener: "[" | "{"): string {
   const closer = opener === "[" ? "]" : "}";
   const start = raw.indexOf(opener);
   if (start === -1) return raw;
-  const end = raw.lastIndexOf(closer);
-  if (end === -1) return raw;
-  return raw.slice(start, end + 1);
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i]!;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{" || ch === "[") {
+      depth++;
+    } else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) {
+        return raw.slice(start, i + 1);
+      }
+    }
+  }
+
+  return raw;
 }
 
 /**

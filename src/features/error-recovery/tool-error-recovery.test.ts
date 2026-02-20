@@ -94,7 +94,10 @@ describe("createToolErrorRecoveryHandler", () => {
 
   it("records tool as unavailable in audit state on ENOENT", () => {
     const state = makeAuditState()
-    const handler = createToolErrorRecoveryHandler(() => state)
+    const updateAuditState = async (patch: Partial<AuditState>) => {
+      Object.assign(state, patch)
+    }
+    const handler = createToolErrorRecoveryHandler(() => state, updateAuditState)
     handler({
       tool: "argus_slither_analyze",
       result: "Error: ENOENT: slither not found",
@@ -105,7 +108,10 @@ describe("createToolErrorRecoveryHandler", () => {
 
   it("does not duplicate unavailable tool entries", () => {
     const state = makeAuditState()
-    const handler = createToolErrorRecoveryHandler(() => state)
+    const updateAuditState = async (patch: Partial<AuditState>) => {
+      Object.assign(state, patch)
+    }
+    const handler = createToolErrorRecoveryHandler(() => state, updateAuditState)
     handler({ tool: "argus_slither_analyze", result: "ENOENT: slither not found" })
     handler({ tool: "argus_slither_analyze", result: "ENOENT: slither not found" })
 
@@ -114,7 +120,10 @@ describe("createToolErrorRecoveryHandler", () => {
 
   it("records multiple unavailable tools", () => {
     const state = makeAuditState()
-    const handler = createToolErrorRecoveryHandler(() => state)
+    const updateAuditState = async (patch: Partial<AuditState>) => {
+      Object.assign(state, patch)
+    }
+    const handler = createToolErrorRecoveryHandler(() => state, updateAuditState)
     handler({ tool: "argus_slither_analyze", result: "ENOENT: slither not found" })
     handler({ tool: "argus_forge_test", result: "forge not found" })
 

@@ -134,7 +134,7 @@ async function callSoloditHttp(
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "tools/call",
-        params: { name: "search", arguments: { keywords: query } },
+        params: { name: SOLODIT_MCP_TOOL, arguments: { query, limit } },
         id: 1,
       }),
       signal: AbortSignal.timeout(SOLODIT_HTTP_TIMEOUT_MS),
@@ -158,7 +158,8 @@ async function callSoloditHttp(
 export async function executeSoloditSearch(
   args: SoloditSearchArgs,
   context: ToolContext,
-  callMcpTool?: CallMcpTool
+  callMcpTool?: CallMcpTool,
+  port: number = DEFAULT_SOLODIT_PORT,
 ): Promise<SoloditSearchResult> {
   const { query } = args;
   const limit = args.limit ?? DEFAULT_LIMIT;
@@ -169,7 +170,7 @@ export async function executeSoloditSearch(
     callMcpTool ?? (hasMcpCapability(context) ? context.callMcpTool : undefined);
 
   if (!mcpCaller) {
-    return callSoloditHttp(query, limit);
+    return callSoloditHttp(query, limit, port);
   }
 
   try {
@@ -188,9 +189,7 @@ export async function executeSoloditSearch(
       query,
     };
   } catch {
-    // MCP bridge failed (upstream crash, connection error, etc.)
-    // Fall through to HTTP fallback before giving up
-    return callSoloditHttp(query, limit);
+    return callSoloditHttp(query, limit, port);
   }
 }
 

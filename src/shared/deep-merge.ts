@@ -1,10 +1,23 @@
-export function deepMerge(target: any, source: any): any {
-  // If source is undefined, return target as-is
+function deduplicateArray(arr: unknown[]): unknown[] {
+  const seen = new Set<string>();
+  const result: unknown[] = [];
+  for (const item of arr) {
+    const key = typeof item === "object" && item !== null
+      ? JSON.stringify(item)
+      : String(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+export function deepMerge(target: unknown, source: unknown): unknown {
   if (source === undefined) {
     return target;
   }
 
-  // If either is not an object, return source (override)
   if (
     typeof target !== "object" ||
     target === null ||
@@ -14,36 +27,26 @@ export function deepMerge(target: any, source: any): any {
     return source;
   }
 
-  // If both are arrays, concatenate and deduplicate
   if (Array.isArray(target) && Array.isArray(source)) {
-    const merged = [...target, ...source];
-    // Deduplicate by filtering unique values
-    return Array.from(new Set(merged));
+    return deduplicateArray([...target, ...source]);
   }
 
-  // If target is array but source is not, return source
-  if (Array.isArray(target) && !Array.isArray(source)) {
+  if (Array.isArray(target) || Array.isArray(source)) {
     return source;
   }
 
-  // If source is array but target is not, return source
-  if (!Array.isArray(target) && Array.isArray(source)) {
-    return source;
-  }
+  const tgt = target as Record<string, unknown>;
+  const src = source as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...tgt };
 
-  // Both are plain objects, merge recursively
-  const result = { ...target };
+  for (const key in src) {
+    if (Object.prototype.hasOwnProperty.call(src, key)) {
+      const sourceValue = src[key];
 
-  for (const key in source) {
-    if (Object.prototype.hasOwnProperty.call(source, key)) {
-      const sourceValue = source[key];
-
-      // Skip undefined values from source
       if (sourceValue === undefined) {
         continue;
       }
 
-      // If both are objects (and not arrays), recurse
       if (
         typeof result[key] === "object" &&
         result[key] !== null &&
@@ -57,11 +60,8 @@ export function deepMerge(target: any, source: any): any {
         Array.isArray(result[key]) &&
         Array.isArray(sourceValue)
       ) {
-        // Both are arrays, concatenate and deduplicate
-        const merged = [...result[key], ...sourceValue];
-        result[key] = Array.from(new Set(merged));
+        result[key] = deduplicateArray([...(result[key] as unknown[]), ...sourceValue]);
       } else {
-        // Override with source value
         result[key] = sourceValue;
       }
     }

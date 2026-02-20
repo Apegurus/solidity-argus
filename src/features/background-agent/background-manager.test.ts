@@ -66,10 +66,10 @@ describe("createBackgroundManager", () => {
       return deferredB.promise;
     });
 
-    const manager = createBackgroundManager(dispatcher);
+    const manager = createBackgroundManager(dispatcher, { maxConcurrent: 1 });
 
-    const taskA = manager.dispatch("argus", "one", { max_concurrent: 1 });
-    const taskB = manager.dispatch("argus", "two", { max_concurrent: 1 });
+    const taskA = manager.dispatch("argus", "one");
+    const taskB = manager.dispatch("argus", "two");
 
     expect(taskA).toMatch(/^task-/);
     expect(taskB).toMatch(/^task-/);

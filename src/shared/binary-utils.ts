@@ -4,8 +4,11 @@ import { join } from "path";
 
 export function hasBinary(name: string): boolean {
   try {
-    execSync(`which ${name}`, { stdio: "ignore", timeout: 3_000 });
-    return true;
+    const result = Bun.spawnSync(["which", name], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    return result.exitCode === 0;
   } catch (_e) {
     return false;
   }
@@ -26,7 +29,7 @@ export function parseSolcVersion(target: string): string | undefined {
     const srcDir = join(target, "src");
     if (existsSync(srcDir)) {
       try {
-        const files = execSync(`find "${srcDir}" -name "*.sol" -maxdepth 3`, {
+        const files = execSync(`find "${srcDir}" -maxdepth 3 -name "*.sol"`, {
           encoding: "utf-8",
           timeout: 5_000,
           stdio: ["pipe", "pipe", "pipe"],

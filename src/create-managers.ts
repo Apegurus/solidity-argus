@@ -8,7 +8,7 @@ export function createManagers(args: {
   projectDir: string
   config: ArgusConfig
 }): Managers {
-  const { projectDir } = args
+  const { projectDir, config } = args
   const logger = createLogger()
 
   const backgroundManager = createBackgroundManager(
@@ -18,6 +18,7 @@ export function createManagers(args: {
       )
       return `noop-${Date.now()}`
     },
+    { maxConcurrent: config.background?.max_concurrent ?? 3 },
   )
 
   const auditStateManager = createAuditStateManager(projectDir)

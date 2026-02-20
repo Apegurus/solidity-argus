@@ -15,8 +15,6 @@ export function detectConfigFile(basePath: string): ConfigFileInfo {
     { path: join(basePath, ".opencode", "solidity-argus.json"), format: "json" as const },
     { path: join(basePath, "solidity-argus.jsonc"), format: "jsonc" as const },
     { path: join(basePath, "solidity-argus.json"), format: "json" as const },
-    { path: join(basePath, "config.jsonc"), format: "jsonc" as const },
-    { path: join(basePath, "config.json"), format: "json" as const },
   ];
 
   for (const candidate of candidates) {
@@ -34,7 +32,7 @@ export function detectConfigFile(basePath: string): ConfigFileInfo {
   };
 }
 
-export function readJsoncFile(filePath: string): Record<string, any> | null {
+export function readJsoncFile(filePath: string): Record<string, unknown> | null {
   try {
     if (!existsSync(filePath)) {
       return null;
@@ -47,9 +45,13 @@ export function readJsoncFile(filePath: string): Record<string, any> | null {
     }
 
     const stripped = stripJsoncComments(content);
-    const parsed = JSON.parse(stripped);
+    const parsed: unknown = JSON.parse(stripped);
 
-    return parsed;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed as Record<string, unknown>;
   } catch (_error) {
     return null;
   }

@@ -21,14 +21,19 @@ import type { ReconContext } from "./hooks/recon-context-builder"
 import { buildReconContextBlock } from "./hooks/recon-context-builder"
 import type { AuditState } from "./state/types"
 
-let latestAgentTracker: ReturnType<typeof createAgentTracker> | undefined
+export type AgentTrackerRef = {
+  getAgentForSession(sessionID: string): string | undefined
+  isArgusAgent(sessionID: string): boolean
+}
+
+let _agentTrackerRef: AgentTrackerRef | undefined
 
 export function getAgentForSession(sessionID: string): string | undefined {
-  return latestAgentTracker?.getAgentForSession(sessionID)
+  return _agentTrackerRef?.getAgentForSession(sessionID)
 }
 
 export function isArgusAgent(sessionID: string): boolean {
-  return latestAgentTracker?.isArgusAgent(sessionID) ?? false
+  return _agentTrackerRef?.isArgusAgent(sessionID) ?? false
 }
 
 export type Hooks = Pick<
@@ -62,14 +67,19 @@ export function createHooks(args: {
   const { config, managers, projectDir, isHookEnabled } = args
   const { auditStateManager, backgroundManager } = managers
   const agentTracker = createAgentTracker()
-  latestAgentTracker = agentTracker
+  _agentTrackerRef = agentTracker
 
   const contextMonitor = createContextMonitor()
   const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
   let auditStateGetter: (() => AuditState | null) | undefined
-  const toolErrorRecoveryHandler = createToolErrorRecoveryHandler(() => auditStateGetter?.() ?? null)
+  const toolErrorRecoveryHandler = createToolErrorRecoveryHandler(
+    () => auditStateGetter?.() ?? null,
+    (patch) => auditStateManager.update(patch),
+  )
   const outputTruncator = createToolOutputTruncator()
 
+  // Sub-handlers run sequentially. The state persistence handler MUST be first:
+  // it loads persisted state on session.created, overriding the fresh default.
   const { hook: eventHook, getAuditState, setAuditState } = createEventHookV2(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {

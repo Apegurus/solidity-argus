@@ -335,7 +335,7 @@ argus init
 # Validate SKILL.md files against schema
 argus lint-skills
 
-# Install optional dependencies (Slither, Foundry)
+# Register solidity-argus in opencode.json (tools installed separately; see Requirements)
 argus install
 ```
 
@@ -354,18 +354,17 @@ Selectively disable any hook via config:
 Config is resolved by merging three layers (last wins):
 
 1. **Defaults** — Built-in sensible defaults
-2. **User-level** — `~/.config/solidity-argus/config.jsonc`
+2. **User-level** — `~/.config/opencode/solidity-argus.jsonc`
 3. **Project-level** — `.opencode/solidity-argus.jsonc`
 
 ### Background Agent Management
 
-Background tasks (knowledge sync, long-running analysis) are tracked with configurable concurrency limits and lifecycle callbacks:
+Background tasks (knowledge sync, long-running analysis) are tracked with configurable concurrency limits:
 
 ```jsonc
 {
   "background": {
-    "max_concurrent": 3,
-    "cleanup_interval_ms": 60000
+    "max_concurrent": 3
   }
 }
 ```

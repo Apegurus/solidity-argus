@@ -1,38 +1,79 @@
 export function stripJsoncComments(jsonc: string): string {
-  let result = jsonc;
+  // Single-pass stateful scanner that handles both line and block comments
+  // while respecting string boundaries (won't corrupt "/* ... */" inside strings)
+  let inString = false;
+  let escaped = false;
+  let inBlockComment = false;
+  let inLineComment = false;
+  const chars: string[] = [];
 
-  result = result.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (let i = 0; i < jsonc.length; i++) {
+    const ch = jsonc[i]!;
+    const next = jsonc[i + 1];
 
-  const lines = result.split("\n");
-  result = lines
-    .map((line) => {
-      let inString = false;
-      let escaped = false;
-      let lastCommentIndex = -1;
-
-      for (let i = 0; i < line.length; i++) {
-        if (escaped) {
-          escaped = false;
-          continue;
-        }
-        if (line[i] === "\\") {
-          escaped = true;
-          continue;
-        }
-        if (line[i] === '"') {
-          inString = !inString;
-        }
-        if (!inString && line[i] === "/" && line[i + 1] === "/") {
-          lastCommentIndex = i;
-          break;
-        }
+    // Inside a block comment: skip until closing */
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i++; // skip the '/'
       }
+      continue;
+    }
 
-      if (lastCommentIndex === -1) return line;
-      return line.substring(0, lastCommentIndex);
-    })
-    .join("\n");
+    // Inside a line comment: skip until end of line
+    if (inLineComment) {
+      if (ch === "\n" || ch === "\r") {
+        inLineComment = false;
+        chars.push(ch);
+      }
+      continue;
+    }
 
+    // Handle escape sequences inside strings
+    if (escaped) {
+      escaped = false;
+      chars.push(ch);
+      continue;
+    }
+
+    if (inString) {
+      if (ch === "\\") {
+        escaped = true;
+        chars.push(ch);
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      chars.push(ch);
+      continue;
+    }
+
+    // Outside strings: detect comment starts
+    if (ch === '"') {
+      inString = true;
+      chars.push(ch);
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i++; // skip the second '/'
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i++; // skip the '*'
+      continue;
+    }
+
+    chars.push(ch);
+  }
+
+  let result = chars.join("");
+
+  // Strip trailing commas before } or ]
   result = result.replace(/,(\s*[}\]])/g, "$1");
 
   return result;
