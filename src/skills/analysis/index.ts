@@ -23,3 +23,11 @@ export {
   type GateConfig,
   type SkillReport,
 } from "./gates"
+export {
+  clusterFindings,
+  DEFAULT_CLUSTER_CONFIG,
+  type ClusterFinding,
+  type FindingCluster,
+  type ClusterConfig,
+  type ClusterResult,
+} from "./cluster"

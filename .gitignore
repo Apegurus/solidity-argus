@@ -49,6 +49,9 @@ docs/assessment.md
 scripts/.tmp-audit-pdfs/
 scripts/audit-pdf-output/
 
+# audit ingestion pipeline output
+scripts/audit-ingest-output/
+
 # scratch assessment files
 cc-findings.md
 glm-production-findings.md
