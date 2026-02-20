@@ -256,7 +256,7 @@ export async function flattenFallback(
     solFiles = [args.target];
   } else if (existsSync(srcDir)) {
     try {
-      solFiles = deps.execSyncFn(`find "${srcDir}" -name "*.sol" -maxdepth 3 -not -path "*/mocks/*" -not -path "*/test/*"`, {
+      solFiles = deps.execSyncFn(`find "${srcDir}" -maxdepth 3 -name "*.sol" -not -path "*/mocks/*" -not -path "*/test/*"`, {
         encoding: "utf-8",
         timeout: 5_000,
         stdio: ["pipe", "pipe", "pipe"],
@@ -397,7 +397,7 @@ export async function executeSlitherAnalyze(
       findingsCount: 0,
       findings: [],
       executionTime: Date.now() - startedAt,
-      errors: ["via_ir enabled — flatten fallback failed. Ensure forge and solc are available."],
+      errors: ["via_ir enabled — flatten fallback failed. Ensure forge and solc-select are installed."],
       error: "Project uses via_ir which is incompatible with Slither direct analysis. Flatten fallback also failed.",
     };
   }

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.2.0 (2026-02-20)
+
+### Bug Fixes
+- Fixed JSONC parser corrupting strings containing block comment syntax (`/* */`)
+- Fixed audit state manager dropping writes when save is in-flight (save coalescing)
+- Fixed Solodit HTTP fallback using wrong MCP tool name and ignoring configured port
+- Fixed background manager dispatcher permanently set to noop
+- Fixed logger crash on circular references and BigInt values
+- Fixed `extractJson` capturing too much content (uses depth-counting bracket matcher)
+- Fixed `dispatch()` mutating global concurrency limit from per-task options
+- Fixed tool error recovery mutating audit state directly without persistence
+- Fixed `find` command `-maxdepth` option ordering in binary-utils and slither-tool
+- Fixed NaN propagation in dependency scanner for non-semver version specs
+- Fixed test cleanup pattern that doesn't work in bun:test (beforeEach return)
+- Fixed config file detection matching overly generic `config.json` filenames
+- Fixed `SolditConfigSchema` typo (now `SoloditConfigSchema`)
+- Fixed `readJsoncFile` returning `any` type (now `Record<string, unknown>`)
+- Fixed `hasBinary` using shell interpolation (now uses `Bun.spawnSync`)
+- Fixed via_ir error message to mention `solc-select`
+- Fixed skills README referencing old `opencode-argus.jsonc` config name
+- Fixed README documenting wrong config paths and non-existent config fields
+
+### Improvements
+- Added `@opencode-ai/sdk` as peer dependency for type-safe Config import
+- Added `system-prompt` to `HookName` union type for config-driven disabling
+- Added `setDispatcher()` method to background manager for post-creation wiring
+- Added `maxConcurrent` constructor option to background manager (wired from config)
+- Added save coalescing loop to audit state manager for concurrent write safety
+- Added Trail of Bits clone error logging and pinned branch reference
+- Added Solodit MCP child process tracking for lifecycle awareness
+- Improved `deepMerge` array deduplication to handle objects (JSON-based)
+- Improved `extractJson` to use depth-counting bracket matcher
+- Replaced module-level mutable `latestAgentTracker` with typed ref pattern
+
 ## 0.1.0 (2026-02-18)
 
 Initial release of solidity-argus.

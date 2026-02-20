@@ -13,11 +13,17 @@ interface DependencyInput {
 
 function parseVersion(raw: string): [number, number, number] {
   const cleaned = raw.replace(/^[^0-9]*/, "");
+  if (!cleaned) {
+    return [0, 0, 0];
+  }
   const parts = cleaned.split(".");
+  const major = parseInt(parts[0] ?? "0", 10);
+  const minor = parseInt(parts[1] ?? "0", 10);
+  const patch = parseInt(parts[2] ?? "0", 10);
   return [
-    parseInt(parts[0] ?? "0", 10),
-    parseInt(parts[1] ?? "0", 10),
-    parseInt(parts[2] ?? "0", 10),
+    Number.isNaN(major) ? 0 : major,
+    Number.isNaN(minor) ? 0 : minor,
+    Number.isNaN(patch) ? 0 : patch,
   ];
 }
 

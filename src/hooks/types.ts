@@ -12,4 +12,5 @@ export type HookName =
   | "tool-error-recovery"
   | "context-window-monitor"
   | "tool-output-truncator"
-  | "audit-continuation";
+  | "audit-continuation"
+  | "system-prompt";

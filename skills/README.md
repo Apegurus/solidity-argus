@@ -65,7 +65,7 @@ detection_rules:
 
 ## Custom Skills
 
-To add your own skills, use the `knowledge.customSkillsDir` configuration option in your `opencode-argus.jsonc` file. Point this to a directory containing your custom `SKILL.md` files organized into subdirectories.
+To add your own skills, use the `knowledge.customSkillsDir` configuration option in your `solidity-argus.jsonc` file. Point this to a directory containing your custom `SKILL.md` files organized into subdirectories.
 
 ### Skill Overrides
 

@@ -34,7 +34,7 @@ const ReportingConfigSchema = z.object({
   gasAnalysis: z.boolean().default(false),
 })
 
-const SolditConfigSchema = z.object({
+const SoloditConfigSchema = z.object({
   enabled: z.boolean().default(true),
   port: z.number().default(3000),
 })
@@ -71,7 +71,7 @@ export const ArgusConfigSchema = z.object({
     severityThreshold: "low",
     gasAnalysis: false,
   }),
-  solodit: SolditConfigSchema.default({
+  solodit: SoloditConfigSchema.default({
     enabled: true,
     port: 3000,
   }),

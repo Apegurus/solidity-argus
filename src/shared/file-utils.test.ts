@@ -16,26 +16,26 @@ describe("file-utils", () => {
 
   describe("detectConfigFile", () => {
     it("should detect .json config file", () => {
-      const configPath = join(testDir, "config.json");
+      const configPath = join(testDir, "solidity-argus.json");
       writeFileSync(configPath, '{"key": "value"}');
 
       const result = detectConfigFile(testDir);
       expect(result.format).toBe("json");
-      expect(result.path).toContain("config.json");
+      expect(result.path).toContain("solidity-argus.json");
     });
 
     it("should detect .jsonc config file", () => {
-      const configPath = join(testDir, "config.jsonc");
+      const configPath = join(testDir, "solidity-argus.jsonc");
       writeFileSync(configPath, '{"key": "value" // comment\n}');
 
       const result = detectConfigFile(testDir);
       expect(result.format).toBe("jsonc");
-      expect(result.path).toContain("config.jsonc");
+      expect(result.path).toContain("solidity-argus.jsonc");
     });
 
     it("should prefer .jsonc over .json", () => {
-      const jsonPath = join(testDir, "config.json");
-      const jsoncPath = join(testDir, "config.jsonc");
+      const jsonPath = join(testDir, "solidity-argus.json");
+      const jsoncPath = join(testDir, "solidity-argus.jsonc");
       writeFileSync(jsonPath, '{"key": "value"}');
       writeFileSync(jsoncPath, '{"key": "value"}');
 
@@ -134,7 +134,8 @@ describe("file-utils", () => {
       writeFileSync(configPath, content);
 
       const result = readJsoncFile(configPath);
-      expect(result?.agents?.argus?.model).toBe("claude-opus-4-6");
+      const agents = result?.agents as Record<string, Record<string, unknown>> | undefined;
+      expect(agents?.argus?.model).toBe("claude-opus-4-6");
     });
 
     it("should handle empty file", () => {

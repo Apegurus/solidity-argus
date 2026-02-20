@@ -33,7 +33,7 @@ describe("deepMerge", () => {
   it("should concatenate and deduplicate arrays", () => {
     const obj1 = { items: [1, 2, 3] };
     const obj2 = { items: [3, 4, 5] };
-    const result = deepMerge(obj1, obj2);
+    const result = deepMerge(obj1, obj2) as Record<string, unknown>;
 
     expect(result.items).toEqual([1, 2, 3, 4, 5]);
   });
@@ -41,7 +41,7 @@ describe("deepMerge", () => {
   it("should handle array deduplication with strings", () => {
     const obj1 = { tags: ["a", "b", "c"] };
     const obj2 = { tags: ["c", "d", "e"] };
-    const result = deepMerge(obj1, obj2);
+    const result = deepMerge(obj1, obj2) as Record<string, unknown>;
 
     expect(result.tags).toEqual(["a", "b", "c", "d", "e"]);
   });
@@ -132,8 +132,16 @@ describe("deepMerge", () => {
   it("should handle array deduplication with objects (by reference)", () => {
     const obj1 = { ids: [1, 2, 3] };
     const obj2 = { ids: [3, 4, 5] };
-    const result = deepMerge(obj1, obj2);
+    const result = deepMerge(obj1, obj2) as Record<string, unknown>;
 
     expect(result.ids).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("should not collide primitive dedup keys across types", () => {
+    const obj1 = { values: [1, "1"] };
+    const obj2 = { values: ["1", 1, true, "true"] };
+    const result = deepMerge(obj1, obj2) as Record<string, unknown>;
+
+    expect(result.values).toEqual([1, "1", true, "true"]);
   });
 });

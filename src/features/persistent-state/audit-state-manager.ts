@@ -98,17 +98,23 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
     saveInFlight = true;
 
     try {
-      const persistentState: PersistentAuditState = {
-        ...state,
-        savedAt: Date.now(),
-        version: STATE_VERSION,
-        filePath: stateFilePath,
-      };
+      while (true) {
+        const stateToSave = currentState;
 
-      const tempFilePath = `${stateFilePath}.${Date.now()}.tmp`;
-      await mkdir(dirname(stateFilePath), { recursive: true });
-      await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`);
-      await rename(tempFilePath, stateFilePath);
+        const persistentState: PersistentAuditState = {
+          ...stateToSave,
+          savedAt: Date.now(),
+          version: STATE_VERSION,
+          filePath: stateFilePath,
+        };
+
+        const tempFilePath = `${stateFilePath}.${Date.now()}.tmp`;
+        await mkdir(dirname(stateFilePath), { recursive: true });
+        await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`);
+        await rename(tempFilePath, stateFilePath);
+
+        if (currentState === stateToSave) break;
+      }
     } catch {
       // Non-critical: state persistence is best-effort
     } finally {

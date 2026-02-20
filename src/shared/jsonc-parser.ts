@@ -1,39 +1,135 @@
 export function stripJsoncComments(jsonc: string): string {
-  let result = jsonc;
+  // Single-pass stateful scanner that handles both line and block comments
+  // while respecting string boundaries (won't corrupt "/* ... */" inside strings)
+  let inString = false;
+  let escaped = false;
+  let inBlockComment = false;
+  let inLineComment = false;
+  const chars: string[] = [];
 
-  result = result.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (let i = 0; i < jsonc.length; i++) {
+    const ch = jsonc[i]!;
+    const next = jsonc[i + 1];
 
-  const lines = result.split("\n");
-  result = lines
-    .map((line) => {
-      let inString = false;
-      let escaped = false;
-      let lastCommentIndex = -1;
+    // Inside a block comment: skip until closing */
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i++; // skip the '/'
+      }
+      continue;
+    }
 
-      for (let i = 0; i < line.length; i++) {
-        if (escaped) {
-          escaped = false;
+    // Inside a line comment: skip until end of line
+    if (inLineComment) {
+      if (ch === "\n" || ch === "\r") {
+        inLineComment = false;
+        chars.push(ch);
+      }
+      continue;
+    }
+
+    // Handle escape sequences inside strings
+    if (escaped) {
+      escaped = false;
+      chars.push(ch);
+      continue;
+    }
+
+    if (inString) {
+      if (ch === "\\") {
+        escaped = true;
+        chars.push(ch);
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      chars.push(ch);
+      continue;
+    }
+
+    // Outside strings: detect comment starts
+    if (ch === '"') {
+      inString = true;
+      chars.push(ch);
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i++; // skip the second '/'
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i++; // skip the '*'
+      continue;
+    }
+
+    chars.push(ch);
+  }
+
+  const result = chars.join("");
+
+  // Strip trailing commas before } or ] using a string-aware scan.
+  const out: string[] = [];
+  let inString2 = false;
+  let escaped2 = false;
+
+  for (let i = 0; i < result.length; i++) {
+    const ch = result[i]!;
+
+    if (escaped2) {
+      escaped2 = false;
+      out.push(ch);
+      continue;
+    }
+
+    if (inString2) {
+      if (ch === "\\") {
+        escaped2 = true;
+      } else if (ch === '"') {
+        inString2 = false;
+      }
+      out.push(ch);
+      continue;
+    }
+
+    if (ch === '"') {
+      inString2 = true;
+      out.push(ch);
+      continue;
+    }
+
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < result.length) {
+        const lookahead = result[j]!;
+        if (lookahead === " " || lookahead === "\t" || lookahead === "\n" || lookahead === "\r") {
+          j++;
           continue;
         }
-        if (line[i] === "\\") {
-          escaped = true;
-          continue;
-        }
-        if (line[i] === '"') {
-          inString = !inString;
-        }
-        if (!inString && line[i] === "/" && line[i + 1] === "/") {
-          lastCommentIndex = i;
+
+        if (lookahead === "}" || lookahead === "]") {
+          // Structural trailing comma: skip it.
           break;
         }
+
+        out.push(ch);
+        break;
       }
 
-      if (lastCommentIndex === -1) return line;
-      return line.substring(0, lastCommentIndex);
-    })
-    .join("\n");
+      if (j >= result.length) {
+        out.push(ch);
+      }
 
-  result = result.replace(/,(\s*[}\]])/g, "$1");
+      continue;
+    }
 
-  return result;
+    out.push(ch);
+  }
+
+  return out.join("");
 }

@@ -7,26 +7,28 @@ import { createManagers } from "./create-managers"
 import { createPluginInterface } from "./plugin-interface"
 import { checkSoloditHealth } from "./utils/solodit-health"
 import { createLogger } from "./shared/logger"
+import type { Dispatcher } from "./features/background-agent/background-manager"
+
+let soloditChild: ReturnType<typeof Bun.spawn> | null = null
 
 async function startSoloditMcp(port: number): Promise<void> {
   const logger = createLogger()
 
-  // Health check before spawn: if already reachable, skip spawn
   const health = await checkSoloditHealth(port, true)
   if (health.reachable) {
     logger.debug(`Solodit MCP already running on port ${port} — skipping spawn`)
     return
   }
 
-  const child = Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
+  soloditChild = Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "ignore",
     env: { ...process.env, PORT: String(port) },
   })
-  child.unref()
+  soloditChild.unref()
 
-  // Health check after spawn: wait 2s, then ping
+  const child = soloditChild
   setTimeout(async () => {
     const health = await checkSoloditHealth(port, true)
     if (!health.reachable) {
@@ -35,6 +37,15 @@ async function startSoloditMcp(port: number): Promise<void> {
       logger.debug(`Solodit MCP healthy on port ${port}`)
     }
   }, 2000)
+
+  child.exited.then((code) => {
+    if (code !== 0 && code !== null) {
+      logger.warn(`Solodit MCP exited with code ${code}`)
+    }
+    if (soloditChild === child) {
+      soloditChild = null
+    }
+  })
 }
 
 const ArgusPlugin: Plugin = async (ctx) => {
@@ -48,7 +59,25 @@ const ArgusPlugin: Plugin = async (ctx) => {
   }
 
   const isHookEnabled = createHookGuard(config.disabled_hooks)
-  const managers = createManagers({ projectDir, config })
+  const taskCandidate = (ctx as Record<string, unknown>)["task"]
+  const backgroundDispatcher: Dispatcher | undefined =
+    typeof taskCandidate === "function"
+      ? async (agentName: string, prompt: string) => {
+          const result = await taskCandidate(agentName, prompt)
+          if (typeof result === "string") {
+            return result
+          }
+          if (typeof result === "object" && result !== null) {
+            const taskId = (result as Record<string, unknown>)["task_id"]
+            if (typeof taskId === "string") {
+              return taskId
+            }
+          }
+          return `task-${Date.now()}`
+        }
+      : undefined
+
+  const managers = createManagers({ projectDir, config, backgroundDispatcher })
   const tools = createTools(config)
   const hooks = createHooks({ config, managers, projectDir, isHookEnabled })
 

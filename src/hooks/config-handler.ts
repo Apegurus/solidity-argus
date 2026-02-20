@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import type { Config } from "@opencode-ai/sdk/v2"
 import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS } from "../constants/defaults"
+import { createLogger } from "../shared/logger"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
 import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
@@ -12,6 +13,7 @@ import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
 const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
+const TOB_BRANCH = "main"
 let tobCloneInFlight = false
 
 function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
@@ -40,16 +42,23 @@ function ensureTrailOfBitsSkills(): string[] {
   if (!tobCloneInFlight) {
     tobCloneInFlight = true
     const cloneProcess = Bun.spawn(
-      ["git", "clone", "--depth", "1", TOB_REPO_URL, TOB_CACHE_DIR],
+      ["git", "clone", "--depth", "1", "--branch", TOB_BRANCH, TOB_REPO_URL, TOB_CACHE_DIR],
       {
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
       },
     )
-    cloneProcess.exited.finally(() => {
-      tobCloneInFlight = false
-    })
+    cloneProcess.exited
+      .then((code) => {
+        if (code !== 0) {
+          const logger = createLogger()
+          logger.warn(`Trail of Bits skills clone failed with exit code ${code}`)
+        }
+      })
+      .finally(() => {
+        tobCloneInFlight = false
+      })
   }
 
     return []

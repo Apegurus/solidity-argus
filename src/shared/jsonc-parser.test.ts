@@ -126,4 +126,39 @@ describe("stripJsoncComments", () => {
     expect(result).toContain("https://api.scvd.dev/v1");
     expect(result).not.toContain("// SCVD API endpoint");
   });
+
+  it("should preserve block comment syntax inside strings", () => {
+    const input = `{
+  "pattern": "/* this is not a comment */",
+  "key": "value"
+}`;
+    const result = stripJsoncComments(input);
+    expect(result).toContain("/* this is not a comment */");
+    expect(result).toContain('"key": "value"');
+  });
+
+  it("should preserve mixed comment syntax inside strings", () => {
+    const input = `{
+  "regex": "^/\\\\*.*\\\\*/$",
+  "note": "handles /* and // patterns"
+}`;
+    const result = stripJsoncComments(input);
+    const parsed = JSON.parse(result);
+    expect(parsed.regex).toBeDefined();
+    expect(parsed.note).toContain("/*");
+    expect(parsed.note).toContain("//");
+  });
+
+  it("should not strip structural-looking commas inside strings", () => {
+    const input = `{
+  "literal": ",}",
+  "arrayLiteral": ", ]",
+  "value": 1,
+}`;
+    const result = stripJsoncComments(input);
+    const parsed = JSON.parse(result);
+    expect(parsed.literal).toBe(",}");
+    expect(parsed.arrayLiteral).toBe(", ]");
+    expect(parsed.value).toBe(1);
+  });
 });
