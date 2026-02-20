@@ -44,3 +44,15 @@ docs/assessment.md
 
 # local plugin state
 /.opencode/
+
+# audit PDF extraction artifacts
+scripts/.tmp-audit-pdfs/
+scripts/audit-pdf-output/
+
+# scratch assessment files
+cc-findings.md
+glm-production-findings.md
+haep-susdve-assesment.md
+kimi-production-findings.md
+opus-assessment-v4.md
+opus-h-production-readiness-assessment.md
