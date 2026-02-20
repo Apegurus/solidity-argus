@@ -5,7 +5,7 @@ import type { HookName } from "./hooks/types"
 import { createConfigHandler } from "./hooks/config-handler"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
-import { createEventHookV2 } from "./hooks/event-hook-v2"
+import { createEventHook } from "./hooks/event-hook"
 import { createAgentTracker } from "./hooks/agent-tracker"
 import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { safeCreateHook } from "./hooks/safe-create-hook"
@@ -80,7 +80,7 @@ export function createHooks(args: {
 
   // Sub-handlers run sequentially. The state persistence handler MUST be first:
   // it loads persisted state on session.created, overriding the fresh default.
-  const { hook: eventHook, getAuditState, setAuditState } = createEventHookV2(projectDir, [
+  const { hook: eventHook, getAuditState, setAuditState } = createEventHook(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {
         const recoveredState = await auditStateManager.load()

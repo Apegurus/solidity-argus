@@ -11,7 +11,7 @@ export type AuditEventType =
   | "audit.finding-added"
   | "audit.complete"
 
-export type EventHookV2Fn = (input: {
+export type EventHookFn = (input: {
   event: { type: string; sessionId?: string; properties?: Record<string, unknown> }
 }) => Promise<void>
 
@@ -22,11 +22,11 @@ export type EventSubHandler = (event: {
   setAuditState: (state: AuditState | null) => void
 }) => Promise<void>
 
-export function createEventHookV2(
+export function createEventHook(
   projectDir?: string,
   subHandlers: EventSubHandler[] = [],
 ): {
-  hook: EventHookV2Fn
+  hook: EventHookFn
   getAuditState: () => AuditState | null
   setAuditState: (state: AuditState | null) => void
 } {
@@ -38,7 +38,7 @@ export function createEventHookV2(
     currentAuditState = state
   }
 
-  const hook: EventHookV2Fn = async (input): Promise<void> => {
+  const hook: EventHookFn = async (input): Promise<void> => {
     const { type, sessionId } = input.event
 
     switch (type) {

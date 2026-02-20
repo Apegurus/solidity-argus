@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test"
-import { createEventHookV2 } from "./event-hook-v2"
-import type { EventSubHandler } from "./event-hook-v2"
+import { createEventHook } from "./event-hook"
+import type { EventSubHandler } from "./event-hook"
 
-describe("createEventHookV2", () => {
+describe("createEventHook", () => {
   it("handles session.created", async () => {
-    const { hook, getAuditState } = createEventHookV2("/tmp/test")
+    const { hook, getAuditState } = createEventHook("/tmp/test")
 
     await hook({ event: { type: "session.created" } })
 
@@ -13,7 +13,7 @@ describe("createEventHookV2", () => {
   })
 
   it("handles session.deleted", async () => {
-    const { hook, getAuditState, setAuditState } = createEventHookV2()
+    const { hook, getAuditState, setAuditState } = createEventHook()
     setAuditState({
       sessionId: "s1",
       projectDir: "/tmp",
@@ -31,7 +31,7 @@ describe("createEventHookV2", () => {
   })
 
   it("handles session.idle without error", async () => {
-    const { hook, setAuditState } = createEventHookV2()
+    const { hook, setAuditState } = createEventHook()
     setAuditState({
       sessionId: "s1",
       projectDir: "/tmp",
@@ -47,7 +47,7 @@ describe("createEventHookV2", () => {
   })
 
   it("handles session.error without throwing", async () => {
-    const { hook, setAuditState } = createEventHookV2()
+    const { hook, setAuditState } = createEventHook()
     setAuditState({
       sessionId: "s1",
       projectDir: "/tmp",
@@ -63,7 +63,7 @@ describe("createEventHookV2", () => {
   })
 
   it("handles unknown events without error", async () => {
-    const { hook } = createEventHookV2()
+    const { hook } = createEventHook()
     await expect(hook({ event: { type: "unknown.event" } })).resolves.toBeUndefined()
   })
 
@@ -73,7 +73,7 @@ describe("createEventHookV2", () => {
       calls.push(event.type)
     }
 
-    const { hook } = createEventHookV2("/tmp", [subHandler])
+    const { hook } = createEventHook("/tmp", [subHandler])
     await hook({ event: { type: "session.created" } })
 
     expect(calls).toEqual(["session.created"])
@@ -84,7 +84,7 @@ describe("createEventHookV2", () => {
       throw new Error("handler failed")
     }
 
-    const { hook } = createEventHookV2("/tmp", [failHandler])
+    const { hook } = createEventHook("/tmp", [failHandler])
     await expect(hook({ event: { type: "session.created" } })).resolves.toBeUndefined()
   })
 })

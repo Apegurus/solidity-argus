@@ -1,15 +1,15 @@
 {
-  "sessionId": "1a91a82d-b970-4a81-88ed-4abcf25592f8",
+  "sessionId": "73e50e65-8144-4da9-b2fe-50a849be3a83",
   "projectDir": "/Users/ignacioblitzer/Develop/defizoo/solidity-auditor/tests/fixtures/vulnerable-vault",
   "contractsReviewed": [],
   "findings": [],
   "toolsExecuted": [],
   "currentPhase": "reconnaissance",
   "scope": [],
-  "startTime": 1771622991825,
+  "startTime": 1771624703508,
   "soloditResults": [],
   "fuzzCounterexamples": [],
-  "savedAt": 1771622991825,
+  "savedAt": 1771624703508,
   "version": "2",
   "filePath": "/Users/ignacioblitzer/Develop/defizoo/solidity-auditor/tests/fixtures/vulnerable-vault/.opencode/argus-state.json"
 }
