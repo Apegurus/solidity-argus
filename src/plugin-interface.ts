@@ -11,12 +11,12 @@ export function createPluginInterface(args: {
 }): PluginReturn {
   const { tools, hooks } = args
 
-   const result: PluginReturn = {
-     tool: tools,
-     config: hooks.config,
-   }
+  const result: PluginReturn = {
+    tool: tools,
+    config: hooks.config,
+  }
 
-   if (hooks["chat.params"]) {
+  if (hooks["chat.params"]) {
     result["chat.params"] = hooks["chat.params"]
   }
 

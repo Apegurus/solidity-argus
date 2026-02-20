@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs"
-import { extname, join } from "node:path"
+import { join } from "node:path"
 import type { CliCommand } from "../types"
 import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
@@ -10,7 +10,7 @@ const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
 const RESET = "\x1b[0m"
 
-function findMarkdownFiles(dir: string, maxDepth = 8): string[] {
+function findSkillFiles(dir: string, maxDepth = 8): string[] {
   const files: string[] = []
   const stack: Array<{ path: string; depth: number }> = [{ path: dir, depth: 0 }]
 
@@ -24,7 +24,7 @@ function findMarkdownFiles(dir: string, maxDepth = 8): string[] {
         const fullPath = join(current.path, entry.name)
         if (entry.isDirectory()) {
           stack.push({ path: fullPath, depth: current.depth + 1 })
-        } else if (entry.isFile() && extname(entry.name).toLowerCase() === ".md") {
+        } else if (entry.isFile() && entry.name.toUpperCase() === "SKILL.MD") {
           files.push(fullPath)
         }
       }
@@ -84,7 +84,7 @@ export const lintSkillsCommand: CliCommand = {
     const skillFiles: Array<{ path: string; content: string }> = []
 
     for (const root of roots) {
-      const files = findMarkdownFiles(root.path)
+      const files = findSkillFiles(root.path)
       for (const file of files) {
         try {
           skillFiles.push({ path: file, content: readFileSync(file, "utf8") })

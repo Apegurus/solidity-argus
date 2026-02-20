@@ -22,7 +22,7 @@ export function parseSolcVersion(target: string): string | undefined {
     if (match?.[1]) return match[1];
   }
 
-  const solFiles = [target];
+  const solFiles: string[] = [];
   if (existsSync(target) && target.endsWith(".sol")) {
     solFiles.push(target);
   } else {

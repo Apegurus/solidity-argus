@@ -46,10 +46,9 @@ name: topic-name          # Must match parent directory name
 description: One sentence description (1-1024 chars)
 version: 1.0.0            # Optional semver
 category: vulnerability-pattern # methodology, protocol-pattern, checklist, reference
-provenance:
-  source: "Author Name"
-  license: "MIT"
-  lastVerified: "2024-01-01"
+source_url: "https://github.com/org/repo"
+source_license: "MIT"
+imported_at: "2024-01-01T00:00:00Z"
 detection_rules:
   - regex: "pattern here"
     severity: "High"
