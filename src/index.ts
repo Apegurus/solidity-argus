@@ -7,6 +7,7 @@ import { createManagers } from "./create-managers"
 import { createPluginInterface } from "./plugin-interface"
 import { checkSoloditHealth } from "./utils/solodit-health"
 import { createLogger } from "./shared/logger"
+import type { Dispatcher } from "./features/background-agent/background-manager"
 
 let soloditChild: ReturnType<typeof Bun.spawn> | null = null
 
@@ -58,7 +59,25 @@ const ArgusPlugin: Plugin = async (ctx) => {
   }
 
   const isHookEnabled = createHookGuard(config.disabled_hooks)
-  const managers = createManagers({ projectDir, config })
+  const taskCandidate = (ctx as Record<string, unknown>)["task"]
+  const backgroundDispatcher: Dispatcher | undefined =
+    typeof taskCandidate === "function"
+      ? async (agentName: string, prompt: string) => {
+          const result = await taskCandidate(agentName, prompt)
+          if (typeof result === "string") {
+            return result
+          }
+          if (typeof result === "object" && result !== null) {
+            const taskId = (result as Record<string, unknown>)["task_id"]
+            if (typeof taskId === "string") {
+              return taskId
+            }
+          }
+          return `task-${Date.now()}`
+        }
+      : undefined
+
+  const managers = createManagers({ projectDir, config, backgroundDispatcher })
   const tools = createTools(config)
   const hooks = createHooks({ config, managers, projectDir, isHookEnabled })
 

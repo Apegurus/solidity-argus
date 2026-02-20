@@ -1,4 +1,5 @@
 import { tool, type ToolContext } from "@opencode-ai/plugin";
+import type { ToolDefinition } from "@opencode-ai/plugin";
 
 const SOLODIT_MCP_SERVER = "solodit-mcp";
 const SOLODIT_MCP_TOOLS = ["search", "search_findings"] as const;
@@ -281,16 +282,20 @@ export async function executeSoloditSearch(
   return fallback;
 }
 
-export const soloditSearchTool = tool({
-  description:
-    "Search Solodit audit findings database for known vulnerabilities and past audit results via the Solodit MCP server.",
-  args: {
-    query: tool.schema.string(),
-    severity: tool.schema.array(tool.schema.string()).optional(),
-    limit: tool.schema.number().optional(),
-  },
-  async execute(args, context) {
-    const result = await executeSoloditSearch(args, context);
-    return JSON.stringify(result);
-  },
-});
+export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): ToolDefinition {
+  return tool({
+    description:
+      "Search Solodit audit findings database for known vulnerabilities and past audit results via the Solodit MCP server.",
+    args: {
+      query: tool.schema.string(),
+      severity: tool.schema.array(tool.schema.string()).optional(),
+      limit: tool.schema.number().optional(),
+    },
+    async execute(args, context) {
+      const result = await executeSoloditSearch(args, context, undefined, port);
+      return JSON.stringify(result);
+    },
+  });
+}
+
+export const soloditSearchTool = createSoloditSearchTool();

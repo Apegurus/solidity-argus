@@ -195,7 +195,7 @@ test("executeSoloditSearch uses keywords argument for MCP", async () => {
   expect(capturedArgs[0]?.filters).toBeUndefined();
 });
 
-test("executeSoloditSearch retries with search_findings contract when search fails", async () => {
+test("executeSoloditSearch retries with search_findings tool when search fails", async () => {
   const { context } = createContext();
   const capturedCalls: Array<{ tool: string; args: Record<string, unknown> }> = [];
 

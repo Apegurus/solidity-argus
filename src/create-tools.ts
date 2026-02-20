@@ -5,7 +5,7 @@ import { forgeTestTool } from "./tools/forge-test-tool"
 import { forgeFuzzTool } from "./tools/forge-fuzz-tool"
 import { contractAnalyzerTool } from "./tools/contract-analyzer-tool"
 import { patternCheckerTool } from "./tools/pattern-checker-tool"
-import { soloditSearchTool } from "./tools/solodit-search-tool"
+import { createSoloditSearchTool } from "./tools/solodit-search-tool"
 import { reportGeneratorTool } from "./tools/report-generator-tool"
 import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
 import { argusSkillLoadTool } from "./tools/argus-skill-load-tool"
@@ -25,7 +25,7 @@ export function createTools(
   }
 
   if (config.solodit?.enabled !== false) {
-    tools.argus_solodit_search = soloditSearchTool
+    tools.argus_solodit_search = createSoloditSearchTool(config.solodit?.port ?? 3000)
   }
 
   return tools
