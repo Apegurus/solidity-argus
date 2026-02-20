@@ -203,7 +203,7 @@ Argus supports three distinct knowledge ingestion patterns:
 **Sources:** SCVD local index, Trail of Bits companion skills
 
 - Local index synced periodically via `argus_sync_knowledge`
-- Cached locally in `~/.cache/opencode-argus/scvd-index.json`
+- Cached locally in `~/.cache/solidity-argus/scvd-index.json`
 - Refreshed on-demand when `knowledge.autoSync: true`
 - Trail of Bits skills git-cloned on install and updated via companion plugin
 - Example: SCVD findings indexed locally, queried without network latency

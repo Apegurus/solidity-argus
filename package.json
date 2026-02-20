@@ -26,15 +26,14 @@
     "init": "bun src/cli/index.ts init"
   },
   "dependencies": {
+    "@opencode-ai/plugin": "^1.2.6",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "^1.2.6",
     "@opencode-ai/sdk": "^1.0.0"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.2.6",
     "@types/bun": "^1.2.0",
     "typescript": "^5"
   },
