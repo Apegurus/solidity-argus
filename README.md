@@ -145,6 +145,63 @@ patterns:
 
 **SCVD Integration:** The plugin connects to [api.scvd.dev](https://api.scvd.dev) for 7,769+ real-world audit findings. Sync with `argus_sync_knowledge` or configure `knowledge.autoSync: true`.
 
+### Audit PDF Extraction Pipeline
+
+A generic pipeline for extracting security findings from public audit report PDFs and converting them into structured data for pattern creation.
+
+**How it works:**
+1. Downloads PDFs from configured GitHub repositories
+2. Parses each PDF page-by-page using `pdf-parse`
+3. Extracts findings using regex-based heading/severity/description detection
+4. Deduplicates and categorizes findings into 11 categories
+5. Outputs structured JSON to `scripts/audit-pdf-output/`
+
+**Running the pipeline:**
+
+```bash
+bun scripts/audit-pdf-extract.ts
+```
+
+**Output files:**
+- `scripts/audit-pdf-output/findings.json` — All extracted findings
+- `scripts/audit-pdf-output/metadata.json` — Extraction stats, errors, source info
+- `scripts/audit-pdf-output/by-category/*.json` — Findings grouped by category (reentrancy, access-control, oracle, etc.)
+
+**Adding new audit sources:**
+
+The pipeline uses a generic `AuditSource[]` interface. To add a new audit firm's reports, edit `scripts/audit-pdf-extract.ts` and add an entry to `DEFAULT_SOURCES`:
+
+```typescript
+{
+  name: "AuditFirmName",
+  repoRawBase: "https://raw.githubusercontent.com/org/repo/main",
+  repoUrl: "https://github.com/org/repo",
+  pdfFiles: [
+    "Audit Report - Protocol Name.pdf",
+    // ... more PDFs
+  ],
+}
+```
+
+**How agents leverage extracted findings:**
+
+The extracted findings are used to create new SKILL.md vulnerability pattern files (e.g., `erc4626-exchange-rate-manipulation`, `missing-parameter-bounds`). These patterns are loaded on-demand by agents via `argus_skill_load` during audits. The extraction pipeline is a developer tool — agents don't run it directly.
+
+### Case Studies
+
+15 detailed case studies of major DeFi exploits are included in `skills/case-studies/`. Each provides deep narrative context: root cause analysis, attack flow, impact assessment, key transactions, and lessons learned.
+
+**Sources:** Public exploit research from [rekt.news](https://rekt.news) and [SunWeb3Sec/DeFiHackLabs](https://github.com/SunWeb3Sec/DeFiHackLabs).
+
+**How they complement SCVD:** SCVD provides breadth (7,769+ searchable findings by keyword). Case studies provide depth (detailed narratives of 15 major exploits). The `@pythia` agent uses both — SCVD for "has this pattern been seen before?" and case studies for "how did this type of exploit actually unfold?"
+
+**Adding new case studies:**
+
+1. Create a new directory under `skills/case-studies/<exploit-name>/`
+2. Add a `SKILL.md` file with frontmatter (`name`, `description`, `category: reference`, `source_url`, `source_license`, `detection_rules`)
+3. Include sections: Overview, Root Cause, Attack Flow, Impact, Key Transactions, Lessons
+4. Add the entry to `skills/INVENTORY.md`
+
 ---
 
 ## Knowledge Ingestion Contract
