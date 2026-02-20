@@ -1,6 +1,9 @@
 ---
 name: audit-workflow
 description: Five-phase Solidity audit workflow covering recon, static analysis, manual review, verification, and reporting.
+source_url: https://github.com/DeFiFoFum/fofum-solidity-skills
+source_license: MIT
+imported_at: "2025-01-15T00:00:00Z"
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 

@@ -1,5 +1,6 @@
 import type { AuditState } from "../state/types"
 import { createAuditState } from "../state/audit-state"
+import { createLogger } from "../shared/logger"
 
 export type EventHookFn = (input: {
   event: { type: string; sessionId?: string }
@@ -38,8 +39,8 @@ export function createEventHook(projectDir?: string): {
 
       case "session.idle": {
          if (currentAuditState) {
-           console.error(
-             `[argus-state] Session idle — phase: ${currentAuditState.currentPhase}, findings: ${currentAuditState.findings.length}, contracts: ${currentAuditState.contractsReviewed.length}`
+           createLogger().debug(
+             `[state] Session idle — phase: ${currentAuditState.currentPhase}, findings: ${currentAuditState.findings.length}, contracts: ${currentAuditState.contractsReviewed.length}`
            )
          }
          break
@@ -47,8 +48,8 @@ export function createEventHook(projectDir?: string): {
 
       case "session.error": {
         if (currentAuditState) {
-          console.error(
-            `[argus-error] Session error — state snapshot: ${JSON.stringify({
+          createLogger().error(
+            `Session error — state snapshot: ${JSON.stringify({
               sessionId: currentAuditState.sessionId,
               phase: currentAuditState.currentPhase,
               findingsCount: currentAuditState.findings.length,

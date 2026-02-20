@@ -1,0 +1,25 @@
+{
+  "name": "defifofum",
+  "mode": "baked-in",
+  "url": "https://github.com/DeFiFoFum/fofum-solidity-skills",
+  "license": "MIT",
+  "updateCadence": "per-release",
+  "lastVerified": "2026-02-19",
+  "files": [
+    "vulnerability-patterns/access-control/SKILL.md",
+    "vulnerability-patterns/flash-loan-attacks/SKILL.md",
+    "vulnerability-patterns/logic-errors/SKILL.md",
+    "vulnerability-patterns/oracle-manipulation/SKILL.md",
+    "vulnerability-patterns/reentrancy/SKILL.md",
+    "vulnerability-patterns/weird-tokens/SKILL.md",
+    "methodology/audit-workflow/SKILL.md",
+    "methodology/report-template/SKILL.md",
+    "methodology/severity-classification/SKILL.md",
+    "protocol-patterns/amm-dex/SKILL.md",
+    "protocol-patterns/bridges-cross-chain/SKILL.md",
+    "protocol-patterns/dao-governance/SKILL.md",
+    "protocol-patterns/lending-borrowing/SKILL.md",
+    "protocol-patterns/staking-vesting/SKILL.md",
+    "checklists/general-audit/SKILL.md"
+  ]
+}

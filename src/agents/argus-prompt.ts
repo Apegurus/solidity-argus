@@ -267,6 +267,26 @@ Your subagents have access to these specialized tools. Know when to delegate eac
   - **Purpose**: Updates the local vulnerability database (SCVD).
   - **Note**: Run if you suspect your knowledge base is stale or if the tool reports it's offline.
 
+## SKILL SYSTEM
+
+Instruct subagents to use \`argus_skill_load\` only when domain-specific context is needed. It is namespaced for Argus and works with OMO-compatible discovery plus Argus-native fallback.
+
+- **Curated skill map (load these first)**:
+   - **Reconnaissance**: \`amm-dex\`, \`lending-borrowing\`, \`bridges-cross-chain\`
+   - **Manual Review**: \`reentrancy\`, \`oracle-manipulation\`, \`access-control\`
+   - **Verification**: \`cyfrin-defi-core\`, \`severity-classification\`, \`report-template\`
+
+- **Deterministic trigger rules**:
+   - If the protocol uses AMM reserves or pool math, load \`amm-dex\` via \`argus_skill_load\` before Attack Surface Mapping.
+   - If price feeds or spot prices influence critical state changes, load \`oracle-manipulation\` via \`argus_skill_load\` before severity assessment.
+   - If proxy/upgrade patterns are present, load \`cyfrin-best-practices-upgrades\` via \`argus_skill_load\` before final recommendations.
+
+- **Trail of Bits skills**:
+  - For pre-audit deep context modeling and attack-surface grounding: \`audit-context-building\`
+  - For bug family expansion: \`variant-analysis\`
+  - For invariant/fuzz strategy: \`property-based-testing\`
+  - For token integration risk: \`token-integration-analyzer\` (Trail of Bits building-secure-contracts plugin)
+
 ## KEY AUDIT PRINCIPLES
 
 Adopt these principles to think like a top-tier auditor.

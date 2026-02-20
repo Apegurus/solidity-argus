@@ -21,6 +21,12 @@ OpenCode Skills System
 
 ## Source Attribution
 
+All sources in the table below must include the following metadata in their SKILL.md frontmatter or index entry:
+- **Source name** — Human-readable identifier (e.g., "Cyfrin", "Trail of Bits")
+- **URL** — Canonical link to the source repository or API endpoint
+- **License identifier** — SPDX license code (e.g., "MIT", "Apache-2.0", "CC0")
+- **Last-verified date** — ISO 8601 timestamp of when the source was last checked for updates
+
 | Source | License | URL | What Was Imported |
 |--------|---------|-----|-------------------|
 | DeFiFoFum/fofum-solidity-skills | MIT | https://github.com/DeFiFoFum/fofum-solidity-skills | 15 SKILL.md files: methodology, vulnerability patterns, protocol patterns |
@@ -38,6 +44,15 @@ Contributors can add custom skills using this format:
 ---
 name: topic-name          # Must match parent directory name
 description: One sentence description (1-1024 chars)
+version: 1.0.0            # Optional semver
+category: vulnerability-pattern # methodology, protocol-pattern, checklist, reference
+source_url: "https://github.com/org/repo"
+source_license: "MIT"
+imported_at: "2024-01-01T00:00:00Z"
+detection_rules:
+  - regex: "pattern here"
+    severity: "High"
+    description: "What this detects"
 ---
 <!-- Source: Author/repo (License) -->
 
@@ -49,7 +64,54 @@ description: One sentence description (1-1024 chars)
 
 ## Custom Skills
 
-To add your own skills, use the `knowledge.customSkillsDir` configuration option in your `opencode-argus.jsonc` file. Point this to a directory containing your custom `SKILL.md` files organized into subdirectories.
+To add your own skills, use the `knowledge.customSkillsDir` configuration option in your `solidity-argus.jsonc` file. Point this to a directory containing your custom `SKILL.md` files organized into subdirectories.
+
+### Skill Overrides
+
+By default, built-in skills take priority. You can change this behavior using the `skillPrecedence` option:
+
+```jsonc
+"knowledge": {
+  "skillPrecedence": "custom-first"
+}
+```
+
+When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields.
+
+## Pattern Pack Authoring
+
+Pattern packs are YAML files that define collections of regex-based vulnerability detectors.
+
+### Structure
+
+```yaml
+pack_name: "My Security Pack"
+pack_version: "1.1"
+patterns:
+  - name: "Unprotected Selfdestruct"
+    category: "access-control"
+    severity: "Critical"
+    regex: "selfdestruct\\("
+    description: "Detects use of selfdestruct which may be unprotected"
+    swc: "SWC-106"
+```
+
+### Available Categories
+
+- `reentrancy`
+- `oracle-manipulation`
+- `flash-loan`
+- `access-control`
+- `erc4626`
+- `proxy`
+- `signature`
+- `dos`
+- `front-running`
+- `governance`
+- `token-standard`
+- `gas-optimization`
+- `logic-error`
+- `delegatecall`
 
 ## Inventory
 

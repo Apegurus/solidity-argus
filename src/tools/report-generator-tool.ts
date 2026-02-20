@@ -1,5 +1,5 @@
 import { tool, type ToolContext } from "@opencode-ai/plugin";
-import type { AuditState, Finding, FindingSeverity } from "../state/types";
+import type { AuditState, Finding, FindingSeverity, ToolExecution } from "../state/types";
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational";
 
@@ -67,7 +67,20 @@ function emptyCounts(): FindingsCount {
   };
 }
 
-function parseAuditState(auditState: string): Finding[] {
+function emptyAuditState(findings: Finding[] = []): AuditState {
+  return {
+    sessionId: "",
+    projectDir: "",
+    contractsReviewed: [],
+    findings,
+    toolsExecuted: [],
+    currentPhase: "complete",
+    scope: [],
+    startTime: 0,
+  };
+}
+
+export function parseAuditState(auditState: string): AuditState {
   let parsed: unknown;
   try {
     parsed = JSON.parse(auditState);
@@ -76,14 +89,18 @@ function parseAuditState(auditState: string): Finding[] {
   }
 
   if (Array.isArray(parsed)) {
-    return parsed as Finding[];
+    return emptyAuditState(parsed as Finding[]);
   }
 
   if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as AuditState).findings)) {
-    return (parsed as AuditState).findings;
+    const state = parsed as AuditState;
+    return {
+      ...emptyAuditState(),
+      ...state,
+    };
   }
 
-  return [];
+  return emptyAuditState();
 }
 
 function normalizeTitle(check: string): string {
@@ -215,13 +232,123 @@ function buildFindingsSection(findings: Finding[]): string {
   return lines.join("\n");
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+export function buildProvenanceAppendix(
+  state: AuditState,
+  threshold: SeverityThreshold,
+  includedCount: number,
+): string {
+  const lines: string[] = ["## Appendix: Data Provenance"];
+
+  lines.push("- Data source: `audit_state` payload");
+  lines.push(`- Severity threshold applied: ${threshold}`);
+  lines.push(`- Findings included in report: ${includedCount}`);
+
+  if (state.findings.length > 0) {
+    const sourceCounts: Record<string, number> = {};
+    for (const f of state.findings) {
+      sourceCounts[f.source] = (sourceCounts[f.source] ?? 0) + 1;
+    }
+    lines.push("");
+    lines.push("### Source Breakdown");
+    lines.push("");
+    lines.push("| Source | Count |");
+    lines.push("| --- | ---: |");
+    for (const [source, count] of Object.entries(sourceCounts).sort(
+      (a, b) => b[1] - a[1],
+    )) {
+      lines.push(`| ${source} | ${count} |`);
+    }
+  }
+
+  if (state.toolsExecuted.length > 0) {
+    lines.push("");
+    lines.push("### Tool Execution Summary");
+    lines.push("");
+    lines.push("| Tool | Duration | Status | Findings |");
+    lines.push("| --- | --- | --- | ---: |");
+    for (const exec of state.toolsExecuted) {
+      const duration =
+        exec.endTime != null
+          ? formatDuration(exec.endTime - exec.startTime)
+          : "—";
+      const status = exec.success ? "✅ success" : "❌ failure";
+      lines.push(
+        `| ${exec.tool} | ${duration} | ${status} | ${exec.findingsCount} |`,
+      );
+    }
+  }
+
+  const syncExec = state.toolsExecuted.find((t) => t.tool === "argus_sync_knowledge");
+  if (state.patternVersion || syncExec) {
+    lines.push("");
+    lines.push("### Data Freshness");
+    lines.push("");
+    if (state.patternVersion) {
+      lines.push(`- Pattern pack version: \`${state.patternVersion}\``);
+    }
+    if (syncExec) {
+      lines.push(`- SCVD last synced: ${new Date(syncExec.startTime).toISOString()}`);
+    }
+  }
+
+  if (state.soloditResults && state.soloditResults.length > 0) {
+    lines.push("");
+    lines.push("### Solodit Cross-References");
+    lines.push("");
+    for (const result of state.soloditResults) {
+      lines.push(`**Query**: "${result.query}" — ${result.resultCount} results`);
+      if (result.topResults.length > 0) {
+        lines.push("");
+        lines.push("| Title | Severity | Protocol |");
+        lines.push("| --- | --- | --- |");
+        for (const top of result.topResults) {
+          lines.push(`| ${top.title} | ${top.severity} | ${top.protocol} |`);
+        }
+      }
+      lines.push("");
+    }
+  }
+
+  if (state.fuzzCounterexamples && state.fuzzCounterexamples.length > 0) {
+    lines.push("");
+    lines.push("### Fuzz Evidence");
+    lines.push("");
+    lines.push("| Test | Inputs | Runs | Revert Reason |");
+    lines.push("| --- | --- | ---: | --- |");
+    for (const cx of state.fuzzCounterexamples) {
+      const inputs = cx.inputs.join(", ");
+      const reason = cx.revertReason ?? "—";
+      lines.push(`| ${cx.testName} | ${inputs} | ${cx.runs} | ${reason} |`);
+    }
+  }
+
+  if (state.skillsLoaded && state.skillsLoaded.length > 0) {
+    lines.push("");
+    lines.push("### Knowledge Sources");
+    lines.push("");
+    lines.push("Skills loaded during this audit:");
+    lines.push("");
+    for (const skill of state.skillsLoaded) {
+      lines.push(`- ${skill}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export async function executeReportGeneration(
   args: ReportGeneratorArgs,
   context: ToolContext
 ): Promise<ReportGenerationResult> {
   const includeExecutiveSummary = args.include_executive_summary ?? true;
   const threshold = args.severity_threshold ?? "low";
-  const findings = parseAuditState(args.audit_state).filter((finding) =>
+  const state = parseAuditState(args.audit_state);
+  const findings = state.findings.filter((finding) =>
     shouldIncludeFinding(finding, threshold)
   );
   const counts = calculateCounts(findings);
@@ -276,11 +403,7 @@ export async function executeReportGeneration(
     sections.push(`- ${item}`);
   }
 
-  sections.push("## Appendix");
-  sections.push("Tool execution summary:");
-  sections.push("- Data source: `audit_state` payload");
-  sections.push(`- Severity threshold applied: ${threshold}`);
-  sections.push(`- Findings included in report: ${findings.length}`);
+  sections.push(buildProvenanceAppendix(state, threshold, findings.length));
 
   return {
     report: sections.join("\n\n"),

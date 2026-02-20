@@ -1,0 +1,16 @@
+{
+  "name": "cyfrin",
+  "mode": "baked-in",
+  "url": "https://github.com/Cyfrin/audit-checklist",
+  "license": "unspecified",
+  "updateCadence": "per-release",
+  "lastVerified": "2026-02-19",
+  "files": [
+    "checklists/cyfrin-best-practices-runtime/SKILL.md",
+    "checklists/cyfrin-best-practices-upgrades/SKILL.md",
+    "checklists/cyfrin-defi-core/SKILL.md",
+    "checklists/cyfrin-defi-integrations/SKILL.md",
+    "checklists/cyfrin-gas/SKILL.md",
+    "checklists/general-audit/SKILL.md"
+  ]
+}

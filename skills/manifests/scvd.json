@@ -1,0 +1,9 @@
+{
+  "name": "scvd",
+  "mode": "hybrid",
+  "url": "https://api.scvd.dev",
+  "license": "CC0",
+  "updateCadence": "on-sync",
+  "lastVerified": "2026-02-19",
+  "files": []
+}

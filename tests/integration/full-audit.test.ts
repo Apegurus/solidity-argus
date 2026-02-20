@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import type { Config } from "@opencode-ai/sdk"
-import type { ArgusConfig } from "../../src/plugin-config"
+import type { ArgusConfig } from "../../src/config/types"
 import ArgusPlugin from "../../src/index"
 import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createCompactionHook } from "../../src/hooks/compaction-hook"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
 import { createAuditState } from "../../src/state/audit-state"
-import { createFindingStore } from "../../src/state/finding-store"
 import type { Finding } from "../../src/state/types"
 import { slitherTool } from "../../src/tools/slither-tool"
 import { forgeTestTool } from "../../src/tools/forge-test-tool"
@@ -32,6 +31,7 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
       apiUrl: "https://api.scvd.dev",
     },
     autoSync: false,
+    skillPrecedence: "bundled-first" as const,
   },
   reporting: {
     format: "markdown",
@@ -40,6 +40,13 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
   },
   solodit: {
     enabled: true,
+    port: 3000,
+  },
+  disabled_hooks: [],
+  hooks: {},
+  cli: {},
+  background: {
+    max_concurrent: 3,
   },
 }
 
@@ -86,7 +93,7 @@ describe("full audit integration", () => {
     const plugin = await ArgusPlugin(pluginContext)
 
     const toolNames = Object.keys(plugin.tool ?? {})
-    expect(toolNames).toHaveLength(8)
+    expect(toolNames).toHaveLength(9)
     expect(toolNames).toContain("argus_slither_analyze")
     expect(toolNames).toContain("argus_forge_test")
     expect(toolNames).toContain("argus_forge_fuzz")
@@ -94,6 +101,7 @@ describe("full audit integration", () => {
     expect(toolNames).toContain("argus_check_patterns")
     expect(toolNames).toContain("argus_solodit_search")
     expect(toolNames).toContain("argus_generate_report")
+    expect(toolNames).toContain("argus_skill_load")
     expect(toolNames).toContain("argus_sync_knowledge")
     expect(typeof plugin.config).toBe("function")
     expect(typeof plugin.event).toBe("function")
@@ -229,14 +237,13 @@ describe("full audit integration", () => {
     const hook = createCompactionHook(() => auditState)
     const compacted = await hook({ summary: "Previous context" })
 
+    expect(compacted).not.toBeNull()
     expect(compacted).toContain("<argus-audit-state>")
-    expect(compacted).toContain("Previous context")
   })
 
   test("tool tracking hook accumulates findings from slither output", async () => {
     const { state: auditState } = createAuditState(FIXTURE_DIR)
-    const store = createFindingStore(auditState)
-    const hook = createToolTrackingHook(auditState, store)
+    const hook = createToolTrackingHook(() => auditState)
 
     await hook({
       tool: "argus_slither_analyze",

@@ -1,0 +1,11 @@
+{
+  "name": "smartbugs",
+  "mode": "baked-in",
+  "url": "https://github.com/smartbugs/smartbugs-curated",
+  "license": "Apache-2.0",
+  "updateCadence": "per-release",
+  "lastVerified": "2026-02-19",
+  "files": [
+    "references/smartbugs-examples/SKILL.md"
+  ]
+}

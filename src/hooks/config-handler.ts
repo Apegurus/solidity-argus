@@ -1,34 +1,72 @@
 import { resolve, join } from "node:path"
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
-import { execSync } from "node:child_process"
 import type { Config } from "@opencode-ai/sdk/v2"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS } from "../constants/defaults"
+import { createLogger } from "../shared/logger"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
 import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
 import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
 import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
-const TOB_CACHE_DIR = join(homedir(), ".cache", "opencode-argus", "trailofbits-skills")
+const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
+const TOB_BRANCH = "main"
+let tobCloneInFlight = false
 
-function ensureTrailOfBitsSkills(): string | undefined {
-  if (existsSync(TOB_CACHE_DIR)) return TOB_CACHE_DIR
-  try {
-    execSync(`git clone --depth 1 ${TOB_REPO_URL} "${TOB_CACHE_DIR}"`, {
-      stdio: "ignore",
-      timeout: 30_000,
-    })
-    return TOB_CACHE_DIR
-  } catch (_e) {
-    return undefined
+function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
+  const pluginsDir = join(rootDir, "plugins")
+  if (!existsSync(pluginsDir)) return []
+
+  const pluginEntries = readdirSync(pluginsDir, { withFileTypes: true })
+  const skillDirs: string[] = []
+
+  for (const entry of pluginEntries) {
+    if (!entry.isDirectory()) continue
+    const pluginSkillsDir = join(pluginsDir, entry.name, "skills")
+    if (existsSync(pluginSkillsDir)) {
+      skillDirs.push(pluginSkillsDir)
+    }
   }
+
+  return skillDirs
+}
+
+function ensureTrailOfBitsSkills(): string[] {
+  if (existsSync(TOB_CACHE_DIR)) {
+    return getTrailOfBitsSkillsPaths(TOB_CACHE_DIR)
+  }
+
+  if (!tobCloneInFlight) {
+    tobCloneInFlight = true
+    const cloneProcess = Bun.spawn(
+      ["git", "clone", "--depth", "1", "--branch", TOB_BRANCH, TOB_REPO_URL, TOB_CACHE_DIR],
+      {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    )
+    cloneProcess.exited
+      .then((code) => {
+        if (code !== 0) {
+          const logger = createLogger()
+          logger.warn(`Trail of Bits skills clone failed with exit code ${code}`)
+        }
+      })
+      .finally(() => {
+        tobCloneInFlight = false
+      })
+  }
+
+    return []
 }
 
 export function createConfigHandler(
-  argusConfig: ArgusConfig
+  argusConfig: ArgusConfig,
+  projectDir: string = process.cwd()
 ): (config: Config) => Promise<void> {
   const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
 
@@ -50,6 +88,7 @@ export function createConfigHandler(
             pythia: "allow",
             scribe: "allow",
           },
+          skill: "allow",
         },
       },
       sentinel: {
@@ -57,42 +96,48 @@ export function createConfigHandler(
         model: argusConfig.agents?.sentinel?.model ?? DEFAULT_MODELS.sentinel,
         description: "Static analysis and testing specialist",
         prompt: SENTINEL_PROMPT,
-        tools: {
-          argus_slither_analyze: true,
-          argus_forge_test: true,
-          argus_forge_fuzz: true,
-          argus_analyze_contract: true,
-          argus_check_patterns: true,
-        } satisfies Record<string, boolean>,
+        permission: {
+          argus_slither_analyze: "allow",
+          argus_forge_test: "allow",
+          argus_forge_fuzz: "allow",
+          argus_analyze_contract: "allow",
+          argus_check_patterns: "allow",
+          argus_skill_load: "allow",
+          skill: "allow",
+        },
       },
       pythia: {
         mode: "subagent",
         model: argusConfig.agents?.pythia?.model ?? DEFAULT_MODELS.pythia,
         description: "Vulnerability researcher",
         prompt: PYTHIA_PROMPT,
-        tools: {
-          argus_solodit_search: true,
-          argus_check_patterns: true,
-        } satisfies Record<string, boolean>,
+        permission: {
+          argus_solodit_search: "allow",
+          argus_check_patterns: "allow",
+          argus_skill_load: "allow",
+          skill: "allow",
+        },
       },
       scribe: {
         mode: "subagent",
         model: argusConfig.agents?.scribe?.model ?? DEFAULT_MODELS.scribe,
         description: "Audit report writer",
         prompt: SCRIBE_PROMPT,
-        tools: {
-          argus_generate_report: true,
-        } satisfies Record<string, boolean>,
+        permission: {
+          argus_generate_report: "allow",
+          argus_skill_load: "allow",
+          skill: "allow",
+        },
       },
     }
 
-    // Register Solodit MCP server (HTTP-based, runs on localhost:3000/mcp)
     if (argusConfig.solodit?.enabled !== false) {
+      const port = argusConfig.solodit?.port ?? 3000
       config.mcp = {
         ...(config.mcp ?? {}),
         "solodit-mcp": {
           type: "remote",
-          url: "http://localhost:3000/mcp",
+          url: `http://localhost:${port}/mcp`,
           enabled: true,
         },
       }
@@ -101,8 +146,18 @@ export function createConfigHandler(
     const skillsPaths = [...(config.skills?.paths ?? [])]
     skillsPaths.push(resolve(import.meta.dir, "../../skills"))
 
-    const tobDir = ensureTrailOfBitsSkills()
-    if (tobDir) skillsPaths.push(tobDir)
+    const customSkillsDir = argusConfig.knowledge?.customSkillsDir
+    if (customSkillsDir) {
+      const resolvedCustomSkillsDir = customSkillsDir.startsWith("/")
+        ? customSkillsDir
+        : resolve(projectDir, customSkillsDir)
+      if (existsSync(resolvedCustomSkillsDir)) {
+        skillsPaths.push(resolvedCustomSkillsDir)
+      }
+    }
+
+    const tobSkillDirs = ensureTrailOfBitsSkills()
+    if (tobSkillDirs.length > 0) skillsPaths.push(...tobSkillDirs)
 
     config.skills = {
       ...(config.skills ?? {}),

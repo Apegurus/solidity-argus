@@ -1,9 +1,11 @@
 import { test, expect } from "bun:test";
 import type { ToolContext } from "@opencode-ai/plugin";
-import type { Finding } from "../state/types";
+import type { AuditState, Finding, ToolExecution, SoloditResult, FuzzCounterexample } from "../state/types";
 import {
   reportGeneratorTool,
   executeReportGeneration,
+  parseAuditState,
+  buildProvenanceAppendix,
   type ReportGenerationResult,
 } from "./report-generator-tool";
 
@@ -201,4 +203,242 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
   expect(typeof parsed.report).toBe("string");
   expect(parsed.report).toContain("# Security Audit Report — ToolExecuteProject");
   expect(parsed.findingsCount.high).toBe(1);
+});
+
+function makeAuditState(overrides: Partial<AuditState> = {}): AuditState {
+  return {
+    sessionId: "test-session",
+    projectDir: "/tmp/project",
+    contractsReviewed: [],
+    findings: overrides.findings ?? [],
+    toolsExecuted: overrides.toolsExecuted ?? [],
+    currentPhase: "complete",
+    scope: [],
+    startTime: 0,
+    soloditResults: overrides.soloditResults,
+    fuzzCounterexamples: overrides.fuzzCounterexamples,
+    patternVersion: overrides.patternVersion,
+    skillsLoaded: overrides.skillsLoaded,
+  };
+}
+
+test("report includes provenance appendix section", async () => {
+  const state = makeAuditState({
+    findings: [makeFinding({ source: "slither" })],
+  });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "ProvenanceTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("## Appendix: Data Provenance");
+  expect(result.report).toContain("Severity threshold applied:");
+  expect(result.report).toContain("Findings included in report:");
+});
+
+test("provenance appendix shows source breakdown by finding source", async () => {
+  const state = makeAuditState({
+    findings: [
+      makeFinding({ id: "f1", source: "slither" }),
+      makeFinding({ id: "f2", source: "slither" }),
+      makeFinding({ id: "f3", source: "pattern" }),
+      makeFinding({ id: "f4", source: "manual" }),
+    ],
+  });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "SourceBreakdown",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("### Source Breakdown");
+  expect(result.report).toContain("| slither | 2 |");
+  expect(result.report).toContain("| pattern | 1 |");
+  expect(result.report).toContain("| manual | 1 |");
+});
+
+test("provenance appendix shows tool execution summary", async () => {
+  const toolsExecuted: ToolExecution[] = [
+    { tool: "slither_analyze", startTime: 1000, endTime: 4500, success: true, findingsCount: 3 },
+    { tool: "forge_test", startTime: 5000, endTime: 8200, success: false, findingsCount: 0 },
+  ];
+
+  const state = makeAuditState({
+    findings: [makeFinding({})],
+    toolsExecuted,
+  });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "ToolExecTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("### Tool Execution Summary");
+  expect(result.report).toContain("| slither_analyze |");
+  expect(result.report).toContain("3.5s");
+  expect(result.report).toContain("✅ success");
+  expect(result.report).toContain("| forge_test |");
+  expect(result.report).toContain("❌ failure");
+});
+
+test("provenance appendix shows solodit cross-references when available", async () => {
+  const soloditResults: SoloditResult[] = [
+    { query: "reentrancy vault", timestamp: Date.now(), resultCount: 12, topResults: [] },
+    { query: "flash loan attack", timestamp: Date.now(), resultCount: 5, topResults: [] },
+  ];
+
+  const state = makeAuditState({ soloditResults });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "SoloditTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("### Solodit Cross-References");
+  expect(result.report).toContain("\"reentrancy vault\" — 12 results");
+  expect(result.report).toContain("\"flash loan attack\" — 5 results");
+});
+
+test("provenance appendix shows fuzz evidence when counterexamples exist", async () => {
+  const fuzzCounterexamples: FuzzCounterexample[] = [
+    {
+      testName: "testFuzz_withdraw",
+      inputs: ["uint256: 999999"],
+      revertReason: "Arithmetic overflow",
+      runs: 256,
+      seed: 42,
+      timestamp: Date.now(),
+    },
+    {
+      testName: "testFuzz_deposit",
+      inputs: ["uint256: 0", "address: 0x0"],
+      runs: 512,
+      timestamp: Date.now(),
+    },
+  ];
+
+  const state = makeAuditState({ fuzzCounterexamples });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "FuzzTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("### Fuzz Evidence");
+  expect(result.report).toContain("| testFuzz_withdraw |");
+  expect(result.report).toContain("Arithmetic overflow");
+  expect(result.report).toContain("| testFuzz_deposit |");
+  expect(result.report).toContain("uint256: 0, address: 0x0");
+});
+
+test("provenance appendix omits sections when no data available", async () => {
+  const state = makeAuditState();
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "EmptyProvenance",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("## Appendix: Data Provenance");
+  expect(result.report).not.toContain("### Source Breakdown");
+  expect(result.report).not.toContain("### Tool Execution Summary");
+  expect(result.report).not.toContain("### Data Freshness");
+  expect(result.report).not.toContain("### Solodit Cross-References");
+  expect(result.report).not.toContain("### Fuzz Evidence");
+  expect(result.report).not.toContain("### Knowledge Sources");
+});
+
+test("parseAuditState handles raw Finding[] array with backward compatibility", () => {
+  const findings = [makeFinding({ id: "bc-1" })];
+  const state = parseAuditState(JSON.stringify(findings));
+  expect(state.findings).toHaveLength(1);
+  expect(state.findings[0]?.id).toBe("bc-1");
+  expect(state.toolsExecuted).toEqual([]);
+});
+
+test("parseAuditState returns full AuditState when given complete object", () => {
+  const full = makeAuditState({
+    findings: [makeFinding({})],
+    toolsExecuted: [{ tool: "slither", startTime: 0, endTime: 100, success: true, findingsCount: 1 }],
+    patternVersion: "1.2.3",
+  });
+  const state = parseAuditState(JSON.stringify(full));
+  expect(state.toolsExecuted).toHaveLength(1);
+  expect(state.patternVersion).toBe("1.2.3");
+});
+
+test("provenance appendix shows data freshness with pattern version", async () => {
+  const state = makeAuditState({ patternVersion: "2.5.0" });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "FreshnessTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("### Data Freshness");
+  expect(result.report).toContain("Pattern pack version: `2.5.0`");
+});
+
+test("provenance appendix shows knowledge sources when skills loaded", async () => {
+  const state = makeAuditState({
+    skillsLoaded: ["reentrancy", "flash-loan-attacks", "oracle-manipulation"],
+  });
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "SkillsTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).toContain("### Knowledge Sources");
+  expect(result.report).toContain("- reentrancy");
+  expect(result.report).toContain("- flash-loan-attacks");
+  expect(result.report).toContain("- oracle-manipulation");
+});
+
+test("provenance appendix omits knowledge sources when none loaded", async () => {
+  const state = makeAuditState();
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "NoSkillsTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  );
+
+  expect(result.report).not.toContain("### Knowledge Sources");
 });

@@ -1,0 +1,9 @@
+{
+  "name": "trailofbits",
+  "mode": "hybrid",
+  "url": "https://github.com/trailofbits/solidity-security-research",
+  "license": "varies",
+  "updateCadence": "on-install",
+  "lastVerified": "2026-02-19",
+  "files": []
+}

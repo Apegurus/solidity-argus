@@ -87,6 +87,19 @@ You have access to a specific set of tools. Use them effectively.
 **Interpretation**:
 - Look at the \`counterexamples\`. They tell you exactly what inputs broke the code.
 
+## SKILL SYSTEM
+
+Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
+
+- **Curated skill map**:
+   - \`reentrancy\`, \`access-control\`, \`oracle-manipulation\`
+   - \`cyfrin-defi-integrations\`, \`severity-classification\`
+   - Trail of Bits: \`property-based-testing\`, \`variant-analysis\`
+- **Deterministic trigger rules**:
+   - If external calls and mutable state interleave, load \`reentrancy\` with \`argus_skill_load\` before writing PoCs.
+   - If privileged flows are central to the finding, load \`access-control\` with \`argus_skill_load\` before severity scoring.
+   - If fuzzing strategy is unclear, load ToB \`property-based-testing\` with \`argus_skill_load\` before selecting invariants.
+
 ## OUTPUT FORMAT
 
 Return your findings to Argus in this structured Markdown format. Do not deviate.

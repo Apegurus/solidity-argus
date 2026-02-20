@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
 import { join, resolve } from "path";
+import { scanDependencyRisks, type DependencyRisk } from "./dependency-scanner";
 
 export interface ProjectConfig {
   type: "foundry" | "hardhat" | "mixed" | "unknown";
@@ -7,7 +8,18 @@ export interface ProjectConfig {
   testDir: string;
   solcVersion?: string;
   remappings: string[];
+  viaIr: boolean;
   rootDir: string;
+  optimizer?: { enabled: boolean; runs?: number };
+  evmVersion?: string;
+  profiles?: string[];
+  hasHardhat: boolean;
+  hasFoundry: boolean;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  isUpgradeable: boolean;
+  outDir?: string;
+  dependencyRisks: DependencyRisk[];
 }
 
 /**
@@ -38,25 +50,41 @@ export async function detectProject(dir: string): Promise<ProjectConfig> {
     type = "unknown";
   }
 
-  // Default values
   let srcDir = "src";
   let testDir = "test";
   let solcVersion: string | undefined;
   let remappings: string[] = [];
+  let viaIr = false;
+  let optimizer: { enabled: boolean; runs?: number } | undefined;
+  let evmVersion: string | undefined;
+  let profiles: string[] | undefined;
+  let outDir: string | undefined;
 
-  // Parse Foundry config if present
   if (hasFoundry) {
     const foundryConfig = await parseFoundryToml(foundryTomlPath);
     srcDir = foundryConfig.srcDir || srcDir;
     testDir = foundryConfig.testDir || testDir;
     solcVersion = foundryConfig.solcVersion;
     remappings = foundryConfig.remappings;
+    viaIr = foundryConfig.viaIr;
+    optimizer = foundryConfig.optimizer;
+    evmVersion = foundryConfig.evmVersion;
+    profiles = foundryConfig.profiles;
+    outDir = foundryConfig.outDir;
   }
 
-  // Set Hardhat defaults if it's a Hardhat project
+  const remappingsFromTxt = parseRemappingsTxt(rootDir);
+  if (remappingsFromTxt.length > 0 && remappings.length === 0) {
+    remappings = remappingsFromTxt;
+  }
+
   if (hasHardhat && !hasFoundry) {
     srcDir = "contracts";
   }
+
+  const isUpgradeable = existsSync(join(rootDir, ".openzeppelin"));
+
+  const { dependencies, devDependencies } = await parsePackageJson(rootDir);
 
   return {
     type,
@@ -64,31 +92,55 @@ export async function detectProject(dir: string): Promise<ProjectConfig> {
     testDir,
     solcVersion,
     remappings,
+    viaIr,
     rootDir,
+    optimizer,
+    evmVersion,
+    profiles,
+    hasHardhat,
+    hasFoundry,
+    dependencies,
+    devDependencies,
+    isUpgradeable,
+    outDir,
+    dependencyRisks: scanDependencyRisks({ dependencies, devDependencies }),
   };
 }
 
 /**
  * Parses foundry.toml file using regex-based parsing
  */
-async function parseFoundryToml(
-  filePath: string
-): Promise<{
+interface FoundryTomlResult {
   srcDir?: string;
   testDir?: string;
   solcVersion?: string;
   remappings: string[];
-}> {
+  viaIr: boolean;
+  optimizer?: { enabled: boolean; runs?: number };
+  evmVersion?: string;
+  profiles?: string[];
+  outDir?: string;
+}
+
+async function parseFoundryToml(filePath: string): Promise<FoundryTomlResult> {
   const content = await Bun.file(filePath).text();
 
-  const result = {
-    srcDir: undefined as string | undefined,
-    testDir: undefined as string | undefined,
-    solcVersion: undefined as string | undefined,
-    remappings: [] as string[],
+  const result: FoundryTomlResult = {
+    srcDir: undefined,
+    testDir: undefined,
+    solcVersion: undefined,
+    remappings: [],
+    viaIr: false,
   };
 
-  // Extract [profile.default] section - stop at next section or EOF
+  const profileNames = Array.from(
+    content.matchAll(/\[profile\.(\w+)\]/g),
+    (m) => m[1]!
+  );
+  if (profileNames.length > 0) {
+    result.profiles = profileNames;
+  }
+
   const profileDefaultMatch = content.match(
     /\[profile\.default\]([\s\S]*?)(?:\n\[|$)/
   );
@@ -98,36 +150,98 @@ async function parseFoundryToml(
 
   const profileSection = profileDefaultMatch[1];
 
-  // Parse src = "..."
   const srcMatch = profileSection.match(/^\s*src\s*=\s*["']([^"']+)["']/m);
-  if (srcMatch && srcMatch[1]) {
+  if (srcMatch?.[1]) {
     result.srcDir = srcMatch[1];
   }
 
-  // Parse test = "..."
   const testMatch = profileSection.match(/^\s*test\s*=\s*["']([^"']+)["']/m);
-  if (testMatch && testMatch[1]) {
+  if (testMatch?.[1]) {
     result.testDir = testMatch[1];
   }
 
-  // Parse solc = "..."
   const solcMatch = profileSection.match(/^\s*solc\s*=\s*["']([^"']+)["']/m);
-  if (solcMatch && solcMatch[1]) {
+  if (solcMatch?.[1]) {
     result.solcVersion = solcMatch[1];
   }
 
-  // Parse remappings array - handles both single line and multiline
+  const viaIrMatch = profileSection.match(/^\s*via[_-]ir\s*=\s*(true|false)/m);
+  if (viaIrMatch?.[1] === "true") {
+    result.viaIr = true;
+  }
+
+  const optimizerMatch = profileSection.match(
+    /^\s*optimizer\s*=\s*(true|false)/m
+  );
+  if (optimizerMatch?.[1]) {
+    const enabled = optimizerMatch[1] === "true";
+    const runsMatch = profileSection.match(
+      /^\s*optimizer_runs\s*=\s*(\d+)/m
+    );
+    result.optimizer = {
+      enabled,
+      runs: runsMatch?.[1] ? parseInt(runsMatch[1], 10) : undefined,
+    };
+  }
+
+  const evmMatch = profileSection.match(
+    /^\s*evm_version\s*=\s*["']([^"']+)["']/m
+  );
+  if (evmMatch?.[1]) {
+    result.evmVersion = evmMatch[1];
+  }
+
+  const outMatch = profileSection.match(/^\s*out\s*=\s*["']([^"']+)["']/m);
+  if (outMatch?.[1]) {
+    result.outDir = outMatch[1];
+  }
+
   const remappingsMatch = profileSection.match(
     /remappings\s*=\s*\[([\s\S]*?)\]/
   );
-  if (remappingsMatch && remappingsMatch[1]) {
-    const remappingsContent = remappingsMatch[1];
-    // Extract quoted strings from the array
-    const remappingMatches = remappingsContent.match(/["']([^"']+)["']/g);
+  if (remappingsMatch?.[1]) {
+    const remappingMatches = remappingsMatch[1].match(/["']([^"']+)["']/g);
     if (remappingMatches) {
       result.remappings = remappingMatches.map((m) => m.slice(1, -1));
     }
   }
 
   return result;
+}
+
+async function parsePackageJson(
+  rootDir: string
+): Promise<{
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}> {
+  const pkgPath = join(rootDir, "package.json");
+  if (!existsSync(pkgPath)) {
+    return {};
+  }
+  try {
+    const content = JSON.parse(await Bun.file(pkgPath).text());
+    return {
+      dependencies: content.dependencies,
+      devDependencies: content.devDependencies,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function parseRemappingsTxt(rootDir: string): string[] {
+  const remappingsPath = join(rootDir, "remappings.txt");
+  if (!existsSync(remappingsPath)) {
+    return [];
+  }
+  try {
+    const content = require("fs").readFileSync(remappingsPath, "utf-8");
+    return content
+      .split("\n")
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0);
+  } catch {
+    return [];
+  }
 }

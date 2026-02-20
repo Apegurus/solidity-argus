@@ -9,9 +9,35 @@ export interface Finding {
   description: string;
   file: string; // relative file path
   lines: [number, number]; // [start, end]
-  source: "slither" | "manual" | "pattern" | "scvd";
+  source: "slither" | "manual" | "pattern" | "scvd" | "solodit" | "fuzz";
   remediation?: string;
   exploitReference?: string;
+  provenance?: {
+    timestamp: number;
+    toolVersion?: string;
+    phase?: AuditPhase;
+  };
+}
+
+export interface SoloditResult {
+  query: string;
+  timestamp: number;
+  resultCount: number;
+  topResults: Array<{
+    title: string;
+    severity: string;
+    url: string;
+    protocol: string;
+  }>;
+}
+
+export interface FuzzCounterexample {
+  testName: string;
+  inputs: string[];
+  revertReason?: string;
+  runs: number;
+  seed?: number;
+  timestamp: number;
 }
 
 export interface ContractProfile {
@@ -52,4 +78,15 @@ export interface AuditState {
   currentPhase: AuditPhase;
   scope: string[];
   startTime: number;
+  soloditResults?: SoloditResult[];
+  fuzzCounterexamples?: FuzzCounterexample[];
+  patternVersion?: string;
+  skillsLoaded?: string[];
+  unavailableTools?: string[];
+}
+
+export interface PersistentAuditState extends AuditState {
+  savedAt: number;
+  version: string;
+  filePath: string;
 }

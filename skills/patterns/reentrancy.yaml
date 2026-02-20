@@ -1,0 +1,30 @@
+pack_name: reentrancy
+pack_version: "1.0"
+patterns:
+  - name: reentrancy-eth-transfer
+    category: reentrancy
+    severity: High
+    swc: SWC-107
+    confidence: High
+    version: "1.0"
+    regex: '\.call\{value:'
+    description: ETH transfer via low-level call — classic reentrancy vector where external call is made before state updates
+    remediation: Apply checks-effects-interactions pattern; use ReentrancyGuard; update state before external calls
+
+  - name: reentrancy-erc20
+    category: reentrancy
+    severity: Medium
+    confidence: Medium
+    version: "1.0"
+    regex: '\.(transfer|transferFrom)\('
+    description: ERC-20 token transfer that may precede state changes — potential reentrancy via token callback hooks (ERC-777, ERC-1155)
+    remediation: Update state variables before token transfers; use ReentrancyGuard for functions with external token interactions
+
+  - name: cross-function-reentrancy
+    category: reentrancy
+    severity: High
+    confidence: Low
+    version: "1.0"
+    regex: '(external|public)\s.*\{[^}]*\.call'
+    description: Public or external function containing a low-level call — potential cross-function reentrancy if shared state is read by other functions
+    remediation: Use ReentrancyGuard on all functions sharing mutable state; apply checks-effects-interactions across the contract

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 import {
   executeSyncKnowledge,
   syncKnowledgeTool,
@@ -47,6 +47,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
         apiUrl: "https://api.scvd.dev",
       },
       autoSync: true,
+      skillPrecedence: "bundled-first" as const,
     },
     reporting: {
       format: "markdown",
@@ -55,7 +56,12 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
     },
     solodit: {
       enabled: true,
+      port: 3000,
     },
+    disabled_hooks: [],
+    hooks: {},
+    cli: {},
+    background: { max_concurrent: 3 },
   }
 }
 
@@ -78,6 +84,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
     syncAllFn: async (_client, indexPath) => {
       calls.push(`syncAll:${indexPath}`)
       return {
+        status: "success" as const,
         success: true,
         newFindings: 4,
         totalIndexed: 42,
@@ -87,6 +94,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
     syncIncrementalFn: async () => {
       calls.push("syncIncremental")
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -104,7 +112,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
   expect(calls.some((call) => call.startsWith("syncAll:"))).toBe(true)
   expect(calls.includes("syncIncremental")).toBe(false)
   expect(calls[0]).toContain("client:https://api.scvd.dev:true")
-  expect(calls[1]).toContain(".cache/opencode-argus/scvd-index.json")
+  expect(calls[1]).toContain(".cache/solidity-argus/scvd-index.json")
   expect(metadataCalls[0]?.title).toBe("Syncing SCVD knowledge index...")
 })
 
@@ -119,6 +127,7 @@ test("executeSyncKnowledge runs incremental sync by default", async () => {
     syncAllFn: async () => {
       syncAllCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -128,6 +137,7 @@ test("executeSyncKnowledge runs incremental sync by default", async () => {
     syncIncrementalFn: async () => {
       syncIncrementalCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 1,
         totalIndexed: 10,
@@ -155,6 +165,7 @@ test("executeSyncKnowledge returns disabled error when SCVD is off", async () =>
     syncAllFn: async () => {
       syncCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -164,6 +175,7 @@ test("executeSyncKnowledge returns disabled error when SCVD is off", async () =>
     syncIncrementalFn: async () => {
       syncCalled = true
       return {
+        status: "success" as const,
         success: true,
         newFindings: 0,
         totalIndexed: 0,
@@ -188,12 +200,14 @@ test("executeSyncKnowledge handles thrown errors with structured response", asyn
     },
     createClient: () => ({ kind: "client" }),
     syncAllFn: async () => ({
+      status: "success" as const,
       success: true,
       newFindings: 0,
       totalIndexed: 0,
       lastSync: "",
     }),
     syncIncrementalFn: async () => ({
+      status: "success" as const,
       success: true,
       newFindings: 0,
       totalIndexed: 0,

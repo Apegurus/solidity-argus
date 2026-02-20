@@ -1,5 +1,6 @@
-import type { AuditState, FindingSeverity } from "../state/types"
+import type { AuditState, FindingSeverity, FuzzCounterexample, SoloditResult } from "../state/types"
 import type { FindingStore } from "../state/finding-store"
+import { createFindingStore } from "../state/finding-store"
 
 type ToolHookInput = {
   tool: string
@@ -165,16 +166,96 @@ function processContractAnalyzerResult(
   }
 }
 
+function processFuzzResult(
+  parsed: Record<string, unknown>,
+  state: AuditState
+): void {
+  const counterexamples = parsed.counterexamples
+  if (!Array.isArray(counterexamples) || counterexamples.length === 0) return
+
+  const totalRuns =
+    typeof parsed.totalRuns === "number" ? parsed.totalRuns : 0
+
+  state.fuzzCounterexamples ??= []
+
+  for (const raw of counterexamples) {
+    const ce = toRecord(raw)
+    if (!ce) continue
+
+    const testName = ce.testName
+    if (typeof testName !== "string") continue
+
+    const rawInputs = ce.inputs
+    const inputs = Array.isArray(rawInputs)
+      ? rawInputs.map(String)
+      : (() => {
+          const rec = toRecord(rawInputs)
+          return rec ? Object.values(rec).map(String) : []
+        })()
+
+    const entry: FuzzCounterexample = {
+      testName,
+      inputs,
+      runs: totalRuns,
+      timestamp: Date.now(),
+    }
+
+    if (typeof ce.revertReason === "string") {
+      entry.revertReason = ce.revertReason
+    }
+
+    state.fuzzCounterexamples.push(entry)
+  }
+}
+
+function processSoloditResult(
+  parsed: Record<string, unknown>,
+  state: AuditState
+): void {
+  const query = typeof parsed.query === "string" ? parsed.query : ""
+  const results = Array.isArray(parsed.results) ? parsed.results : []
+  const totalFound =
+    typeof parsed.totalFound === "number" ? parsed.totalFound : results.length
+
+  const topResults: SoloditResult["topResults"] = results
+    .slice(0, 5)
+    .map((raw) => {
+      const r = toRecord(raw)
+      return {
+        title: typeof r?.title === "string" ? r.title : "",
+        severity: typeof r?.severity === "string" ? r.severity : "",
+        url: typeof r?.url === "string" ? r.url : "",
+        protocol: typeof r?.protocol === "string" ? r.protocol : "",
+      }
+    })
+
+  state.soloditResults ??= []
+  state.soloditResults.push({
+    query,
+    timestamp: Date.now(),
+    resultCount: totalFound,
+    topResults,
+  })
+}
+
+/**
+ * Records a tool execution in the audit state.
+ *
+ * Multiple entries per tool name are allowed — if the same tool runs multiple times
+ * (e.g., argus_slither_analyze on different targets), each execution is recorded
+ * with its own findingsCount.
+ *
+ * Timing limitation: startTime and endTime are both set to Date.now() because this
+ * hook fires in the tool.execute.after phase, after execution has already completed.
+ * We cannot capture the actual start time. This is a known limitation of the hook
+ * architecture. For accurate timing, the hook would need to fire in tool.execute.before
+ * and tool.execute.after phases separately.
+ */
 function recordToolExecution(
   state: AuditState,
   toolName: string,
   findingsCount: number
 ): void {
-  const alreadyRecorded = state.toolsExecuted.some(
-    (execution) => execution.tool === toolName
-  )
-  if (alreadyRecorded) return
-
   const now = Date.now()
   state.toolsExecuted.push({
     tool: toolName,
@@ -193,13 +274,32 @@ function recordToolExecution(
  * Findings are deduplicated via the FindingStore (by check+file+lines).
  */
 export function createToolTrackingHook(
-  auditState: AuditState,
-  store: FindingStore
+  getAuditState: () => AuditState | null
 ): (input: ToolHookInput) => Promise<void> {
+  const storesByState = new WeakMap<AuditState, FindingStore>()
+
+  function resolveStateAndStore(): { state: AuditState; store: FindingStore } | null {
+    const state = getAuditState()
+    if (!state) return null
+
+    let store = storesByState.get(state)
+    if (!store) {
+      store = createFindingStore(state)
+      storesByState.set(state, store)
+    }
+
+    return { state, store }
+  }
+
   return async (input: ToolHookInput): Promise<void> => {
     if (!input.tool.startsWith("argus_")) {
       return
     }
+
+    const resolved = resolveStateAndStore()
+    if (!resolved) return
+
+    const { state: auditState, store } = resolved
 
     let parsed: unknown
     try {
@@ -223,9 +323,13 @@ export function createToolTrackingHook(
       case "argus_analyze_contract":
         processContractAnalyzerResult(record, auditState)
         break
+      case "argus_solodit_search":
+        processSoloditResult(record, auditState)
+        break
       case "argus_forge_test":
+        break
       case "argus_forge_fuzz":
-        // No findings to extract — counterexamples are informational
+        processFuzzResult(record, auditState)
         break
     }
 

@@ -1,16 +1,18 @@
 import { createHash } from "crypto";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, dirname, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import type { Finding, FindingSeverity } from "../state/types";
+import { hasBinary as hasBinaryShared, parseSolcVersion as parseSolcVersionShared, extractContractNames as extractContractNamesShared } from "../shared/binary-utils";
 
 type SlitherArgs = {
   target: string;
   detectors?: string[];
   exclude?: string[];
   solc_version?: string;
+  via_ir?: boolean;
 };
 
 type SlitherDetector = {
@@ -42,7 +44,8 @@ export type SlitherRunResult = {
 
 export type RunSlitherCommand = (
   command: string[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  cwd: string
 ) => Promise<SlitherRunResult>;
 
 export type SlitherAnalyzeResult = {
@@ -134,6 +137,12 @@ const FALLBACK_TRIGGERS = [
   "crytic_compile",
   "empty AST",
   "Compilation failed",
+  "via_ir",
+  "via-ir",
+  "viaIR",
+  "YulException",
+  "StackTooDeep",
+  "Stack too deep",
 ];
 
 function shouldTryFlattenFallback(errors: string[], stderr: string): boolean {
@@ -141,67 +150,9 @@ function shouldTryFlattenFallback(errors: string[], stderr: string): boolean {
   return FALLBACK_TRIGGERS.some((trigger) => combined.includes(trigger));
 }
 
-function parseSolcVersion(target: string): string | undefined {
-  const foundryToml = join(target, "foundry.toml");
-  if (existsSync(foundryToml)) {
-    const content = readFileSync(foundryToml, "utf-8");
-    const match = content.match(/solc\s*=\s*["']([^"']+)["']/);
-    if (match?.[1]) return match[1];
-  }
-
-  const solFiles = [target];
-  if (existsSync(target) && target.endsWith(".sol")) {
-    solFiles.push(target);
-  } else {
-    const srcDir = join(target, "src");
-    if (existsSync(srcDir)) {
-      try {
-        const files = execSync(`find "${srcDir}" -name "*.sol" -maxdepth 3`, {
-          encoding: "utf-8",
-          timeout: 5_000,
-        })
-          .trim()
-          .split("\n")
-          .filter(Boolean);
-        solFiles.push(...files);
-      } catch (_findErr) {
-        // non-critical: src directory listing failed, fall through to pragma scan
-      }
-    }
-  }
-
-  for (const file of solFiles) {
-    if (!existsSync(file) || !file.endsWith(".sol")) continue;
-    try {
-      const content = readFileSync(file, "utf-8");
-      const pragma = content.match(/pragma\s+solidity\s+[\^~>=<]*\s*([\d.]+)/);
-      if (pragma?.[1]) return pragma[1];
-    } catch (_readErr) {
-      // non-critical: unreadable .sol file, try next
-    }
-  }
-  return undefined;
-}
-
-function extractContractNames(filePath: string): string[] {
-  if (!existsSync(filePath)) return [];
-  try {
-    const content = readFileSync(filePath, "utf-8");
-    const matches = content.matchAll(/\b(?:contract|library|interface)\s+(\w+)/g);
-    return Array.from(matches, (m) => m[1]).filter(Boolean) as string[];
-  } catch (_e) {
-    return [];
-  }
-}
-
-function hasBinary(name: string): boolean {
-  try {
-    execSync(`which ${name}`, { stdio: "ignore", timeout: 3_000 });
-    return true;
-  } catch (_e) {
-    return false;
-  }
-}
+const parseSolcVersion = parseSolcVersionShared
+const extractContractNames = extractContractNamesShared
+const hasBinary = hasBinaryShared
 
 function ensureSolc(version: string): boolean {
   if (hasBinary("solc")) return true;
@@ -217,8 +168,9 @@ function ensureSolc(version: string): boolean {
   }
 }
 
-export const runSlitherCommand: RunSlitherCommand = async (command, signal) => {
+export const runSlitherCommand: RunSlitherCommand = async (command, signal, cwd) => {
   const child = Bun.spawn(command, {
+    cwd,
     stdout: "pipe",
     stderr: "pipe",
     signal,
@@ -244,6 +196,7 @@ export type FlattenFallbackDeps = {
   parseSolcVersion: (target: string) => string | undefined;
   extractContractNames: (filePath: string) => string[];
   execSyncFn: typeof execSync;
+  cwd: string;
 };
 
 const defaultFlattenDeps: FlattenFallbackDeps = {
@@ -253,6 +206,7 @@ const defaultFlattenDeps: FlattenFallbackDeps = {
   parseSolcVersion,
   extractContractNames,
   execSyncFn: execSync,
+  cwd: process.cwd(),
 };
 
 export async function flattenFallback(
@@ -263,12 +217,26 @@ export async function flattenFallback(
   const startedAt = Date.now();
 
   if (!deps.hasBinary("forge")) {
-    return undefined;
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: ["forge binary not found — required for via_ir flatten fallback"],
+      error: "forge binary not found — required for via_ir flatten fallback",
+    };
   }
 
   const solcVersion = args.solc_version ?? deps.parseSolcVersion(args.target);
   if (!solcVersion) {
-    return undefined;
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: ["Could not determine solc version from foundry.toml or pragma — required for flatten fallback"],
+      error: "Could not determine solc version from foundry.toml or pragma — required for flatten fallback",
+    };
   }
 
   if (!deps.ensureSolc(solcVersion)) {
@@ -288,9 +256,10 @@ export async function flattenFallback(
     solFiles = [args.target];
   } else if (existsSync(srcDir)) {
     try {
-      solFiles = deps.execSyncFn(`find "${srcDir}" -name "*.sol" -maxdepth 3 -not -path "*/mocks/*" -not -path "*/test/*"`, {
+      solFiles = deps.execSyncFn(`find "${srcDir}" -maxdepth 3 -name "*.sol" -not -path "*/mocks/*" -not -path "*/test/*"`, {
         encoding: "utf-8",
         timeout: 5_000,
+        stdio: ["pipe", "pipe", "pipe"],
       })
         .trim()
         .split("\n")
@@ -318,7 +287,8 @@ export async function flattenFallback(
         const flattened = deps.execSyncFn(`forge flatten "${solFile}"`, {
           encoding: "utf-8",
           timeout: 30_000,
-          cwd: args.target.endsWith(".sol") ? undefined : args.target,
+          cwd: deps.cwd,
+          stdio: ["pipe", "pipe", "pipe"],
         });
         writeFileSync(flatFile, flattened);
       } catch (_e) {
@@ -336,7 +306,7 @@ export async function flattenFallback(
       ];
 
       try {
-        const runResult = await deps.runCommand(command, context.abort);
+        const runResult = await deps.runCommand(command, context.abort, deps.cwd);
 
         let payload: SlitherPayload;
         try {
@@ -408,14 +378,34 @@ function parseFindings(payload: SlitherPayload): Finding[] {
 export async function executeSlitherAnalyze(
   args: SlitherArgs,
   context: ToolContext,
-  runCommand: RunSlitherCommand = runSlitherCommand
+  runCommand: RunSlitherCommand = runSlitherCommand,
+  cwd?: string
 ): Promise<SlitherAnalyzeResult> {
+  const projectDir = cwd ?? context.directory ?? context.worktree ?? process.cwd();
   const startedAt = Date.now();
-  const command = buildCommand(args);
   context.metadata({ title: `Slither analysis: ${args.target}` });
 
+  if (args.via_ir) {
+    const fallbackResult = await flattenFallback(args, context, {
+      ...defaultFlattenDeps,
+      runCommand,
+      cwd: projectDir,
+    });
+    if (fallbackResult) return fallbackResult;
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: ["via_ir enabled — flatten fallback failed. Ensure forge and solc-select are installed."],
+      error: "Project uses via_ir which is incompatible with Slither direct analysis. Flatten fallback also failed.",
+    };
+  }
+
+  const command = buildCommand(args);
+
   try {
-    const runResult = await runCommand(command, context.abort);
+    const runResult = await runCommand(command, context.abort, projectDir);
     const errors: string[] = [];
 
     if (runResult.exitCode !== 0) {
@@ -434,6 +424,7 @@ export async function executeSlitherAnalyze(
         const fallbackResult = await flattenFallback(args, context, {
           ...defaultFlattenDeps,
           runCommand,
+          cwd: projectDir,
         });
         if (fallbackResult) return fallbackResult;
       }
@@ -458,6 +449,7 @@ export async function executeSlitherAnalyze(
       const fallbackResult = await flattenFallback(args, context, {
         ...defaultFlattenDeps,
         runCommand,
+        cwd: projectDir,
       });
       if (fallbackResult) return fallbackResult;
     }
@@ -506,6 +498,27 @@ export async function executeSlitherAnalyze(
   }
 }
 
+export function detectViaIr(target: string): boolean {
+  let dir = resolve(target.endsWith(".sol") ? dirname(target) : target);
+  const root = resolve("/");
+
+  while (true) {
+    const foundryTomlPath = join(dir, "foundry.toml");
+    if (existsSync(foundryTomlPath)) {
+      try {
+        const content = readFileSync(foundryTomlPath, "utf-8");
+        if (/^\s*via[_-]ir\s*=\s*true/m.test(content)) return true;
+      } catch {
+        // unreadable file — keep walking
+      }
+    }
+    if (dir === root) break;
+    dir = dirname(dir);
+  }
+
+  return false;
+}
+
 export const slitherTool = tool({
   description:
     "Run Slither static analysis and return normalized findings for Solidity targets.",
@@ -514,9 +527,18 @@ export const slitherTool = tool({
     detectors: tool.schema.array(tool.schema.string()).optional(),
     exclude: tool.schema.array(tool.schema.string()).optional(),
     solc_version: tool.schema.string().optional(),
+    via_ir: tool.schema.boolean().optional(),
   },
   async execute(args, context) {
-    const result = await executeSlitherAnalyze(args, context);
+    const projectDir = context.directory ?? context.worktree ?? process.cwd();
+    const resolvedTarget = isAbsolute(args.target) ? args.target : resolve(projectDir, args.target);
+    const viaIr = args.via_ir ?? detectViaIr(resolvedTarget);
+    const result = await executeSlitherAnalyze(
+      { ...args, target: resolvedTarget, via_ir: viaIr },
+      context,
+      runSlitherCommand,
+      projectDir,
+    );
     return JSON.stringify(result);
   },
 });

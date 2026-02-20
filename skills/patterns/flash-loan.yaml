@@ -1,0 +1,20 @@
+pack_name: flash-loan
+pack_version: "1.0"
+patterns:
+  - name: unchecked-flash-return
+    category: flash-loan
+    severity: High
+    confidence: Medium
+    version: "1.0"
+    regex: 'flashLoan|flashBorrow'
+    description: Flash loan invocation without verified return — borrowed funds may not be repaid if return value is not checked
+    remediation: Verify flash loan callback returns expected success value; check token balance after repayment; use established flash loan receiver interfaces
+
+  - name: balance-inflation
+    category: flash-loan
+    severity: Medium
+    confidence: Medium
+    version: "1.0"
+    regex: 'balanceOf\(address\(this\)\)'
+    description: Contract reads its own token balance — vulnerable to donation/inflation attacks where attacker sends tokens directly to manipulate balance-dependent logic
+    remediation: Track balances via internal accounting instead of balanceOf(address(this)); use shares-based accounting for vaults

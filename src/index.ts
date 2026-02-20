@@ -1,83 +1,87 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { spawn } from "node:child_process"
-import { loadArgusConfig } from "./plugin-config"
-import { createAuditState } from "./state/audit-state"
-import { createConfigHandler } from "./hooks/config-handler"
-import { createSystemPromptHook } from "./hooks/system-prompt-hook"
-import { createCompactionHook } from "./hooks/compaction-hook"
-import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
-import { createEventHook } from "./hooks/event-hook"
+import { loadArgusConfig } from "./config/loader"
+import { createHookGuard } from "./hooks/hook-system"
+import { createTools } from "./create-tools"
+import { createHooks } from "./create-hooks"
+import { createManagers } from "./create-managers"
+import { createPluginInterface } from "./plugin-interface"
+import { checkSoloditHealth } from "./utils/solodit-health"
+import { createLogger } from "./shared/logger"
+import type { Dispatcher } from "./features/background-agent/background-manager"
 
-import { slitherTool } from "./tools/slither-tool"
-import { forgeTestTool } from "./tools/forge-test-tool"
-import { forgeFuzzTool } from "./tools/forge-fuzz-tool"
-import { contractAnalyzerTool } from "./tools/contract-analyzer-tool"
-import { patternCheckerTool } from "./tools/pattern-checker-tool"
-import { soloditSearchTool } from "./tools/solodit-search-tool"
-import { reportGeneratorTool } from "./tools/report-generator-tool"
-import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
+let soloditChild: ReturnType<typeof Bun.spawn> | null = null
 
-function startSoloditMcp(): void {
-  const child = spawn("npx", ["-y", "@lyuboslavlyubenov/solodit-mcp"], {
-    stdio: "ignore",
-    detached: false,
+async function startSoloditMcp(port: number): Promise<void> {
+  const logger = createLogger()
+
+  const health = await checkSoloditHealth(port, true)
+  if (health.reachable) {
+    logger.debug(`Solodit MCP already running on port ${port} — skipping spawn`)
+    return
+  }
+
+  soloditChild = Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
+    env: { ...process.env, PORT: String(port) },
   })
-  child.unref()
-  child.on("error", () => {
-    /* non-critical: solodit MCP is optional; search still works via REST fallback */
+  soloditChild.unref()
+
+  const child = soloditChild
+  setTimeout(async () => {
+    const health = await checkSoloditHealth(port, true)
+    if (!health.reachable) {
+      logger.debug(`Solodit MCP not yet reachable on port ${port} — will retry on first use`)
+    } else {
+      logger.debug(`Solodit MCP healthy on port ${port}`)
+    }
+  }, 2000)
+
+  child.exited.then((code) => {
+    if (code !== 0 && code !== null) {
+      logger.warn(`Solodit MCP exited with code ${code}`)
+    }
+    if (soloditChild === child) {
+      soloditChild = null
+    }
   })
 }
 
 const ArgusPlugin: Plugin = async (ctx) => {
   const projectDir = ctx.directory ?? process.cwd()
-  const argusConfig = loadArgusConfig(projectDir)
+  const config = loadArgusConfig(projectDir)
 
-  if (argusConfig.solodit?.enabled !== false) {
-    startSoloditMcp()
+  if (config.solodit?.enabled !== false) {
+    // Fire-and-forget: startSoloditMcp is now async but we don't await
+    // to avoid blocking plugin initialization
+    startSoloditMcp(config.solodit?.port ?? 3000)
   }
 
-  const { state: auditState, store: findingStore } = createAuditState(projectDir)
-  const { hook: eventHook, getAuditState, setAuditState } = createEventHook(ctx.directory)
-  setAuditState(auditState)
+  const isHookEnabled = createHookGuard(config.disabled_hooks)
+  const taskCandidate = (ctx as Record<string, unknown>)["task"]
+  const backgroundDispatcher: Dispatcher | undefined =
+    typeof taskCandidate === "function"
+      ? async (agentName: string, prompt: string) => {
+          const result = await taskCandidate(agentName, prompt)
+          if (typeof result === "string") {
+            return result
+          }
+          if (typeof result === "object" && result !== null) {
+            const taskId = (result as Record<string, unknown>)["task_id"]
+            if (typeof taskId === "string") {
+              return taskId
+            }
+          }
+          return `task-${Date.now()}`
+        }
+      : undefined
 
-  const systemPromptHook = createSystemPromptHook(getAuditState)
-  const compactionHook = createCompactionHook(getAuditState)
-  const toolTrackingHook = createToolTrackingHook(auditState, findingStore)
+  const managers = createManagers({ projectDir, config, backgroundDispatcher })
+  const tools = createTools(config)
+  const hooks = createHooks({ config, managers, projectDir, isHookEnabled })
 
-  return {
-    tool: {
-      argus_slither_analyze: slitherTool,
-      argus_forge_test: forgeTestTool,
-      argus_forge_fuzz: forgeFuzzTool,
-      argus_analyze_contract: contractAnalyzerTool,
-      argus_check_patterns: patternCheckerTool,
-      argus_solodit_search: soloditSearchTool,
-      argus_generate_report: reportGeneratorTool,
-      argus_sync_knowledge: syncKnowledgeTool,
-    },
-    config: createConfigHandler(argusConfig),
-    "experimental.chat.system.transform": async (_input, output) => {
-      const currentSystem = output.system.join("\n\n")
-      const transformedSystem = await systemPromptHook({
-        system: currentSystem,
-        cwd: projectDir,
-      })
-      output.system = [transformedSystem]
-    },
-    "experimental.session.compacting": async (_input, output) => {
-      const currentSummary = output.context.join("\n")
-      const compactedSummary = await compactionHook({ summary: currentSummary })
-      output.context = [compactedSummary]
-    },
-    "tool.execute.after": async (input, output) => {
-      await toolTrackingHook({
-        tool: input.tool,
-        args: input.args,
-        result: output.output,
-      })
-    },
-    event: eventHook,
-  }
+  return createPluginInterface({ tools, hooks })
 }
 
 export default ArgusPlugin

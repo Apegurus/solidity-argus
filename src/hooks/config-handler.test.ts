@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { createConfigHandler } from "./config-handler"
 import { DEFAULT_MODELS } from "../constants/defaults"
-import type { ArgusConfig } from "../plugin-config"
+import type { ArgusConfig } from "../config/types"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
   return {
@@ -23,6 +26,7 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
         ...overrides?.knowledge?.scvd,
       },
       autoSync: true,
+      skillPrecedence: "bundled-first" as const,
       customSkillsDir: overrides?.knowledge?.customSkillsDir,
     },
     reporting: {
@@ -33,7 +37,15 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
     },
     solodit: {
       enabled: true,
+      port: 3000,
       ...overrides?.solodit,
+    },
+    disabled_hooks: overrides?.disabled_hooks ?? [],
+    hooks: overrides?.hooks ?? {},
+    cli: overrides?.cli ?? {},
+    background: {
+      max_concurrent: 3,
+      ...overrides?.background,
     },
   }
 }
@@ -61,6 +73,55 @@ describe("createConfigHandler", () => {
     expect(config.agent?.sentinel?.mode).toBe("subagent")
     expect(config.agent?.pythia?.mode).toBe("subagent")
     expect(config.agent?.scribe?.mode).toBe("subagent")
+  })
+
+  test("grants skill permission to all Argus agents", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.argus?.permission).toEqual({
+      task: {
+        sentinel: "allow",
+        pythia: "allow",
+        scribe: "allow",
+      },
+      skill: "allow",
+    })
+    expect(config.agent?.sentinel?.permission).toEqual({
+      argus_slither_analyze: "allow",
+      argus_forge_test: "allow",
+      argus_forge_fuzz: "allow",
+      argus_analyze_contract: "allow",
+      argus_check_patterns: "allow",
+      argus_skill_load: "allow",
+      skill: "allow",
+    })
+    expect(config.agent?.pythia?.permission).toEqual({
+      argus_solodit_search: "allow",
+      argus_check_patterns: "allow",
+      argus_skill_load: "allow",
+      skill: "allow",
+    })
+    expect(config.agent?.scribe?.permission).toEqual({
+      argus_generate_report: "allow",
+      argus_skill_load: "allow",
+      skill: "allow",
+    })
+  })
+
+  test("subagents do not use deprecated tools config", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.sentinel?.tools).toBeUndefined()
+    expect(config.agent?.pythia?.tools).toBeUndefined()
+    expect(config.agent?.scribe?.tools).toBeUndefined()
+    // argus still uses tools for wildcard denials
+    expect(config.agent?.argus?.tools).toBeDefined()
   })
 
   test("applies model override for argus", async () => {
@@ -136,6 +197,7 @@ describe("createConfigHandler", () => {
       createArgusConfig({
         solodit: {
           enabled: false,
+          port: 3000,
         },
       })
     )
@@ -187,5 +249,75 @@ describe("createConfigHandler", () => {
 
     expect(config.skills?.paths).toContain("/existing/skills")
     expect(config.skills?.paths?.length).toBeGreaterThan(1)
+  })
+
+  test("registers customSkillsDir when directory exists", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "argus-custom-skills-"))
+    const customDir = join(tempRoot, "my-skills")
+    mkdirSync(customDir, { recursive: true })
+
+    try {
+      const handler = createConfigHandler(
+         createArgusConfig({
+           knowledge: {
+             scvd: {
+               enabled: true,
+               apiUrl: "https://api.scvd.dev",
+             },
+             autoSync: true,
+             skillPrecedence: "bundled-first" as const,
+             customSkillsDir: customDir,
+           },
+         })
+      )
+      const config: Config = {}
+
+      await handler(config)
+
+      expect(config.skills?.paths).toContain(customDir)
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("skips customSkillsDir when directory does not exist", async () => {
+    const missingDir = join(tmpdir(), "argus-missing-skills", "does-not-exist")
+
+    const handler = createConfigHandler(
+      createArgusConfig({
+        knowledge: {
+          scvd: {
+            enabled: true,
+            apiUrl: "https://api.scvd.dev",
+          },
+          autoSync: true,
+          skillPrecedence: "bundled-first" as const,
+          customSkillsDir: missingDir,
+        },
+      })
+    )
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.skills?.paths).not.toContain(missingDir)
+  })
+
+  test("registers Trail of Bits plugin skill directories", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    const tobPaths =
+      config.skills?.paths?.filter((path) =>
+        path.includes("trailofbits-skills/plugins/")
+      ) ?? []
+
+    if (tobPaths.length > 0) {
+      expect(
+        tobPaths.every((path) => path.endsWith("/skills"))
+      ).toBe(true)
+    }
   })
 })

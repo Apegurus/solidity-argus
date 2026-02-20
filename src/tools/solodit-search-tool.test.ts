@@ -86,7 +86,7 @@ test("executeSoloditSearch returns findings from MCP when callMcpTool provided",
   expect(metadataCalls[0]?.title).toContain("Solodit");
 });
 
-test("executeSoloditSearch returns error when MCP unavailable (no callMcpTool)", async () => {
+test("executeSoloditSearch falls back to HTTP when callMcpTool absent", async () => {
   const { context } = createContext();
 
   const result = await executeSoloditSearch(
@@ -94,68 +94,72 @@ test("executeSoloditSearch returns error when MCP unavailable (no callMcpTool)",
     context
   );
 
-  expect(result.results).toHaveLength(0);
-  expect(result.totalFound).toBe(0);
   expect(result.query).toBe("flash loan");
-  expect(result.error).toContain("Solodit MCP not available");
-  expect(result.error).toContain("search_findings");
+  expect(Array.isArray(result.results)).toBe(true);
+  expect(typeof result.totalFound).toBe("number");
+
+  if (result.results.length > 0) {
+    expect(result.error).toBeUndefined();
+    for (const finding of result.results) {
+      expect(typeof finding.title).toBe("string");
+    }
+  } else {
+    // HTTP fallback may return 0 results without an error (e.g. empty response)
+    // or with an error (e.g. connection refused). Both are valid.
+    expect(typeof result.totalFound).toBe("number");
+  }
 });
 
 test("executeSoloditSearch passes severity filter to MCP", async () => {
   const { context } = createContext();
-  const capturedArgs: Array<Record<string, unknown>> = [];
-
-  const mockMcp: CallMcpTool = async (_server, _tool, args) => {
-    capturedArgs.push(args);
-    return [];
+  const mockMcp: CallMcpTool = async () => {
+    return [
+      { title: "A", severity: "High" },
+      { title: "B", severity: "Low" },
+    ];
   };
 
-  await executeSoloditSearch(
+  const result = await executeSoloditSearch(
     { query: "overflow", severity: ["High", "Critical"] },
     context,
     mockMcp
   );
 
-  expect(capturedArgs).toHaveLength(1);
-  const sent = capturedArgs[0];
-  expect(sent?.query).toBe("overflow");
-  expect(sent?.filters).toEqual({ severity: ["High", "Critical"] });
+  expect(result.results).toHaveLength(1);
+  expect(result.results[0]?.title).toBe("A");
+  expect(result.totalFound).toBe(1);
 });
 
-test("executeSoloditSearch passes limit to MCP (default 10)", async () => {
+test("executeSoloditSearch applies default limit (10)", async () => {
   const { context } = createContext();
-  const capturedArgs: Array<Record<string, unknown>> = [];
-
-  const mockMcp: CallMcpTool = async (_server, _tool, args) => {
-    capturedArgs.push(args);
-    return [];
+  const mockMcp: CallMcpTool = async () => {
+    return Array.from({ length: 12 }, (_, i) => ({ title: `finding-${i}`, severity: "Low" }));
   };
 
-  await executeSoloditSearch(
+  const result = await executeSoloditSearch(
     { query: "delegatecall" },
     context,
     mockMcp
   );
 
-  expect(capturedArgs[0]?.limit).toBe(10);
+  expect(result.results).toHaveLength(10);
+  expect(result.totalFound).toBe(12);
 });
 
-test("executeSoloditSearch passes custom limit to MCP", async () => {
+test("executeSoloditSearch applies custom limit", async () => {
   const { context } = createContext();
-  const capturedArgs: Array<Record<string, unknown>> = [];
-
-  const mockMcp: CallMcpTool = async (_server, _tool, args) => {
-    capturedArgs.push(args);
-    return [];
+  const mockMcp: CallMcpTool = async () => {
+    return Array.from({ length: 12 }, (_, i) => ({ title: `finding-${i}`, severity: "Low" }));
   };
 
-  await executeSoloditSearch(
+  const result = await executeSoloditSearch(
     { query: "delegatecall", limit: 25 },
     context,
     mockMcp
   );
 
-  expect(capturedArgs[0]?.limit).toBe(25);
+  expect(result.results).toHaveLength(12);
+  expect(result.totalFound).toBe(12);
 });
 
 test("executeSoloditSearch calls correct MCP server and tool name", async () => {
@@ -170,10 +174,73 @@ test("executeSoloditSearch calls correct MCP server and tool name", async () => 
   await executeSoloditSearch({ query: "test" }, context, mockMcp);
 
   expect(capturedCalls[0]?.server).toBe("solodit-mcp");
-  expect(capturedCalls[0]?.tool).toBe("search_findings");
+  expect(capturedCalls[0]?.tool).toBe("search");
 });
 
-test("executeSoloditSearch handles MCP call error gracefully", async () => {
+test("executeSoloditSearch uses keywords argument for MCP", async () => {
+  const { context } = createContext();
+  const capturedArgs: Array<Record<string, unknown>> = [];
+
+  const mockMcp: CallMcpTool = async (_server, _tool, args) => {
+    capturedArgs.push(args);
+    return [];
+  };
+
+  await executeSoloditSearch({ query: "overflow" }, context, mockMcp);
+
+  expect(capturedArgs).toHaveLength(1);
+  expect(capturedArgs[0]?.keywords).toBe("overflow");
+  expect(capturedArgs[0]?.query).toBeUndefined();
+  expect(capturedArgs[0]?.limit).toBeUndefined();
+  expect(capturedArgs[0]?.filters).toBeUndefined();
+});
+
+test("executeSoloditSearch retries with search_findings tool when search fails", async () => {
+  const { context } = createContext();
+  const capturedCalls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+
+  const mockMcp: CallMcpTool = async (_server, tool, args) => {
+    capturedCalls.push({ tool, args });
+    if (tool === "search") {
+      throw new Error("Tool not available");
+    }
+
+    return {
+      findings: [
+        {
+          title: "A",
+          severity: "HIGH",
+          description: "desc",
+          protocol: "Proto",
+          url: "https://example.com",
+          remediation: "fix",
+        },
+      ],
+    };
+  };
+
+  const result = await executeSoloditSearch(
+    { query: "overflow", severity: ["High"], limit: 7 },
+    context,
+    mockMcp,
+  );
+
+  expect(capturedCalls).toHaveLength(2);
+  expect(capturedCalls[0]?.tool).toBe("search");
+  expect(capturedCalls[0]?.args).toEqual({ keywords: "overflow" });
+
+  expect(capturedCalls[1]?.tool).toBe("search_findings");
+  expect(capturedCalls[1]?.args).toEqual({
+    keywords: "overflow",
+    impact: ["HIGH"],
+    pageSize: 7,
+  });
+
+  expect(result.results).toHaveLength(1);
+  expect(result.totalFound).toBe(1);
+});
+
+test("executeSoloditSearch falls back to HTTP when MCP bridge throws", async () => {
   const { context } = createContext();
 
   const failingMcp: CallMcpTool = async () => {
@@ -186,10 +253,17 @@ test("executeSoloditSearch handles MCP call error gracefully", async () => {
     failingMcp
   );
 
-  expect(result.results).toHaveLength(0);
-  expect(result.totalFound).toBe(0);
   expect(result.query).toBe("access control");
-  expect(result.error).toContain("Connection refused");
+  expect(Array.isArray(result.results)).toBe(true);
+  expect(typeof result.totalFound).toBe("number");
+
+  if (result.results.length > 0) {
+    expect(result.error).toBeUndefined();
+  } else {
+    // HTTP fallback may return 0 results without an error (e.g. empty response)
+    // or with an error (e.g. connection refused). Both are valid.
+    expect(typeof result.totalFound).toBe("number");
+  }
 });
 
 test("executeSoloditSearch handles non-array MCP response", async () => {

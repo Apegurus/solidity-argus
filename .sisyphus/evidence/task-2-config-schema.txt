@@ -1,0 +1,58 @@
+TASK 2: Config Schema with Zod Types
+=====================================
+
+DELIVERABLES COMPLETED:
+✅ src/config/schema.ts - ArgusConfigSchema with all required fields
+✅ src/config/types.ts - ArgusConfig type export
+✅ src/config/index.ts - Barrel export
+✅ src/config/schema.test.ts - 14 comprehensive tests
+✅ All tests passing: bun test src/config/ → 14 pass, 0 fail
+✅ No LSP errors in any config files
+✅ Commit: feat(config): new config schema with Zod types
+
+SCHEMA FIELDS IMPLEMENTED:
+- agents: object with argus, sentinel, pythia, scribe (each with model, permission, tools)
+- tools: slitherPath, forgePath
+- knowledge: scvd (enabled, apiUrl), autoSync, customSkillsDir
+- reporting: format (markdown), severityThreshold, gasAnalysis
+- solodit: enabled, port (NEW - default 3000)
+- disabled_hooks: array of strings (NEW - default [])
+- hooks: record of arbitrary values (default {})
+- cli: record of arbitrary values (default {})
+- background: max_concurrent (positive number, default 3)
+
+VALIDATION DETAILS:
+- All fields have defaults so empty {} config is valid
+- Uses z.safeParse() in tests (no throwing)
+- Agent permission/tools fields capture current defaults from config-handler.ts
+- Solodit port field is new (not in old schema) - default 3000
+- disabled_hooks is new field - default []
+- background.max_concurrent validates positive numbers only
+
+SDK IMPORT PATH VERIFICATION:
+✅ @opencode-ai/sdk/v2 is valid export path
+   - SDK package.json exports "./v2" subpath
+   - Resolves to ./dist/v2/index.js
+   - config-handler.ts correctly imports: import type { Config } from "@opencode-ai/sdk/v2"
+
+TEST COVERAGE:
+1. Complete valid config with all fields
+2. Empty config with defaults
+3. Partial config with mixed defaults
+4. Invalid severity threshold rejection
+5. Invalid format rejection
+6. Agent permission and tools fields
+7. disabled_hooks array validation
+8. hooks object with arbitrary values
+9. cli object with arbitrary values
+10. background concurrency config
+11. Invalid background max_concurrent (negative) rejection
+12. Knowledge autoSync and customSkillsDir
+13. Solodit port configuration
+14. safeParse doesn't throw on invalid input
+
+NOTES:
+- Removed all docstrings per code quality guidelines
+- Schema uses z.record(z.string(), z.any()) for proper Zod v4 syntax
+- BackgroundConfigSchema uses z.number().positive() to validate max_concurrent > 0
+- All nested schemas properly default their parent objects
