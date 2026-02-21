@@ -56,6 +56,24 @@ function collectRiskIndicators(source: string, existing: string[]): string[] {
   if (/\btx\.origin\b/.test(normalized)) {
     indicators.add("uses-tx-origin")
   }
+  if (/\.call\s*\{\s*value\s*:/.test(normalized)) {
+    indicators.add("uses-low-level-value-call")
+  }
+  if (normalized.includes(".call(")) {
+    indicators.add("uses-low-level-call")
+  }
+  if (normalized.includes("block.timestamp")) {
+    indicators.add("uses-block-timestamp")
+  }
+  if (normalized.includes("block.number")) {
+    indicators.add("uses-block-number")
+  }
+  if (normalized.includes("abi.encodepacked")) {
+    indicators.add("uses-abi-encode-packed")
+  }
+  if (/\becrecover\b/.test(normalized)) {
+    indicators.add("uses-ecrecover")
+  }
 
   const importLines = source
     .split("\n")
@@ -129,10 +147,71 @@ export async function executeContractAnalyzer(
       return createFailureProfile(contractName, filePath, "contract analysis aborted")
     }
 
+    const inheritanceRegex = /contract\s+(\w+)\s+is\s+([^{]+)/g
+    let sourceInheritance: string[] = []
+    let firstMatchParents: string[] | undefined
+    let regexMatch: RegExpExecArray | null = null
+
+    while ((regexMatch = inheritanceRegex.exec(sourceText)) !== null) {
+      const matchedName = regexMatch.at(1) ?? ""
+      const parents = (regexMatch.at(2) ?? "")
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)
+
+      if (!firstMatchParents) {
+        firstMatchParents = parents
+      }
+
+      if (matchedName === contractName) {
+        sourceInheritance = parents
+        break
+      }
+    }
+
+    if (sourceInheritance.length === 0 && firstMatchParents) {
+      sourceInheritance = firstMatchParents
+    }
+
+    const mergedInheritance = [
+      ...new Set([...contractProfile.inheritance, ...sourceInheritance]),
+    ]
+
+    // Extract modifiers from source text for each function
+    const visibilityKeywords = new Set([
+      "external",
+      "public",
+      "internal",
+      "private",
+      "view",
+      "pure",
+      "payable",
+      "virtual",
+      "override",
+      "returns",
+    ])
+    for (const fn of contractProfile.functions) {
+      if (!fn.name) continue
+      const escapedName = fn.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const fnPattern = new RegExp(
+        `function\\s+${escapedName}\\s*\\([^)]*\\)\\s*([^{;]*)`,
+      )
+      const fnMatch = fnPattern.exec(sourceText)
+      if (!fnMatch?.[1]) continue
+
+      const afterParams = fnMatch[1]
+        .replace(/returns\s*\([^)]*\)/g, "")
+        .replace(/\([^)]*\)/g, "")
+        .trim()
+      const tokens = afterParams.match(/\b\w+\b/g) ?? []
+      fn.modifiers = tokens.filter((t) => !visibilityKeywords.has(t))
+    }
+
     return {
       ...contractProfile,
       name: contractProfile.name || contractName,
       filePath,
+      inheritance: mergedInheritance,
       riskIndicators: collectRiskIndicators(sourceText, contractProfile.riskIndicators),
     }
   } catch (error) {

@@ -161,6 +161,80 @@ test("executeContractAnalyzer maps missing forge errors from parser", async () =
   )
 })
 
+test("executeContractAnalyzer extracts modifiers from source text", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "ModVault.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(
+    filePath,
+    [
+      "contract ModVault {",
+      "  function withdraw(uint256 amount) external onlyOwner nonReentrant returns (bool) {",
+      "    return true;",
+      "  }",
+      "  function pause() external whenNotPaused {",
+      "    // pause logic",
+      "  }",
+      "  function getBalance() external view returns (uint256) {",
+      "    return 0;",
+      "  }",
+      "  function admin(address a) external onlyRole(ADMIN) {",
+      "    // admin logic",
+      "  }",
+      "}",
+    ].join("\n"),
+  )
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async () => ({
+        ...createBaseProfile(),
+        functions: [
+          { name: "withdraw", visibility: "external", mutability: "nonpayable", modifiers: [] },
+          { name: "pause", visibility: "external", mutability: "nonpayable", modifiers: [] },
+          { name: "getBalance", visibility: "external", mutability: "view", modifiers: [] },
+          { name: "admin", visibility: "external", mutability: "nonpayable", modifiers: [] },
+        ],
+      }),
+    },
+  )
+
+  expect(result.functions[0]?.modifiers).toEqual(["onlyOwner", "nonReentrant"])
+  expect(result.functions[1]?.modifiers).toEqual(["whenNotPaused"])
+  expect(result.functions[2]?.modifiers).toEqual([])
+  expect(result.functions[3]?.modifiers).toEqual(["onlyRole"])
+})
+
+test("executeContractAnalyzer retains empty modifiers when function not found in source", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "Minimal.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(filePath, "contract Minimal {}\n")
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async () => ({
+        ...createBaseProfile(),
+        functions: [
+          { name: "missing", visibility: "external", mutability: "nonpayable", modifiers: [] },
+        ],
+      }),
+    },
+  )
+
+  expect(result.functions[0]?.modifiers).toEqual([])
+})
+
 test("executeContractAnalyzer supports context abort", async () => {
   const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
   tempDirs.push(root)
