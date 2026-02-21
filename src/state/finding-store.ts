@@ -41,7 +41,7 @@ export function createFindingStore(state: AuditState): FindingStore {
     if (!isValidHydrationFinding(f)) continue
     const id = generateId(f.check, f.file, f.lines)
     if (!findingMap.has(id)) {
-      findingMap.set(id, f)
+      findingMap.set(id, { ...f, id })
     }
   }
 

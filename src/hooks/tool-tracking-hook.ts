@@ -345,6 +345,7 @@ export function createToolTrackingHook(
               .map((f) => ({
                 path: typeof f.path === "string" ? f.path : "unknown",
                 linesPct: typeof f.linesPct === "number" ? f.linesPct : 0,
+                statementsPct: typeof f.statementsPct === "number" ? f.statementsPct : 0,
                 branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
                 functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
               })),

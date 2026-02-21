@@ -1,10 +1,6 @@
+import { join } from "node:path"
 import type { Hooks as PluginHooks } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
-import { createLogger } from "./shared/logger"
-
-const logger = createLogger()
-
-import { join } from "node:path"
 import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
 import { createContextMonitor, createToolOutputTruncator } from "./features/context-monitor"
 import {
@@ -26,10 +22,12 @@ import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
+import { createLogger } from "./shared/logger"
 import type { AuditState } from "./state/types"
 import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
-import type { ProjectConfig } from "./utils/project-detector"
-import { detectProject } from "./utils/project-detector"
+import { detectProject, type ProjectConfig } from "./utils/project-detector"
+
+const logger = createLogger()
 
 export type AgentTrackerRef = {
   getAgentForSession(sessionID: string): string | undefined

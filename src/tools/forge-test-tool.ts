@@ -229,9 +229,10 @@ function parseCoverage(payload: CoveragePayload): { files: ForgeCoverageFile[] }
   return { files: [] }
 }
 
-function normalizeArgs(args: ForgeTestArgs): NormalizedForgeTestArgs {
+function normalizeArgs(args: ForgeTestArgs, context: ToolContext): NormalizedForgeTestArgs {
+  const target = args.target && args.target !== "." ? args.target : resolveProjectDir(context)
   return {
-    target: args.target ?? ".",
+    target,
     match_test: args.match_test,
     match_contract: args.match_contract,
     fork_url: args.fork_url,
@@ -290,8 +291,7 @@ export async function executeForgeTest(
   runCommand: RunForgeCommand = runForgeCommand,
 ): Promise<ForgeTestResult> {
   const startedAt = Date.now()
-  const normalizedArgs = normalizeArgs(args)
-  const projectDir = resolveProjectDir(context)
+  const normalizedArgs = normalizeArgs(args, context)
   context.metadata({ title: `Run forge test: ${normalizedArgs.target}` })
 
   const fail = (error: string): ForgeTestResult => ({
@@ -306,7 +306,7 @@ export async function executeForgeTest(
     const testResult = await runCommand(
       buildForgeTestCommand(normalizedArgs),
       context.abort,
-      projectDir,
+      normalizedArgs.target,
     )
 
     let payload: ForgeTestPayload
@@ -336,7 +336,7 @@ export async function executeForgeTest(
       const coverageResult = await runCommand(
         ["forge", "coverage", "--report", "json"],
         context.abort,
-        projectDir,
+        normalizedArgs.target,
       )
       if (coverageResult.exitCode !== 0) {
         output.error = coverageResult.stderr.trim() || "forge coverage failed"

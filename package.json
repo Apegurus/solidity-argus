@@ -50,9 +50,9 @@
     "init": "bun src/cli/index.ts init"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "1.2.10",
+    "@opencode-ai/plugin": "^1.2.10",
     "yaml": "^2.8.2",
-    "zod": "4.1.8"
+    "zod": "^4.1.8"
   },
   "peerDependencies": {
     "@opencode-ai/sdk": "^1.0.0"

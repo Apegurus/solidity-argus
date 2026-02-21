@@ -160,7 +160,7 @@ test("executeForgeTest runs coverage command and parses report", async () => {
     ],
     ["forge", "coverage", "--report", "json"],
   ])
-  expect(cwdCalls).toEqual(["/tmp/project", "/tmp/project"])
+  expect(cwdCalls).toEqual(["contracts", "contracts"])
   expect(result.success).toBe(true)
   expect(result.coverageReport).toEqual({
     files: [

@@ -94,7 +94,13 @@ export interface AuditState {
   reportGenerated?: boolean
   knowledgeSynced?: { success: boolean; timestamp: number }
   coverageReport?: {
-    files: Array<{ path: string; linesPct: number; branchesPct: number; functionsPct: number }>
+    files: Array<{
+      path: string
+      linesPct: number
+      statementsPct: number
+      branchesPct: number
+      functionsPct: number
+    }>
   }
   gasHotspots?: Array<{ contract: string; function: string; avgGas: number }>
   proxyContracts?: Array<{ file: string; proxyType: string; indicators: string[] }>

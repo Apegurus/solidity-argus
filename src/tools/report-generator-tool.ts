@@ -74,7 +74,9 @@ function emptyAuditState(findings: Finding[] = []): AuditState {
   }
 }
 
-function isValidFinding(f: unknown): f is Finding {
+function hasMinimumFindingFields(
+  f: unknown,
+): f is { check: string; file: string; lines: [number, number] } {
   if (typeof f !== "object" || f === null) return false
   const obj = f as Record<string, unknown>
   return (
@@ -84,6 +86,51 @@ function isValidFinding(f: unknown): f is Finding {
     Array.isArray(obj.lines) &&
     obj.lines.length === 2
   )
+}
+
+const VALID_SEVERITIES: ReadonlySet<string> = new Set([
+  "Critical",
+  "High",
+  "Medium",
+  "Low",
+  "Informational",
+])
+const VALID_SOURCES: ReadonlySet<string> = new Set([
+  "slither",
+  "manual",
+  "pattern",
+  "scvd",
+  "solodit",
+  "fuzz",
+])
+
+function normalizeFinding(f: Record<string, unknown>): Finding {
+  const severity =
+    typeof f.severity === "string" && VALID_SEVERITIES.has(f.severity)
+      ? (f.severity as Finding["severity"])
+      : "Informational"
+  const confidence =
+    typeof f.confidence === "string" && ["High", "Medium", "Low"].includes(f.confidence)
+      ? (f.confidence as Finding["confidence"])
+      : "Low"
+  const source =
+    typeof f.source === "string" && VALID_SOURCES.has(f.source)
+      ? (f.source as Finding["source"])
+      : "manual"
+  const description = typeof f.description === "string" ? f.description : (f.check as string)
+  const id = typeof f.id === "string" ? f.id : `${f.check}:${f.file}:${(f.lines as number[])[0]}`
+  return {
+    id,
+    check: f.check as string,
+    severity,
+    confidence,
+    description,
+    file: f.file as string,
+    lines: f.lines as [number, number],
+    source,
+    remediation: typeof f.remediation === "string" ? f.remediation : undefined,
+    exploitReference: typeof f.exploitReference === "string" ? f.exploitReference : undefined,
+  }
 }
 
 export function parseAuditState(auditState: string): AuditState {
@@ -97,8 +144,10 @@ export function parseAuditState(auditState: string): AuditState {
   }
 
   if (Array.isArray(parsed)) {
-    const validFindings = (parsed as unknown[]).filter(isValidFinding)
-    return emptyAuditState(validFindings as Finding[])
+    const validFindings = (parsed as unknown[])
+      .filter(hasMinimumFindingFields)
+      .map((f) => normalizeFinding(f as Record<string, unknown>))
+    return emptyAuditState(validFindings)
   }
 
   if (
@@ -107,7 +156,9 @@ export function parseAuditState(auditState: string): AuditState {
     Array.isArray((parsed as AuditState).findings)
   ) {
     const state = parsed as AuditState
-    const validFindings = state.findings.filter(isValidFinding)
+    const validFindings = state.findings
+      .filter(hasMinimumFindingFields)
+      .map((f) => normalizeFinding(f as unknown as Record<string, unknown>))
     return {
       ...emptyAuditState(),
       ...state,

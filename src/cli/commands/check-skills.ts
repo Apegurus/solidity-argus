@@ -1,11 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { createLogger } from "../../shared/logger"
-import type { CliCommand } from "../types"
-
-const logger = createLogger()
-
 import { loadArgusConfig } from "../../config/loader"
+import { createLogger } from "../../shared/logger"
 import {
   DEFAULT_GATE_CONFIG,
   formatReportJson,
@@ -18,6 +14,9 @@ import { normalizeSkill, type SkillDoc } from "../../skills/analysis/normalize"
 import { buildTfidfCorpus, computeAllPairs } from "../../skills/analysis/similarity"
 import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
 import { cliOutput } from "../cli-output"
+import type { CliCommand } from "../types"
+
+const logger = createLogger()
 
 function findSkillFiles(dir: string, maxDepth = 8): string[] {
   const files: string[] = []

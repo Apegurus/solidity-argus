@@ -165,6 +165,7 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
       }
     } catch (err) {
       logger.warn("Failed to persist audit state", err)
+      throw err
     } finally {
       saveInFlight = false
     }

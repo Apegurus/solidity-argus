@@ -2,18 +2,17 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import os from "node:os"
 import { dirname, extname, join, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
-import { createLogger } from "../shared/logger"
-
-const logger = createLogger()
-
 import {
   loadIndex,
   type ScvdIndex,
   type ScvdIndexEntry,
   searchIndex,
 } from "../knowledge/scvd-index"
+import { createLogger } from "../shared/logger"
 import { extractDetectionRulesFromSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
+
+const logger = createLogger()
 
 export type PatternSource = "skill"
 
@@ -34,10 +33,10 @@ export interface MatchSource {
 }
 
 export interface PatternCheckResult {
-  success?: boolean
+  success: boolean
   error?: string
-  matches?: Match[]
-  summary?: {
+  matches: Match[]
+  summary: {
     total: number
     bySeverity: Record<string, number>
     byCategory: Record<string, number>
@@ -341,7 +340,20 @@ export async function executePatternCheck(
     }
   }
 
+  const allMatches = sources.flatMap((s) => s.matches)
+  const bySeverity: Record<string, number> = {}
+  const byCategory: Record<string, number> = {}
+  for (const m of allMatches) {
+    bySeverity[m.severity] = (bySeverity[m.severity] ?? 0) + 1
+    if (m.category) {
+      byCategory[m.category] = (byCategory[m.category] ?? 0) + 1
+    }
+  }
+
   return {
+    success: true,
+    matches: allMatches,
+    summary: { total: allMatches.length, bySeverity, byCategory },
     sources,
     patternsChecked: selectedPatterns.length,
     executionTime: Date.now() - startedAt,

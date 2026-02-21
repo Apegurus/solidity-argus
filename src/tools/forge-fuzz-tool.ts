@@ -52,13 +52,14 @@ type RunForgeFuzzCommand = (
   env: Record<string, string>,
 ) => Promise<ForgeFuzzCommandResult>
 
-function normalizeArgs(args: ForgeFuzzArgs): NormalizedForgeFuzzArgs {
+function normalizeArgs(args: ForgeFuzzArgs, context: ToolContext): NormalizedForgeFuzzArgs {
   const requestedRuns =
     typeof args.runs === "number" && Number.isFinite(args.runs) ? args.runs : 256
   const clampedRuns = Math.max(1, Math.min(10000, Math.floor(requestedRuns)))
+  const target = args.target && args.target !== "." ? args.target : resolveProjectDir(context)
 
   return {
-    target: args.target ?? ".",
+    target,
     match_test: args.match_test,
     runs: clampedRuns,
     seed: args.seed,
@@ -204,8 +205,7 @@ export async function executeForgeFuzz(
   runCommand: RunForgeFuzzCommand = runForgeFuzzCommand,
 ): Promise<ForgeFuzzResult> {
   const startedAt = Date.now()
-  const normalized = normalizeArgs(args)
-  const projectDir = resolveProjectDir(context)
+  const normalized = normalizeArgs(args, context)
   context.metadata({ title: `Run forge fuzz: ${normalized.target}` })
 
   const fail = (error: string): ForgeFuzzResult => ({
@@ -226,7 +226,7 @@ export async function executeForgeFuzz(
     const runResult = await runCommand(
       buildForgeFuzzCommand(normalized),
       context.abort,
-      projectDir,
+      normalized.target,
       env,
     )
 
