@@ -7,12 +7,13 @@ function makeChatParamsInput(
   return {
     sessionID: "session-1",
     agent: "argus",
-    model:
-      {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["model"],
-    provider:
-      {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["provider"],
-    message:
-      {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["message"],
+    model: {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["model"],
+    provider: {} as Parameters<
+      ReturnType<typeof createAgentTracker>["chatParamsHook"]
+    >[0]["provider"],
+    message: {} as Parameters<
+      ReturnType<typeof createAgentTracker>["chatParamsHook"]
+    >[0]["message"],
     ...overrides,
   }
 }
@@ -60,7 +61,9 @@ describe("createAgentTracker", () => {
   it('isArgusAgent returns true for "sentinel"', () => {
     const tracker = createAgentTracker()
 
-    tracker.chatParamsHook(makeChatParamsInput({ sessionID: "sentinel-session", agent: "sentinel" }))
+    tracker.chatParamsHook(
+      makeChatParamsInput({ sessionID: "sentinel-session", agent: "sentinel" }),
+    )
 
     expect(tracker.isArgusAgent("sentinel-session")).toBe(true)
   })
@@ -75,7 +78,7 @@ describe("createAgentTracker", () => {
     expect(tracker.isArgusAgent("scribe-session")).toBe(true)
   })
 
-  it('isArgusAgent returns false for non-argus and unknown agents', () => {
+  it("isArgusAgent returns false for non-argus and unknown agents", () => {
     const tracker = createAgentTracker()
 
     tracker.chatParamsHook(makeChatParamsInput({ sessionID: "build-session", agent: "build" }))

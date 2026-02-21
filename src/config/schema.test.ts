@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test"
+import { describe, expect, it } from "bun:test"
 import { ArgusConfigSchema } from "./schema"
 
 describe("ArgusConfigSchema", () => {
@@ -87,7 +87,7 @@ describe("ArgusConfigSchema", () => {
   it("rejects invalid severity threshold", () => {
     const config = {
       reporting: {
-        severityThreshold: "invalid" as any,
+        severityThreshold: "invalid" as unknown as string,
       },
     }
 
@@ -98,7 +98,7 @@ describe("ArgusConfigSchema", () => {
   it("rejects invalid format", () => {
     const config = {
       reporting: {
-        format: "json" as any,
+        format: "json" as unknown as string,
       },
     }
 
@@ -141,10 +141,7 @@ describe("ArgusConfigSchema", () => {
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.disabled_hooks).toEqual([
-        "knowledge-sync",
-        "config-validation",
-      ])
+      expect(result.data.disabled_hooks).toEqual(["knowledge-sync", "config-validation"])
     }
   })
 

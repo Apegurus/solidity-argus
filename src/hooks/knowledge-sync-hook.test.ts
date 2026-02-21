@@ -1,9 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ArgusConfig } from "../config/types"
-import {
-  createKnowledgeSyncHook,
-  type KnowledgeSyncDependencies,
-} from "./knowledge-sync-hook"
+import { createKnowledgeSyncHook, type KnowledgeSyncDependencies } from "./knowledge-sync-hook"
 
 function createArgusConfig(enabled: boolean): ArgusConfig {
   return {
@@ -47,12 +44,12 @@ test("createKnowledgeSyncHook returns quickly and does not block", async () => {
       syncCalled = true
       await Bun.sleep(25)
       return {
-              status: "success" as const,
-              success: true,
-              newFindings: 0,
-              totalIndexed: 0,
-              lastSync: "2026-02-17T00:00:00.000Z",
-            }
+        status: "success" as const,
+        success: true,
+        newFindings: 0,
+        totalIndexed: 0,
+        lastSync: "2026-02-17T00:00:00.000Z",
+      }
     },
     log: () => {
       return
@@ -83,12 +80,12 @@ test("createKnowledgeSyncHook triggers async sync with default index path", asyn
     syncIncrementalFn: async (_client, indexPath) => {
       calls.push(`sync:${indexPath}`)
       return {
-              status: "success" as const,
-              success: true,
-              newFindings: 2,
-              totalIndexed: 12,
-              lastSync: "2026-02-17T00:00:00.000Z",
-            }
+        status: "success" as const,
+        success: true,
+        newFindings: 2,
+        totalIndexed: 12,
+        lastSync: "2026-02-17T00:00:00.000Z",
+      }
     },
     log: (message) => {
       calls.push(`log:${message}`)
@@ -114,12 +111,12 @@ test("createKnowledgeSyncHook skips sync when SCVD disabled", async () => {
     syncIncrementalFn: async () => {
       syncCalled = true
       return {
-              status: "success" as const,
-              success: true,
-              newFindings: 0,
-              totalIndexed: 0,
-              lastSync: "2026-02-17T00:00:00.000Z",
-            }
+        status: "success" as const,
+        success: true,
+        newFindings: 0,
+        totalIndexed: 0,
+        lastSync: "2026-02-17T00:00:00.000Z",
+      }
     },
     log: () => {
       return

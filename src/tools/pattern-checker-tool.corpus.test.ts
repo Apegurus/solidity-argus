@@ -1,27 +1,27 @@
-import { describe, it, expect } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { extractDetectionRulesFromSkills } from "./pattern-loader";
+import { describe, expect, it } from "bun:test"
+import { readdirSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { extractDetectionRulesFromSkills } from "./pattern-loader"
 
-const CORPUS_DIR = join(import.meta.dir, "../../tests/fixtures/pattern-corpus");
-const SKILLS_DIR = join(dirname(dirname(import.meta.dir)), "skills");
+const CORPUS_DIR = join(import.meta.dir, "../../tests/fixtures/pattern-corpus")
+const SKILLS_DIR = join(dirname(dirname(import.meta.dir)), "skills")
 
 function readFixture(name: string): string {
-  return readFileSync(join(CORPUS_DIR, name), "utf-8");
+  return readFileSync(join(CORPUS_DIR, name), "utf-8")
 }
 
 function matchesRegex(content: string, regexSource: string): boolean {
-  return new RegExp(regexSource).test(content);
+  return new RegExp(regexSource).test(content)
 }
 
-const skillPatterns = extractDetectionRulesFromSkills(SKILLS_DIR);
+const skillPatterns = extractDetectionRulesFromSkills(SKILLS_DIR)
 
 type CorpusCase = {
-  patternName: string;
-  regex: string;
-  positive: string;
-  negative: string;
-};
+  patternName: string
+  regex: string
+  positive: string
+  negative: string
+}
 
 // Regex strings from skill detection_rules, tested against positive/negative fixture files
 const CORPUS: CorpusCase[] = [
@@ -145,42 +145,42 @@ const CORPUS: CorpusCase[] = [
     positive: "frontrunning-vulnerable.sol",
     negative: "frontrunning-safe.sol",
   },
-];
+]
 
 describe("Pattern Test Corpus", () => {
   it("loaded ≥20 skill detection rules from skills/", () => {
-    expect(skillPatterns.length).toBeGreaterThanOrEqual(20);
-  });
+    expect(skillPatterns.length).toBeGreaterThanOrEqual(20)
+  })
 
   it("corpus directory contains ≥30 fixture files", () => {
-    const files = readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".sol"));
-    expect(files.length).toBeGreaterThanOrEqual(30);
-  });
+    const files = readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".sol"))
+    expect(files.length).toBeGreaterThanOrEqual(30)
+  })
 
   it("all fixtures have SPDX license and pragma", () => {
-    const files = readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".sol"));
+    const files = readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".sol"))
     for (const file of files) {
-      const content = readFixture(file);
-      expect(content).toContain("SPDX-License-Identifier: MIT");
-      expect(content).toContain("pragma solidity ^0.8.0;");
+      const content = readFixture(file)
+      expect(content).toContain("SPDX-License-Identifier: MIT")
+      expect(content).toContain("pragma solidity ^0.8.0;")
     }
-  });
+  })
 
   it("tests ≥10 distinct patterns", () => {
-    expect(CORPUS.length).toBeGreaterThanOrEqual(10);
-  });
+    expect(CORPUS.length).toBeGreaterThanOrEqual(10)
+  })
 
   for (const entry of CORPUS) {
     describe(entry.patternName, () => {
       it(`triggers on ${entry.positive}`, () => {
-        const content = readFixture(entry.positive);
-        expect(matchesRegex(content, entry.regex)).toBe(true);
-      });
+        const content = readFixture(entry.positive)
+        expect(matchesRegex(content, entry.regex)).toBe(true)
+      })
 
       it(`does NOT trigger on ${entry.negative}`, () => {
-        const content = readFixture(entry.negative);
-        expect(matchesRegex(content, entry.regex)).toBe(false);
-      });
-    });
+        const content = readFixture(entry.negative)
+        expect(matchesRegex(content, entry.regex)).toBe(false)
+      })
+    })
   }
-});
+})

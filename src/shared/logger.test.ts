@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { tmpdir } from "node:os"
-import { createLogger, resetLoggerSink, LOG_DIR } from "./logger"
+import { createLogger, LOG_DIR, resetLoggerSink } from "./logger"
 
 describe("logger", () => {
   const originalEnv = process.env.ARGUS_LOG
@@ -23,7 +22,7 @@ describe("logger", () => {
 
       const stderrOutput: string[] = []
       const origWrite = process.stderr.write
-      process.stderr.write = (chunk: any) => {
+      process.stderr.write = (chunk: string | Uint8Array, ..._args: unknown[]) => {
         stderrOutput.push(String(chunk))
         return true
       }
@@ -51,7 +50,7 @@ describe("logger", () => {
     beforeEach(() => {
       stderrOutput = []
       origWrite = process.stderr.write
-      process.stderr.write = (chunk: any) => {
+      process.stderr.write = (chunk: string | Uint8Array, ..._args: unknown[]) => {
         stderrOutput.push(String(chunk))
         return true
       }

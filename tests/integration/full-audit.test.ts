@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import type { Config } from "@opencode-ai/sdk"
 import type { ArgusConfig } from "../../src/config/types"
-import ArgusPlugin from "../../src/index"
-import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createCompactionHook } from "../../src/hooks/compaction-hook"
+import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
+import ArgusPlugin from "../../src/index"
 import { createAuditState } from "../../src/state/audit-state"
 import type { Finding } from "../../src/state/types"
-import { slitherTool } from "../../src/tools/slither-tool"
-import { forgeTestTool } from "../../src/tools/forge-test-tool"
 import { contractAnalyzerTool } from "../../src/tools/contract-analyzer-tool"
+import { forgeTestTool } from "../../src/tools/forge-test-tool"
 import { patternCheckerTool } from "../../src/tools/pattern-checker-tool"
 import { reportGeneratorTool } from "../../src/tools/report-generator-tool"
+import { slitherTool } from "../../src/tools/slither-tool"
 
 const FIXTURE_DIR = path.join(import.meta.dir, "../fixtures/vulnerable-vault")
 const FIXTURE_CONTRACT = path.join(FIXTURE_DIR, "src/VulnerableVault.sol")
@@ -118,7 +118,7 @@ describe("full audit integration", () => {
 
     expect(config.agent).toBeDefined()
     expect(config.agent && Object.keys(config.agent)).toEqual(
-      expect.arrayContaining(["argus", "sentinel", "pythia", "scribe"])
+      expect.arrayContaining(["argus", "sentinel", "pythia", "scribe"]),
     )
     expect(config.agent?.argus?.mode).toBe("primary")
     expect(config.mcp?.["solodit-mcp"]).toBeDefined()
@@ -130,7 +130,7 @@ describe("full audit integration", () => {
         file_path: FIXTURE_CONTRACT,
         project_dir: FIXTURE_DIR,
       },
-      createMockContext()
+      createMockContext(),
     )
 
     const result = JSON.parse(payload) as {
@@ -152,7 +152,7 @@ describe("full audit integration", () => {
         patterns: ["reentrancy", "access-control"],
         include_scvd: true,
       },
-      createMockContext()
+      createMockContext(),
     )
 
     const result = JSON.parse(payload) as {
@@ -200,7 +200,7 @@ describe("full audit integration", () => {
         severity_threshold: "low",
         audit_state: JSON.stringify({ findings }),
       },
-      createMockContext()
+      createMockContext(),
     )
 
     const result = JSON.parse(payload) as {
@@ -283,7 +283,7 @@ describe("full audit integration", () => {
         {
           target: FIXTURE_DIR,
         },
-        createMockContext()
+        createMockContext(),
       )
 
       const result = JSON.parse(payload) as {
@@ -308,7 +308,7 @@ describe("full audit integration", () => {
           verbosity: 3,
           coverage: false,
         },
-        createMockContext()
+        createMockContext(),
       )
 
       const result = JSON.parse(payload) as {

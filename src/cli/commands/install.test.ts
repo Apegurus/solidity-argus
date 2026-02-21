@@ -1,8 +1,8 @@
-import { describe, expect, it, afterEach } from "bun:test"
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, describe, expect, it } from "bun:test"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { installCommand, findOpencodeConfig } from "./install"
+import { join } from "node:path"
+import { findOpencodeConfig, installCommand } from "./install"
 
 describe("installCommand", () => {
   const tempDirs: string[] = []
@@ -36,10 +36,7 @@ describe("installCommand", () => {
 
   it("is idempotent", async () => {
     const dir = makeTempDir()
-    writeFileSync(
-      join(dir, "opencode.json"),
-      JSON.stringify({ plugin: ["solidity-argus"] }),
-    )
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify({ plugin: ["solidity-argus"] }))
     process.cwd = () => dir
 
     const exitCode = await installCommand.execute([])

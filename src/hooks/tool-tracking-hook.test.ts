@@ -1,7 +1,7 @@
-import { test, expect, describe, beforeEach } from "bun:test"
-import { createToolTrackingHook } from "./tool-tracking-hook"
+import { beforeEach, describe, expect, test } from "bun:test"
 import { createAuditState } from "../state/audit-state"
 import type { AuditState } from "../state/types"
+import { createToolTrackingHook } from "./tool-tracking-hook"
 
 describe("createToolTrackingHook", () => {
   let auditState: AuditState
@@ -83,8 +83,7 @@ describe("createToolTrackingHook", () => {
               severity: "High",
               file: "src/Vault.sol",
               lines: [15, 25],
-              description:
-                "Potential reentrancy: ETH transfer via low-level call",
+              description: "Potential reentrancy: ETH transfer via low-level call",
             },
           ],
         },
@@ -270,9 +269,7 @@ describe("createToolTrackingHook", () => {
   test("forge fuzz recorded without extracting findings", async () => {
     const fuzzResult = {
       success: true,
-      results: [
-        { testName: "testFuzz_withdraw", status: "pass", runs: 256, gas: 50000 },
-      ],
+      results: [{ testName: "testFuzz_withdraw", status: "pass", runs: 256, gas: 50000 }],
       counterexamples: [],
       totalRuns: 256,
       executionTime: 3000,
@@ -359,15 +356,18 @@ describe("createToolTrackingHook", () => {
       expect(auditState.soloditResults).toBeDefined()
       expect(auditState.soloditResults).toHaveLength(1)
 
-      const stored = auditState.soloditResults![0]!
-      expect(stored.query).toBe("reentrancy withdraw vault")
-      expect(stored.resultCount).toBe(2)
-      expect(stored.timestamp).toBeGreaterThan(0)
-      expect(stored.topResults).toHaveLength(2)
-      expect(stored.topResults[0]!.title).toBe("Reentrancy in withdraw")
-      expect(stored.topResults[0]!.severity).toBe("High")
-      expect(stored.topResults[0]!.url).toBe("https://solodit.xyz/issues/1")
-      expect(stored.topResults[0]!.protocol).toBe("Compound")
+      const stored = auditState.soloditResults?.at(0)
+      expect(stored).toBeDefined()
+      expect(stored?.query).toBe("reentrancy withdraw vault")
+      expect(stored?.resultCount).toBe(2)
+      expect(stored?.timestamp).toBeGreaterThan(0)
+      expect(stored?.topResults).toHaveLength(2)
+      const topFirst = stored?.topResults.at(0)
+      expect(topFirst).toBeDefined()
+      expect(topFirst?.title).toBe("Reentrancy in withdraw")
+      expect(topFirst?.severity).toBe("High")
+      expect(topFirst?.url).toBe("https://solodit.xyz/issues/1")
+      expect(topFirst?.protocol).toBe("Compound")
     })
 
     test("solodit search with empty results stores empty topResults", async () => {
@@ -385,10 +385,11 @@ describe("createToolTrackingHook", () => {
 
       expect(auditState.soloditResults).toHaveLength(1)
 
-      const stored = auditState.soloditResults![0]!
-      expect(stored.query).toBe("nonexistent vulnerability pattern")
-      expect(stored.resultCount).toBe(0)
-      expect(stored.topResults).toHaveLength(0)
+      const stored = auditState.soloditResults?.at(0)
+      expect(stored).toBeDefined()
+      expect(stored?.query).toBe("nonexistent vulnerability pattern")
+      expect(stored?.resultCount).toBe(0)
+      expect(stored?.topResults).toHaveLength(0)
     })
 
     test("solodit search with error field still records execution", async () => {
@@ -406,11 +407,13 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.soloditResults).toHaveLength(1)
-      expect(auditState.soloditResults![0]!.query).toBe("flash loan attack")
-      expect(auditState.soloditResults![0]!.resultCount).toBe(0)
+      const stored = auditState.soloditResults?.at(0)
+      expect(stored).toBeDefined()
+      expect(stored?.query).toBe("flash loan attack")
+      expect(stored?.resultCount).toBe(0)
 
       expect(auditState.toolsExecuted).toHaveLength(1)
-      expect(auditState.toolsExecuted[0]!.tool).toBe("argus_solodit_search")
+      expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_solodit_search")
     })
 
     test("solodit results limited to top 5", async () => {
@@ -435,11 +438,12 @@ describe("createToolTrackingHook", () => {
 
       expect(auditState.soloditResults).toHaveLength(1)
 
-      const stored = auditState.soloditResults![0]!
-      expect(stored.topResults).toHaveLength(5)
-      expect(stored.resultCount).toBe(8)
-      expect(stored.topResults[0]!.title).toBe("Finding 1")
-      expect(stored.topResults[4]!.title).toBe("Finding 5")
+      const stored = auditState.soloditResults?.at(0)
+      expect(stored).toBeDefined()
+      expect(stored?.topResults).toHaveLength(5)
+      expect(stored?.resultCount).toBe(8)
+      expect(stored?.topResults.at(0)?.title).toBe("Finding 1")
+      expect(stored?.topResults.at(4)?.title).toBe("Finding 5")
     })
 
     test("multiple solodit searches accumulate results", async () => {
@@ -486,8 +490,8 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.soloditResults).toHaveLength(2)
-      expect(auditState.soloditResults![0]!.query).toBe("reentrancy")
-      expect(auditState.soloditResults![1]!.query).toBe("flash loan")
+      expect(auditState.soloditResults?.at(0)?.query).toBe("reentrancy")
+      expect(auditState.soloditResults?.at(1)?.query).toBe("flash loan")
     })
   })
 
@@ -501,7 +505,9 @@ describe("createToolTrackingHook", () => {
         counterexamples: [
           {
             testName: "testFuzz_withdraw(uint256)",
-            inputs: { arg0: "115792089237316195423570985008687907853269984665640564039457584007913129639935" },
+            inputs: {
+              arg0: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            },
             revertReason: "Arithmetic overflow",
           },
         ],
@@ -516,12 +522,15 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.fuzzCounterexamples).toHaveLength(1)
-      const ce = auditState.fuzzCounterexamples![0]!
-      expect(ce.testName).toBe("testFuzz_withdraw(uint256)")
-      expect(ce.inputs).toEqual(["115792089237316195423570985008687907853269984665640564039457584007913129639935"])
-      expect(ce.revertReason).toBe("Arithmetic overflow")
-      expect(ce.runs).toBe(128)
-      expect(ce.timestamp).toBeGreaterThan(0)
+      const ce = auditState.fuzzCounterexamples?.at(0)
+      expect(ce).toBeDefined()
+      expect(ce?.testName).toBe("testFuzz_withdraw(uint256)")
+      expect(ce?.inputs).toEqual([
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      ])
+      expect(ce?.revertReason).toBe("Arithmetic overflow")
+      expect(ce?.runs).toBe(128)
+      expect(ce?.timestamp).toBeGreaterThan(0)
       // Should NOT create findings
       expect(auditState.findings).toHaveLength(0)
     })
@@ -529,9 +538,7 @@ describe("createToolTrackingHook", () => {
     test("fuzz results with no counterexamples stores empty array", async () => {
       const fuzzResult = {
         success: true,
-        results: [
-          { testName: "testFuzz_deposit(uint256)", status: "pass", runs: 256, gas: 30000 },
-        ],
+        results: [{ testName: "testFuzz_deposit(uint256)", status: "pass", runs: 256, gas: 30000 }],
         counterexamples: [],
         totalRuns: 256,
         executionTime: 1500,
@@ -570,9 +577,10 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.fuzzCounterexamples).toHaveLength(1)
-      const ce = auditState.fuzzCounterexamples![0]!
-      expect(ce.revertReason).toBe("ERC20: transfer to zero address")
-      expect(ce.inputs).toEqual(["0x0000000000000000000000000000000000000000", "1000"])
+      const ce = auditState.fuzzCounterexamples?.at(0)
+      expect(ce).toBeDefined()
+      expect(ce?.revertReason).toBe("ERC20: transfer to zero address")
+      expect(ce?.inputs).toEqual(["0x0000000000000000000000000000000000000000", "1000"])
     })
 
     test("fuzz counterexample without revert reason omits it", async () => {
@@ -596,10 +604,11 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.fuzzCounterexamples).toHaveLength(1)
-      const ce = auditState.fuzzCounterexamples![0]!
-      expect(ce.testName).toBe("testFuzz_mint(uint256)")
-      expect(ce.revertReason).toBeUndefined()
-      expect(ce.runs).toBe(256)
+      const ce = auditState.fuzzCounterexamples?.at(0)
+      expect(ce).toBeDefined()
+      expect(ce?.testName).toBe("testFuzz_mint(uint256)")
+      expect(ce?.revertReason).toBeUndefined()
+      expect(ce?.runs).toBe(256)
     })
 
     test("fuzz counterexample supports array-shaped inputs", async () => {
@@ -624,10 +633,11 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.fuzzCounterexamples).toHaveLength(1)
-      const ce = auditState.fuzzCounterexamples![0]!
-      expect(ce.inputs).toEqual(["100", "0"])
-      expect(ce.revertReason).toBe("Division by zero")
-      expect(ce.runs).toBe(42)
+      const ce = auditState.fuzzCounterexamples?.at(0)
+      expect(ce).toBeDefined()
+      expect(ce?.inputs).toEqual(["100", "0"])
+      expect(ce?.revertReason).toBe("Division by zero")
+      expect(ce?.runs).toBe(42)
     })
 
     test("multiple fuzz runs accumulate counterexamples", async () => {
@@ -679,12 +689,18 @@ describe("createToolTrackingHook", () => {
       })
 
       expect(auditState.fuzzCounterexamples).toHaveLength(3)
-      expect(auditState.fuzzCounterexamples![0]!.testName).toBe("testFuzz_withdraw(uint256)")
-      expect(auditState.fuzzCounterexamples![0]!.runs).toBe(128)
-      expect(auditState.fuzzCounterexamples![1]!.testName).toBe("testFuzz_deposit(uint256)")
-      expect(auditState.fuzzCounterexamples![1]!.runs).toBe(256)
-      expect(auditState.fuzzCounterexamples![2]!.testName).toBe("testFuzz_swap(uint256,uint256)")
-      expect(auditState.fuzzCounterexamples![2]!.revertReason).toBe("Division by zero")
+      const ce0 = auditState.fuzzCounterexamples?.at(0)
+      const ce1 = auditState.fuzzCounterexamples?.at(1)
+      const ce2 = auditState.fuzzCounterexamples?.at(2)
+      expect(ce0).toBeDefined()
+      expect(ce1).toBeDefined()
+      expect(ce2).toBeDefined()
+      expect(ce0?.testName).toBe("testFuzz_withdraw(uint256)")
+      expect(ce0?.runs).toBe(128)
+      expect(ce1?.testName).toBe("testFuzz_deposit(uint256)")
+      expect(ce1?.runs).toBe(256)
+      expect(ce2?.testName).toBe("testFuzz_swap(uint256,uint256)")
+      expect(ce2?.revertReason).toBe("Division by zero")
     })
   })
 
@@ -775,8 +791,8 @@ Content...`
       })
 
       expect(auditState.knowledgeSynced).toBeDefined()
-      expect(auditState.knowledgeSynced!.success).toBe(true)
-      expect(auditState.knowledgeSynced!.timestamp).toBeGreaterThan(0)
+      expect(auditState.knowledgeSynced?.success).toBe(true)
+      expect(auditState.knowledgeSynced?.timestamp).toBeGreaterThan(0)
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_sync_knowledge")
     })
@@ -794,8 +810,8 @@ Content...`
       })
 
       expect(auditState.knowledgeSynced).toBeDefined()
-      expect(auditState.knowledgeSynced!.success).toBe(false)
-      expect(auditState.knowledgeSynced!.timestamp).toBeGreaterThan(0)
+      expect(auditState.knowledgeSynced?.success).toBe(false)
+      expect(auditState.knowledgeSynced?.timestamp).toBeGreaterThan(0)
     })
   })
 
@@ -837,12 +853,16 @@ Content...`
       })
 
       expect(auditState.coverageReport).toBeDefined()
-      expect(auditState.coverageReport!.files).toHaveLength(2)
-      expect(auditState.coverageReport!.files[0]!.path).toBe("src/Vault.sol")
-      expect(auditState.coverageReport!.files[0]!.linesPct).toBe(85.5)
-      expect(auditState.coverageReport!.files[0]!.branchesPct).toBe(70.0)
-      expect(auditState.coverageReport!.files[0]!.functionsPct).toBe(90.0)
-      expect(auditState.coverageReport!.files[1]!.path).toBe("src/Token.sol")
+      expect(auditState.coverageReport?.files).toHaveLength(2)
+      const covFile0 = auditState.coverageReport?.files.at(0)
+      const covFile1 = auditState.coverageReport?.files.at(1)
+      expect(covFile0).toBeDefined()
+      expect(covFile0?.path).toBe("src/Vault.sol")
+      expect(covFile0?.linesPct).toBe(85.5)
+      expect(covFile0?.branchesPct).toBe(70.0)
+      expect(covFile0?.functionsPct).toBe(90.0)
+      expect(covFile1).toBeDefined()
+      expect(covFile1?.path).toBe("src/Token.sol")
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_forge_coverage")
     })
@@ -866,9 +886,11 @@ Content...`
 
       expect(auditState.proxyContracts).toBeDefined()
       expect(auditState.proxyContracts).toHaveLength(1)
-      expect(auditState.proxyContracts![0]!.file).toBe("src/VaultProxy.sol")
-      expect(auditState.proxyContracts![0]!.proxyType).toBe("UUPS")
-      expect(auditState.proxyContracts![0]!.indicators).toEqual(["delegatecall", "ERC1967 storage slot"])
+      const proxy0 = auditState.proxyContracts?.at(0)
+      expect(proxy0).toBeDefined()
+      expect(proxy0?.file).toBe("src/VaultProxy.sol")
+      expect(proxy0?.proxyType).toBe("UUPS")
+      expect(proxy0?.indicators).toEqual(["delegatecall", "ERC1967 storage slot"])
       // Should NOT create findings
       expect(auditState.findings).toHaveLength(0)
       expect(auditState.toolsExecuted).toHaveLength(1)
@@ -913,10 +935,14 @@ Content...`
 
       expect(auditState.gasHotspots).toBeDefined()
       expect(auditState.gasHotspots).toHaveLength(2)
-      expect(auditState.gasHotspots![0]!.contract).toBe("Vault")
-      expect(auditState.gasHotspots![0]!.function).toBe("withdraw")
-      expect(auditState.gasHotspots![0]!.avgGas).toBe(150000)
-      expect(auditState.gasHotspots![1]!.function).toBe("deposit")
+      const gas0 = auditState.gasHotspots?.at(0)
+      const gas1 = auditState.gasHotspots?.at(1)
+      expect(gas0).toBeDefined()
+      expect(gas0?.contract).toBe("Vault")
+      expect(gas0?.function).toBe("withdraw")
+      expect(gas0?.avgGas).toBe(150000)
+      expect(gas1).toBeDefined()
+      expect(gas1?.function).toBe("deposit")
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_gas_analysis")
     })

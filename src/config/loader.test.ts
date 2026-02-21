@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 describe("loadArgusConfig", () => {
   let tempDir: string
@@ -50,7 +50,7 @@ describe("loadArgusConfig", () => {
         reporting: {
           gasAnalysis: true,
         },
-      })
+      }),
     )
 
     const { loadArgusConfig } = await import("./loader")
@@ -75,7 +75,7 @@ describe("loadArgusConfig", () => {
   "solodit": {
     "port": 4000,
   }
-}`
+}`,
     )
 
     const { loadArgusConfig } = await import("./loader")
@@ -123,7 +123,7 @@ describe("loadArgusConfig", () => {
       join(opencodeDir, "solidity-argus.json"),
       JSON.stringify({
         background: { max_concurrent: -5 },
-      })
+      }),
     )
 
     const { loadArgusConfig } = await import("./loader")
@@ -135,10 +135,7 @@ describe("loadArgusConfig", () => {
   it("handles malformed JSON gracefully", async () => {
     const opencodeDir = join(tempDir, ".opencode")
     mkdirSync(opencodeDir, { recursive: true })
-    writeFileSync(
-      join(opencodeDir, "solidity-argus.json"),
-      "{ not valid json at all"
-    )
+    writeFileSync(join(opencodeDir, "solidity-argus.json"), "{ not valid json at all")
 
     const { loadArgusConfig } = await import("./loader")
     const config = loadArgusConfig(tempDir)
@@ -158,10 +155,7 @@ describe("loadArgusConfig", () => {
 
   it("_mergeConfigs with only user config", async () => {
     const { _mergeConfigs } = await import("./loader")
-    const config = _mergeConfigs(
-      { agents: { argus: { model: "user-only" } } },
-      null
-    )
+    const config = _mergeConfigs({ agents: { argus: { model: "user-only" } } }, null)
 
     expect(config.agents.argus.model).toBe("user-only")
     expect(config.reporting.format).toBe("markdown")

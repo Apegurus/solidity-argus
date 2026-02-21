@@ -355,7 +355,9 @@ describe("full audit lifecycle simulation", () => {
     expect(output.system[0]).toContain('<argus-context agent="argus">')
     expect(output.system[0]).toContain("Contracts: 1 reviewed")
     expect(output.system[0]).toContain("Findings: Critical=0 High=1 Medium=1 Low=0 Info=0")
-    expect(output.system[0]).toContain("Tools: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract")
+    expect(output.system[0]).toContain(
+      "Tools: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract",
+    )
   })
 
   it("enforcer produces phase reminder for argus during audit", async () => {
@@ -404,7 +406,7 @@ describe("full audit lifecycle simulation", () => {
     expect(result.report).toContain("argus_slither_analyze")
     expect(result.report).toContain("argus_forge_fuzz")
     expect(result.report).toContain("### Solodit Cross-References")
-    expect(result.report).toContain("\"reentrancy withdraw\" — 1 results")
+    expect(result.report).toContain('"reentrancy withdraw" — 1 results')
     expect(result.report).toContain("### Fuzz Evidence")
     expect(result.report).toContain("testFuzzWithdraw")
   })
@@ -414,14 +416,19 @@ describe("full audit lifecycle simulation", () => {
     await runCoreToolSequence(toolHook)
     state.currentPhase = "testing"
 
-    const compactionHook = createCompactionHook(() => state, () => null)
+    const compactionHook = createCompactionHook(
+      () => state,
+      () => null,
+    )
     const compacted = await compactionHook({ summary: "Large prior context" })
 
     expect(compacted).not.toBeNull()
     expect(compacted).toContain("<argus-audit-state>")
     expect(compacted).toContain("Phase: testing")
     expect(compacted).toContain("Contracts Reviewed: src/Vault.sol")
-    expect(compacted).toContain("Tools Executed: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract")
+    expect(compacted).toContain(
+      "Tools Executed: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract",
+    )
   })
 
   it("full pipeline: tools -> state -> context -> report", async () => {
@@ -444,7 +451,10 @@ describe("full audit lifecycle simulation", () => {
     const systemOutput = { system: [] as string[] }
     await systemHook({ sessionID: "ses-pipeline", model: "test-model" }, systemOutput)
 
-    const compactionHook = createCompactionHook(() => state, () => null)
+    const compactionHook = createCompactionHook(
+      () => state,
+      () => null,
+    )
     const compacted = await compactionHook({ summary: "Audit context to compact" })
 
     const report = await executeReportGeneration(

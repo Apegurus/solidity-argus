@@ -1,15 +1,20 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test"
-import { mkdirSync, writeFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { getRequiredAuditSkills, normalizeSkillName, resolveArgusSkills, resolveSkillRoots } from "./argus-skill-resolver"
+import { join } from "node:path"
 import type { ArgusConfig } from "../config/types"
+import {
+  getRequiredAuditSkills,
+  normalizeSkillName,
+  resolveArgusSkills,
+  resolveSkillRoots,
+} from "./argus-skill-resolver"
 
 describe("argus-skill-resolver", () => {
   it("normalizes legacy and namespaced skill names", () => {
     expect(normalizeSkillName("vulnerability-patterns/reentrancy")).toBe("reentrancy")
     expect(normalizeSkillName("building-secure-contracts/token-integration-analyzer")).toBe(
-      "token-integration-analyzer"
+      "token-integration-analyzer",
     )
     expect(normalizeSkillName("protocol-patterns/amm-dex")).toBe("amm-dex")
   })
@@ -30,7 +35,7 @@ describe("argus-skill-resolver", () => {
 describe("skill precedence", () => {
   let tmpDir: string
   let customDir: string
-  let bundledSkillContent: string
+  let _bundledSkillContent: string
   let customSkillContent: string
 
   beforeEach(() => {
@@ -38,8 +43,10 @@ describe("skill precedence", () => {
     customDir = join(tmpDir, "custom-skills")
     mkdirSync(join(customDir, "reentrancy"), { recursive: true })
 
-    bundledSkillContent = "---\nname: reentrancy\ndescription: bundled reentrancy\n---\n# Bundled reentrancy"
-    customSkillContent = "---\nname: reentrancy\ndescription: custom reentrancy\n---\n# Custom reentrancy"
+    _bundledSkillContent =
+      "---\nname: reentrancy\ndescription: bundled reentrancy\n---\n# Bundled reentrancy"
+    customSkillContent =
+      "---\nname: reentrancy\ndescription: custom reentrancy\n---\n# Custom reentrancy"
     writeFileSync(join(customDir, "reentrancy", "SKILL.md"), customSkillContent)
   })
 
@@ -87,23 +94,23 @@ describe("skill precedence", () => {
     const skills = resolveArgusSkills(tmpDir, config)
     const reentrancy = skills.get("reentrancy")
     expect(reentrancy).toBeDefined()
-    expect(reentrancy!.source).toBe("custom")
-    expect(reentrancy!.content).toContain("Custom reentrancy")
+    expect(reentrancy?.source).toBe("custom")
+    expect(reentrancy?.content).toContain("Custom reentrancy")
   })
 
   it("no collision: both sources loaded regardless of precedence", () => {
     mkdirSync(join(customDir, "my-unique-check"), { recursive: true })
     writeFileSync(
       join(customDir, "my-unique-check", "SKILL.md"),
-      "---\nname: my-unique-check\ndescription: unique\n---\n# Unique"
+      "---\nname: my-unique-check\ndescription: unique\n---\n# Unique",
     )
 
     const config = makeConfig("bundled-first")
     const skills = resolveArgusSkills(tmpDir, config)
     expect(skills.has("reentrancy")).toBe(true)
-    expect(skills.get("reentrancy")!.source).toBe("bundled")
+    expect(skills.get("reentrancy")?.source).toBe("bundled")
     expect(skills.has("my-unique-check")).toBe(true)
-    expect(skills.get("my-unique-check")!.source).toBe("custom")
+    expect(skills.get("my-unique-check")?.source).toBe("custom")
   })
 })
 

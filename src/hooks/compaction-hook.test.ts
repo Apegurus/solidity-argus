@@ -1,8 +1,8 @@
-import { test, expect, describe } from "bun:test"
-import { createCompactionHook } from "./compaction-hook"
+import { describe, expect, test } from "bun:test"
 import type { AuditState, Finding } from "../state/types"
-import type { ReconContext } from "./recon-context-builder"
 import type { ProjectConfig } from "../utils/project-detector"
+import { createCompactionHook } from "./compaction-hook"
+import type { ReconContext } from "./recon-context-builder"
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -80,9 +80,10 @@ describe("createCompactionHook", () => {
     expect(result).not.toBeNull()
     expect(result).toContain("<argus-audit-state>")
     expect(result).toContain("</argus-audit-state>")
+    if (!result) return
 
-    const openIdx = result!.indexOf("<argus-audit-state>")
-    const closeIdx = result!.indexOf("</argus-audit-state>")
+    const openIdx = result.indexOf("<argus-audit-state>")
+    const closeIdx = result.indexOf("</argus-audit-state>")
     expect(openIdx).toBeLessThan(closeIdx)
   })
 
@@ -127,7 +128,10 @@ describe("createCompactionHook", () => {
       ],
       auditArtifacts: [],
     }
-    const hook = createCompactionHook(() => state, () => recon)
+    const hook = createCompactionHook(
+      () => state,
+      () => recon,
+    )
     const result = await hook({ summary: "s" })
     expect(result).toContain("<argus-audit-state>")
     expect(result).toContain("<argus-recon>")
@@ -148,11 +152,12 @@ describe("createCompactionHook", () => {
     const recon: ReconContext = {
       projectConfig: null,
       dependencyRisks: [],
-      auditArtifacts: [
-        { type: "slither-output", path: "/tmp/slither.json", name: "slither.json" },
-      ],
+      auditArtifacts: [{ type: "slither-output", path: "/tmp/slither.json", name: "slither.json" }],
     }
-    const hook = createCompactionHook(() => null, () => recon)
+    const hook = createCompactionHook(
+      () => null,
+      () => recon,
+    )
     const result = await hook({ summary: "s" })
     expect(result).not.toContain("<argus-audit-state>")
     expect(result).toContain("<argus-recon>")
@@ -160,7 +165,10 @@ describe("createCompactionHook", () => {
   })
 
   test("returns null when no state and recon returns null", async () => {
-    const hook = createCompactionHook(() => null, () => null)
+    const hook = createCompactionHook(
+      () => null,
+      () => null,
+    )
     const result = await hook({ summary: "s" })
     expect(result).toBeNull()
   })

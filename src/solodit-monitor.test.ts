@@ -1,13 +1,9 @@
-import { describe, it, expect, afterEach, beforeEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import ArgusPlugin from "./index"
 import * as lifecycleModule from "./solodit-lifecycle"
 
-const {
-  _runMonitoringCycle,
-  _resetSoloditState,
-  _setTestConfig,
-  stopSoloditMonitoring,
-} = lifecycleModule
+const { _runMonitoringCycle, _resetSoloditState, _setTestConfig, stopSoloditMonitoring } =
+  lifecycleModule
 
 function createFakeChild(exitCode = 0) {
   return {

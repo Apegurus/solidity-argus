@@ -1,8 +1,8 @@
-import { describe, it, expect, afterEach } from "bun:test"
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, describe, expect, it } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { resolveProjectDir, findFoundryProjectDir } from "./project-utils"
+import { join } from "node:path"
+import { findFoundryProjectDir, resolveProjectDir } from "./project-utils"
 
 describe("resolveProjectDir", () => {
   it("returns context.directory when present", () => {

@@ -1,10 +1,10 @@
-import { describe, it, expect } from "bun:test"
+import { describe, expect, it } from "bun:test"
 import {
-  PatternDefinitionSchema,
   PatternCategorySchema,
-  PatternPackSchema,
   type PatternDefinition,
+  PatternDefinitionSchema,
   type PatternPack,
+  PatternPackSchema,
 } from "./pattern-schema"
 
 describe("PatternCategorySchema", () => {

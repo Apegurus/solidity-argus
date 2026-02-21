@@ -238,7 +238,11 @@ describe("similarity", () => {
       const pairs = computeAllPairs(docs, corpus)
 
       for (let i = 1; i < pairs.length; i += 1) {
-        expect(pairs[i - 1]!.score.composite).toBeGreaterThanOrEqual(pairs[i]!.score.composite)
+        const prev = pairs.at(i - 1)
+        const curr = pairs.at(i)
+        expect(prev).toBeDefined()
+        expect(curr).toBeDefined()
+        expect(prev?.score.composite).toBeGreaterThanOrEqual(curr?.score.composite ?? 0)
       }
     })
   })
@@ -281,9 +285,10 @@ Governance quorum updates and timelock execution details for proposal scheduling
       expect(a).not.toBeNull()
       expect(b).not.toBeNull()
       expect(filler).not.toBeNull()
+      if (!a || !b || !filler) return
 
-      const corpus = buildTfidfCorpus([a!, b!, filler!])
-      const score = computeSimilarity(a!, b!, corpus)
+      const corpus = buildTfidfCorpus([a, b, filler])
+      const score = computeSimilarity(a, b, corpus)
 
       expect(score.composite).toBeGreaterThan(0.7)
     })
@@ -325,9 +330,10 @@ Reentrancy lock ordering checks and external call sequencing guidance.`)
       expect(a).not.toBeNull()
       expect(b).not.toBeNull()
       expect(filler).not.toBeNull()
+      if (!a || !b || !filler) return
 
-      const corpus = buildTfidfCorpus([a!, b!, filler!])
-      const score = computeSimilarity(a!, b!, corpus)
+      const corpus = buildTfidfCorpus([a, b, filler])
+      const score = computeSimilarity(a, b, corpus)
 
       expect(score.composite).toBeLessThan(0.3)
     })

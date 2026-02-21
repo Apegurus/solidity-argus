@@ -1,15 +1,15 @@
 import { describe, expect, it } from "bun:test"
-import type { SkillDoc } from "./normalize"
-import type { SimilarityPair, SimilarityScore } from "./similarity"
+import type { SkillReport } from "./gates"
 import {
-  DEFAULT_GATE_CONFIG,
   checkExactRegexConflicts,
+  DEFAULT_GATE_CONFIG,
   evaluatePair,
   formatReportJson,
   formatReportText,
   generateReport,
 } from "./gates"
-import type { SkillReport } from "./gates"
+import type { SkillDoc } from "./normalize"
+import type { SimilarityPair, SimilarityScore } from "./similarity"
 
 function makeScore(overrides: Partial<SimilarityScore>): SimilarityScore {
   return {
@@ -180,7 +180,12 @@ describe("gates", () => {
     })
 
     it("sorts findings by level then score", () => {
-      const docs = [makeDoc({ name: "a" }), makeDoc({ name: "b" }), makeDoc({ name: "c" }), makeDoc({ name: "d" })]
+      const docs = [
+        makeDoc({ name: "a" }),
+        makeDoc({ name: "b" }),
+        makeDoc({ name: "c" }),
+        makeDoc({ name: "d" }),
+      ]
 
       const pairs = [
         makePair("b", "c", { composite: 0.79, bodyTfidf: 0.8 }),
@@ -196,7 +201,9 @@ describe("gates", () => {
 
       expect(report.findings[0]?.verdict.level).toBe("block")
       expect(report.findings[1]?.verdict.level).toBe("warn")
-      expect(report.findings[1]?.score.composite).toBeGreaterThanOrEqual(report.findings[2]?.score.composite ?? 0)
+      expect(report.findings[1]?.score.composite).toBeGreaterThanOrEqual(
+        report.findings[2]?.score.composite ?? 0,
+      )
       expect(report.findings[3]?.verdict.level).toBe("info")
     })
 

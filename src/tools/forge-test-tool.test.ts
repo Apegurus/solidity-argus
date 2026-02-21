@@ -1,14 +1,10 @@
-import { expect, test } from "bun:test";
-import type { ToolContext } from "@opencode-ai/plugin";
-import {
-  executeForgeTest,
-  forgeTestTool,
-  type ForgeCommandResult,
-} from "./forge-test-tool";
+import { expect, test } from "bun:test"
+import type { ToolContext } from "@opencode-ai/plugin"
+import { executeForgeTest, type ForgeCommandResult, forgeTestTool } from "./forge-test-tool"
 
 function createContext(): { context: ToolContext; metadataCalls: Array<{ title?: string }> } {
-  const metadataCalls: Array<{ title?: string }> = [];
-  const abortController = new AbortController();
+  const metadataCalls: Array<{ title?: string }> = []
+  const abortController = new AbortController()
 
   const context: ToolContext = {
     sessionID: "session-1",
@@ -18,24 +14,24 @@ function createContext(): { context: ToolContext; metadataCalls: Array<{ title?:
     worktree: "/tmp/project",
     abort: abortController.signal,
     metadata(input) {
-      metadataCalls.push({ title: input.title });
+      metadataCalls.push({ title: input.title })
     },
     async ask() {
-      return;
+      return
     },
-  };
+  }
 
-  return { context, metadataCalls };
+  return { context, metadataCalls }
 }
 
 test("forgeTestTool uses tool() helper contract", () => {
-  expect(forgeTestTool.description.length).toBeGreaterThan(0);
-  expect(forgeTestTool.args).toBeDefined();
-  expect(typeof forgeTestTool.execute).toBe("function");
-});
+  expect(forgeTestTool.description.length).toBeGreaterThan(0)
+  expect(forgeTestTool.args).toBeDefined()
+  expect(typeof forgeTestTool.execute).toBe("function")
+})
 
 test("executeForgeTest parses contract-mapped forge test JSON", async () => {
-  const { context, metadataCalls } = createContext();
+  const { context, metadataCalls } = createContext()
   const stdout = JSON.stringify({
     tests: {
       "VaultTest.sol": {
@@ -45,52 +41,48 @@ test("executeForgeTest parses contract-mapped forge test JSON", async () => {
       },
     },
     success: false,
-  });
+  })
 
-  const result = await executeForgeTest(
-    { target: "." },
-    context,
-    async (command, signal, cwd) => {
-      expect(command).toEqual(["forge", "test", "--json", "-vvv"]);
-      expect(signal).toBe(context.abort);
-      expect(cwd).toBe("/tmp/project");
-      return { stdout, stderr: "", exitCode: 1 };
-    }
-  );
+  const result = await executeForgeTest({ target: "." }, context, async (command, signal, cwd) => {
+    expect(command).toEqual(["forge", "test", "--json", "-vvv"])
+    expect(signal).toBe(context.abort)
+    expect(cwd).toBe("/tmp/project")
+    return { stdout, stderr: "", exitCode: 1 }
+  })
 
-  expect(result.success).toBe(false);
-  expect(result.summary).toEqual({ passed: 1, failed: 1, skipped: 1, total: 3 });
+  expect(result.success).toBe(false)
+  expect(result.summary).toEqual({ passed: 1, failed: 1, skipped: 1, total: 3 })
   expect(result.tests).toEqual([
     { name: "test_deposit", contract: "VaultTest.sol", status: "pass", gas: 21000 },
     { name: "test_withdraw_fails", contract: "VaultTest.sol", status: "fail", gas: 5000 },
-  ]);
-  expect(metadataCalls[0]?.title).toContain("forge test");
-  expect(result.executionTime).toBeGreaterThanOrEqual(0);
-});
+  ])
+  expect(metadataCalls[0]?.title).toContain("forge test")
+  expect(result.executionTime).toBeGreaterThanOrEqual(0)
+})
 
 test("executeForgeTest parses flat-array forge test JSON", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
   const stdout = JSON.stringify({
     tests: [
       { name: "testA", contract: "A.t.sol", status: "pass", gas: 101 },
       { name: "testB", contract: "A.t.sol", status: "fail", gas: 202 },
     ],
     success: false,
-  });
+  })
 
-  const result = await executeForgeTest(
-    { target: ".", verbosity: 2 },
-    context,
-    async () => ({ stdout, stderr: "", exitCode: 1 })
-  );
+  const result = await executeForgeTest({ target: ".", verbosity: 2 }, context, async () => ({
+    stdout,
+    stderr: "",
+    exitCode: 1,
+  }))
 
-  expect(result.summary).toEqual({ passed: 1, failed: 1, skipped: 0, total: 2 });
-  expect(result.tests[0]?.status).toBe("pass");
-  expect(result.tests[1]?.status).toBe("fail");
-});
+  expect(result.summary).toEqual({ passed: 1, failed: 1, skipped: 0, total: 2 })
+  expect(result.tests[0]?.status).toBe("pass")
+  expect(result.tests[1]?.status).toBe("fail")
+})
 
 test("executeForgeTest runs coverage command and parses report", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
   const responses: ForgeCommandResult[] = [
     {
       stdout: JSON.stringify({
@@ -126,10 +118,10 @@ test("executeForgeTest runs coverage command and parses report", async () => {
       stderr: "",
       exitCode: 0,
     },
-  ];
+  ]
 
-  const calls: string[][] = [];
-  const cwdCalls: string[] = [];
+  const calls: string[][] = []
+  const cwdCalls: string[] = []
   const result = await executeForgeTest(
     {
       target: "contracts",
@@ -142,15 +134,15 @@ test("executeForgeTest runs coverage command and parses report", async () => {
     },
     context,
     async (command, _signal, cwd) => {
-      calls.push(command);
-      cwdCalls.push(cwd);
-      const next = responses.shift();
+      calls.push(command)
+      cwdCalls.push(cwd)
+      const next = responses.shift()
       if (!next) {
-        throw new Error("missing mocked response");
+        throw new Error("missing mocked response")
       }
-      return next;
-    }
-  );
+      return next
+    },
+  )
 
   expect(calls).toEqual([
     [
@@ -167,9 +159,9 @@ test("executeForgeTest runs coverage command and parses report", async () => {
       "--gas-report",
     ],
     ["forge", "coverage", "--report", "json"],
-  ]);
-  expect(cwdCalls).toEqual(["/tmp/project", "/tmp/project"]);
-  expect(result.success).toBe(true);
+  ])
+  expect(cwdCalls).toEqual(["/tmp/project", "/tmp/project"])
+  expect(result.success).toBe(true)
   expect(result.coverageReport).toEqual({
     files: [
       {
@@ -187,38 +179,38 @@ test("executeForgeTest runs coverage command and parses report", async () => {
         uncoveredFunctions: [],
       },
     ],
-  });
-});
+  })
+})
 
 test("executeForgeTest handles ENOENT when forge is missing", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
 
   const result = await executeForgeTest({ target: "." }, context, async () => {
-    const error = new Error("forge not found") as Error & { code?: string };
-    error.code = "ENOENT";
-    throw error;
-  });
+    const error = new Error("forge not found") as Error & { code?: string }
+    error.code = "ENOENT"
+    throw error
+  })
 
-  expect(result.success).toBe(false);
+  expect(result.success).toBe(false)
   expect(result.error).toBe(
-    "Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash"
-  );
-});
+    "Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash",
+  )
+})
 
 test("executeForgeTest handles timeout and abort errors", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
 
   const timeoutResult = await executeForgeTest({ target: "." }, context, async () => {
-    const error = new Error("timed out") as Error & { code?: string };
-    error.code = "ETIMEDOUT";
-    throw error;
-  });
-  expect(timeoutResult.success).toBe(false);
-  expect(timeoutResult.error).toBe("forge test timed out");
+    const error = new Error("timed out") as Error & { code?: string }
+    error.code = "ETIMEDOUT"
+    throw error
+  })
+  expect(timeoutResult.success).toBe(false)
+  expect(timeoutResult.error).toBe("forge test timed out")
 
   const abortResult = await executeForgeTest({ target: "." }, context, async () => {
-    throw new DOMException("Aborted", "AbortError");
-  });
-  expect(abortResult.success).toBe(false);
-  expect(abortResult.error).toBe("forge test aborted");
-});
+    throw new DOMException("Aborted", "AbortError")
+  })
+  expect(abortResult.success).toBe(false)
+  expect(abortResult.error).toBe("forge test aborted")
+})

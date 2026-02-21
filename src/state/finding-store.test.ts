@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { createFindingStore } from "./finding-store";
-import type { AuditState, Finding } from "./types";
+import { describe, expect, test } from "bun:test"
+import { createFindingStore } from "./finding-store"
+import type { AuditState, Finding } from "./types"
 
 function createBaseState(findings: Finding[] = []): AuditState {
   return {
@@ -14,14 +14,10 @@ function createBaseState(findings: Finding[] = []): AuditState {
     startTime: 1,
     soloditResults: [],
     fuzzCounterexamples: [],
-  };
+  }
 }
 
-function createPersistedFinding(
-  check: string,
-  file: string,
-  lines: [number, number]
-): Finding {
+function createPersistedFinding(check: string, file: string, lines: [number, number]): Finding {
   return {
     id: `persisted-${check}-${file}-${lines[0]}-${lines[1]}`,
     check,
@@ -31,7 +27,7 @@ function createPersistedFinding(
     file,
     lines,
     source: "slither",
-  };
+  }
 }
 
 describe("FindingStore - Hydration", () => {
@@ -40,9 +36,9 @@ describe("FindingStore - Hydration", () => {
       createPersistedFinding("reentrancy-eth", "Vault.sol", [10, 15]),
       createPersistedFinding("unchecked-call", "Token.sol", [20, 24]),
       createPersistedFinding("tx-origin", "Auth.sol", [5, 9]),
-    ];
-    const state = createBaseState(persistedFindings);
-    const store = createFindingStore(state);
+    ]
+    const state = createBaseState(persistedFindings)
+    const store = createFindingStore(state)
 
     store.addFinding({
       check: "reentrancy-eth",
@@ -52,7 +48,7 @@ describe("FindingStore - Hydration", () => {
       file: "Vault.sol",
       lines: [10, 15],
       source: "slither",
-    });
+    })
 
     store.addFinding({
       check: "unchecked-call",
@@ -62,7 +58,7 @@ describe("FindingStore - Hydration", () => {
       file: "Token.sol",
       lines: [20, 24],
       source: "slither",
-    });
+    })
 
     store.addFinding({
       check: "tx-origin",
@@ -72,27 +68,27 @@ describe("FindingStore - Hydration", () => {
       file: "Auth.sol",
       lines: [5, 9],
       source: "slither",
-    });
+    })
 
-    expect(state.findings.length).toBe(3);
-  });
+    expect(state.findings.length).toBe(3)
+  })
 
   test("should report hydrated findings via hasFinding", () => {
     const persistedFindings = [
       createPersistedFinding("reentrancy-eth", "Vault.sol", [10, 15]),
       createPersistedFinding("unchecked-call", "Token.sol", [20, 24]),
       createPersistedFinding("tx-origin", "Auth.sol", [5, 9]),
-    ];
-    const state = createBaseState(persistedFindings);
-    const store = createFindingStore(state);
+    ]
+    const state = createBaseState(persistedFindings)
+    const store = createFindingStore(state)
 
-    expect(store.hasFinding("reentrancy-eth", "Vault.sol", [10, 15])).toBe(true);
-    expect(store.hasFinding("unchecked-call", "Token.sol", [20, 24])).toBe(true);
-    expect(store.hasFinding("tx-origin", "Auth.sol", [5, 9])).toBe(true);
-  });
+    expect(store.hasFinding("reentrancy-eth", "Vault.sol", [10, 15])).toBe(true)
+    expect(store.hasFinding("unchecked-call", "Token.sol", [20, 24])).toBe(true)
+    expect(store.hasFinding("tx-origin", "Auth.sol", [5, 9])).toBe(true)
+  })
 
   test("should skip malformed findings while hydrating", () => {
-    const validFinding = createPersistedFinding("reentrancy-eth", "Vault.sol", [10, 15]);
+    const validFinding = createPersistedFinding("reentrancy-eth", "Vault.sol", [10, 15])
     const malformedFindings = [
       {
         ...createPersistedFinding("bad-check", "Vault.sol", [1, 2]),
@@ -106,23 +102,20 @@ describe("FindingStore - Hydration", () => {
         ...createPersistedFinding("bad-lines", "Vault.sol", [5, 6]),
         lines: [5] as unknown as [number, number],
       },
-    ];
+    ]
 
-    const state = createBaseState([
-      validFinding,
-      ...(malformedFindings as unknown as Finding[]),
-    ]);
-    const store = createFindingStore(state);
+    const state = createBaseState([validFinding, ...(malformedFindings as unknown as Finding[])])
+    const store = createFindingStore(state)
 
-    expect(store.hasFinding("reentrancy-eth", "Vault.sol", [10, 15])).toBe(true);
-    expect(store.hasFinding("bad-check", "Vault.sol", [1, 2])).toBe(false);
-    expect(store.hasFinding("bad-file", "", [3, 4])).toBe(false);
-    expect(store.hasFinding("bad-lines", "Vault.sol", [5, 6])).toBe(false);
-  });
+    expect(store.hasFinding("reentrancy-eth", "Vault.sol", [10, 15])).toBe(true)
+    expect(store.hasFinding("bad-check", "Vault.sol", [1, 2])).toBe(false)
+    expect(store.hasFinding("bad-file", "", [3, 4])).toBe(false)
+    expect(store.hasFinding("bad-lines", "Vault.sol", [5, 6])).toBe(false)
+  })
 
   test("should keep deduplication after serialize and rehydrate round trip", () => {
-    const originalState = createBaseState();
-    const originalStore = createFindingStore(originalState);
+    const originalState = createBaseState()
+    const originalStore = createFindingStore(originalState)
 
     originalStore.addFinding({
       check: "reentrancy-eth",
@@ -132,7 +125,7 @@ describe("FindingStore - Hydration", () => {
       file: "Vault.sol",
       lines: [10, 15],
       source: "slither",
-    });
+    })
 
     originalStore.addFinding({
       check: "unchecked-call",
@@ -142,7 +135,7 @@ describe("FindingStore - Hydration", () => {
       file: "Token.sol",
       lines: [20, 24],
       source: "slither",
-    });
+    })
 
     originalStore.addFinding({
       check: "tx-origin",
@@ -152,11 +145,11 @@ describe("FindingStore - Hydration", () => {
       file: "Auth.sol",
       lines: [5, 9],
       source: "slither",
-    });
+    })
 
-    const serialized = JSON.stringify(originalState);
-    const restoredState = JSON.parse(serialized) as AuditState;
-    const restoredStore = createFindingStore(restoredState);
+    const serialized = JSON.stringify(originalState)
+    const restoredState = JSON.parse(serialized) as AuditState
+    const restoredStore = createFindingStore(restoredState)
 
     restoredStore.addFinding({
       check: "reentrancy-eth",
@@ -166,7 +159,7 @@ describe("FindingStore - Hydration", () => {
       file: "Vault.sol",
       lines: [10, 15],
       source: "slither",
-    });
+    })
 
     restoredStore.addFinding({
       check: "unchecked-call",
@@ -176,7 +169,7 @@ describe("FindingStore - Hydration", () => {
       file: "Token.sol",
       lines: [20, 24],
       source: "slither",
-    });
+    })
 
     restoredStore.addFinding({
       check: "tx-origin",
@@ -186,11 +179,9 @@ describe("FindingStore - Hydration", () => {
       file: "Auth.sol",
       lines: [5, 9],
       source: "slither",
-    });
+    })
 
-    expect(restoredState.findings.length).toBe(3);
-    expect(restoredStore.hasFinding("reentrancy-eth", "Vault.sol", [10, 15])).toBe(
-      true
-    );
-  });
-});
+    expect(restoredState.findings.length).toBe(3)
+    expect(restoredStore.hasFinding("reentrancy-eth", "Vault.sol", [10, 15])).toBe(true)
+  })
+})

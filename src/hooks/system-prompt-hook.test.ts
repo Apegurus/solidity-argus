@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import { createAuditEnforcer } from "../features/audit-enforcer/audit-enforcer"
 import type { AuditState, Finding } from "../state/types"
 import {
   buildDynamicContext,
@@ -7,7 +8,6 @@ import {
   estimateTokens,
   type SystemPromptHookDeps,
 } from "./system-prompt-hook"
-import { createAuditEnforcer } from "../features/audit-enforcer/audit-enforcer"
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {

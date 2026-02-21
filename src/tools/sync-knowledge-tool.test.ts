@@ -3,8 +3,8 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "../config/types"
 import {
   executeSyncKnowledge,
-  syncKnowledgeTool,
   type SyncKnowledgeDependencies,
+  syncKnowledgeTool,
 } from "./sync-knowledge-tool"
 
 function createContext(): {

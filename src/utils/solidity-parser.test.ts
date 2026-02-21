@@ -1,5 +1,5 @@
-import { test, expect, mock } from "bun:test";
-import { extractContractInfo } from "./solidity-parser";
+import { expect, spyOn, test } from "bun:test"
+import { extractContractInfo } from "./solidity-parser"
 
 // Mock ABI output from forge inspect
 const mockABIOutput = JSON.stringify([
@@ -36,7 +36,7 @@ const mockABIOutput = JSON.stringify([
     name: "Deposit",
     inputs: [{ name: "user", type: "address", indexed: true }],
   },
-]);
+])
 
 const mockStorageLayoutOutput = JSON.stringify({
   storage: [
@@ -69,7 +69,7 @@ const mockStorageLayoutOutput = JSON.stringify({
       numberOfBytes: "20",
     },
   },
-});
+})
 
 const mockAccessControlABIOutput = JSON.stringify([
   {
@@ -92,7 +92,7 @@ const mockAccessControlABIOutput = JSON.stringify([
     outputs: [],
     stateMutability: "nonpayable",
   },
-]);
+])
 
 const mockCustomAccessControlABIOutput = JSON.stringify([
   {
@@ -109,141 +109,130 @@ const mockCustomAccessControlABIOutput = JSON.stringify([
     outputs: [],
     stateMutability: "nonpayable",
   },
-]);
+])
+
+type SpawnSyncResult = ReturnType<typeof Bun.spawnSync>
 
 test("extractContractInfo - parses basic contract with ownable pattern", async () => {
-  // Mock Bun.spawnSync for forge inspect abi
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from(mockABIOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from(mockStorageLayoutOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  // Temporarily replace Bun.spawnSync
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("TestContract", "/test/project");
+    const result = await extractContractInfo("TestContract", "/test/project")
 
-    expect(result.name).toBe("TestContract");
-    expect(result.functions.length).toBeGreaterThan(0);
-    expect(result.accessControlPattern).toBe("ownable");
-    expect(result.error).toBeUndefined();
+    expect(result.name).toBe("TestContract")
+    expect(result.functions.length).toBeGreaterThan(0)
+    expect(result.accessControlPattern).toBe("ownable")
+    expect(result.error).toBeUndefined()
 
     // Check that deposit function is parsed
-    const depositFunc = result.functions.find((f) => f.name === "deposit");
-    expect(depositFunc).toBeDefined();
-    expect(depositFunc?.mutability).toBe("payable");
+    const depositFunc = result.functions.find((f) => f.name === "deposit")
+    expect(depositFunc).toBeDefined()
+    expect(depositFunc?.mutability).toBe("payable")
 
     // Check that owner function is parsed
-    const ownerFunc = result.functions.find((f) => f.name === "owner");
-    expect(ownerFunc).toBeDefined();
-    expect(ownerFunc?.mutability).toBe("view");
+    const ownerFunc = result.functions.find((f) => f.name === "owner")
+    expect(ownerFunc).toBeDefined()
+    expect(ownerFunc?.mutability).toBe("view")
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - detects access-control pattern", async () => {
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from(mockAccessControlABIOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from(mockStorageLayoutOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("AccessControlContract", "/test/project");
+    const result = await extractContractInfo("AccessControlContract", "/test/project")
 
-    expect(result.accessControlPattern).toBe("access-control");
-    expect(result.error).toBeUndefined();
+    expect(result.accessControlPattern).toBe("access-control")
+    expect(result.error).toBeUndefined()
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - detects custom access control pattern", async () => {
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from(mockCustomAccessControlABIOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from(mockStorageLayoutOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("CustomAccessContract", "/test/project");
+    const result = await extractContractInfo("CustomAccessContract", "/test/project")
 
-    expect(result.accessControlPattern).toBe("custom");
-    expect(result.error).toBeUndefined();
+    expect(result.accessControlPattern).toBe("custom")
+    expect(result.error).toBeUndefined()
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - handles forge error gracefully", async () => {
-  const spawnSyncMock = mock(() => {
-    return {
-      stdout: Buffer.from(""),
-      stderr: Buffer.from("Error: Contract not found"),
-      success: false,
-    };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+  const spy = spyOn(Bun, "spawnSync").mockReturnValue({
+    stdout: Buffer.from(""),
+    stderr: Buffer.from("Error: Contract not found"),
+    success: false,
+  } as SpawnSyncResult)
 
   try {
-    const result = await extractContractInfo("NonExistentContract", "/test/project");
+    const result = await extractContractInfo("NonExistentContract", "/test/project")
 
-    expect(result.error).toBeDefined();
-    expect(result.error).toContain("Error");
-    expect(result.functions).toEqual([]);
-    expect(result.stateVars).toEqual([]);
+    expect(result.error).toBeDefined()
+    expect(result.error).toContain("Error")
+    expect(result.functions).toEqual([])
+    expect(result.stateVars).toEqual([])
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - maps stateMutability to visibility correctly", async () => {
   const abiWithAllMutabilities = JSON.stringify([
@@ -275,123 +264,117 @@ test("extractContractInfo - maps stateMutability to visibility correctly", async
       outputs: [],
       stateMutability: "payable",
     },
-  ]);
+  ])
 
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from(abiWithAllMutabilities),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from(mockStorageLayoutOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("MutabilityTest", "/test/project");
+    const result = await extractContractInfo("MutabilityTest", "/test/project")
 
-    const pureFunc = result.functions.find((f) => f.name === "pureFunc");
-    expect(pureFunc?.visibility).toBe("view");
-    expect(pureFunc?.mutability).toBe("pure");
+    const pureFunc = result.functions.find((f) => f.name === "pureFunc")
+    expect(pureFunc?.visibility).toBe("view")
+    expect(pureFunc?.mutability).toBe("pure")
 
-    const viewFunc = result.functions.find((f) => f.name === "viewFunc");
-    expect(viewFunc?.visibility).toBe("view");
-    expect(viewFunc?.mutability).toBe("view");
+    const viewFunc = result.functions.find((f) => f.name === "viewFunc")
+    expect(viewFunc?.visibility).toBe("view")
+    expect(viewFunc?.mutability).toBe("view")
 
-    const nonpayableFunc = result.functions.find((f) => f.name === "nonpayableFunc");
-    expect(nonpayableFunc?.visibility).toBe("external");
-    expect(nonpayableFunc?.mutability).toBe("nonpayable");
+    const nonpayableFunc = result.functions.find((f) => f.name === "nonpayableFunc")
+    expect(nonpayableFunc?.visibility).toBe("external")
+    expect(nonpayableFunc?.mutability).toBe("nonpayable")
 
-    const payableFunc = result.functions.find((f) => f.name === "payableFunc");
-    expect(payableFunc?.visibility).toBe("external");
-    expect(payableFunc?.mutability).toBe("payable");
+    const payableFunc = result.functions.find((f) => f.name === "payableFunc")
+    expect(payableFunc?.visibility).toBe("external")
+    expect(payableFunc?.mutability).toBe("payable")
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - parses state variables from storage layout", async () => {
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from(mockABIOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from(mockStorageLayoutOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("TestContract", "/test/project");
+    const result = await extractContractInfo("TestContract", "/test/project")
 
-    expect(result.stateVars.length).toBeGreaterThan(0);
+    expect(result.stateVars.length).toBeGreaterThan(0)
 
-    const balanceVar = result.stateVars.find((v) => v.name === "balance");
-    expect(balanceVar).toBeDefined();
-    expect(balanceVar?.type).toBe("uint256");
+    const balanceVar = result.stateVars.find((v) => v.name === "balance")
+    expect(balanceVar).toBeDefined()
+    expect(balanceVar?.type).toBe("uint256")
 
-    const ownerVar = result.stateVars.find((v) => v.name === "owner");
-    expect(ownerVar).toBeDefined();
-    expect(ownerVar?.type).toBe("address");
+    const ownerVar = result.stateVars.find((v) => v.name === "owner")
+    expect(ownerVar).toBeDefined()
+    expect(ownerVar?.type).toBe("address")
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - handles invalid JSON gracefully", async () => {
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from("invalid json {"),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from("invalid json {"),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("BadJSON", "/test/project");
+    const result = await extractContractInfo("BadJSON", "/test/project")
 
-    expect(result.error).toBeDefined();
-    expect(result.functions).toEqual([]);
-    expect(result.stateVars).toEqual([]);
+    expect(result.error).toBeDefined()
+    expect(result.functions).toEqual([])
+    expect(result.stateVars).toEqual([])
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})
 
 test("extractContractInfo - returns default none pattern when no access control detected", async () => {
   const simpleABI = JSON.stringify([
@@ -402,35 +385,33 @@ test("extractContractInfo - returns default none pattern when no access control 
       outputs: [{ name: "", type: "uint256" }],
       stateMutability: "view",
     },
-  ]);
+  ])
 
-  const spawnSyncMock = mock((cmd: string[]) => {
-    if (cmd.includes("abi")) {
+  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+    const args = cmd as string[]
+    if (args.includes("abi")) {
       return {
         stdout: Buffer.from(simpleABI),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    if (cmd.includes("storage-layout")) {
+    if (args.includes("storage-layout")) {
       return {
         stdout: Buffer.from(mockStorageLayoutOutput),
         stderr: Buffer.from(""),
         success: true,
-      };
+      } as SpawnSyncResult
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false };
-  });
-
-  const originalSpawnSync = (Bun as any).spawnSync;
-  (Bun as any).spawnSync = spawnSyncMock;
+    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
+  })
 
   try {
-    const result = await extractContractInfo("SimpleContract", "/test/project");
+    const result = await extractContractInfo("SimpleContract", "/test/project")
 
-    expect(result.accessControlPattern).toBe("none");
-    expect(result.error).toBeUndefined();
+    expect(result.accessControlPattern).toBe("none")
+    expect(result.error).toBeUndefined()
   } finally {
-    (Bun as any).spawnSync = originalSpawnSync;
+    spy.mockRestore()
   }
-});
+})

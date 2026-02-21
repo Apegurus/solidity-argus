@@ -1,9 +1,9 @@
-import { test, expect, describe } from "bun:test"
-import { buildReconContextBlock } from "./recon-context-builder"
-import type { ReconContext } from "./recon-context-builder"
-import type { ProjectConfig } from "../utils/project-detector"
-import type { DependencyRisk } from "../utils/dependency-scanner"
+import { describe, expect, test } from "bun:test"
 import type { AuditArtifact } from "../utils/audit-artifact-detector"
+import type { DependencyRisk } from "../utils/dependency-scanner"
+import type { ProjectConfig } from "../utils/project-detector"
+import type { ReconContext } from "./recon-context-builder"
+import { buildReconContextBlock } from "./recon-context-builder"
 
 function makeProjectConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
@@ -130,7 +130,9 @@ describe("buildReconContextBlock", () => {
       dependencyRisks: risks,
       auditArtifacts: [],
     }
-    const result = buildReconContextBlock(recon)!
+    const result = buildReconContextBlock(recon)
+    expect(result).not.toBeNull()
+    if (!result) return
     const riskLines = result.split("\n").filter((l) => l.startsWith("  - pkg-"))
     expect(riskLines).toHaveLength(5)
     expect(result).toContain("pkg-0")
@@ -147,7 +149,9 @@ describe("buildReconContextBlock", () => {
       dependencyRisks: [],
       auditArtifacts: artifacts,
     }
-    const result = buildReconContextBlock(recon)!
+    const result = buildReconContextBlock(recon)
+    expect(result).not.toBeNull()
+    if (!result) return
     const artifactLines = result.split("\n").filter((l) => l.includes("artifact-"))
     expect(artifactLines).toHaveLength(5)
     expect(result).toContain("artifact-0")

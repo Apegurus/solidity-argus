@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { clusterFindings, DEFAULT_CLUSTER_CONFIG, type ClusterFinding } from "./cluster"
+import { type ClusterFinding, clusterFindings, DEFAULT_CLUSTER_CONFIG } from "./cluster"
 
 function makeFinding(overrides: Partial<ClusterFinding>): ClusterFinding {
   return {
@@ -174,7 +174,11 @@ describe("cluster", () => {
     const findings = [
       makeFinding({ category: "access-control", title: "a1", description: "alpha beta gamma" }),
       makeFinding({ category: "access-control", title: "a2", description: "alpha beta gamma" }),
-      makeFinding({ category: "access-control", title: "a3", description: "isolated unique signal" }),
+      makeFinding({
+        category: "access-control",
+        title: "a3",
+        description: "isolated unique signal",
+      }),
       makeFinding({ category: "oracle", title: "o1", description: "oracle stale price" }),
       makeFinding({ category: "oracle", title: "o2", description: "oracle stale price" }),
     ]

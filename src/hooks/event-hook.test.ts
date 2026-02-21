@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { createEventHook } from "./event-hook"
 import type { EventSubHandler } from "./event-hook"
+import { createEventHook } from "./event-hook"
 
 describe("createEventHook", () => {
   it("handles session.created", async () => {

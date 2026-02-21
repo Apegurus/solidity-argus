@@ -1,13 +1,24 @@
 import { describe, expect, it } from "bun:test"
-import { createAuditEnforcer } from "./audit-enforcer"
 import type { AuditState } from "../../state/types"
+import { createAuditEnforcer } from "./audit-enforcer"
 
 function makeMockState(phase: AuditState["currentPhase"] = "scanning"): AuditState {
   return {
     sessionId: "test",
     projectDir: "/tmp/test",
     contractsReviewed: ["Vault.sol"],
-    findings: [{ id: "f1", check: "reentrancy", severity: "High", confidence: "High", description: "test", file: "Vault.sol", lines: [1, 10] as [number, number], source: "slither" }],
+    findings: [
+      {
+        id: "f1",
+        check: "reentrancy",
+        severity: "High",
+        confidence: "High",
+        description: "test",
+        file: "Vault.sol",
+        lines: [1, 10] as [number, number],
+        source: "slither",
+      },
+    ],
     toolsExecuted: [],
     currentPhase: phase,
     scope: [],

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
-import { createConfigHandler } from "./config-handler"
-import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import type { ArgusConfig } from "../config/types"
+import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
+import { createConfigHandler } from "./config-handler"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
   return {
@@ -138,7 +138,7 @@ describe("createConfigHandler", () => {
           pythia: {},
           scribe: {},
         },
-      })
+      }),
     )
     const config: Config = {}
 
@@ -214,7 +214,7 @@ describe("createConfigHandler", () => {
           enabled: false,
           port: 3000,
         },
-      })
+      }),
     )
     const config: Config = {}
 
@@ -273,17 +273,17 @@ describe("createConfigHandler", () => {
 
     try {
       const handler = createConfigHandler(
-         createArgusConfig({
-           knowledge: {
-             scvd: {
-               enabled: true,
-               apiUrl: "https://api.scvd.dev",
-             },
-             autoSync: true,
-             skillPrecedence: "bundled-first" as const,
-             customSkillsDir: customDir,
-           },
-         })
+        createArgusConfig({
+          knowledge: {
+            scvd: {
+              enabled: true,
+              apiUrl: "https://api.scvd.dev",
+            },
+            autoSync: true,
+            skillPrecedence: "bundled-first" as const,
+            customSkillsDir: customDir,
+          },
+        }),
       )
       const config: Config = {}
 
@@ -309,7 +309,7 @@ describe("createConfigHandler", () => {
           skillPrecedence: "bundled-first" as const,
           customSkillsDir: missingDir,
         },
-      })
+      }),
     )
     const config: Config = {}
 
@@ -325,14 +325,10 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     const tobPaths =
-      config.skills?.paths?.filter((path) =>
-        path.includes("trailofbits-skills/plugins/")
-      ) ?? []
+      config.skills?.paths?.filter((path) => path.includes("trailofbits-skills/plugins/")) ?? []
 
     if (tobPaths.length > 0) {
-      expect(
-        tobPaths.every((path) => path.endsWith("/skills"))
-      ).toBe(true)
+      expect(tobPaths.every((path) => path.endsWith("/skills"))).toBe(true)
     }
   })
 })

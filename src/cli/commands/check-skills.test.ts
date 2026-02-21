@@ -1,7 +1,7 @@
-import { describe, test, expect } from "bun:test"
-import { runAnalysis, loadAndNormalizeSkills } from "./check-skills"
-import { normalizeSkill, type SkillDoc } from "../../skills/analysis/normalize"
+import { describe, expect, test } from "bun:test"
 import { DEFAULT_GATE_CONFIG } from "../../skills/analysis/gates"
+import { normalizeSkill } from "../../skills/analysis/normalize"
+import { loadAndNormalizeSkills, runAnalysis } from "./check-skills"
 
 const SKILL_A = `---
 name: reentrancy-basic
@@ -57,10 +57,11 @@ Check for state changes after external calls. Advanced patterns include cross-fu
 describe("check-skills", () => {
   describe("runAnalysis", () => {
     test("analyzes distinct skills with no blocks", () => {
-      const docA = normalizeSkill(SKILL_A)!
-      const docB = normalizeSkill(SKILL_B)!
+      const docA = normalizeSkill(SKILL_A)
+      const docB = normalizeSkill(SKILL_B)
       expect(docA).not.toBeNull()
       expect(docB).not.toBeNull()
+      if (!docA || !docB) return
 
       const report = runAnalysis([docA, docB], DEFAULT_GATE_CONFIG)
       expect(report.totalSkills).toBe(2)
@@ -68,9 +69,13 @@ describe("check-skills", () => {
     })
 
     test("scores near-duplicate skills higher than distinct skills", () => {
-      const docA = normalizeSkill(SKILL_A)!
-      const docDup = normalizeSkill(SKILL_A_NEAR_DUPLICATE)!
-      const docB = normalizeSkill(SKILL_B)!
+      const docA = normalizeSkill(SKILL_A)
+      const docDup = normalizeSkill(SKILL_A_NEAR_DUPLICATE)
+      const docB = normalizeSkill(SKILL_B)
+      expect(docA).not.toBeNull()
+      expect(docDup).not.toBeNull()
+      expect(docB).not.toBeNull()
+      if (!docA || !docDup || !docB) return
 
       const dupReport = runAnalysis([docA, docDup], DEFAULT_GATE_CONFIG)
       const distinctReport = runAnalysis([docA, docB], DEFAULT_GATE_CONFIG)
@@ -82,8 +87,11 @@ describe("check-skills", () => {
     })
 
     test("detects exact regex conflicts", () => {
-      const docA = normalizeSkill(SKILL_A)!
-      const docDup = normalizeSkill(SKILL_A_NEAR_DUPLICATE)!
+      const docA = normalizeSkill(SKILL_A)
+      const docDup = normalizeSkill(SKILL_A_NEAR_DUPLICATE)
+      expect(docA).not.toBeNull()
+      expect(docDup).not.toBeNull()
+      if (!docA || !docDup) return
 
       const report = runAnalysis([docA, docDup], {
         ...DEFAULT_GATE_CONFIG,
@@ -95,7 +103,9 @@ describe("check-skills", () => {
     })
 
     test("returns empty report for single skill", () => {
-      const docA = normalizeSkill(SKILL_A)!
+      const docA = normalizeSkill(SKILL_A)
+      expect(docA).not.toBeNull()
+      if (!docA) return
       const report = runAnalysis([docA], DEFAULT_GATE_CONFIG)
       expect(report.totalSkills).toBe(1)
       expect(report.findings).toEqual([])

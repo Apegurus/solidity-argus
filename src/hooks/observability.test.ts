@@ -1,16 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
-import { safeCreateHook } from "./safe-create-hook"
-import {
-  createKnowledgeSyncHook,
-  type KnowledgeSyncDependencies,
-} from "./knowledge-sync-hook"
 import type { ArgusConfig } from "../config/types"
-import { getSyncStatus, isSyncStale, syncAll } from "../knowledge/scvd-sync"
-import { saveIndex, type ScvdIndex } from "../knowledge/scvd-index"
 import type { ScvdClient, ScvdFinding } from "../knowledge/scvd-client"
+import { type ScvdIndex, saveIndex } from "../knowledge/scvd-index"
+import { getSyncStatus, syncAll } from "../knowledge/scvd-sync"
 import { resetLoggerSink } from "../shared/logger"
+import { createKnowledgeSyncHook, type KnowledgeSyncDependencies } from "./knowledge-sync-hook"
+import { safeCreateHook } from "./safe-create-hook"
 
 let stderrOutput: string[]
 let origStderrWrite: typeof process.stderr.write
@@ -20,7 +17,7 @@ beforeEach(() => {
   process.env.ARGUS_LOG = "stderr"
   resetLoggerSink()
   origStderrWrite = process.stderr.write.bind(process.stderr)
-  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+  process.stderr.write = ((chunk: string | Uint8Array, ..._rest: unknown[]) => {
     stderrOutput.push(typeof chunk === "string" ? chunk : chunk.toString())
     return true
   }) as typeof process.stderr.write

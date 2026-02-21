@@ -1,8 +1,8 @@
-import { describe, expect, it, spyOn, beforeEach, afterEach } from "bun:test"
-import { createSessionRecoveryHandler } from "./session-recovery"
+import { describe, expect, it, spyOn } from "bun:test"
 import type { AuditStateManager } from "../../managers/types"
-import type { AuditState } from "../../state/types"
 import { resetLoggerSink } from "../../shared/logger"
+import type { AuditState } from "../../state/types"
+import { createSessionRecoveryHandler } from "./session-recovery"
 
 function makeMockManager(state: AuditState | null = null): AuditStateManager {
   return {
@@ -20,7 +20,18 @@ function makeMockState(): AuditState {
     sessionId: "test-session",
     projectDir: "/tmp/test",
     contractsReviewed: ["Vault.sol"],
-    findings: [{ id: "f1", check: "reentrancy", severity: "High", confidence: "High", description: "test", file: "Vault.sol", lines: [1, 10] as [number, number], source: "slither" }],
+    findings: [
+      {
+        id: "f1",
+        check: "reentrancy",
+        severity: "High",
+        confidence: "High",
+        description: "test",
+        file: "Vault.sol",
+        lines: [1, 10] as [number, number],
+        source: "slither",
+      },
+    ],
     toolsExecuted: [],
     currentPhase: "scanning",
     scope: [],
@@ -47,7 +58,7 @@ describe("createSessionRecoveryHandler", () => {
 
     const stderrChunks: string[] = []
     const origWrite = process.stderr.write.bind(process.stderr)
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    process.stderr.write = ((chunk: string | Uint8Array, ..._rest: unknown[]) => {
       stderrChunks.push(typeof chunk === "string" ? chunk : chunk.toString())
       return true
     }) as typeof process.stderr.write
@@ -80,7 +91,9 @@ describe("createSessionRecoveryHandler", () => {
 
   it("does not throw when load fails", async () => {
     const manager = makeMockManager()
-    manager.load = async () => { throw new Error("disk failure") }
+    manager.load = async () => {
+      throw new Error("disk failure")
+    }
     const handler = createSessionRecoveryHandler(manager)
 
     await expect(handler({ type: "session.error" })).resolves.toBeUndefined()

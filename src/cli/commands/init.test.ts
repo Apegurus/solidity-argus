@@ -1,7 +1,7 @@
-import { describe, expect, it, afterEach } from "bun:test"
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, describe, expect, it } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { initCommand } from "./init"
 
 describe("initCommand", () => {
@@ -50,7 +50,7 @@ describe("initCommand", () => {
 
     await initCommand.execute([])
 
-    const content = require("fs").readFileSync(
+    const content = require("node:fs").readFileSync(
       join(dir, ".opencode", "solidity-argus.json"),
       "utf-8",
     )

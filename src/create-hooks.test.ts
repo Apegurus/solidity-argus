@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test"
 import { resolve } from "node:path"
-import { createHooks } from "./create-hooks"
 import { ArgusConfigSchema } from "./config/schema"
-import type { Managers } from "./managers/types"
+import { createHooks } from "./create-hooks"
 import type { HookName } from "./hooks/types"
+import type { Managers } from "./managers/types"
 import type { AuditState } from "./state/types"
 
 const FIXTURE_DIR = resolve(import.meta.dir, "../tests/fixtures/vulnerable-vault")
@@ -44,38 +44,38 @@ function makeManagers(): Managers {
 
 describe("createHooks", () => {
   it("returns all current hooks when all feature hooks are enabled", () => {
-     const config = ArgusConfigSchema.parse({})
+    const config = ArgusConfigSchema.parse({})
 
-     const hooks = createHooks({
-       config,
-       managers: makeManagers(),
-       projectDir: process.cwd(),
-       isHookEnabled: () => true,
-     })
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
 
-     expect(hooks.config).toBeDefined()
-     expect(hooks.event).toBeDefined()
-     expect(hooks["experimental.chat.system.transform"]).toBeDefined()
-     expect(hooks["experimental.session.compacting"]).toBeDefined()
-     expect(hooks["tool.execute.after"]).toBeDefined()
-   })
+    expect(hooks.config).toBeDefined()
+    expect(hooks.event).toBeDefined()
+    expect(hooks["experimental.chat.system.transform"]).toBeDefined()
+    expect(hooks["experimental.session.compacting"]).toBeDefined()
+    expect(hooks["tool.execute.after"]).toBeDefined()
+  })
 
   it("returns undefined for disabled feature hook slots", () => {
-     const config = ArgusConfigSchema.parse({ disabled_hooks: ["compaction"] })
+    const config = ArgusConfigSchema.parse({ disabled_hooks: ["compaction"] })
 
-     const hooks = createHooks({
-       config,
-       managers: makeManagers(),
-       projectDir: process.cwd(),
-       isHookEnabled: (name: HookName) => name !== "compaction",
-     })
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: (name: HookName) => name !== "compaction",
+    })
 
-      expect(hooks["experimental.chat.system.transform"]).toBeDefined()
-     expect(hooks["experimental.session.compacting"]).toBeUndefined()
-     expect(hooks["tool.execute.after"]).toBeDefined()
-     expect(hooks.event).toBeDefined()
-     expect(hooks.config).toBeDefined()
-   })
+    expect(hooks["experimental.chat.system.transform"]).toBeDefined()
+    expect(hooks["experimental.session.compacting"]).toBeUndefined()
+    expect(hooks["tool.execute.after"]).toBeDefined()
+    expect(hooks.event).toBeDefined()
+    expect(hooks.config).toBeDefined()
+  })
 
   it("always keeps config hook enabled even when all feature hooks are disabled", () => {
     const config = ArgusConfigSchema.parse({ disabled_hooks: ["config"] })
@@ -136,11 +136,7 @@ describe("createHooks", () => {
       },
     })
 
-     expect(checkedHooks).toEqual([
-       "compaction",
-       "tool-tracking",
-       "event",
-     ])
+    expect(checkedHooks).toEqual(["compaction", "tool-tracking", "event"])
   })
 
   it("persists current state on session.idle", async () => {
@@ -175,11 +171,9 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    await hooks.event!(
-      ({ event: { type: "session.idle", properties: {} } } as unknown) as Parameters<
-        NonNullable<typeof hooks.event>
-      >[0],
-    )
+    await hooks.event?.({
+      event: { type: "session.idle", properties: {} },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     expect(savedStates).toHaveLength(1)
     expect(savedStates[0]?.sessionId).toBe("active")

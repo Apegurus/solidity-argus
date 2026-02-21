@@ -1,9 +1,9 @@
-import { describe, expect, it, afterEach } from "bun:test"
+import { afterEach, describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
-import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { createManagers } from "./create-managers"
+import { join } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
+import { createManagers } from "./create-managers"
 
 describe("createManagers", () => {
   const tempDirs: string[] = []

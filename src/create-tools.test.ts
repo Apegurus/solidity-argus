@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
-import { createTools } from "./create-tools";
-import type { ArgusConfig } from "./config/types";
+import { describe, expect, it } from "bun:test"
+import type { ArgusConfig } from "./config/types"
+import { createTools } from "./create-tools"
 
 const baseConfig: ArgusConfig = {
   agents: {
@@ -33,18 +33,18 @@ const baseConfig: ArgusConfig = {
   background: {
     max_concurrent: 3,
   },
-};
+}
 
 describe("createTools", () => {
   it("registers exactly 12 tools when solodit is enabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
       solodit: { enabled: true, port: 3000 },
-    };
-    const tools = createTools(config);
-    const toolNames = Object.keys(tools).sort();
+    }
+    const tools = createTools(config)
+    const toolNames = Object.keys(tools).sort()
 
-    expect(toolNames).toHaveLength(12);
+    expect(toolNames).toHaveLength(12)
     expect(toolNames).toEqual([
       "argus_analyze_contract",
       "argus_check_patterns",
@@ -58,17 +58,17 @@ describe("createTools", () => {
       "argus_slither_analyze",
       "argus_solodit_search",
       "argus_sync_knowledge",
-    ]);
-  });
+    ])
+  })
 
   it("registers 11 tools when solodit is disabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
       solodit: { enabled: false, port: 3000 },
-    };
-    const tools = createTools(config);
+    }
+    const tools = createTools(config)
 
-    expect(Object.keys(tools)).toHaveLength(11);
-    expect(tools.argus_solodit_search).toBeUndefined();
-  });
-});
+    expect(Object.keys(tools)).toHaveLength(11)
+    expect(tools.argus_solodit_search).toBeUndefined()
+  })
+})

@@ -1,9 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { mkdirSync, writeFileSync, rmSync } from "node:fs"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
-import {
-  extractDetectionRulesFromSkills,
-} from "./pattern-loader"
+import { extractDetectionRulesFromSkills } from "./pattern-loader"
 
 const TEST_SKILLS_DIR = join(import.meta.dir, "__test-skills__")
 
@@ -37,7 +35,7 @@ detection_rules:
     description: call value
 ---
 
-# Reentrancy`
+# Reentrancy`,
     )
 
     const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
@@ -57,7 +55,7 @@ description: Reentrancy patterns
 pattern_category: reentrancy
 ---
 
-# Reentrancy`
+# Reentrancy`,
     )
 
     const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
@@ -76,7 +74,7 @@ detection_rules:
     description: test
 ---
 
-# Some Skill`
+# Some Skill`,
     )
 
     const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
@@ -96,7 +94,7 @@ detection_rules:
     description: Infinite loop
 ---
 
-# DoS`
+# DoS`,
     )
     writeSkill(
       "vulnerability-patterns/my-sig-skill",
@@ -110,7 +108,7 @@ detection_rules:
     description: ecrecover usage
 ---
 
-# Signatures`
+# Signatures`,
     )
 
     const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
@@ -141,7 +139,7 @@ detection_rules:
     description: tx.origin auth
 ---
 
-# Multi`
+# Multi`,
     )
 
     const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
@@ -174,5 +172,3 @@ describe("production skill detection rules (skills/vulnerability-patterns/)", ()
     }
   })
 })
-
-

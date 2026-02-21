@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "bun:test"
+import { afterEach, describe, expect, it } from "bun:test"
 import { checkSoloditHealth } from "./solodit-health"
 
 describe("checkSoloditHealth", () => {
