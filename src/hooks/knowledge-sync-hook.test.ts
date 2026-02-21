@@ -23,6 +23,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
       format: "markdown",
       severityThreshold: "low",
       gasAnalysis: false,
+      output_dir: ".opencode/reports/",
     },
     solodit: {
       enabled: true,

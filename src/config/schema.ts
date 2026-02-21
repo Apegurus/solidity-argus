@@ -31,6 +31,7 @@ const ReportingConfigSchema = z.object({
   format: z.enum(["markdown"]).default("markdown"),
   severityThreshold: z.enum(["critical", "high", "medium", "low", "informational"]).default("low"),
   gasAnalysis: z.boolean().default(false),
+  output_dir: z.string().default(".opencode/reports/"),
 })
 
 const SoloditConfigSchema = z.object({
@@ -69,6 +70,7 @@ export const ArgusConfigSchema = z.object({
     format: "markdown",
     severityThreshold: "low",
     gasAnalysis: false,
+    output_dir: ".opencode/reports/",
   }),
   solodit: SoloditConfigSchema.default({
     enabled: true,

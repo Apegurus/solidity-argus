@@ -1,4 +1,9 @@
+import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { loadArgusConfig } from "../config/loader"
+import type { ArgusConfig } from "../config/types"
+import { createLogger } from "../shared/logger"
+import { resolveProjectDir } from "../shared/project-utils"
 import type { AuditState, Finding, FindingSeverity } from "../state/types"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
@@ -23,6 +28,11 @@ export type ReportGenerationResult = {
   report: string
   findingsCount: FindingsCount
   filename: string
+  filePath?: string
+}
+
+export type ReportGenerationDependencies = {
+  loadConfig?: (projectDir: string) => ArgusConfig
 }
 
 const SEVERITY_ORDER: FindingSeverity[] = ["Critical", "High", "Medium", "Low", "Informational"]
@@ -414,6 +424,7 @@ export function buildProvenanceAppendix(
 export async function executeReportGeneration(
   args: ReportGeneratorArgs,
   context: ToolContext,
+  deps: ReportGenerationDependencies = {},
 ): Promise<ReportGenerationResult> {
   const includeExecutiveSummary = args.include_executive_summary ?? true
   const threshold = args.severity_threshold ?? "low"
@@ -473,11 +484,31 @@ export async function executeReportGeneration(
 
   sections.push(buildProvenanceAppendix(state, threshold, findings.length))
 
-  return {
-    report: sections.join("\n\n"),
+  const reportMarkdown = sections.join("\n\n")
+  const safeName = args.project_name.replace(/[^a-zA-Z0-9-_]/g, "-")
+  const diskFilename = `${safeName}-${Date.now()}.md`
+
+  const result: ReportGenerationResult = {
+    report: reportMarkdown,
     findingsCount: counts,
     filename: `${args.project_name}-audit-report-${auditDate}.md`,
   }
+
+  try {
+    const loadConfig = deps.loadConfig ?? loadArgusConfig
+    const projectDir = resolveProjectDir(context)
+    const config = loadConfig(projectDir)
+    const outputDir = config.reporting?.output_dir ?? ".opencode/reports/"
+    const fullPath = path.join(projectDir, outputDir, diskFilename)
+    await Bun.write(fullPath, reportMarkdown)
+    result.filePath = fullPath
+  } catch (err: unknown) {
+    const logger = createLogger()
+    const message = err instanceof Error ? err.message : String(err)
+    logger.warn(`Failed to write report to disk: ${message}`)
+  }
+
+  return result
 }
 
 export const reportGeneratorTool = tool({

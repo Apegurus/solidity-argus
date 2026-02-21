@@ -37,6 +37,7 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
     format: "markdown",
     severityThreshold: "low",
     gasAnalysis: false,
+    output_dir: ".opencode/reports/",
   },
   solodit: {
     enabled: true,

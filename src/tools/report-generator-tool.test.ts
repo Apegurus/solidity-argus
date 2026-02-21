@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type {
@@ -490,4 +493,136 @@ test("provenance appendix omits knowledge sources when none loaded", async () =>
   )
 
   expect(result.report).not.toContain("### Knowledge Sources")
+})
+
+test("executeReportGeneration writes report to disk and returns filePath", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-"))
+  const outputDir = "reports"
+
+  try {
+    const findings: Finding[] = [
+      makeFinding({ id: "f-disk", check: "disk-write-test", severity: "High" }),
+    ]
+
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+    }
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "DiskWriteTest",
+        scope: ["Vault.sol"],
+        audit_state: JSON.stringify({ findings }),
+      },
+      context,
+      {
+        loadConfig: () => ({
+          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+          tools: {},
+          knowledge: {
+            scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+            autoSync: true,
+            skillPrecedence: "bundled-first" as const,
+          },
+          reporting: {
+            format: "markdown" as const,
+            severityThreshold: "low" as const,
+            gasAnalysis: false,
+            output_dir: outputDir,
+          },
+          solodit: { enabled: true, port: 3000 },
+          disabled_hooks: [],
+          hooks: {},
+          cli: {},
+          background: { max_concurrent: 3 },
+        }),
+      },
+    )
+
+    expect(result.filePath).toBeDefined()
+    expect(typeof result.filePath).toBe("string")
+    expect(result.filePath?.startsWith(tempDir)).toBe(true)
+    expect(existsSync(result.filePath ?? "")).toBe(true)
+
+    const content = await Bun.file(result.filePath ?? "").text()
+    expect(content).toContain("# Security Audit Report — DiskWriteTest")
+    expect(content).toContain("### [HIGH-1] Disk Write Test")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration returns result without filePath when write fails", async () => {
+  const findings: Finding[] = [
+    makeFinding({ id: "f-fail", check: "write-fail-test", severity: "Low" }),
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "WriteFailTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify({ findings }),
+    },
+    createContext(),
+    {
+      loadConfig: () => {
+        throw new Error("Simulated config load failure")
+      },
+    },
+  )
+
+  expect(result.filePath).toBeUndefined()
+  expect(result.report).toContain("# Security Audit Report — WriteFailTest")
+  expect(result.findingsCount.low).toBe(1)
+})
+
+test("executeReportGeneration sanitizes project name for disk filename", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-sanitize-"))
+  const outputDir = "reports"
+
+  try {
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+    }
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "My Cool Project!@#$",
+        scope: ["Vault.sol"],
+        audit_state: JSON.stringify({ findings: [] }),
+      },
+      context,
+      {
+        loadConfig: () => ({
+          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+          tools: {},
+          knowledge: {
+            scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+            autoSync: true,
+            skillPrecedence: "bundled-first" as const,
+          },
+          reporting: {
+            format: "markdown" as const,
+            severityThreshold: "low" as const,
+            gasAnalysis: false,
+            output_dir: outputDir,
+          },
+          solodit: { enabled: true, port: 3000 },
+          disabled_hooks: [],
+          hooks: {},
+          cli: {},
+          background: { max_concurrent: 3 },
+        }),
+      },
+    )
+
+    expect(result.filePath).toBeDefined()
+    const filename = path.basename(result.filePath ?? "")
+    expect(filename).toMatch(/^My-Cool-Project-----.+\.md$/)
+    expect(filename).not.toMatch(/[!@#$]/)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
