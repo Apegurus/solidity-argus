@@ -84,6 +84,118 @@ function emptyAuditState(findings: Finding[] = []): AuditState {
   }
 }
 
+/**
+ * Parse a location string like "File.sol:18-22" or "File.sol:18" into { file, lines }.
+ * Returns undefined if the string doesn't match a recognized format.
+ */
+export function parseLocationString(
+  location: string,
+): { file: string; lines: [number, number] } | undefined {
+  // "File.sol:18-22" or "File.sol:L18-L22"
+  const rangeMatch = location.match(/^(.+?):L?(\d+)\s*-\s*L?(\d+)$/)
+  if (rangeMatch) {
+    const file = rangeMatch.at(1)
+    const start = rangeMatch.at(2)
+    const end = rangeMatch.at(3)
+    if (file && start && end) {
+      return { file, lines: [Number(start), Number(end)] }
+    }
+  }
+  // "File.sol:18"
+  const singleMatch = location.match(/^(.+?):L?(\d+)$/)
+  if (singleMatch) {
+    const file = singleMatch.at(1)
+    const lineNum = singleMatch.at(2)
+    if (file && lineNum) {
+      const n = Number(lineNum)
+      return { file, lines: [n, n] }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Normalize a raw finding object from agent output into the canonical field format.
+ * Handles common aliases:
+ *   - title/name → check
+ *   - location (string) → file + lines
+ *   - case-insensitive severity → capitalized
+ */
+export function normalizeRawFinding(raw: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...raw }
+
+  // check: accept title, name as aliases
+  if (typeof result.check !== "string" || (result.check as string).length === 0) {
+    const alias = result.title ?? result.name
+    if (typeof alias === "string" && alias.length > 0) {
+      result.check = alias
+    }
+  }
+
+  // file + lines: accept location string as alias
+  if (typeof result.file !== "string" && typeof result.location === "string") {
+    const parsed = parseLocationString(result.location as string)
+    if (parsed) {
+      result.file = parsed.file
+      if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
+        result.lines = parsed.lines
+      }
+    }
+  }
+
+  // lines: accept [start] as [start, start], accept line_start/line_end
+  if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
+    if (Array.isArray(result.lines) && (result.lines as unknown[]).length === 1) {
+      const n = Number((result.lines as unknown[])[0])
+      if (!Number.isNaN(n)) {
+        result.lines = [n, n]
+      }
+    } else if (typeof result.line_start === "number" && typeof result.line_end === "number") {
+      result.lines = [result.line_start, result.line_end]
+    } else if (typeof result.line === "number") {
+      result.lines = [result.line, result.line]
+    }
+  }
+
+  // severity: case-insensitive normalization
+  if (typeof result.severity === "string") {
+    const lower = (result.severity as string).toLowerCase()
+    const SEVERITY_MAP: Record<string, string> = {
+      critical: "Critical",
+      high: "High",
+      medium: "Medium",
+      low: "Low",
+      informational: "Informational",
+      info: "Informational",
+    }
+    const mapped = SEVERITY_MAP[lower]
+    if (mapped) {
+      result.severity = mapped
+    }
+  }
+
+  // confidence: case-insensitive normalization
+  if (typeof result.confidence === "string") {
+    const lower = (result.confidence as string).toLowerCase()
+    const CONFIDENCE_MAP: Record<string, string> = {
+      high: "High",
+      medium: "Medium",
+      low: "Low",
+    }
+    const mapped = CONFIDENCE_MAP[lower]
+    if (mapped) {
+      result.confidence = mapped
+    }
+  }
+
+  // description: fall back to check if missing
+  if (typeof result.description !== "string" && typeof result.check === "string") {
+    result.description = result.check
+  }
+
+  return result
+}
+
 function hasMinimumFindingFields(
   f: unknown,
 ): f is { check: string; file: string; lines: [number, number] } {
@@ -153,10 +265,22 @@ export function parseAuditState(auditState: string): AuditState {
     )
   }
 
+  const logger = createLogger()
+
   if (Array.isArray(parsed)) {
-    const validFindings = (parsed as unknown[])
+    const rawItems = parsed as unknown[]
+    const normalized = rawItems
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => normalizeRawFinding(item))
+    const validFindings = normalized
       .filter(hasMinimumFindingFields)
       .map((f) => normalizeFinding(f as Record<string, unknown>))
+    const dropped = rawItems.length - validFindings.length
+    if (dropped > 0) {
+      logger.warn(
+        `parseAuditState: ${dropped}/${rawItems.length} findings dropped (missing required fields after normalization)`,
+      )
+    }
     return emptyAuditState(validFindings)
   }
 
@@ -166,9 +290,19 @@ export function parseAuditState(auditState: string): AuditState {
     Array.isArray((parsed as AuditState).findings)
   ) {
     const state = parsed as AuditState
-    const validFindings = state.findings
+    const rawFindings = state.findings as unknown[]
+    const normalized = rawFindings
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => normalizeRawFinding(item))
+    const validFindings = normalized
       .filter(hasMinimumFindingFields)
-      .map((f) => normalizeFinding(f as unknown as Record<string, unknown>))
+      .map((f) => normalizeFinding(f as Record<string, unknown>))
+    const dropped = rawFindings.length - validFindings.length
+    if (dropped > 0) {
+      logger.warn(
+        `parseAuditState: ${dropped}/${rawFindings.length} findings dropped (missing required fields after normalization)`,
+      )
+    }
     return {
       ...emptyAuditState(),
       ...state,

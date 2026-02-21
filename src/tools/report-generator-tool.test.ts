@@ -12,7 +12,9 @@ import type {
 } from "../state/types"
 import {
   executeReportGeneration,
+  normalizeRawFinding,
   parseAuditState,
+  parseLocationString,
   type ReportGenerationResult,
   reportGeneratorTool,
 } from "./report-generator-tool"
@@ -442,6 +444,245 @@ test("parseAuditState returns full AuditState when given complete object", () =>
   const state = parseAuditState(JSON.stringify(full))
   expect(state.toolsExecuted).toHaveLength(1)
   expect(state.patternVersion).toBe("1.2.3")
+})
+
+test("parseLocationString parses range format File.sol:18-22", () => {
+  const result = parseLocationString("src/Vault.sol:18-22")
+  expect(result).toEqual({ file: "src/Vault.sol", lines: [18, 22] })
+})
+
+test("parseLocationString parses single line format File.sol:18", () => {
+  const result = parseLocationString("src/Vault.sol:18")
+  expect(result).toEqual({ file: "src/Vault.sol", lines: [18, 18] })
+})
+
+test("parseLocationString parses L-prefixed format File.sol:L18-L22", () => {
+  const result = parseLocationString("src/Vault.sol:L18-L22")
+  expect(result).toEqual({ file: "src/Vault.sol", lines: [18, 22] })
+})
+
+test("parseLocationString returns undefined for invalid format", () => {
+  expect(parseLocationString("just a string")).toBeUndefined()
+  expect(parseLocationString("")).toBeUndefined()
+})
+
+test("normalizeRawFinding maps title to check", () => {
+  const result = normalizeRawFinding({
+    title: "Reentrancy in withdraw",
+    file: "Vault.sol",
+    lines: [10, 15],
+    severity: "High",
+  })
+  expect(result.check).toBe("Reentrancy in withdraw")
+})
+
+test("normalizeRawFinding maps name to check", () => {
+  const result = normalizeRawFinding({
+    name: "Missing Access Control",
+    file: "Vault.sol",
+    lines: [18, 22],
+    severity: "Critical",
+  })
+  expect(result.check).toBe("Missing Access Control")
+})
+
+test("normalizeRawFinding preserves check when already present", () => {
+  const result = normalizeRawFinding({
+    check: "reentrancy-eth",
+    title: "Some Title",
+    file: "Vault.sol",
+    lines: [10, 15],
+  })
+  expect(result.check).toBe("reentrancy-eth")
+})
+
+test("normalizeRawFinding parses location string into file and lines", () => {
+  const result = normalizeRawFinding({
+    title: "Some Bug",
+    location: "src/Vault.sol:18-22",
+    severity: "High",
+  })
+  expect(result.file).toBe("src/Vault.sol")
+  expect(result.lines).toEqual([18, 22])
+})
+
+test("normalizeRawFinding normalizes lowercase severity", () => {
+  const result = normalizeRawFinding({
+    check: "test",
+    file: "Vault.sol",
+    lines: [1, 1],
+    severity: "critical",
+  })
+  expect(result.severity).toBe("Critical")
+})
+
+test("normalizeRawFinding normalizes info severity alias", () => {
+  const result = normalizeRawFinding({
+    check: "test",
+    file: "Vault.sol",
+    lines: [1, 1],
+    severity: "info",
+  })
+  expect(result.severity).toBe("Informational")
+})
+
+test("normalizeRawFinding handles line_start and line_end", () => {
+  const result = normalizeRawFinding({
+    title: "Bug",
+    file: "Vault.sol",
+    line_start: 10,
+    line_end: 20,
+    severity: "medium",
+  })
+  expect(result.lines).toEqual([10, 20])
+})
+
+test("normalizeRawFinding handles single line field", () => {
+  const result = normalizeRawFinding({
+    title: "Bug",
+    file: "Vault.sol",
+    line: 42,
+    severity: "low",
+  })
+  expect(result.lines).toEqual([42, 42])
+})
+
+test("normalizeRawFinding normalizes lowercase confidence", () => {
+  const result = normalizeRawFinding({
+    check: "test",
+    file: "Vault.sol",
+    lines: [1, 1],
+    confidence: "high",
+  })
+  expect(result.confidence).toBe("High")
+})
+
+test("parseAuditState accepts findings with title instead of check", () => {
+  const findings = [
+    {
+      title: "Reentrancy in withdraw",
+      severity: "Critical",
+      confidence: "High",
+      description: "CEI violation",
+      file: "src/Vault.sol",
+      lines: [18, 22],
+      source: "manual",
+    },
+  ]
+  const state = parseAuditState(JSON.stringify(findings))
+  expect(state.findings).toHaveLength(1)
+  expect(state.findings[0]?.check).toBe("Reentrancy in withdraw")
+  expect(state.findings[0]?.severity).toBe("Critical")
+})
+
+test("parseAuditState accepts findings with location string instead of file+lines", () => {
+  const findings = [
+    {
+      title: "Missing Access Control",
+      severity: "high",
+      description: "No msg.sender check",
+      location: "src/Vault.sol:18-22",
+      source: "manual",
+    },
+  ]
+  const state = parseAuditState(JSON.stringify(findings))
+  expect(state.findings).toHaveLength(1)
+  expect(state.findings[0]?.file).toBe("src/Vault.sol")
+  expect(state.findings[0]?.lines).toEqual([18, 22])
+  expect(state.findings[0]?.severity).toBe("High")
+})
+
+test("parseAuditState accepts findings with lowercase severity", () => {
+  const findings = {
+    findings: [
+      {
+        check: "test-finding",
+        severity: "medium",
+        confidence: "low",
+        description: "Test",
+        file: "Vault.sol",
+        lines: [1, 5],
+        source: "pattern",
+      },
+    ],
+  }
+  const state = parseAuditState(JSON.stringify(findings))
+  expect(state.findings).toHaveLength(1)
+  expect(state.findings[0]?.severity).toBe("Medium")
+  expect(state.findings[0]?.confidence).toBe("Low")
+})
+
+test("parseAuditState accepts agent-style findings with mixed aliases in AuditState wrapper", () => {
+  const auditState = {
+    findings: [
+      {
+        title: "Reentrancy",
+        location: "Vault.sol:18-22",
+        severity: "critical",
+        confidence: "high",
+        description: "CEI violation in withdraw",
+        source: "manual",
+      },
+      {
+        name: "Oracle Manipulation",
+        file: "Oracle.sol",
+        line: 14,
+        severity: "HIGH",
+        description: "Single source oracle",
+        source: "manual",
+      },
+    ],
+  }
+  const state = parseAuditState(JSON.stringify(auditState))
+  expect(state.findings).toHaveLength(2)
+  expect(state.findings[0]?.check).toBe("Reentrancy")
+  expect(state.findings[0]?.file).toBe("Vault.sol")
+  expect(state.findings[0]?.lines).toEqual([18, 22])
+  expect(state.findings[0]?.severity).toBe("Critical")
+  expect(state.findings[1]?.check).toBe("Oracle Manipulation")
+  expect(state.findings[1]?.lines).toEqual([14, 14])
+  expect(state.findings[1]?.severity).toBe("High")
+})
+
+test("parseAuditState full pipeline: alias findings produce complete report sections", async () => {
+  const findings = [
+    {
+      title: "Reentrancy in withdraw",
+      location: "src/Vault.sol:18-22",
+      severity: "critical",
+      confidence: "high",
+      description: "External call before state update",
+      source: "manual",
+      remediation: "Add nonReentrant modifier",
+    },
+    {
+      name: "Missing Access Control",
+      location: "src/Oracle.sol:21-22",
+      severity: "high",
+      description: "setPool has no authorization",
+      source: "manual",
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "AliasTest",
+      scope: ["Vault.sol", "Oracle.sol"],
+      severity_threshold: "low",
+      audit_state: JSON.stringify(findings),
+    },
+    createContext(),
+  )
+
+  expect(result.findingsCount.critical).toBe(1)
+  expect(result.findingsCount.high).toBe(1)
+  expect(result.report).toContain("### Critical")
+  expect(result.report).toContain("### High")
+  expect(result.report).toContain("[CRIT-1] Reentrancy In Withdraw")
+  expect(result.report).toContain("[HIGH-1] Missing Access Control")
+  expect(result.report).toContain("**Location**: src/Vault.sol:18-22")
+  expect(result.report).toContain("**Location**: src/Oracle.sol:21-22")
+  expect(result.report).toContain("Add nonReentrant modifier")
 })
 
 test("provenance appendix shows data freshness with pattern version", async () => {
