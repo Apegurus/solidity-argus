@@ -5,7 +5,5 @@
   "license": "reference-only",
   "updateCadence": "per-release",
   "lastVerified": "2026-02-19",
-  "files": [
-    "references/exploit-reference/SKILL.md"
-  ]
+  "files": ["references/exploit-reference/SKILL.md"]
 }

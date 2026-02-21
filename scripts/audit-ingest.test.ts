@@ -54,7 +54,9 @@ describe("toSlug", () => {
   })
 
   it("handles special characters", () => {
-    expect(toSlug("ERC-4626: exchange_rate manipulation @ vault")).toBe("erc-4626-exchange-rate-manipulation-vault")
+    expect(toSlug("ERC-4626: exchange_rate manipulation @ vault")).toBe(
+      "erc-4626-exchange-rate-manipulation-vault",
+    )
   })
 
   it("trims trailing hyphens", () => {
@@ -102,7 +104,9 @@ describe("renderCandidateSkill", () => {
   it("includes medoid title and description", () => {
     expect(rendered).toContain("# Flash Loan Reentrancy In Withdraw")
     expect(rendered).toContain("## Overview")
-    expect(rendered).toContain("External call before state update allows recursive withdrawal and balance drain.")
+    expect(rendered).toContain(
+      "External call before state update allows recursive withdrawal and balance drain.",
+    )
   })
 
   it("includes top tokens as bullet list", () => {
@@ -114,7 +118,9 @@ describe("renderCandidateSkill", () => {
   it("includes member findings table", () => {
     expect(rendered).toContain("| title | severity | source_pdf |")
     expect(rendered).toContain("| Flash Loan Reentrancy In Withdraw | high | medoid-report.pdf |")
-    expect(rendered).toContain("| Flash Loan Reentrancy In Withdraw member 2 | medium | member-report-2.pdf |")
+    expect(rendered).toContain(
+      "| Flash Loan Reentrancy In Withdraw member 2 | medium | member-report-2.pdf |",
+    )
   })
 
   it("includes TODO comments", () => {

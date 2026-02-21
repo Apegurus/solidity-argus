@@ -12,15 +12,17 @@ export interface ExtractedFinding {
 
 const HEADING_PATTERNS = [
   /^(?:Issue|Finding|Vulnerability|Risk)[_\s-]?\d{1,3}\b.{0,180}$/i,
-  /^(?:Issue|Finding|Vulnerability|Risk)[_\s-]?\d{1,3}\s*[:\-].{3,180}$/i,
+  /^(?:Issue|Finding|Vulnerability|Risk)[_\s-]?\d{1,3}\s*[:-].{3,180}$/i,
   /^Issue[_\s-]\d{1,3}\s+.+$/i,
-  /^[CHMLI]-\d{1,3}\s*[:\-]\s*.+$/,
+  /^[CHMLI]-\d{1,3}\s*[:-]\s*.+$/,
 ]
 
 const SEVERITY_REGEX = /\bSeverity\s*[:\t ]+(Critical|High|Medium|Low|Informational|Info)\b/i
 
-const DESCRIPTION_REGEX = /\bDescription\s*[:\t ]+([\s\S]{20,4000}?)(?=\n\s*(?:Recommendations?|Resolution|Severity|Status)\b|$)/i
-const RECOMMENDATION_REGEX = /\bRecommendations?\s*[:\t ]+([\s\S]{10,4000}?)(?=\n\s*(?:Resolution|Status|Severity)\b|$)/i
+const DESCRIPTION_REGEX =
+  /\bDescription\s*[:\t ]+([\s\S]{20,4000}?)(?=\n\s*(?:Recommendations?|Resolution|Severity|Status)\b|$)/i
+const RECOMMENDATION_REGEX =
+  /\bRecommendations?\s*[:\t ]+([\s\S]{10,4000}?)(?=\n\s*(?:Resolution|Status|Severity)\b|$)/i
 
 export function normalizeSeverity(input: string): Severity {
   const value = input.trim().toLowerCase()
@@ -73,8 +75,8 @@ function looksLikeHeading(line: string): boolean {
 function cleanHeadingTitle(heading: string): string {
   return normalizeWhitespace(
     heading
-      .replace(/^[CHMLI]-\d{1,3}\s*[:\-]\s*/i, "")
-      .replace(/^(?:Issue|Finding|Vulnerability|Risk)[_\s-]?\d{1,3}\s*[:\-]?\s*/i, "")
+      .replace(/^[CHMLI]-\d{1,3}\s*[:-]\s*/i, "")
+      .replace(/^(?:Issue|Finding|Vulnerability|Risk)[_\s-]?\d{1,3}\s*[:-]?\s*/i, "")
       .replace(/^Issue[_\s-]\d{1,3}\s+/i, "")
       .replace(/^\**\s*/, "")
       .replace(/\s*\**$/, ""),
@@ -109,14 +111,26 @@ function categorizeFinding(title: string, description: string): string {
   const corpus = `${title} ${description}`.toLowerCase()
   const categories: Array<{ category: string; patterns: RegExp[] }> = [
     { category: "reentrancy", patterns: [/reentran/i] },
-    { category: "access-control", patterns: [/access control/i, /unauthori/i, /onlyowner/i, /privilege/i, /admin/i] },
+    {
+      category: "access-control",
+      patterns: [/access control/i, /unauthori/i, /onlyowner/i, /privilege/i, /admin/i],
+    },
     { category: "oracle", patterns: [/oracle/i, /price feed/i, /chainlink/i, /twap/i, /stale/i] },
-    { category: "integer-overflow-underflow", patterns: [/overflow/i, /underflow/i, /arithmetic/i] },
+    {
+      category: "integer-overflow-underflow",
+      patterns: [/overflow/i, /underflow/i, /arithmetic/i],
+    },
     { category: "dos", patterns: [/denial of service/i, /dos/i, /griefing/i] },
-    { category: "input-validation", patterns: [/validation/i, /saniti/i, /unchecked/i, /zero address/i] },
+    {
+      category: "input-validation",
+      patterns: [/validation/i, /saniti/i, /unchecked/i, /zero address/i],
+    },
     { category: "configuration", patterns: [/misconfig/i, /config/i, /parameter/i, /initializ/i] },
     { category: "tokenomics", patterns: [/mint/i, /burn/i, /inflation/i, /share/i, /supply/i] },
-    { category: "upgradeability", patterns: [/upgrade/i, /proxy/i, /implementation/i, /initializer/i] },
+    {
+      category: "upgradeability",
+      patterns: [/upgrade/i, /proxy/i, /implementation/i, /initializer/i],
+    },
     { category: "logic", patterns: [/logic/i, /state/i, /invariant/i, /rounding/i] },
   ]
 
@@ -137,7 +151,9 @@ function buildFinding(
 ): ExtractedFinding | null {
   const severityMatch = blockText.match(SEVERITY_REGEX)
   const severityToken = severityMatch?.[1]
-  const severity = severityToken ? normalizeSeverity(severityToken) : inferSeverityFromHeading(heading)
+  const severity = severityToken
+    ? normalizeSeverity(severityToken)
+    : inferSeverityFromHeading(heading)
   if (!severity) {
     return null
   }
@@ -162,7 +178,11 @@ function buildFinding(
   }
 }
 
-export function parseFindingsFromPageText(pageText: string, sourcePdf: string, pageNumber: number): ExtractedFinding[] {
+export function parseFindingsFromPageText(
+  pageText: string,
+  sourcePdf: string,
+  pageNumber: number,
+): ExtractedFinding[] {
   const lines = pageText
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -206,9 +226,7 @@ export function parseFindingsFromPageText(pageText: string, sourcePdf: string, p
 }
 
 function findingKey(finding: ExtractedFinding): string {
-  return `${finding.title}|${finding.severity}`
-    .toLowerCase()
-    .replace(/[^a-z0-9|]+/g, "")
+  return `${finding.title}|${finding.severity}`.toLowerCase().replace(/[^a-z0-9|]+/g, "")
 }
 
 export function dedupeFindings(findings: ExtractedFinding[]): ExtractedFinding[] {

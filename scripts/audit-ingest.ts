@@ -1,14 +1,14 @@
 import {
   buildTfidfCorpus,
+  type ClusterFinding,
   clusterFindings,
   computeSimilarity,
   DEFAULT_CLUSTER_CONFIG,
-  normalizeSkill,
-  tokenJaccard,
-  type ClusterFinding,
   type FindingCluster,
+  normalizeSkill,
   type SkillDoc,
   type TfidfCorpus,
+  tokenJaccard,
 } from "../src/skills/analysis"
 import type { ExtractedFinding } from "./audit-pdf-extract-lib"
 
@@ -105,7 +105,10 @@ function nextUniqueSlug(baseSlug: string, usedSlugs: Set<string>): string {
     }
   }
 
-  const fallback = `${baseSlug.slice(0, Math.max(1, MAX_SLUG_LENGTH - 8))}-overflow`.slice(0, MAX_SLUG_LENGTH)
+  const fallback = `${baseSlug.slice(0, Math.max(1, MAX_SLUG_LENGTH - 8))}-overflow`.slice(
+    0,
+    MAX_SLUG_LENGTH,
+  )
   usedSlugs.add(fallback)
   return fallback
 }
@@ -119,7 +122,11 @@ function assignClusterSlugs(clusters: FindingCluster[]): Map<number, string> {
   return slugById
 }
 
-function bestSimilarity(candidate: SkillDoc, existingSkills: SkillDoc[], corpus: TfidfCorpus): { bestMatch: string; similarity: number } {
+function bestSimilarity(
+  candidate: SkillDoc,
+  existingSkills: SkillDoc[],
+  corpus: TfidfCorpus,
+): { bestMatch: string; similarity: number } {
   let bestMatch = ""
   let maxSimilarity = 0
   for (const existing of existingSkills) {
@@ -155,7 +162,9 @@ async function loadFindings(filePath: string): Promise<ExtractedFinding[] | null
   }
   const validFindings = payload.filter(isExtractedFinding)
   if (validFindings.length !== payload.length) {
-    console.warn(`Warning: ignored ${payload.length - validFindings.length} malformed finding entries`)
+    console.warn(
+      `Warning: ignored ${payload.length - validFindings.length} malformed finding entries`,
+    )
   }
   return validFindings
 }
@@ -192,11 +201,16 @@ export function classifyCoverage(maxSimilarity: number): CoverageStatus {
   return "new"
 }
 
-export function renderCandidateSkill(cluster: FindingCluster, slug: string, status: string): string {
+export function renderCandidateSkill(
+  cluster: FindingCluster,
+  slug: string,
+  status: string,
+): string {
   const title = normalizeOneLine(cluster.medoid.title)
   const overview = normalizeOneLine(cluster.medoid.description)
   const indicators = cluster.topTokens.slice(0, 10)
-  const indicatorList = indicators.length > 0 ? indicators.map((token) => `- ${token}`).join("\n") : "- none identified"
+  const indicatorList =
+    indicators.length > 0 ? indicators.map((token) => `- ${token}`).join("\n") : "- none identified"
   const sourceRows = cluster.members
     .map((member) => {
       const rowTitle = escapeTableCell(member.title)
@@ -274,7 +288,9 @@ export async function main(): Promise<void> {
   console.log(`Loaded ${findings.length} findings from ${categoryCount} categories`)
 
   const clustered = clusterFindings(findings, DEFAULT_CLUSTER_CONFIG)
-  console.log(`Clustered into ${clustered.clusters.length} clusters + ${clustered.singletons.length} singletons`)
+  console.log(
+    `Clustered into ${clustered.clusters.length} clusters + ${clustered.singletons.length} singletons`,
+  )
   const deduped = crossCategoryDedup(clustered.clusters)
   console.log(`Merged ${deduped.merged} cross-category duplicate clusters`)
 
@@ -289,29 +305,51 @@ export async function main(): Promise<void> {
     const slug = slugById.get(cluster.id) ?? `cluster-${cluster.id}`
     const candidate = normalizeSkill(renderCandidateSkill(cluster, slug, "new"))
     const similarityResult =
-      candidate && existingSkills.length > 0 ? bestSimilarity(candidate, existingSkills, corpus) : { bestMatch: "", similarity: 0 }
+      candidate && existingSkills.length > 0
+        ? bestSimilarity(candidate, existingSkills, corpus)
+        : { bestMatch: "", similarity: 0 }
     const status = classifyCoverage(similarityResult.similarity)
     const similarity = Number(similarityResult.similarity.toFixed(4))
     coverageRows.push({ cluster, slug, status })
 
     if (status === "covered") {
-      covered.push({ clusterId: cluster.id, slug, bestMatch: similarityResult.bestMatch, similarity })
+      covered.push({
+        clusterId: cluster.id,
+        slug,
+        bestMatch: similarityResult.bestMatch,
+        similarity,
+      })
       continue
     }
     if (status === "maybe-covered") {
-      maybeCovered.push({ clusterId: cluster.id, slug, bestMatch: similarityResult.bestMatch, similarity })
+      maybeCovered.push({
+        clusterId: cluster.id,
+        slug,
+        bestMatch: similarityResult.bestMatch,
+        similarity,
+      })
       continue
     }
-    discoveredNew.push({ clusterId: cluster.id, slug, size: cluster.size, topTokens: cluster.topTokens.slice(0, 10) })
+    discoveredNew.push({
+      clusterId: cluster.id,
+      slug,
+      size: cluster.size,
+      topTokens: cluster.topTokens.slice(0, 10),
+    })
   }
-  console.log(`Coverage: ${covered.length} covered, ${maybeCovered.length} maybe-covered, ${discoveredNew.length} new`)
+  console.log(
+    `Coverage: ${covered.length} covered, ${maybeCovered.length} maybe-covered, ${discoveredNew.length} new`,
+  )
   await Bun.$`mkdir -p ${OUTPUT_DIR} ${CANDIDATES_DIR}`.quiet()
   let candidatesGenerated = 0
   for (const row of coverageRows) {
     if (row.status === "covered") continue
     const candidateDir = `${CANDIDATES_DIR}/${row.slug}`
     await Bun.$`mkdir -p ${candidateDir}`.quiet()
-    await Bun.write(`${candidateDir}/SKILL.md`, renderCandidateSkill(row.cluster, row.slug, row.status))
+    await Bun.write(
+      `${candidateDir}/SKILL.md`,
+      renderCandidateSkill(row.cluster, row.slug, row.status),
+    )
     candidatesGenerated += 1
   }
   const report: IngestReport = {

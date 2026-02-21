@@ -2,7 +2,18 @@
   "name": "solidity-argus",
   "version": "0.2.0",
   "description": "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 12 tools (11 core + optional Solodit), and a curated vulnerability knowledge base",
-  "keywords": ["solidity", "security", "audit", "opencode", "plugin", "smart-contract", "ethereum", "defi", "slither", "foundry"],
+  "keywords": [
+    "solidity",
+    "security",
+    "audit",
+    "opencode",
+    "plugin",
+    "smart-contract",
+    "ethereum",
+    "defi",
+    "slither",
+    "foundry"
+  ],
   "author": "Apegurus",
   "license": "MIT",
   "type": "module",
@@ -17,10 +28,23 @@
     "solidity-argus": "./src/cli/index.ts",
     "argus": "./src/cli/index.ts"
   },
-  "files": ["src/", "!src/**/*.test.ts", "skills/", "README.md", "AGENTS.md", "LICENSE"],
+  "files": [
+    "src/",
+    "!src/**/*.test.ts",
+    "skills/",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "ci": "biome ci .",
     "cli": "bun src/cli/index.ts",
     "doctor": "bun src/cli/index.ts doctor",
     "init": "bun src/cli/index.ts init"
@@ -34,6 +58,7 @@
     "@opencode-ai/sdk": "^1.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
     "@types/bun": "^1.2.0",
     "pdf-parse": "^2.4.5",
     "typescript": "^5"

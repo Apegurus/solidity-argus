@@ -1,5 +1,9 @@
 import { PDFParse } from "pdf-parse"
-import { dedupeFindings, parseFindingsFromPageText, type ExtractedFinding } from "./audit-pdf-extract-lib"
+import {
+  dedupeFindings,
+  type ExtractedFinding,
+  parseFindingsFromPageText,
+} from "./audit-pdf-extract-lib"
 
 /** A public audit report source — one GitHub repo containing PDF audit reports. */
 export interface AuditSource {
@@ -139,7 +143,10 @@ function sanitizeFileName(fileName: string): string {
 }
 
 function categoryToFileName(category: string): string {
-  return category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+  return category
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
 }
 
 async function ensureDirectories(): Promise<void> {
@@ -196,7 +203,10 @@ async function extractFindingsFromPdf(downloaded: DownloadResult): Promise<Extra
   }
 }
 
-async function writeOutput(allFindings: ExtractedFinding[], metadata: ExtractionMetadata): Promise<void> {
+async function writeOutput(
+  allFindings: ExtractedFinding[],
+  metadata: ExtractionMetadata,
+): Promise<void> {
   await Bun.write(`${OUTPUT_DIR}/findings.json`, JSON.stringify(allFindings, null, 2))
   await Bun.write(`${OUTPUT_DIR}/metadata.json`, JSON.stringify(metadata, null, 2))
 
@@ -236,7 +246,11 @@ async function main(): Promise<void> {
 
         if (findings.length === 0) {
           skipped += 1
-          errors.push({ source_pdf: pdfFile, source_name: source.name, reason: "No extractable finding text detected" })
+          errors.push({
+            source_pdf: pdfFile,
+            source_name: source.name,
+            reason: "No extractable finding text detected",
+          })
           continue
         }
 
@@ -269,7 +283,9 @@ async function main(): Promise<void> {
 
   await writeOutput(allFindings, metadata)
 
-  console.log(`done: ${allFindings.length} unique findings across ${uniqueCategoryCount} categories`)
+  console.log(
+    `done: ${allFindings.length} unique findings across ${uniqueCategoryCount} categories`,
+  )
   if (allFindings.length < 10) {
     console.warn("warning: fewer than 10 findings extracted")
   }
