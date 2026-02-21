@@ -70,6 +70,9 @@ type LoadedPattern = {
   description: string
   exploitReference?: string
   source?: PatternSource
+  confidence?: "High" | "Medium" | "Low"
+  applies_to?: string[]
+  exclude_if?: string[]
 }
 
 export const PATTERN_PACK_VERSION = "1.0.0"
@@ -107,6 +110,9 @@ function normalizePatternDefinitions(
     regex: new RegExp(patternDef.regex),
     description: patternDef.description,
     ...(patternDef.exploit_ref ? { exploitReference: patternDef.exploit_ref } : {}),
+    ...(patternDef.confidence ? { confidence: patternDef.confidence } : {}),
+    ...(patternDef.applies_to ? { applies_to: patternDef.applies_to } : {}),
+    ...(patternDef.exclude_if ? { exclude_if: patternDef.exclude_if } : {}),
     source,
   }))
 }
