@@ -14,6 +14,9 @@ import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-s
 import { detectViaIr } from "../../tools/slither-tool"
 import { checkSoloditHealth } from "../../utils/solodit-health"
 import { cliOutput } from "../cli-output"
+import { createLogger } from "../../shared/logger"
+
+const logger = createLogger()
 
 const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
@@ -27,6 +30,9 @@ function checkBinary(name: string): { found: boolean; version: string | null } {
       stderr: "pipe",
       timeout: 5000,
     })
+    if (result.exitCode !== 0) {
+      return { found: false, version: null }
+    }
     const version = new TextDecoder().decode(result.stdout).trim().split("\n")[0] ?? null
     return { found: true, version }
   } catch {
@@ -144,6 +150,7 @@ function scanMarkdownFiles(dir: string, maxDepth = 8): string[] {
         }
       }
     } catch {
+      logger.debug("Failed to read directory during skill scan")
     }
   }
   return files
@@ -173,6 +180,7 @@ function collectAllSkillNames(
         const name = normalizeSkillName(rawName)
         if (name) entries.push({ name, source: root.source })
       } catch {
+        logger.debug("Failed to parse skill file frontmatter")
       }
     }
   }
@@ -332,6 +340,7 @@ export const doctorCommand: CliCommand = {
       }
     } catch {
       cliOutput.log(`${RED}✗${RESET} Could not analyze skill health`)
+      hasFailure = true
     }
 
     return hasFailure ? 1 : 0
