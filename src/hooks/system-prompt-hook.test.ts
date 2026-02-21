@@ -135,6 +135,28 @@ describe("buildDynamicContext", () => {
     expect(context).toContain("Phase: manual-review")
   })
 
+  it("includes task status with all pending when no tools executed", () => {
+    const context = buildDynamicContext(makeAuditState(), "argus")
+    expect(context).toContain(
+      "Tasks: slither=pending forge-test=pending patterns=pending solodit=pending analyzer=pending",
+    )
+  })
+
+  it("includes task status reflecting executed tools", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "argus_slither_analyze", startTime: 1, success: true, findingsCount: 3 },
+          { tool: "argus_check_patterns", startTime: 2, success: true, findingsCount: 1 },
+        ],
+      }),
+      "sentinel",
+    )
+    expect(context).toContain(
+      "Tasks: slither=done forge-test=pending patterns=done solodit=pending analyzer=pending",
+    )
+  })
+
   it("includes findings counts by severity", () => {
     const context = buildDynamicContext(
       makeAuditState({
@@ -172,7 +194,9 @@ describe("buildDynamicContext", () => {
       15,
     )
 
-    expect(context).toContain("Phase: reconnaissance | Findings: 2 | Contracts: 1")
+    expect(context).toContain(
+      "Phase: reconnaissance | Findings: 2 | Contracts: 1 | Tasks: 4/5 done",
+    )
     expect(context).not.toContain("Tools:")
   })
 })
