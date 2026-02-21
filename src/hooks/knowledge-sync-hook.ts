@@ -52,7 +52,7 @@ export function createKnowledgeSyncHook(
              `[argus] SCVD index updated: ${result.newFindings} new findings (total: ${result.totalIndexed})`
            )
          }
-       } catch (_e) { /* non-critical: sync errors are logged above */ }
+       } catch (_e) { createLogger().debug("Knowledge sync failed during auto-sync") }
      })
   }
 }

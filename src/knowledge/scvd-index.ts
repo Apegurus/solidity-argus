@@ -124,17 +124,9 @@ export function searchIndex(
 
 export async function saveIndex(index: ScvdIndex, filePath: string): Promise<void> {
   const tmpPath = `${filePath}.tmp.${Date.now()}`;
-  try {
-    await Bun.write(tmpPath, JSON.stringify(index, null, 2));
-    const { renameSync } = await import("node:fs");
-    renameSync(tmpPath, filePath);
-  } finally {
-    try {
-      const { unlinkSync } = await import("node:fs");
-      unlinkSync(tmpPath);
-    } catch {
-    }
-  }
+  const { renameSync } = await import("node:fs");
+  await Bun.write(tmpPath, JSON.stringify(index, null, 2));
+  renameSync(tmpPath, filePath);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

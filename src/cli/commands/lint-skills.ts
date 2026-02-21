@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import type { CliCommand } from "../types"
+import { createLogger } from "../../shared/logger"
+
+const logger = createLogger()
 import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
 import { loadArgusConfig } from "../../config/loader"
@@ -77,7 +80,7 @@ export const lintSkillsCommand: CliCommand = {
     try {
       config = loadArgusConfig(cwd)
     } catch {
-      // fallback to undefined, resolveSkillRoots handles this
+      logger.debug("Config load failed, using defaults")
     }
 
     const roots = resolveSkillRoots(cwd, config)
@@ -89,7 +92,7 @@ export const lintSkillsCommand: CliCommand = {
         try {
           skillFiles.push({ path: file, content: readFileSync(file, "utf8") })
         } catch {
-          // continue on read errors
+          logger.debug("Skipping unreadable skill file")
         }
       }
     }

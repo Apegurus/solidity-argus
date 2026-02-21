@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import type { CliCommand } from "../types"
+import { createLogger } from "../../shared/logger"
+
+const logger = createLogger()
 import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
 import { loadArgusConfig } from "../../config/loader"
 import { cliOutput } from "../cli-output"
@@ -63,7 +66,7 @@ export function loadAndNormalizeSkills(cwd: string): SkillDoc[] {
   try {
     config = loadArgusConfig(cwd)
   } catch {
-    // fallback to undefined
+    logger.debug("Config load failed, using defaults")
   }
 
   const roots = resolveSkillRoots(cwd, config)
@@ -79,7 +82,7 @@ export function loadAndNormalizeSkills(cwd: string): SkillDoc[] {
           docs.push(doc)
         }
       } catch {
-        // skip unreadable files
+        logger.debug("Skipping unreadable skill file")
       }
     }
   }

@@ -68,7 +68,7 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
     try {
       soloditChild.kill()
     } catch {
-      /* already dead */
+      logger.debug("Solodit MCP process already dead");
     }
     soloditChild = null
   }
@@ -129,7 +129,7 @@ export async function _runMonitoringCycle(port: number): Promise<void> {
       }
     }
   } catch {
-    // Never crash the monitoring loop
+    logger.debug("Monitoring cycle encountered an error");
   }
 }
 
@@ -163,7 +163,7 @@ export function _resetSoloditState(): void {
     try {
       soloditChild.kill()
     } catch {
-      /* ignore */
+      createLogger().debug("Failed to kill Solodit MCP on reset");
     }
     soloditChild = null
   }

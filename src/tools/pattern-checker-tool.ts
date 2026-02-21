@@ -2,6 +2,9 @@ import os from "node:os";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { tool, type ToolContext } from "@opencode-ai/plugin";
+import { createLogger } from "../shared/logger";
+
+const logger = createLogger();
 import {
   loadIndex,
   searchIndex,
@@ -333,7 +336,7 @@ export async function executePatternCheck(
            matches: scvdMatches,
          });
        }
-     } catch (_e) { /* non-critical: SCVD enrichment is best-effort */ }
+     } catch (_e) { logger.debug("SCVD enrichment failed, continuing without SCVD matches") }
    }
 
   return {

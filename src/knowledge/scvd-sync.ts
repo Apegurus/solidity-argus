@@ -131,7 +131,7 @@ export async function syncAll(client: ScvdClient, indexPath: string): Promise<Sy
   } catch (error) {
     const errorResult = buildErrorResult(error);
     logger.debug("[sync] failed", `source=scvd reason=${errorResult.reason}`);
-    await persistErrorMetadata(indexPath, errorResult).catch(() => {});
+    await persistErrorMetadata(indexPath, errorResult).catch(() => { logger.debug("Failed to persist sync error metadata") });
     return errorResult;
   } finally {
     releaseSyncLock();
@@ -163,14 +163,14 @@ export async function syncIncremental(
     if (!statsResult.success) {
       const errorResult = buildErrorResult(statsResult.error);
       errorResult.attempts = statsResult.attempts;
-      await persistErrorMetadata(indexPath, errorResult).catch(() => {});
+      await persistErrorMetadata(indexPath, errorResult).catch(() => { logger.debug("Failed to persist sync error metadata") });
       return errorResult;
     }
 
     if (statsResult.value === undefined) {
       const errorResult = createParseError("SCVD sync returned no stats payload");
       errorResult.attempts = statsResult.attempts;
-      await persistErrorMetadata(indexPath, errorResult).catch(() => {});
+      await persistErrorMetadata(indexPath, errorResult).catch(() => { logger.debug("Failed to persist sync error metadata") });
       return errorResult;
     }
 
@@ -187,7 +187,7 @@ export async function syncIncremental(
     return await syncAllUnlocked(client, indexPath);
   } catch (error) {
     const errorResult = buildErrorResult(error);
-    await persistErrorMetadata(indexPath, errorResult).catch(() => {});
+    await persistErrorMetadata(indexPath, errorResult).catch(() => { logger.debug("Failed to persist sync error metadata") });
     return errorResult;
   } finally {
     releaseSyncLock();

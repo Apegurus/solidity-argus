@@ -1,5 +1,8 @@
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 import type { ToolDefinition } from "@opencode-ai/plugin";
+import { createLogger } from "../shared/logger";
+
+const logger = createLogger();
 
 const SOLODIT_MCP_SERVER = "solodit-mcp";
 const SOLODIT_MCP_TOOLS = ["search", "search_findings"] as const;
@@ -158,7 +161,7 @@ function extractFindingsFromMcpResponse(envelope: unknown): SoloditFinding[] {
     try {
       const parsed = JSON.parse(reportsJson);
       if (Array.isArray(parsed)) return parsed.map(parseFinding);
-    } catch { /* fall through */ }
+    } catch { logger.debug("Failed to parse Solodit structured response") }
   }
 
   const content = (result as Record<string, unknown>).content;
@@ -168,7 +171,7 @@ function extractFindingsFromMcpResponse(envelope: unknown): SoloditFinding[] {
       try {
         const parsed = JSON.parse(first.text);
         if (Array.isArray(parsed)) return parsed.map(parseFinding);
-      } catch { /* fall through */ }
+      } catch { logger.debug("Failed to parse Solodit content text") }
     }
   }
 

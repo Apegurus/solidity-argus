@@ -1,5 +1,8 @@
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
+import { createLogger } from "../shared/logger";
+
+const logger = createLogger();
 
 export interface AuditArtifact {
   type: "audit-report" | "slither-output" | "deployment-artifact" | "security-tool-output";
@@ -61,7 +64,7 @@ export function detectAuditArtifacts(projectDir: string): AuditArtifact[] {
               }
             }
           } catch {
-            // Ignore errors reading docs directory
+            logger.debug("Failed to read docs directory for audit artifacts");
           }
         }
         continue;

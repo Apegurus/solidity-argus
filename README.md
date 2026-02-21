@@ -157,6 +157,8 @@ A generic pipeline for extracting security findings from public audit report PDF
 bun scripts/audit-pdf-extract.ts
 ```
 
+> **Note:** The extraction pipeline scripts are available in the [source repository](https://github.com/Apegurus/solidity-argus) only. They are not included in the npm package. If you installed `solidity-argus` via npm/bun, you'll need to clone the repository to run the extraction pipeline.
+
 **Output files:**
 - `scripts/audit-pdf-output/findings.json` — All extracted findings
 - `scripts/audit-pdf-output/metadata.json` — Extraction stats, errors, source info

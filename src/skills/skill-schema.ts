@@ -1,6 +1,9 @@
 import { z } from "zod"
 import { parse as parseYaml } from "yaml"
 import { PATTERN_CATEGORIES } from "../tools/pattern-schema"
+import { createLogger } from "../shared/logger"
+
+const logger = createLogger()
 
 export const DetectionRuleSchema = z.object({
   regex: z.string(),
@@ -70,7 +73,7 @@ export function parseFrontmatter(content: string): Record<string, unknown> | nul
       if (typeof parsed === "object" && parsed !== null) {
         return parsed as Record<string, unknown>
       }
-    } catch {}
+    } catch { logger.debug("YAML frontmatter parse failed, falling back to line parser") }
   }
 
   const lines = raw.split(/\r?\n/)
