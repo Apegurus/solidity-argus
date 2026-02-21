@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { ArgusConfig } from "../config/types"
 import type { ScvdClient, ScvdFinding } from "../knowledge/scvd-client"
-import { type ScvdIndex, saveIndex } from "../knowledge/scvd-index"
+import { releaseSyncLock, type ScvdIndex, saveIndex } from "../knowledge/scvd-index"
 import { getSyncStatus, syncAll } from "../knowledge/scvd-sync"
 import { resetLoggerSink } from "../shared/logger"
 import { createKnowledgeSyncHook, type KnowledgeSyncDependencies } from "./knowledge-sync-hook"
@@ -111,6 +111,7 @@ describe("syncAll observability", () => {
   const tempDir = "/tmp/argus-observability-tests"
 
   beforeEach(() => {
+    releaseSyncLock()
     mkdirSync(tempDir, { recursive: true })
   })
 
