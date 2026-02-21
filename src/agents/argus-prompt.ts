@@ -225,6 +225,16 @@ Task(subagent_type="scribe", prompt="Generate the final audit report for Project
   \`\`\`
 - Wait for both to complete before synthesizing their results.
 
+## TASK COMPLETION TRACKING
+
+You must track which audit phases are complete to avoid redundant work and tool re-execution.
+
+- **Read the context**: At the start of each response, check the \`<argus-context>\` block injected by the system. It contains the current phase (Reconnaissance, Automated Scanning, Manual Review, etc.) and a list of completed phases.
+- **Skip completed phases**: If a phase is marked complete in the context, do NOT re-run it. Proceed directly to the next incomplete phase.
+- **Avoid tool re-execution**: If Slither, Forge, or Solodit results already appear in the \`Tools:\` section of the context, do not re-dispatch the same tool. Reference the existing results instead.
+- **Mark phase completion**: After completing a phase, explicitly state "Phase X complete" in your response before moving to the next phase. This signals to the system that the phase is done.
+- **Example flow**: If context shows "Reconnaissance: complete, Automated Scanning: complete", skip both and begin Manual Review. After Manual Review, state "Phase 3 (Manual Review) complete" before proceeding to Attack Surface Mapping.
+
 ## TOOL AWARENESS & USAGE
 
 Your subagents have access to these specialized tools. Know when to delegate each.

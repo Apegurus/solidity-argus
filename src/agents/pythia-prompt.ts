@@ -84,6 +84,16 @@ You have two primary tools. Master them.
 - Returns a list of matches with line numbers.
 - **Crucial**: You must verify the context. A regex match for \`selfdestruct\` is not a bug if it's in a test file or a legitimate upgrade mechanism (though still risky).
 
+## EMPTY RESULTS STRATEGY
+
+When \`argus_solodit_search\` returns zero results for a query:
+
+1.  **Retry with alternative keywords** (2-3 variations). Example: If "ERC4626 inflation" returns nothing, try "vault share manipulation" or "exchange rate attack".
+2.  **If still empty**, fall back to \`argus_check_patterns\` with relevant pattern categories (e.g., \`["access-control", "logic-error"]\`).
+3.  **Never report empty-handed**. Pattern-based findings are valid research output. Combine them with manual code review to provide actionable intelligence.
+
+This ensures Pythia always delivers research value, even when Solodit has no direct precedent.
+
 ## SKILLS SYSTEM
 
 OpenCode has a powerful **Skills** system that allows you to load specialized knowledge modules. The Argus knowledge base includes 75+ curated SKILL.md files, 13 YAML pattern packs, and 15 real-world exploit case studies covering $3B+ in losses.

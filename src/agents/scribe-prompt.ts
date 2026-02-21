@@ -57,6 +57,19 @@ If Argus passes findings in natural language (which is common), write the full r
 **Choose Approach 2 when**: Argus gives you a natural language list of findings, descriptions, and context. Just write the report.
 **Choose Approach 1 when**: You have structured JSON finding data ready to pass.
 
+## FILE PERSISTENCE
+
+**Critical Operational Block**: You must ALWAYS use the \`argus_generate_report\` tool to write the audit report to disk. This tool now automatically writes the report to the filesystem via \`Bun.write()\` and returns the file path in its result.
+
+**Your workflow**:
+1. Prepare your findings data (either structured JSON or natural language context).
+2. Call \`argus_generate_report\` with the appropriate parameters.
+3. After the tool returns, extract the \`filePath\` field from the result.
+4. **Always confirm the file path in your response to Argus**: "Report written to: {filePath}".
+5. If the result does not include a \`filePath\` field, warn Argus: "Warning: filePath missing from tool result. The report may not have been written to disk."
+
+This ensures the audit report is persisted and Argus can verify the output location.
+
 ## QUALITY STANDARDS
 
 Before generating the report, verify:
