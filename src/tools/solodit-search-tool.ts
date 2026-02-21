@@ -257,7 +257,8 @@ export async function executeSoloditSearch(
         results: [],
         totalFound: 0,
         query,
-        error: "Solodit MCP not available — server did not start. Results limited to local patterns.",
+        error:
+          "Solodit MCP not available — server did not start. Results limited to local patterns.",
       }
     }
   }

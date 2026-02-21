@@ -182,11 +182,14 @@ export async function startSoloditMcp(port: number): Promise<void> {
   soloditChild = spawnSoloditChild(port)
   trackChildExit(soloditChild)
 
+  const deadline = AbortSignal.timeout(5000)
   const delays = [1000, 2000]
   for (const delay of delays) {
+    if (deadline.aborted) break
     await Bun.sleep(delay)
-    const health = await checkSoloditHealth(port, true)
-    if (health.reachable) {
+    if (deadline.aborted) break
+    const healthResult = await checkSoloditHealth(port, true)
+    if (healthResult.reachable) {
       soloditAvailable = true
       logger.debug(`Solodit MCP healthy on port ${port}`)
       break

@@ -1,13 +1,7 @@
 import * as parser from "@solidity-parser/parser"
 import type { ContractProfile } from "../state/types"
 
-const EXTERNAL_CALL_METHODS = new Set([
-  "call",
-  "transfer",
-  "send",
-  "delegatecall",
-  "staticcall",
-])
+const EXTERNAL_CALL_METHODS = new Set(["call", "transfer", "send", "delegatecall", "staticcall"])
 
 interface ABIFunction {
   type: string

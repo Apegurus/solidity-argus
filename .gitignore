@@ -59,3 +59,7 @@ haep-susdve-assesment.md
 kimi-production-findings.md
 opus-assessment-v4.md
 opus-h-production-readiness-assessment.md
+
+# test artifacts
+tests/fixtures/vulnerable-vault/.opencode/reports/
+tests/fixtures/vulnerable-vault/test/ReentrancyPoC.t.sol

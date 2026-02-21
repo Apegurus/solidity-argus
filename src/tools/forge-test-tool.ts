@@ -127,7 +127,8 @@ function parseTests(payload: ForgeTestPayload): {
         }
 
         const detailsRecord = details as Record<string, unknown>
-        const statusValue = typeof detailsRecord.status === "string" ? detailsRecord.status : undefined
+        const statusValue =
+          typeof detailsRecord.status === "string" ? detailsRecord.status : undefined
         const status = mapStatus(statusValue)
         if (status === "skip") {
           collected.push({ skipped: true })
@@ -135,7 +136,8 @@ function parseTests(payload: ForgeTestPayload): {
         }
 
         const kind = detailsRecord.kind
-        const kindRecord = kind && typeof kind === "object" ? (kind as Record<string, unknown>) : undefined
+        const kindRecord =
+          kind && typeof kind === "object" ? (kind as Record<string, unknown>) : undefined
         const unit = kindRecord?.Unit
         const unitRecord =
           unit && typeof unit === "object" ? (unit as Record<string, unknown>) : undefined

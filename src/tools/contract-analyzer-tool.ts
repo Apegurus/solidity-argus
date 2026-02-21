@@ -152,7 +152,8 @@ export async function executeContractAnalyzer(
     let firstMatchParents: string[] | undefined
     let regexMatch: RegExpExecArray | null = null
 
-    while ((regexMatch = inheritanceRegex.exec(sourceText)) !== null) {
+    regexMatch = inheritanceRegex.exec(sourceText)
+    while (regexMatch !== null) {
       const matchedName = regexMatch.at(1) ?? ""
       const parents = (regexMatch.at(2) ?? "")
         .split(",")
@@ -167,15 +168,15 @@ export async function executeContractAnalyzer(
         sourceInheritance = parents
         break
       }
+
+      regexMatch = inheritanceRegex.exec(sourceText)
     }
 
     if (sourceInheritance.length === 0 && firstMatchParents) {
       sourceInheritance = firstMatchParents
     }
 
-    const mergedInheritance = [
-      ...new Set([...contractProfile.inheritance, ...sourceInheritance]),
-    ]
+    const mergedInheritance = [...new Set([...contractProfile.inheritance, ...sourceInheritance])]
     const mergedExternalCalls = [
       ...new Set([...contractProfile.externalCalls, ...parseExternalCalls(sourceText)]),
     ]
@@ -196,9 +197,7 @@ export async function executeContractAnalyzer(
     for (const fn of contractProfile.functions) {
       if (!fn.name) continue
       const escapedName = fn.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const fnPattern = new RegExp(
-        `function\\s+${escapedName}\\s*\\([^)]*\\)\\s*([^{;]*)`,
-      )
+      const fnPattern = new RegExp(`function\\s+${escapedName}\\s*\\([^)]*\\)\\s*([^{;]*)`)
       const fnMatch = fnPattern.exec(sourceText)
       if (!fnMatch?.[1]) continue
 
