@@ -1,10 +1,10 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { deepMerge } from "../shared/deep-merge"
+import { detectConfigFile, readJsoncFile } from "../shared/file-utils"
+import { createLogger } from "../shared/logger"
 import { ArgusConfigSchema } from "./schema"
 import type { ArgusConfig } from "./types"
-import { detectConfigFile, readJsoncFile } from "../shared/file-utils"
-import { deepMerge } from "../shared/deep-merge"
-import { createLogger } from "../shared/logger"
 
 export function _mergeConfigs(
   userRaw: Record<string, unknown> | null,
@@ -28,9 +28,7 @@ export function loadArgusConfig(projectDir: string): ArgusConfig {
   const userRaw = userConfigInfo.path ? readJsoncFile(userConfigInfo.path) : null
 
   const projectConfigInfo = detectConfigFile(projectDir)
-  const projectRaw = projectConfigInfo.path
-    ? readJsoncFile(projectConfigInfo.path)
-    : null
+  const projectRaw = projectConfigInfo.path ? readJsoncFile(projectConfigInfo.path) : null
 
   return _mergeConfigs(userRaw, projectRaw)
 }

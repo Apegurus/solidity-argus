@@ -1,20 +1,20 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { basename, dirname, extname, join } from "node:path"
-import type { CliCommand } from "../types"
-import type { ArgusConfig } from "../../config/types"
 import { loadArgusConfig } from "../../config/loader"
+import type { ArgusConfig } from "../../config/types"
+import { createLogger } from "../../shared/logger"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
+  type ResolvedSkill,
   resolveArgusSkills,
   resolveSkillRoots,
-  type ResolvedSkill,
 } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
 import { detectViaIr } from "../../tools/slither-tool"
 import { checkSoloditHealth } from "../../utils/solodit-health"
 import { cliOutput } from "../cli-output"
-import { createLogger } from "../../shared/logger"
+import type { CliCommand } from "../types"
 
 const logger = createLogger()
 
@@ -74,7 +74,8 @@ export function findDuplicateSkills(
   const nameToSources = new Map<string, Set<string>>()
   for (const { name, source } of entries) {
     if (!nameToSources.has(name)) nameToSources.set(name, new Set())
-    nameToSources.get(name)!.add(source)
+    const sources = nameToSources.get(name)
+    if (sources) sources.add(source)
   }
   return Array.from(nameToSources)
     .filter(([, sources]) => sources.size > 1)
@@ -116,9 +117,7 @@ export function buildSkillHealthReport(
   }
 
   const duplicates = duplicateEntries ? findDuplicateSkills(duplicateEntries) : []
-  const missingCategories = REQUIRED_CATEGORIES.filter(
-    (cat) => (categoryBreakdown[cat] ?? 0) === 0,
-  )
+  const missingCategories = REQUIRED_CATEGORIES.filter((cat) => (categoryBreakdown[cat] ?? 0) === 0)
 
   return {
     categoryBreakdown,
@@ -190,7 +189,7 @@ function collectAllSkillNames(
 export const doctorCommand: CliCommand = {
   name: "doctor",
   description: "Check tool dependencies and configuration",
-  async execute(args: string[]): Promise<number> {
+  async execute(_args: string[]): Promise<number> {
     const cwd = process.cwd()
     let hasFailure = false
 
@@ -208,7 +207,9 @@ export const doctorCommand: CliCommand = {
     if (forge.found) {
       cliOutput.log(`${GREEN}✓${RESET} Forge: installed (${forge.version})`)
     } else {
-      cliOutput.log(`${RED}✗${RESET} Forge: not found — curl -L https://foundry.paradigm.xyz | bash`)
+      cliOutput.log(
+        `${RED}✗${RESET} Forge: not found — curl -L https://foundry.paradigm.xyz | bash`,
+      )
       hasFailure = true
     }
 
@@ -216,7 +217,9 @@ export const doctorCommand: CliCommand = {
     if (solcSelect.found) {
       cliOutput.log(`${GREEN}✓${RESET} solc-select: installed (${solcSelect.version})`)
     } else {
-      cliOutput.log(`${YELLOW}⚠${RESET} solc-select: not found — pipx install solc-select (needed for via_ir flatten fallback)`)
+      cliOutput.log(
+        `${YELLOW}⚠${RESET} solc-select: not found — pipx install solc-select (needed for via_ir flatten fallback)`,
+      )
     }
 
     const projectType = checkSolidityProject(cwd)
@@ -227,9 +230,13 @@ export const doctorCommand: CliCommand = {
     }
 
     if (projectType === "foundry" && detectViaIr(cwd)) {
-      cliOutput.log(`${YELLOW}⚠${RESET} via_ir: enabled in foundry.toml — Slither will use flatten fallback`)
+      cliOutput.log(
+        `${YELLOW}⚠${RESET} via_ir: enabled in foundry.toml — Slither will use flatten fallback`,
+      )
       if (!forge.found) {
-        cliOutput.log(`${RED}✗${RESET}   forge is required for via_ir flatten fallback but is missing`)
+        cliOutput.log(
+          `${RED}✗${RESET}   forge is required for via_ir flatten fallback but is missing`,
+        )
         hasFailure = true
       }
       if (!solcSelect.found) {
@@ -247,9 +254,13 @@ export const doctorCommand: CliCommand = {
       const missingSkills = requiredSkills.filter((skillName) => !resolvedSkills.has(skillName))
 
       if (missingSkills.length === 0) {
-        cliOutput.log(`${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`)
+        cliOutput.log(
+          `${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`,
+        )
       } else {
-        cliOutput.log(`${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`)
+        cliOutput.log(
+          `${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`,
+        )
         hasFailure = true
       }
     } catch {
@@ -260,15 +271,21 @@ export const doctorCommand: CliCommand = {
       const missingSkills = requiredSkills.filter((skillName) => !resolvedSkills.has(skillName))
 
       if (missingSkills.length === 0) {
-        cliOutput.log(`${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`)
+        cliOutput.log(
+          `${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`,
+        )
       } else {
-        cliOutput.log(`${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`)
+        cliOutput.log(
+          `${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`,
+        )
         hasFailure = true
       }
     }
 
     try {
-      const response = await fetch("https://api.scvd.dev/stats", { signal: AbortSignal.timeout(5000) })
+      const response = await fetch("https://api.scvd.dev/stats", {
+        signal: AbortSignal.timeout(5000),
+      })
       if (response.ok) {
         cliOutput.log(`${GREEN}✓${RESET} SCVD API: reachable`)
       } else {
@@ -302,9 +319,7 @@ export const doctorCommand: CliCommand = {
       const allEntries = collectAllSkillNames(cwd, config)
       const report = buildSkillHealthReport(healthSkills, allEntries)
 
-      const catParts = ALL_CATEGORIES.map(
-        (cat) => `${cat}: ${report.categoryBreakdown[cat] ?? 0}`,
-      )
+      const catParts = ALL_CATEGORIES.map((cat) => `${cat}: ${report.categoryBreakdown[cat] ?? 0}`)
       cliOutput.log(`${GREEN}✓${RESET} Categories: ${catParts.join(", ")}`)
 
       const tierParts = Object.entries(report.trustTierBreakdown).map(

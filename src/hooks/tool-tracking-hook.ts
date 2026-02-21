@@ -1,6 +1,6 @@
-import type { AuditState, FindingSeverity, FuzzCounterexample, SoloditResult } from "../state/types"
 import type { FindingStore } from "../state/finding-store"
 import { createFindingStore } from "../state/finding-store"
+import type { AuditState, FindingSeverity, FuzzCounterexample, SoloditResult } from "../state/types"
 
 type ToolHookInput = {
   tool: string
@@ -21,11 +21,7 @@ const VALID_SEVERITIES: ReadonlySet<string> = new Set([
   "Informational",
 ])
 
-const VALID_CONFIDENCES: ReadonlySet<string> = new Set([
-  "High",
-  "Medium",
-  "Low",
-])
+const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["High", "Medium", "Low"])
 
 function toSeverity(value: unknown): FindingSeverity {
   if (typeof value === "string" && VALID_SEVERITIES.has(value)) {
@@ -60,10 +56,7 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined
 }
 
-function processSlitherResult(
-  parsed: Record<string, unknown>,
-  store: FindingStore
-): number {
+function processSlitherResult(parsed: Record<string, unknown>, store: FindingStore): number {
   const findings = parsed.findings
   if (!Array.isArray(findings)) return 0
 
@@ -101,10 +94,7 @@ function processSlitherResult(
   return count
 }
 
-function processPatternResult(
-  parsed: Record<string, unknown>,
-  store: FindingStore
-): number {
+function processPatternResult(parsed: Record<string, unknown>, store: FindingStore): number {
   const sources = parsed.sources
   if (!Array.isArray(sources)) return 0
 
@@ -150,10 +140,7 @@ function processPatternResult(
   return count
 }
 
-function processContractAnalyzerResult(
-  parsed: Record<string, unknown>,
-  state: AuditState
-): void {
+function processContractAnalyzerResult(parsed: Record<string, unknown>, state: AuditState): void {
   // Handle direct ContractProfile format (actual tool output)
   if (typeof parsed.filePath === "string") {
     if (!state.contractsReviewed.includes(parsed.filePath)) {
@@ -171,15 +158,11 @@ function processContractAnalyzerResult(
   }
 }
 
-function processFuzzResult(
-  parsed: Record<string, unknown>,
-  state: AuditState
-): void {
+function processFuzzResult(parsed: Record<string, unknown>, state: AuditState): void {
   const counterexamples = parsed.counterexamples
   if (!Array.isArray(counterexamples) || counterexamples.length === 0) return
 
-  const totalRuns =
-    typeof parsed.totalRuns === "number" ? parsed.totalRuns : 0
+  const totalRuns = typeof parsed.totalRuns === "number" ? parsed.totalRuns : 0
 
   state.fuzzCounterexamples ??= []
 
@@ -213,26 +196,20 @@ function processFuzzResult(
   }
 }
 
-function processSoloditResult(
-  parsed: Record<string, unknown>,
-  state: AuditState
-): void {
+function processSoloditResult(parsed: Record<string, unknown>, state: AuditState): void {
   const query = typeof parsed.query === "string" ? parsed.query : ""
   const results = Array.isArray(parsed.results) ? parsed.results : []
-  const totalFound =
-    typeof parsed.totalFound === "number" ? parsed.totalFound : results.length
+  const totalFound = typeof parsed.totalFound === "number" ? parsed.totalFound : results.length
 
-  const topResults: SoloditResult["topResults"] = results
-    .slice(0, 5)
-    .map((raw) => {
-      const r = toRecord(raw)
-      return {
-        title: typeof r?.title === "string" ? r.title : "",
-        severity: typeof r?.severity === "string" ? r.severity : "",
-        url: typeof r?.url === "string" ? r.url : "",
-        protocol: typeof r?.protocol === "string" ? r.protocol : "",
-      }
-    })
+  const topResults: SoloditResult["topResults"] = results.slice(0, 5).map((raw) => {
+    const r = toRecord(raw)
+    return {
+      title: typeof r?.title === "string" ? r.title : "",
+      severity: typeof r?.severity === "string" ? r.severity : "",
+      url: typeof r?.url === "string" ? r.url : "",
+      protocol: typeof r?.protocol === "string" ? r.protocol : "",
+    }
+  })
 
   state.soloditResults ??= []
   state.soloditResults.push({
@@ -256,11 +233,7 @@ function processSoloditResult(
  * architecture. For accurate timing, the hook would need to fire in tool.execute.before
  * and tool.execute.after phases separately.
  */
-function recordToolExecution(
-  state: AuditState,
-  toolName: string,
-  findingsCount: number
-): void {
+function recordToolExecution(state: AuditState, toolName: string, findingsCount: number): void {
   const now = Date.now()
   state.toolsExecuted.push({
     tool: toolName,
@@ -280,7 +253,7 @@ function recordToolExecution(
  */
 export function createToolTrackingHook(
   getAuditState: () => AuditState | null,
-  onStateChanged?: (metadata: ToolExecutionMetadata) => void
+  onStateChanged?: (metadata: ToolExecutionMetadata) => void,
 ): (input: ToolHookInput) => Promise<void> {
   const storesByState = new WeakMap<AuditState, FindingStore>()
 
@@ -367,12 +340,14 @@ export function createToolTrackingHook(
         const files = reportObj?.files
         if (Array.isArray(files)) {
           auditState.coverageReport = {
-            files: files.filter((f): f is Record<string, unknown> => !!f && typeof f === "object").map(f => ({
-              path: typeof f.path === "string" ? f.path : "unknown",
-              linesPct: typeof f.linesPct === "number" ? f.linesPct : 0,
-              branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
-              functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
-            }))
+            files: files
+              .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
+              .map((f) => ({
+                path: typeof f.path === "string" ? f.path : "unknown",
+                linesPct: typeof f.linesPct === "number" ? f.linesPct : 0,
+                branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
+                functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
+              })),
           }
         }
         break
@@ -383,7 +358,9 @@ export function createToolTrackingHook(
           auditState.proxyContracts.push({
             file: typeof record.file === "string" ? record.file : "unknown",
             proxyType: typeof record.proxyType === "string" ? record.proxyType : "unknown",
-            indicators: Array.isArray(record.indicators) ? record.indicators.filter((i): i is string => typeof i === "string") : [],
+            indicators: Array.isArray(record.indicators)
+              ? record.indicators.filter((i): i is string => typeof i === "string")
+              : [],
           })
         }
         break
@@ -391,11 +368,13 @@ export function createToolTrackingHook(
       case "argus_gas_analysis": {
         const hotspots = record.hotspots
         if (Array.isArray(hotspots)) {
-          auditState.gasHotspots = hotspots.filter((h): h is Record<string, unknown> => !!h && typeof h === "object").map(h => ({
-            contract: typeof h.contract === "string" ? h.contract : "unknown",
-            function: typeof h.function === "string" ? h.function : "unknown",
-            avgGas: typeof h.avgGas === "number" ? h.avgGas : 0,
-          }))
+          auditState.gasHotspots = hotspots
+            .filter((h): h is Record<string, unknown> => !!h && typeof h === "object")
+            .map((h) => ({
+              contract: typeof h.contract === "string" ? h.contract : "unknown",
+              function: typeof h.function === "string" ? h.function : "unknown",
+              avgGas: typeof h.avgGas === "number" ? h.avgGas : 0,
+            }))
         }
         break
       }

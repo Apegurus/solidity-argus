@@ -1,12 +1,12 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "./config/loader"
-import { createHookGuard } from "./hooks/hook-system"
-import { createTools } from "./create-tools"
 import { createHooks } from "./create-hooks"
 import { createManagers } from "./create-managers"
+import { createTools } from "./create-tools"
+import type { Dispatcher } from "./features/background-agent/background-manager"
+import { createHookGuard } from "./hooks/hook-system"
 import { createPluginInterface } from "./plugin-interface"
 import { startSoloditMcp } from "./solodit-lifecycle"
-import type { Dispatcher } from "./features/background-agent/background-manager"
 
 const ArgusPlugin: Plugin = async (ctx) => {
   const projectDir = ctx.directory ?? process.cwd()
@@ -17,7 +17,7 @@ const ArgusPlugin: Plugin = async (ctx) => {
   }
 
   const isHookEnabled = createHookGuard(config.disabled_hooks)
-  const taskCandidate = (ctx as Record<string, unknown>)["task"]
+  const taskCandidate = (ctx as Record<string, unknown>).task
   const backgroundDispatcher: Dispatcher | undefined =
     typeof taskCandidate === "function"
       ? async (agentName: string, prompt: string) => {
@@ -26,7 +26,7 @@ const ArgusPlugin: Plugin = async (ctx) => {
             return result
           }
           if (typeof result === "object" && result !== null) {
-            const taskId = (result as Record<string, unknown>)["task_id"]
+            const taskId = (result as Record<string, unknown>).task_id
             if (typeof taskId === "string") {
               return taskId
             }

@@ -50,14 +50,113 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = {
 }
 
 const STOPWORDS = new Set([
-  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
-  "did", "will", "would", "shall", "should", "may", "might", "can", "could", "of", "in", "to", "for", "with", "on",
-  "at", "by", "from", "as", "into", "through", "during", "before", "after", "above", "below", "between", "out", "off",
-  "over", "under", "again", "further", "then", "once", "here", "there", "where", "when", "how", "all", "each", "every",
-  "both", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "than", "too",
-  "very", "and", "but", "or", "if", "this", "that", "these", "those", "it", "its", "contract", "function", "solidity",
-  "smart", "vulnerability", "attack", "attacker", "token", "address", "value", "state", "require", "modifier", "external",
-  "internal", "public", "private", "mapping", "uint256", "bool", "returns", "event", "emit",
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "shall",
+  "should",
+  "may",
+  "might",
+  "can",
+  "could",
+  "of",
+  "in",
+  "to",
+  "for",
+  "with",
+  "on",
+  "at",
+  "by",
+  "from",
+  "as",
+  "into",
+  "through",
+  "during",
+  "before",
+  "after",
+  "above",
+  "below",
+  "between",
+  "out",
+  "off",
+  "over",
+  "under",
+  "again",
+  "further",
+  "then",
+  "once",
+  "here",
+  "there",
+  "where",
+  "when",
+  "how",
+  "all",
+  "each",
+  "every",
+  "both",
+  "few",
+  "more",
+  "most",
+  "other",
+  "some",
+  "such",
+  "no",
+  "nor",
+  "not",
+  "only",
+  "own",
+  "same",
+  "than",
+  "too",
+  "very",
+  "and",
+  "but",
+  "or",
+  "if",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "its",
+  "contract",
+  "function",
+  "solidity",
+  "smart",
+  "vulnerability",
+  "attack",
+  "attacker",
+  "token",
+  "address",
+  "value",
+  "state",
+  "require",
+  "modifier",
+  "external",
+  "internal",
+  "public",
+  "private",
+  "mapping",
+  "uint256",
+  "bool",
+  "returns",
+  "event",
+  "emit",
 ])
 
 class UnionFind {
@@ -123,13 +222,17 @@ function computeTokenSets(findings: ClusterFinding[]): Set<string>[] {
 
 function buildSimilarityMatrix(tokenSets: Set<string>[]): number[][] {
   const tokenArrays = tokenSets.map((set) => [...set])
-  const matrix: number[][] = Array.from({ length: tokenSets.length }, () => Array.from({ length: tokenSets.length }, () => 0))
+  const matrix: number[][] = Array.from({ length: tokenSets.length }, () =>
+    Array.from({ length: tokenSets.length }, () => 0),
+  )
   for (let i = 0; i < tokenSets.length; i += 1) {
-    matrix[i]![i] = 1
+    const rowI = matrix[i]
+    if (rowI) rowI[i] = 1
     for (let j = i + 1; j < tokenSets.length; j += 1) {
       const similarity = tokenJaccard(tokenArrays[i] ?? [], tokenArrays[j] ?? [])
-      matrix[i]![j] = similarity
-      matrix[j]![i] = similarity
+      if (rowI) rowI[j] = similarity
+      const rowJ = matrix[j]
+      if (rowJ) rowJ[i] = similarity
     }
   }
   return matrix
@@ -191,7 +294,11 @@ function topTokensForMembers(memberIndices: number[], tokenSets: Set<string>[]):
     .map(([token]) => token)
 }
 
-function pushSingletons(target: ClusterFinding[], bucket: ClusterFinding[], indices: number[]): void {
+function pushSingletons(
+  target: ClusterFinding[],
+  bucket: ClusterFinding[],
+  indices: number[],
+): void {
   for (const index of indices) {
     const finding = bucket[index]
     if (finding) target.push(finding)
@@ -219,7 +326,9 @@ export function clusterFindings(
       buckets.set(finding.category, [finding])
     }
   }
-  const orderedCategories = Array.from(buckets.keys()).sort((left, right) => left.localeCompare(right))
+  const orderedCategories = Array.from(buckets.keys()).sort((left, right) =>
+    left.localeCompare(right),
+  )
   let nextClusterId = 1
   for (const category of orderedCategories) {
     const bucket = buckets.get(category) ?? []
@@ -262,17 +371,21 @@ export function clusterFindings(
         continue
       }
       const finalMedoid = medoidForMembers(keptIndices, similarityMatrix)
-      const members = keptIndices.map((index) => bucket[index]).filter((finding): finding is ClusterFinding => Boolean(finding))
+      const members = keptIndices
+        .map((index) => bucket[index])
+        .filter((finding): finding is ClusterFinding => Boolean(finding))
       if (members.length < config.minClusterSize) {
         singletons.push(...members)
         continue
       }
       const medoidIndex = Math.max(0, keptIndices.indexOf(finalMedoid))
+      const medoid = members.at(medoidIndex)
+      if (!medoid) throw new Error("Medoid index out of bounds — this should not happen")
       clusters.push({
         id: nextClusterId,
         category,
         members,
-        medoid: members[medoidIndex]!,
+        medoid,
         medoidIndex,
         topTokens: topTokensForMembers(keptIndices, tokenSets),
         avgInternalSimilarity: averageInternalSimilarity(keptIndices, similarityMatrix),
@@ -282,7 +395,10 @@ export function clusterFindings(
     }
   }
   const largestCluster = clusters.reduce((max, cluster) => Math.max(max, cluster.size), 0)
-  const avgClusterSize = clusters.length === 0 ? 0 : clusters.reduce((total, cluster) => total + cluster.size, 0) / clusters.length
+  const avgClusterSize =
+    clusters.length === 0
+      ? 0
+      : clusters.reduce((total, cluster) => total + cluster.size, 0) / clusters.length
   return {
     clusters,
     singletons,

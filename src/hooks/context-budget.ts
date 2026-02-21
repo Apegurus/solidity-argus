@@ -10,7 +10,7 @@
 
 const ARGUS_BUDGET = 2000
 const SUBAGENT_BUDGET = 1000
-const PRESSURE_THRESHOLD = 0.70
+const PRESSURE_THRESHOLD = 0.7
 const PRESSURE_REDUCTION = 0.5
 
 const ARGUS_AGENTS = new Set(["argus"])
@@ -23,10 +23,7 @@ const SUBAGENTS = new Set(["sentinel", "pythia", "scribe"])
  * @param contextPressure - Current context usage ratio (0.0–1.0), from ContextMonitor
  * @returns Token budget in tokens. 0 for non-Argus agents.
  */
-export function getTokenBudgetForAgent(
-  agent: string,
-  contextPressure: number = 0,
-): number {
+export function getTokenBudgetForAgent(agent: string, contextPressure: number = 0): number {
   let budget: number
 
   if (ARGUS_AGENTS.has(agent)) {

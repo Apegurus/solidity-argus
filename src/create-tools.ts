@@ -1,21 +1,19 @@
 import type { ToolDefinition } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
-import { slitherTool } from "./tools/slither-tool"
+import { argusSkillLoadTool } from "./tools/argus-skill-load-tool"
+import { contractAnalyzerTool } from "./tools/contract-analyzer-tool"
+import { forgeCoverageTool } from "./tools/forge-coverage-tool"
+import { forgeFuzzTool } from "./tools/forge-fuzz-tool"
 import { forgeTestTool } from "./tools/forge-test-tool"
 import { gasAnalysisTool } from "./tools/gas-analysis-tool"
-import { forgeFuzzTool } from "./tools/forge-fuzz-tool"
-import { forgeCoverageTool } from "./tools/forge-coverage-tool"
-import { contractAnalyzerTool } from "./tools/contract-analyzer-tool"
 import { patternCheckerTool } from "./tools/pattern-checker-tool"
-import { createSoloditSearchTool } from "./tools/solodit-search-tool"
-import { reportGeneratorTool } from "./tools/report-generator-tool"
-import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
-import { argusSkillLoadTool } from "./tools/argus-skill-load-tool"
 import { proxyDetectionTool } from "./tools/proxy-detection-tool"
+import { reportGeneratorTool } from "./tools/report-generator-tool"
+import { slitherTool } from "./tools/slither-tool"
+import { createSoloditSearchTool } from "./tools/solodit-search-tool"
+import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
 
-export function createTools(
-  config: ArgusConfig,
-): Record<string, ToolDefinition> {
+export function createTools(config: ArgusConfig): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {
     argus_slither_analyze: slitherTool,
     argus_forge_test: forgeTestTool,

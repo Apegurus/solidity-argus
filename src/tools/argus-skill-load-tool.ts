@@ -1,8 +1,8 @@
-import { tool, type ToolContext } from "@opencode-ai/plugin"
+import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
-import { normalizeSkillName, resolveArgusSkills } from "../skills/argus-skill-resolver"
 import { resolveProjectDir } from "../shared/project-utils"
+import { normalizeSkillName, resolveArgusSkills } from "../skills/argus-skill-resolver"
 
 type ArgusSkillLoadArgs = {
   name: string
@@ -16,7 +16,7 @@ type ArgusSkillLoadDependencies = {
 export async function executeArgusSkillLoad(
   args: ArgusSkillLoadArgs,
   context: ToolContext,
-  deps: ArgusSkillLoadDependencies = {}
+  deps: ArgusSkillLoadDependencies = {},
 ): Promise<string> {
   const projectDir = resolveProjectDir(context)
   const loadConfig = deps.loadConfig ?? loadArgusConfig
@@ -36,7 +36,7 @@ export async function executeArgusSkillLoad(
   if (!skill) {
     const available = Array.from(skills.keys()).sort().join(", ")
     throw new Error(
-      `Argus skill "${args.name}" not found (normalized: "${normalizedName}"). Available Argus skills: ${available || "none"}`
+      `Argus skill "${args.name}" not found (normalized: "${normalizedName}"). Available Argus skills: ${available || "none"}`,
     )
   }
 
@@ -45,7 +45,8 @@ export async function executeArgusSkillLoad(
   if (skill.source_url) provenanceParts.push(skill.source_url)
   if (skill.imported_at) provenanceParts.push(`Imported: ${skill.imported_at}`)
 
-  const provenanceLine = provenanceParts.length > 0 ? `[Provenance: ${provenanceParts.join(" | ")}]` : ""
+  const provenanceLine =
+    provenanceParts.length > 0 ? `[Provenance: ${provenanceParts.join(" | ")}]` : ""
 
   return [
     `## Argus Skill: ${skill.name} [Source: ${skill.source}]`,
@@ -62,11 +63,14 @@ export async function executeArgusSkillLoad(
 }
 
 export const argusSkillLoadTool = tool({
-  description: "Load Argus security skill content with OMO-compatible discovery and native fallback.",
+  description:
+    "Load Argus security skill content with OMO-compatible discovery and native fallback.",
   args: {
     name: tool.schema
       .string()
-      .describe("Skill name (e.g., reentrancy, oracle-manipulation, or vulnerability-patterns/reentrancy)."),
+      .describe(
+        "Skill name (e.g., reentrancy, oracle-manipulation, or vulnerability-patterns/reentrancy).",
+      ),
   },
   async execute(args, context) {
     return executeArgusSkillLoad(args, context)

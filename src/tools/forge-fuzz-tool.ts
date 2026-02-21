@@ -1,60 +1,61 @@
-import { tool, type ToolContext } from "@opencode-ai/plugin";
-import { resolveProjectDir } from "../shared/project-utils";
+import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeFuzzArgs = {
-  target?: string;
-  match_test?: string;
-  runs?: number;
-  seed?: number;
-  fork_url?: string;
-};
+  target?: string
+  match_test?: string
+  runs?: number
+  seed?: number
+  fork_url?: string
+}
 
 type NormalizedForgeFuzzArgs = {
-  target: string;
-  match_test?: string;
-  runs: number;
-  seed?: number;
-  fork_url?: string;
-};
+  target: string
+  match_test?: string
+  runs: number
+  seed?: number
+  fork_url?: string
+}
 
 type ForgeFuzzResultItem = {
-  testName: string;
-  status: "pass" | "fail";
-  runs: number;
-  gas: number;
-};
+  testName: string
+  status: "pass" | "fail"
+  runs: number
+  gas: number
+}
 
 type ForgeFuzzCounterexample = {
-  testName: string;
-  inputs: Record<string, string>;
-  revertReason?: string;
-};
+  testName: string
+  inputs: Record<string, string>
+  revertReason?: string
+}
 
 type ForgeFuzzResult = {
-  success: boolean;
-  results: ForgeFuzzResultItem[];
-  counterexamples: ForgeFuzzCounterexample[];
-  totalRuns: number;
-  executionTime: number;
-  error?: string;
-};
+  success: boolean
+  results: ForgeFuzzResultItem[]
+  counterexamples: ForgeFuzzCounterexample[]
+  totalRuns: number
+  executionTime: number
+  error?: string
+}
 
 export type ForgeFuzzCommandResult = {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-};
+  stdout: string
+  stderr: string
+  exitCode: number
+}
 
 type RunForgeFuzzCommand = (
   command: string[],
   signal: AbortSignal,
   cwd: string,
-  env: Record<string, string>
-) => Promise<ForgeFuzzCommandResult>;
+  env: Record<string, string>,
+) => Promise<ForgeFuzzCommandResult>
 
 function normalizeArgs(args: ForgeFuzzArgs): NormalizedForgeFuzzArgs {
-  const requestedRuns = typeof args.runs === "number" && Number.isFinite(args.runs) ? args.runs : 256;
-  const clampedRuns = Math.max(1, Math.min(10000, Math.floor(requestedRuns)));
+  const requestedRuns =
+    typeof args.runs === "number" && Number.isFinite(args.runs) ? args.runs : 256
+  const clampedRuns = Math.max(1, Math.min(10000, Math.floor(requestedRuns)))
 
   return {
     target: args.target ?? ".",
@@ -62,117 +63,117 @@ function normalizeArgs(args: ForgeFuzzArgs): NormalizedForgeFuzzArgs {
     runs: clampedRuns,
     seed: args.seed,
     fork_url: args.fork_url,
-  };
+  }
 }
 
 function buildForgeFuzzCommand(args: NormalizedForgeFuzzArgs): string[] {
-  const command = ["forge", "test", "--fuzz-runs", String(args.runs)];
+  const command = ["forge", "test", "--fuzz-runs", String(args.runs)]
 
   if (args.match_test) {
-    command.push("--match-test", args.match_test);
+    command.push("--match-test", args.match_test)
   }
   if (typeof args.seed === "number" && Number.isFinite(args.seed)) {
-    command.push("--fuzz-seed", String(Math.floor(args.seed)));
+    command.push("--fuzz-seed", String(Math.floor(args.seed)))
   }
   if (args.fork_url) {
-    command.push("--fork-url", args.fork_url);
+    command.push("--fork-url", args.fork_url)
   }
 
-  command.push("-v");
-  return command;
+  command.push("-v")
+  return command
 }
 
 function parseNumber(input?: string): number {
   if (!input) {
-    return 0;
+    return 0
   }
-  const normalized = input.replaceAll("_", "").trim();
-  const value = Number.parseInt(normalized, 10);
-  return Number.isFinite(value) ? value : 0;
+  const normalized = input.replaceAll("_", "").trim()
+  const value = Number.parseInt(normalized, 10)
+  return Number.isFinite(value) ? value : 0
 }
 
 function splitArgsList(input: string): string[] {
-  const values: string[] = [];
-  let current = "";
-  let depth = 0;
+  const values: string[] = []
+  let current = ""
+  let depth = 0
 
   for (let i = 0; i < input.length; i += 1) {
-    const ch = input[i] ?? "";
+    const ch = input[i] ?? ""
     if (ch === "(" || ch === "[" || ch === "{") {
-      depth += 1;
-      current += ch;
-      continue;
+      depth += 1
+      current += ch
+      continue
     }
     if (ch === ")" || ch === "]" || ch === "}") {
-      depth = Math.max(0, depth - 1);
-      current += ch;
-      continue;
+      depth = Math.max(0, depth - 1)
+      current += ch
+      continue
     }
     if (ch === "," && depth === 0) {
-      values.push(current.trim());
-      current = "";
-      continue;
+      values.push(current.trim())
+      current = ""
+      continue
     }
-    current += ch;
+    current += ch
   }
 
   if (current.trim().length > 0) {
-    values.push(current.trim());
+    values.push(current.trim())
   }
 
-  return values.filter((value) => value.length > 0);
+  return values.filter((value) => value.length > 0)
 }
 
 function parseInputsFromArgs(argsBlob: string): Record<string, string> {
-  const values = splitArgsList(argsBlob.trim());
-  const inputs: Record<string, string> = {};
+  const values = splitArgsList(argsBlob.trim())
+  const inputs: Record<string, string> = {}
 
   values.forEach((value, index) => {
-    inputs[`arg${index}`] = value;
-  });
+    inputs[`arg${index}`] = value
+  })
 
-  return inputs;
+  return inputs
 }
 
 function parseResultLine(line: string): ForgeFuzzResultItem | undefined {
   const match = line.match(
-    /^\[(PASS|FAIL)[^\]]*\]\s*(.+?)\s*\(runs:\s*([\d_]+)(?:,\s*(?:\u03bc|mean):\s*([\d_]+))?/i
-  );
+    /^\[(PASS|FAIL)[^\]]*\]\s*(.+?)\s*\(runs:\s*([\d_]+)(?:,\s*(?:\u03bc|mean):\s*([\d_]+))?/i,
+  )
   if (!match) {
-    return undefined;
+    return undefined
   }
 
-  const status = match[1]?.toUpperCase() === "PASS" ? "pass" : "fail";
+  const status = match[1]?.toUpperCase() === "PASS" ? "pass" : "fail"
   return {
     testName: (match[2] ?? "unknown-test").trim(),
     status,
     runs: parseNumber(match[3]),
     gas: parseNumber(match[4]),
-  };
+  }
 }
 
 function parseCounterexampleLine(line: string):
   | {
-      testName?: string;
-      inputs: Record<string, string>;
+      testName?: string
+      inputs: Record<string, string>
     }
   | undefined {
   if (!line.includes("Counterexample:")) {
-    return undefined;
+    return undefined
   }
 
-  const argsMatch = line.match(/Counterexample:\s*.*?args=\((.*?)\)\]/);
+  const argsMatch = line.match(/Counterexample:\s*.*?args=\((.*?)\)\]/)
   if (!argsMatch) {
-    return undefined;
+    return undefined
   }
 
-  const trailing = line.match(/\]\s*(.+)$/);
-  const possibleTest = trailing?.[1]?.replace(/\s*\(runs:.*$/, "").trim();
+  const trailing = line.match(/\]\s*(.+)$/)
+  const possibleTest = trailing?.[1]?.replace(/\s*\(runs:.*$/, "").trim()
 
   return {
     testName: possibleTest && possibleTest.length > 0 ? possibleTest : undefined,
     inputs: parseInputsFromArgs(argsMatch[1] ?? ""),
-  };
+  }
 }
 
 const runForgeFuzzCommand: RunForgeFuzzCommand = async (command, signal, cwd, env) => {
@@ -182,30 +183,30 @@ const runForgeFuzzCommand: RunForgeFuzzCommand = async (command, signal, cwd, en
     stderr: "pipe",
     signal,
     env,
-  });
+  })
 
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
-  ]);
+  ])
 
   return {
     stdout,
     stderr,
     exitCode,
-  };
-};
+  }
+}
 
 export async function executeForgeFuzz(
   args: ForgeFuzzArgs,
   context: ToolContext,
-  runCommand: RunForgeFuzzCommand = runForgeFuzzCommand
+  runCommand: RunForgeFuzzCommand = runForgeFuzzCommand,
 ): Promise<ForgeFuzzResult> {
-  const startedAt = Date.now();
-  const normalized = normalizeArgs(args);
-  const projectDir = resolveProjectDir(context);
-  context.metadata({ title: `Run forge fuzz: ${normalized.target}` });
+  const startedAt = Date.now()
+  const normalized = normalizeArgs(args)
+  const projectDir = resolveProjectDir(context)
+  context.metadata({ title: `Run forge fuzz: ${normalized.target}` })
 
   const fail = (error: string): ForgeFuzzResult => ({
     success: false,
@@ -214,85 +215,82 @@ export async function executeForgeFuzz(
     totalRuns: 0,
     executionTime: Date.now() - startedAt,
     error,
-  });
+  })
 
   try {
     const env = {
       ...Bun.env,
       FOUNDRY_FUZZ_RUNS: String(normalized.runs),
-    };
+    }
 
     const runResult = await runCommand(
       buildForgeFuzzCommand(normalized),
       context.abort,
       projectDir,
-      env
-    );
+      env,
+    )
 
     const lines = `${runResult.stdout}\n${runResult.stderr}`
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+      .filter((line) => line.length > 0)
 
-    const results: ForgeFuzzResultItem[] = [];
-    const counterexamples: ForgeFuzzCounterexample[] = [];
-    let lastTestName: string | undefined;
+    const results: ForgeFuzzResultItem[] = []
+    const counterexamples: ForgeFuzzCounterexample[] = []
+    let lastTestName: string | undefined
 
     for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i] ?? "";
-      const parsedResult = parseResultLine(line);
+      const line = lines[i] ?? ""
+      const parsedResult = parseResultLine(line)
       if (parsedResult) {
-        results.push(parsedResult);
-        lastTestName = parsedResult.testName;
+        results.push(parsedResult)
+        lastTestName = parsedResult.testName
       }
 
-      const parsedCounterexample = parseCounterexampleLine(line);
+      const parsedCounterexample = parseCounterexampleLine(line)
       if (!parsedCounterexample) {
-        continue;
+        continue
       }
 
-      const fallbackName = parsedCounterexample.testName ?? lastTestName ?? "unknown-test";
-      const nextLine = lines[i + 1] ?? "";
-      const reasonMatch = nextLine.match(/^(?:Reason|Error):\s*(.+)$/i);
+      const fallbackName = parsedCounterexample.testName ?? lastTestName ?? "unknown-test"
+      const nextLine = lines[i + 1] ?? ""
+      const reasonMatch = nextLine.match(/^(?:Reason|Error):\s*(.+)$/i)
       counterexamples.push({
         testName: fallbackName,
         inputs: parsedCounterexample.inputs,
         ...(reasonMatch?.[1] ? { revertReason: reasonMatch[1].trim() } : {}),
-      });
+      })
     }
 
-    const totalRuns = results.reduce((sum, item) => sum + item.runs, 0);
-    const failedCount = results.filter((item) => item.status === "fail").length;
+    const totalRuns = results.reduce((sum, item) => sum + item.runs, 0)
+    const failedCount = results.filter((item) => item.status === "fail").length
     const output: ForgeFuzzResult = {
       success: runResult.exitCode === 0 && failedCount === 0,
       results,
       counterexamples,
       totalRuns,
       executionTime: Date.now() - startedAt,
-    };
+    }
 
     if (runResult.exitCode !== 0 && failedCount === 0) {
-      output.error = runResult.stderr.trim() || `forge fuzz exited with code ${runResult.exitCode}`;
+      output.error = runResult.stderr.trim() || `forge fuzz exited with code ${runResult.exitCode}`
     }
 
-    return output;
+    return output
   } catch (error) {
     if (context.abort.aborted || (error instanceof DOMException && error.name === "AbortError")) {
-      return fail("forge fuzz aborted");
+      return fail("forge fuzz aborted")
     }
 
-    const maybeError = error as Error & { code?: string };
+    const maybeError = error as Error & { code?: string }
     if (maybeError.code === "ENOENT") {
-      return fail("Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash");
+      return fail("Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash")
     }
-    if (
-      maybeError.code === "ETIMEDOUT" ||
-      maybeError.message.toLowerCase().includes("timed out")
-    ) {
-      return fail("forge fuzz timed out");
+    if (maybeError.code === "ETIMEDOUT" || maybeError.message.toLowerCase().includes("timed out")) {
+      return fail("forge fuzz timed out")
     }
 
-    return fail(maybeError.message || "forge fuzz failed");
+    return fail(maybeError.message || "forge fuzz failed")
   }
 }
 
@@ -307,7 +305,7 @@ export const forgeFuzzTool = tool({
     fork_url: tool.schema.string().optional(),
   },
   async execute(args, context) {
-    const result = await executeForgeFuzz(args, context);
-    return JSON.stringify(result);
+    const result = await executeForgeFuzz(args, context)
+    return JSON.stringify(result)
   },
-});
+})

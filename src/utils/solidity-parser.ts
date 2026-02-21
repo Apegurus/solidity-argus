@@ -1,22 +1,22 @@
-import type { ContractProfile } from "../state/types";
+import type { ContractProfile } from "../state/types"
 
 interface ABIFunction {
-  type: string;
-  name: string;
-  inputs?: Array<{ name: string; type: string }>;
-  outputs?: Array<{ name: string; type: string }>;
-  stateMutability?: string;
+  type: string
+  name: string
+  inputs?: Array<{ name: string; type: string }>
+  outputs?: Array<{ name: string; type: string }>
+  stateMutability?: string
 }
 
 interface StorageLayoutItem {
-  label: string;
-  type: string;
-  slot: string;
+  label: string
+  type: string
+  slot: string
 }
 
 interface StorageLayout {
-  storage: StorageLayoutItem[];
-  types: Record<string, { label: string }>;
+  storage: StorageLayoutItem[]
+  types: Record<string, { label: string }>
 }
 
 /**
@@ -25,48 +25,48 @@ interface StorageLayout {
  * Falls back to the original string if no JSON delimiter is found.
  */
 function extractJson(raw: string, opener: "[" | "{"): string {
-  const closer = opener === "[" ? "]" : "}";
-  const start = raw.indexOf(opener);
-  if (start === -1) return raw;
+  const _closer = opener === "[" ? "]" : "}"
+  const start = raw.indexOf(opener)
+  if (start === -1) return raw
 
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
+  let depth = 0
+  let inString = false
+  let escaped = false
 
   for (let i = start; i < raw.length; i++) {
-    const ch = raw[i]!;
+    const ch = raw.charAt(i)
 
     if (inString) {
       if (escaped) {
-        escaped = false;
-        continue;
+        escaped = false
+        continue
       }
       if (ch === "\\") {
-        escaped = true;
-        continue;
+        escaped = true
+        continue
       }
       if (ch === '"') {
-        inString = false;
+        inString = false
       }
-      continue;
+      continue
     }
 
     if (ch === '"') {
-      inString = true;
-      continue;
+      inString = true
+      continue
     }
 
     if (ch === "{" || ch === "[") {
-      depth++;
+      depth++
     } else if (ch === "}" || ch === "]") {
-      depth--;
+      depth--
       if (depth === 0) {
-        return raw.slice(start, i + 1);
+        return raw.slice(start, i + 1)
       }
     }
   }
 
-  return raw;
+  return raw
 }
 
 /**
@@ -77,7 +77,7 @@ function extractJson(raw: string, opener: "[" | "{"): string {
  */
 export async function extractContractInfo(
   contractName: string,
-  projectDir: string
+  projectDir: string,
 ): Promise<ContractProfile> {
   const result: ContractProfile = {
     name: contractName,
@@ -88,24 +88,21 @@ export async function extractContractInfo(
     accessControlPattern: "none",
     externalCalls: [],
     riskIndicators: [],
-  };
+  }
 
   try {
     // Run forge inspect abi
-    const abiResult = Bun.spawnSync(
-      ["forge", "inspect", contractName, "abi", "--json"],
-      {
-        cwd: projectDir,
-        stdout: "pipe",
-        stderr: "pipe",
-        timeout: 15_000,
-      }
-    );
+    const abiResult = Bun.spawnSync(["forge", "inspect", contractName, "abi", "--json"], {
+      cwd: projectDir,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+    })
 
     if (!abiResult.success) {
-      const errorMsg = abiResult.stderr?.toString() || "Unknown error";
-      result.error = `Failed to inspect ABI: ${errorMsg}`;
-      return result;
+      const errorMsg = abiResult.stderr?.toString() || "Unknown error"
+      result.error = `Failed to inspect ABI: ${errorMsg}`
+      return result
     }
 
     // Run forge inspect storage-layout
@@ -116,65 +113,65 @@ export async function extractContractInfo(
         stdout: "pipe",
         stderr: "pipe",
         timeout: 15_000,
-      }
-    );
+      },
+    )
 
     if (!storageResult.success) {
-      const errorMsg = storageResult.stderr?.toString() || "Unknown error";
-      result.error = `Failed to inspect storage layout: ${errorMsg}`;
-      return result;
+      const errorMsg = storageResult.stderr?.toString() || "Unknown error"
+      result.error = `Failed to inspect storage layout: ${errorMsg}`
+      return result
     }
 
     // Parse ABI
-    const abiRaw = abiResult.stdout?.toString() || "[]";
-    const abiOutput = extractJson(abiRaw, "[");
-    let abi: ABIFunction[] = [];
+    const abiRaw = abiResult.stdout?.toString() || "[]"
+    const abiOutput = extractJson(abiRaw, "[")
+    let abi: ABIFunction[] = []
     try {
-      abi = JSON.parse(abiOutput);
+      abi = JSON.parse(abiOutput)
     } catch (e) {
-      result.error = `Failed to parse ABI JSON: ${e instanceof Error ? e.message : "Unknown error"}`;
-      return result;
+      result.error = `Failed to parse ABI JSON: ${e instanceof Error ? e.message : "Unknown error"}`
+      return result
     }
 
     // Parse storage layout
-    const storageRaw = storageResult.stdout?.toString() || "{}";
-    const storageOutput = extractJson(storageRaw, "{");
-    let storageLayout: StorageLayout = { storage: [], types: {} };
+    const storageRaw = storageResult.stdout?.toString() || "{}"
+    const storageOutput = extractJson(storageRaw, "{")
+    let storageLayout: StorageLayout = { storage: [], types: {} }
     try {
-      storageLayout = JSON.parse(storageOutput);
+      storageLayout = JSON.parse(storageOutput)
     } catch (e) {
-      result.error = `Failed to parse storage layout JSON: ${e instanceof Error ? e.message : "Unknown error"}`;
-      return result;
+      result.error = `Failed to parse storage layout JSON: ${e instanceof Error ? e.message : "Unknown error"}`
+      return result
     }
 
     // Extract functions from ABI
-    const functions = abi.filter((item) => item.type === "function");
+    const functions = abi.filter((item) => item.type === "function")
     result.functions = functions.map((func) => ({
       name: func.name || "",
       visibility: mapStateMutabilityToVisibility(func.stateMutability || "nonpayable"),
       mutability: func.stateMutability || "nonpayable",
       modifiers: [],
-    }));
+    }))
 
     // Extract state variables from storage layout
     result.stateVars = storageLayout.storage.map((item) => {
-      const typeInfo = storageLayout.types[item.type];
-      const typeLabel = typeInfo?.label || item.type;
+      const typeInfo = storageLayout.types[item.type]
+      const typeLabel = typeInfo?.label || item.type
 
       return {
         name: item.label,
         type: typeLabel,
         visibility: "internal", // Default visibility for storage vars
-      };
-    });
+      }
+    })
 
     // Detect access control pattern
-    result.accessControlPattern = detectAccessControlPattern(result.functions);
+    result.accessControlPattern = detectAccessControlPattern(result.functions)
 
-    return result;
+    return result
   } catch (e) {
-    result.error = `Unexpected error: ${e instanceof Error ? e.message : "Unknown error"}`;
-    return result;
+    result.error = `Unexpected error: ${e instanceof Error ? e.message : "Unknown error"}`
+    return result
   }
 }
 
@@ -182,18 +179,16 @@ export async function extractContractInfo(
  * Map Solidity stateMutability to visibility
  * ABI doesn't directly specify visibility, so we infer from mutability
  */
-function mapStateMutabilityToVisibility(
-  stateMutability: string
-): string {
+function mapStateMutabilityToVisibility(stateMutability: string): string {
   switch (stateMutability) {
     case "pure":
     case "view":
-      return "view";
+      return "view"
     case "payable":
     case "nonpayable":
-      return "external";
+      return "external"
     default:
-      return "external";
+      return "external"
   }
 }
 
@@ -201,28 +196,24 @@ function mapStateMutabilityToVisibility(
  * Detect access control pattern from function names and signatures
  */
 function detectAccessControlPattern(
-  functions: Array<{ name: string; visibility: string; mutability: string; modifiers: string[] }>
+  functions: Array<{ name: string; visibility: string; mutability: string; modifiers: string[] }>,
 ): "ownable" | "access-control" | "custom" | "none" {
-  const functionNames = functions.map((f) => f.name.toLowerCase());
+  const functionNames = functions.map((f) => f.name.toLowerCase())
 
   // Check for Ownable pattern
   if (functionNames.includes("owner") || functionNames.includes("transferownership")) {
-    return "ownable";
+    return "ownable"
   }
 
   // Check for AccessControl pattern (OpenZeppelin)
   if (functionNames.includes("hasrole") || functionNames.includes("grantrole")) {
-    return "access-control";
+    return "access-control"
   }
 
   // Check for custom access control patterns
-  if (
-    functionNames.some((name) =>
-      name.includes("onlyadmin") || name.includes("requireadmin")
-    )
-  ) {
-    return "custom";
+  if (functionNames.some((name) => name.includes("onlyadmin") || name.includes("requireadmin"))) {
+    return "custom"
   }
 
-  return "none";
+  return "none"
 }

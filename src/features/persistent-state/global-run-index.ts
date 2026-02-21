@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { join } from "node:path"
 import { homedir } from "node:os"
+import { join } from "node:path"
 import { createLogger } from "../../shared/logger"
 
 const logger = createLogger()
@@ -31,7 +31,7 @@ async function ensureDir(): Promise<void> {
 export async function recordRun(entry: RunIndexEntry): Promise<void> {
   try {
     await ensureDir()
-    appendFileSync(INDEX_FILE, JSON.stringify(entry) + "\n")
+    appendFileSync(INDEX_FILE, `${JSON.stringify(entry)}\n`)
   } catch {
     logger.debug("Failed to write global run index entry")
   }

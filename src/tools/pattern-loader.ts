@@ -1,8 +1,8 @@
-import { readdirSync, readFileSync, existsSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import type { PatternDefinition } from "./pattern-schema"
 import { createLogger } from "../shared/logger"
 import { parseFrontmatter, SkillFrontmatterSchema } from "../skills/skill-schema"
+import type { PatternDefinition } from "./pattern-schema"
 
 const logger = createLogger()
 
@@ -69,13 +69,9 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefin
         })
       }
     } catch (err) {
-      logger.warn(
-        `Skipping ${filePath}: ${err instanceof Error ? err.message : "parse error"}`
-      )
+      logger.warn(`Skipping ${filePath}: ${err instanceof Error ? err.message : "parse error"}`)
     }
   }
 
   return extracted
 }
-
-

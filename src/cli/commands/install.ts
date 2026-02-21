@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
 import { homedir } from "node:os"
-import type { CliCommand } from "../types"
+import { join } from "node:path"
 import { cliOutput } from "../cli-output"
+import type { CliCommand } from "../types"
 
 const GREEN = "\x1b[32m"
 const YELLOW = "\x1b[33m"
@@ -23,11 +23,13 @@ export function findOpencodeConfig(homeOverride?: string): string | null {
 export const installCommand: CliCommand = {
   name: "install",
   description: "Register solidity-argus in your OpenCode config",
-  async execute(args: string[]): Promise<number> {
+  async execute(_args: string[]): Promise<number> {
     const configPath = findOpencodeConfig()
 
     if (!configPath) {
-      cliOutput.error(`${YELLOW}⚠${RESET} opencode.json not found — create one first, or run: opencode init`)
+      cliOutput.error(
+        `${YELLOW}⚠${RESET} opencode.json not found — create one first, or run: opencode init`,
+      )
       return 1
     }
 
@@ -47,7 +49,7 @@ export const installCommand: CliCommand = {
 
       cliOutput.log(`${GREEN}✓${RESET} Added solidity-argus to ${configPath}`)
       return 0
-    } catch (error) {
+    } catch (_error) {
       cliOutput.error(`${YELLOW}⚠${RESET} Failed to update ${configPath}`)
       return 1
     }

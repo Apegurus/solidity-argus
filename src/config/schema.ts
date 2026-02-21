@@ -29,9 +29,7 @@ const KnowledgeConfigSchema = z.object({
 
 const ReportingConfigSchema = z.object({
   format: z.enum(["markdown"]).default("markdown"),
-  severityThreshold: z
-    .enum(["critical", "high", "medium", "low", "informational"])
-    .default("low"),
+  severityThreshold: z.enum(["critical", "high", "medium", "low", "informational"]).default("low"),
   gasAnalysis: z.boolean().default(false),
 })
 

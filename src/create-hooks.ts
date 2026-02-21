@@ -3,30 +3,33 @@ import type { ArgusConfig } from "./config/types"
 import { createLogger } from "./shared/logger"
 
 const logger = createLogger()
-import type { Managers } from "./managers/types"
-import type { HookName } from "./hooks/types"
-import { createConfigHandler } from "./hooks/config-handler"
-import { createCompactionHook } from "./hooks/compaction-hook"
-import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
-import { createEventHook } from "./hooks/event-hook"
-import { createAgentTracker } from "./hooks/agent-tracker"
-import { createSystemPromptHook } from "./hooks/system-prompt-hook"
-import { safeCreateHook } from "./hooks/safe-create-hook"
-import { createContextMonitor, createToolOutputTruncator } from "./features/context-monitor"
+
+import { join } from "node:path"
 import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
+import { createContextMonitor, createToolOutputTruncator } from "./features/context-monitor"
+import {
+  createSessionRecoveryHandler,
+  createToolErrorRecoveryHandler,
+} from "./features/error-recovery"
+import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
+import { recordRun } from "./features/persistent-state/global-run-index"
+import { createRunJournal } from "./features/persistent-state/run-journal"
+import { createAgentTracker } from "./hooks/agent-tracker"
+import { createCompactionHook } from "./hooks/compaction-hook"
+import { createConfigHandler } from "./hooks/config-handler"
 import { getTokenBudgetForAgent } from "./hooks/context-budget"
-import { createSessionRecoveryHandler } from "./features/error-recovery"
-import { createToolErrorRecoveryHandler } from "./features/error-recovery"
-import { detectProject } from "./utils/project-detector"
-import type { ProjectConfig } from "./utils/project-detector"
-import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
+import { createEventHook } from "./hooks/event-hook"
 import type { ReconContext } from "./hooks/recon-context-builder"
 import { buildReconContextBlock } from "./hooks/recon-context-builder"
+import { safeCreateHook } from "./hooks/safe-create-hook"
+import { createSystemPromptHook } from "./hooks/system-prompt-hook"
+import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
+import type { HookName } from "./hooks/types"
+import type { Managers } from "./managers/types"
 import type { AuditState } from "./state/types"
-import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
-import { createRunJournal } from "./features/persistent-state/run-journal"
-import { recordRun } from "./features/persistent-state/global-run-index"
-import { join } from "node:path"
+import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
+import type { ProjectConfig } from "./utils/project-detector"
+import { detectProject } from "./utils/project-detector"
 
 export type AgentTrackerRef = {
   getAgentForSession(sessionID: string): string | undefined
@@ -89,7 +92,11 @@ export function createHooks(args: {
 
   // Sub-handlers run sequentially. The state persistence handler MUST be first:
   // it loads persisted state on session.created, overriding the fresh default.
-  const { hook: eventHook, getAuditState, setAuditState } = createEventHook(projectDir, [
+  const {
+    hook: eventHook,
+    getAuditState,
+    setAuditState,
+  } = createEventHook(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {
         const timestamp = Date.now()
@@ -212,11 +219,12 @@ export function createHooks(args: {
     },
     getTokenBudget: getTokenBudgetForAgent,
     getEnforcerReminder: auditEnforcer,
-    getReconBlock: () => buildReconContextBlock({
-      projectConfig: reconProjectConfig,
-      dependencyRisks: reconProjectConfig?.dependencyRisks ?? [],
-      auditArtifacts: detectAuditArtifacts(projectDir),
-    }),
+    getReconBlock: () =>
+      buildReconContextBlock({
+        projectConfig: reconProjectConfig,
+        dependencyRisks: reconProjectConfig?.dependencyRisks ?? [],
+        auditArtifacts: detectAuditArtifacts(projectDir),
+      }),
   })
 
   let reconProjectConfig: ProjectConfig | null = null
@@ -240,19 +248,23 @@ export function createHooks(args: {
     : undefined
 
   const toolTrackingHook = isHookEnabled("tool-tracking")
-    ? safeCreateHook(() => createToolTrackingHook(getAuditState, ({ tool, findingsCount }) => {
-      const currentState = getAuditState()
-      if (currentState) {
-        debouncedSave.save(currentState)
-      }
+    ? safeCreateHook(
+        () =>
+          createToolTrackingHook(getAuditState, ({ tool, findingsCount }) => {
+            const currentState = getAuditState()
+            if (currentState) {
+              debouncedSave.save(currentState)
+            }
 
-      runJournal.log({
-        type: "tool.executed",
-        tool,
-        timestamp: Date.now(),
-        findingsCount,
-      })
-    }), "tool-tracking")
+            runJournal.log({
+              type: "tool.executed",
+              tool,
+              timestamp: Date.now(),
+              findingsCount,
+            })
+          }),
+        "tool-tracking",
+      )
     : undefined
 
   const safeEventHook = isHookEnabled("event")
@@ -289,9 +301,7 @@ export function createHooks(args: {
             result: output.output,
           })
 
-          const outputWithHint = recoveryHint
-            ? `${output.output}${recoveryHint}`
-            : output.output
+          const outputWithHint = recoveryHint ? `${output.output}${recoveryHint}` : output.output
           output.output = outputTruncator(outputWithHint)
         }
       : undefined,

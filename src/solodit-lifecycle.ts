@@ -1,6 +1,6 @@
-import { checkSoloditHealth } from "./utils/solodit-health"
 import { withRetry } from "./knowledge/retry"
 import { createLogger } from "./shared/logger"
+import { checkSoloditHealth } from "./utils/solodit-health"
 
 interface SoloditChildProcess {
   kill(signal?: number): void
@@ -68,7 +68,7 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
     try {
       soloditChild.kill()
     } catch {
-      logger.debug("Solodit MCP process already dead");
+      logger.debug("Solodit MCP process already dead")
     }
     soloditChild = null
   }
@@ -93,8 +93,7 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
       maxAttempts: 3,
       baseDelayMs: retryBaseDelayMs,
       shouldRetry: () => true,
-      onRetry: (attempt) =>
-        logger.debug(`Solodit restart health retry ${attempt}`),
+      onRetry: (attempt) => logger.debug(`Solodit restart health retry ${attempt}`),
     },
   )
 
@@ -129,7 +128,7 @@ export async function _runMonitoringCycle(port: number): Promise<void> {
       }
     }
   } catch {
-    logger.debug("Monitoring cycle encountered an error");
+    logger.debug("Monitoring cycle encountered an error")
   }
 }
 
@@ -163,7 +162,7 @@ export function _resetSoloditState(): void {
     try {
       soloditChild.kill()
     } catch {
-      createLogger().debug("Failed to kill Solodit MCP on reset");
+      createLogger().debug("Failed to kill Solodit MCP on reset")
     }
     soloditChild = null
   }
@@ -195,7 +194,7 @@ export async function startSoloditMcp(port: number): Promise<void> {
       }
     }
     logger.debug(
-      `Solodit MCP not reachable after 3 retries on port ${port} — will retry on first use`
+      `Solodit MCP not reachable after 3 retries on port ${port} — will retry on first use`,
     )
   })()
 

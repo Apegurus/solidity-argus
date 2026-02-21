@@ -1,6 +1,6 @@
-import type { ProjectConfig } from "../utils/project-detector"
-import type { DependencyRisk } from "../utils/dependency-scanner"
 import type { AuditArtifact } from "../utils/audit-artifact-detector"
+import type { DependencyRisk } from "../utils/dependency-scanner"
+import type { ProjectConfig } from "../utils/project-detector"
 
 export interface ReconContext {
   projectConfig: ProjectConfig | null

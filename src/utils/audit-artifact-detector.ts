@@ -1,13 +1,13 @@
-import { existsSync, readdirSync } from "fs";
-import { join } from "path";
-import { createLogger } from "../shared/logger";
+import { existsSync, readdirSync } from "node:fs"
+import { join } from "node:path"
+import { createLogger } from "../shared/logger"
 
-const logger = createLogger();
+const logger = createLogger()
 
 export interface AuditArtifact {
-  type: "audit-report" | "slither-output" | "deployment-artifact" | "security-tool-output";
-  path: string;
-  name: string;
+  type: "audit-report" | "slither-output" | "deployment-artifact" | "security-tool-output"
+  path: string
+  name: string
 }
 
 /**
@@ -16,17 +16,17 @@ export interface AuditArtifact {
  * @returns Array of detected audit artifacts
  */
 export function detectAuditArtifacts(projectDir: string): AuditArtifact[] {
-  const artifacts: AuditArtifact[] = [];
+  const artifacts: AuditArtifact[] = []
 
   if (!existsSync(projectDir)) {
-    return artifacts;
+    return artifacts
   }
 
   try {
-    const entries = readdirSync(projectDir, { withFileTypes: true });
+    const entries = readdirSync(projectDir, { withFileTypes: true })
 
     for (const entry of entries) {
-      const fullPath = join(projectDir, entry.name);
+      const fullPath = join(projectDir, entry.name)
 
       // Check directories
       if (entry.isDirectory()) {
@@ -36,8 +36,8 @@ export function detectAuditArtifacts(projectDir: string): AuditArtifact[] {
             type: "audit-report",
             path: fullPath,
             name: entry.name,
-          });
-          continue;
+          })
+          continue
         }
 
         // Deployment artifact directories
@@ -46,28 +46,28 @@ export function detectAuditArtifacts(projectDir: string): AuditArtifact[] {
             type: "deployment-artifact",
             path: fullPath,
             name: entry.name,
-          });
-          continue;
+          })
+          continue
         }
 
         // docs/audit* directories
         if (entry.name === "docs") {
           try {
-            const docsEntries = readdirSync(fullPath, { withFileTypes: true });
+            const docsEntries = readdirSync(fullPath, { withFileTypes: true })
             for (const docsEntry of docsEntries) {
               if (docsEntry.isDirectory() && docsEntry.name.startsWith("audit")) {
                 artifacts.push({
                   type: "audit-report",
                   path: join(fullPath, docsEntry.name),
                   name: docsEntry.name,
-                });
+                })
               }
             }
           } catch {
-            logger.debug("Failed to read docs directory for audit artifacts");
+            logger.debug("Failed to read docs directory for audit artifacts")
           }
         }
-        continue;
+        continue
       }
 
       // Check files
@@ -81,8 +81,8 @@ export function detectAuditArtifacts(projectDir: string): AuditArtifact[] {
             type: "audit-report",
             path: fullPath,
             name: entry.name,
-          });
-          continue;
+          })
+          continue
         }
 
         // Slither output files
@@ -95,28 +95,24 @@ export function detectAuditArtifacts(projectDir: string): AuditArtifact[] {
             type: "slither-output",
             path: fullPath,
             name: entry.name,
-          });
-          continue;
+          })
+          continue
         }
 
         // Security tool output files
-        if (
-          /^mythril-report.*/.test(entry.name) ||
-          /^securify-report.*/.test(entry.name)
-        ) {
+        if (/^mythril-report.*/.test(entry.name) || /^securify-report.*/.test(entry.name)) {
           artifacts.push({
             type: "security-tool-output",
             path: fullPath,
             name: entry.name,
-          });
-          continue;
+          })
         }
       }
     }
   } catch {
     // Return empty array if directory cannot be read
-    return [];
+    return []
   }
 
-  return artifacts;
+  return artifacts
 }

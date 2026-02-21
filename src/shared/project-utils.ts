@@ -1,5 +1,5 @@
-import { dirname, join } from "node:path"
 import { existsSync } from "node:fs"
+import { dirname, join } from "node:path"
 
 /**
  * Resolve the project directory from tool execution context.

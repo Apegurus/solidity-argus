@@ -79,7 +79,10 @@ function scoreForConflict(score: SimilarityScore | undefined): SimilarityScore {
   }
 }
 
-export function evaluatePair(pair: SimilarityPair, config: GateConfig = DEFAULT_GATE_CONFIG): GateVerdict {
+export function evaluatePair(
+  pair: SimilarityPair,
+  config: GateConfig = DEFAULT_GATE_CONFIG,
+): GateVerdict {
   const composite = pair.score.composite
   const signalSummary = topSignals(pair.score)
   const reasonSuffix = `composite ${formatScore(composite)}; top signals: ${signalSummary}`
@@ -108,14 +111,18 @@ export function checkExactRegexConflicts(
     const docA = docs[i]
     if (!docA) continue
 
-    const rulesA = new Set(docA.detectionRules.map(normalizeRegex).filter((rule) => rule.length > 0))
+    const rulesA = new Set(
+      docA.detectionRules.map(normalizeRegex).filter((rule) => rule.length > 0),
+    )
 
     for (let j = i + 1; j < docs.length; j += 1) {
       const docB = docs[j]
       if (!docB) continue
       if (docA.name === docB.name) continue
 
-      const rulesB = new Set(docB.detectionRules.map(normalizeRegex).filter((rule) => rule.length > 0))
+      const rulesB = new Set(
+        docB.detectionRules.map(normalizeRegex).filter((rule) => rule.length > 0),
+      )
       for (const sharedRegex of rulesA) {
         if (!rulesB.has(sharedRegex)) continue
         conflicts.push({

@@ -97,8 +97,8 @@ Write the full report in Markdown. Use the standard finding format:
 \`\`\`
 
 You are Scribe. Your words define the security of the protocol. Write with precision.
-`;
+`
 
 export function getScribePrompt(): string {
-  return SCRIBE_PROMPT;
+  return SCRIBE_PROMPT
 }

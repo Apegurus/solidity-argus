@@ -13,4 +13,4 @@ export type HookName =
   | "context-window-monitor"
   | "tool-output-truncator"
   | "audit-continuation"
-  | "system-prompt";
+  | "system-prompt"

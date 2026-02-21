@@ -1,47 +1,47 @@
-import { tool, type ToolContext } from "@opencode-ai/plugin";
-import type { ToolDefinition } from "@opencode-ai/plugin";
-import { createLogger } from "../shared/logger";
+import type { ToolDefinition } from "@opencode-ai/plugin"
+import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { createLogger } from "../shared/logger"
 
-const logger = createLogger();
+const logger = createLogger()
 
-const SOLODIT_MCP_SERVER = "solodit-mcp";
-const SOLODIT_MCP_TOOLS = ["search", "search_findings"] as const;
-const DEFAULT_LIMIT = 10;
-const DEFAULT_SOLODIT_PORT = 3000;
-const SOLODIT_HTTP_TIMEOUT_MS = 10_000;
+const SOLODIT_MCP_SERVER = "solodit-mcp"
+const SOLODIT_MCP_TOOLS = ["search", "search_findings"] as const
+const DEFAULT_LIMIT = 10
+const DEFAULT_SOLODIT_PORT = 3000
+const SOLODIT_HTTP_TIMEOUT_MS = 10_000
 
 type SoloditSearchArgs = {
-  query: string;
-  severity?: string[];
-  limit?: number;
-};
+  query: string
+  severity?: string[]
+  limit?: number
+}
 
 type SoloditFinding = {
-  title: string;
-  severity: string;
-  description: string;
-  protocol: string;
-  url: string;
-  remediation: string;
-};
+  title: string
+  severity: string
+  description: string
+  protocol: string
+  url: string
+  remediation: string
+}
 
 export type SoloditSearchResult = {
-  results: SoloditFinding[];
-  totalFound: number;
-  query: string;
-  error?: string;
-};
+  results: SoloditFinding[]
+  totalFound: number
+  query: string
+  error?: string
+}
 
 export type CallMcpTool = (
   server: string,
   tool: string,
-  args: Record<string, unknown>
-) => Promise<unknown>;
+  args: Record<string, unknown>,
+) => Promise<unknown>
 
-type McpCapableContext = ToolContext & { callMcpTool: CallMcpTool };
+type McpCapableContext = ToolContext & { callMcpTool: CallMcpTool }
 
 function hasMcpCapability(ctx: ToolContext): ctx is McpCapableContext {
-  return "callMcpTool" in ctx;
+  return "callMcpTool" in ctx
 }
 
 function parseFinding(raw: unknown): SoloditFinding {
@@ -53,52 +53,56 @@ function parseFinding(raw: unknown): SoloditFinding {
       protocol: "",
       url: "",
       remediation: "",
-    };
+    }
   }
 
-  const obj = raw as Record<string, unknown>;
+  const obj = raw as Record<string, unknown>
   return {
-    title: typeof obj["title"] === "string" ? obj["title"] : "",
-    severity: typeof obj["severity"] === "string" ? obj["severity"] : "",
-    description: typeof obj["description"] === "string" ? obj["description"] : "",
-    protocol: typeof obj["protocol"] === "string" ? obj["protocol"] : "",
-    url: typeof obj["url"] === "string" ? obj["url"] : "",
-    remediation: typeof obj["remediation"] === "string" ? obj["remediation"] : "",
-  };
+    title: typeof obj.title === "string" ? obj.title : "",
+    severity: typeof obj.severity === "string" ? obj.severity : "",
+    description: typeof obj.description === "string" ? obj.description : "",
+    protocol: typeof obj.protocol === "string" ? obj.protocol : "",
+    url: typeof obj.url === "string" ? obj.url : "",
+    remediation: typeof obj.remediation === "string" ? obj.remediation : "",
+  }
 }
 
 function parseFindings(response: unknown): SoloditFinding[] {
   if (!Array.isArray(response)) {
-    return [];
+    return []
   }
-  return response.map(parseFinding);
+  return response.map(parseFinding)
 }
 
 function parseFindingsFromAnyResponse(response: unknown): SoloditFinding[] {
-  const direct = parseFindings(response);
-  if (direct.length > 0) return direct;
+  const direct = parseFindings(response)
+  if (direct.length > 0) return direct
 
   if (typeof response === "object" && response !== null) {
-    const findings = (response as Record<string, unknown>).findings;
-    if (Array.isArray(findings)) return findings.map(parseFinding);
+    const findings = (response as Record<string, unknown>).findings
+    if (Array.isArray(findings)) return findings.map(parseFinding)
   }
 
-  return extractFindingsFromMcpResponse(response);
+  return extractFindingsFromMcpResponse(response)
 }
 
 function hasMcpError(response: unknown): boolean {
-  if (typeof response !== "object" || response === null) return false;
-  const obj = response as Record<string, unknown>;
-  return "error" in obj;
+  if (typeof response !== "object" || response === null) return false
+  const obj = response as Record<string, unknown>
+  return "error" in obj
 }
 
-function normalizeImpacts(severity?: string[]): Array<"HIGH" | "MEDIUM" | "LOW" | "GAS"> | undefined {
-  if (!severity || severity.length === 0) return undefined;
-  const allowed = new Set(["HIGH", "MEDIUM", "LOW", "GAS"] as const);
+function normalizeImpacts(
+  severity?: string[],
+): Array<"HIGH" | "MEDIUM" | "LOW" | "GAS"> | undefined {
+  if (!severity || severity.length === 0) return undefined
+  const allowed = new Set(["HIGH", "MEDIUM", "LOW", "GAS"] as const)
   const impacts = severity
     .map((s) => s.toUpperCase())
-    .filter((s): s is "HIGH" | "MEDIUM" | "LOW" | "GAS" => allowed.has(s as "HIGH" | "MEDIUM" | "LOW" | "GAS"));
-  return impacts.length > 0 ? impacts : undefined;
+    .filter((s): s is "HIGH" | "MEDIUM" | "LOW" | "GAS" =>
+      allowed.has(s as "HIGH" | "MEDIUM" | "LOW" | "GAS"),
+    )
+  return impacts.length > 0 ? impacts : undefined
 }
 
 function buildMcpArgs(
@@ -108,74 +112,76 @@ function buildMcpArgs(
   severity?: string[],
 ): Record<string, unknown> {
   if (toolName === "search") {
-    return { keywords: query };
+    return { keywords: query }
   }
 
-  const impact = normalizeImpacts(severity);
+  const impact = normalizeImpacts(severity)
   return {
     keywords: query,
     ...(impact ? { impact } : {}),
     pageSize: limit,
-  };
+  }
 }
 
 function filterFindingsBySeverity(
   findings: SoloditFinding[],
   severities?: string[],
 ): SoloditFinding[] {
-  if (!severities || severities.length === 0) return findings;
+  if (!severities || severities.length === 0) return findings
 
-  const allowed = new Set(severities.map((s) => s.toLowerCase()));
-  return findings.filter((finding) => allowed.has(finding.severity.toLowerCase()));
+  const allowed = new Set(severities.map((s) => s.toLowerCase()))
+  return findings.filter((finding) => allowed.has(finding.severity.toLowerCase()))
 }
 
 function parseSseData(body: string): unknown {
   for (const line of body.split("\n")) {
     if (line.startsWith("data: ")) {
       try {
-        return JSON.parse(line.slice(6));
-      } catch {
-        continue;
-      }
+        return JSON.parse(line.slice(6))
+      } catch {}
     }
   }
   try {
-    return JSON.parse(body);
+    return JSON.parse(body)
   } catch {
-    return null;
+    return null
   }
 }
 
 function extractFindingsFromMcpResponse(envelope: unknown): SoloditFinding[] {
-  if (typeof envelope !== "object" || envelope === null) return [];
-  const result = (envelope as Record<string, unknown>).result;
-  if (typeof result !== "object" || result === null) return [];
+  if (typeof envelope !== "object" || envelope === null) return []
+  const result = (envelope as Record<string, unknown>).result
+  if (typeof result !== "object" || result === null) return []
 
-  const structured = (result as Record<string, unknown>).structuredContent;
+  const structured = (result as Record<string, unknown>).structuredContent
   const reportsJson =
     typeof structured === "object" && structured !== null
       ? (structured as Record<string, unknown>).reportsJSON
-      : undefined;
+      : undefined
 
   if (typeof reportsJson === "string") {
     try {
-      const parsed = JSON.parse(reportsJson);
-      if (Array.isArray(parsed)) return parsed.map(parseFinding);
-    } catch { logger.debug("Failed to parse Solodit structured response") }
-  }
-
-  const content = (result as Record<string, unknown>).content;
-  if (Array.isArray(content) && content.length > 0) {
-    const first = content[0] as Record<string, unknown> | undefined;
-    if (typeof first?.text === "string") {
-      try {
-        const parsed = JSON.parse(first.text);
-        if (Array.isArray(parsed)) return parsed.map(parseFinding);
-      } catch { logger.debug("Failed to parse Solodit content text") }
+      const parsed = JSON.parse(reportsJson)
+      if (Array.isArray(parsed)) return parsed.map(parseFinding)
+    } catch {
+      logger.debug("Failed to parse Solodit structured response")
     }
   }
 
-  return [];
+  const content = (result as Record<string, unknown>).content
+  if (Array.isArray(content) && content.length > 0) {
+    const first = content[0] as Record<string, unknown> | undefined
+    if (typeof first?.text === "string") {
+      try {
+        const parsed = JSON.parse(first.text)
+        if (Array.isArray(parsed)) return parsed.map(parseFinding)
+      } catch {
+        logger.debug("Failed to parse Solodit content text")
+      }
+    }
+  }
+
+  return []
 }
 
 async function callSoloditHttp(
@@ -184,7 +190,7 @@ async function callSoloditHttp(
   severities?: string[],
   port: number = DEFAULT_SOLODIT_PORT,
 ): Promise<SoloditSearchResult> {
-  let lastError: string | undefined;
+  let lastError: string | undefined
 
   for (const toolName of SOLODIT_MCP_TOOLS) {
     try {
@@ -201,33 +207,30 @@ async function callSoloditHttp(
           id: 1,
         }),
         signal: AbortSignal.timeout(SOLODIT_HTTP_TIMEOUT_MS),
-      });
+      })
 
       if (!response.ok) {
-        lastError = `Solodit HTTP ${response.status}`;
-        continue;
+        lastError = `Solodit HTTP ${response.status}`
+        continue
       }
 
-      const body = await response.text();
-      const envelope = parseSseData(body);
+      const body = await response.text()
+      const envelope = parseSseData(body)
 
       if (hasMcpError(envelope)) {
-        continue;
+        continue
       }
 
-      const findings = filterFindingsBySeverity(
-        parseFindingsFromAnyResponse(envelope),
-        severities,
-      );
+      const findings = filterFindingsBySeverity(parseFindingsFromAnyResponse(envelope), severities)
 
-      return { results: findings.slice(0, limit), totalFound: findings.length, query };
+      return { results: findings.slice(0, limit), totalFound: findings.length, query }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      lastError = `Solodit MCP unreachable: ${message}`;
+      const message = error instanceof Error ? error.message : "Unknown error"
+      lastError = `Solodit MCP unreachable: ${message}`
     }
   }
 
-  return { results: [], totalFound: 0, query, error: lastError ?? "Solodit MCP call failed" };
+  return { results: [], totalFound: 0, query, error: lastError ?? "Solodit MCP call failed" }
 }
 
 export async function executeSoloditSearch(
@@ -236,53 +239,52 @@ export async function executeSoloditSearch(
   callMcpTool?: CallMcpTool,
   port: number = DEFAULT_SOLODIT_PORT,
 ): Promise<SoloditSearchResult> {
-  const { query } = args;
-  const limit = args.limit ?? DEFAULT_LIMIT;
+  const { query } = args
+  const limit = args.limit ?? DEFAULT_LIMIT
 
-  context.metadata({ title: `Solodit search: ${query}` });
+  context.metadata({ title: `Solodit search: ${query}` })
 
-  const mcpCaller =
-    callMcpTool ?? (hasMcpCapability(context) ? context.callMcpTool : undefined);
+  const mcpCaller = callMcpTool ?? (hasMcpCapability(context) ? context.callMcpTool : undefined)
 
   if (!mcpCaller) {
-    return callSoloditHttp(query, limit, args.severity, port);
+    return callSoloditHttp(query, limit, args.severity, port)
   }
 
-  let hadMcpError = false;
+  let hadMcpError = false
   for (const toolName of SOLODIT_MCP_TOOLS) {
     try {
       const response = await mcpCaller(
         SOLODIT_MCP_SERVER,
         toolName,
         buildMcpArgs(toolName, query, limit, args.severity),
-      );
+      )
 
       if (hasMcpError(response)) {
-        hadMcpError = true;
-        continue;
+        hadMcpError = true
+        continue
       }
 
       const findings = filterFindingsBySeverity(
         parseFindingsFromAnyResponse(response),
         args.severity,
-      );
+      )
 
       return {
         results: findings.slice(0, limit),
         totalFound: findings.length,
         query,
-      };
+      }
     } catch {
-      hadMcpError = true;
+      hadMcpError = true
     }
   }
 
-  const fallback = await callSoloditHttp(query, limit, args.severity, port);
+  const fallback = await callSoloditHttp(query, limit, args.severity, port)
   if (fallback.error || hadMcpError) {
-    return fallback;
+    return fallback
   }
 
-  return fallback;
+  return fallback
 }
 
 export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): ToolDefinition {
@@ -295,10 +297,10 @@ export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): To
       limit: tool.schema.number().optional(),
     },
     async execute(args, context) {
-      const result = await executeSoloditSearch(args, context, undefined, port);
-      return JSON.stringify(result);
+      const result = await executeSoloditSearch(args, context, undefined, port)
+      return JSON.stringify(result)
     },
-  });
+  })
 }
 
-export const soloditSearchTool = createSoloditSearchTool();
+export const soloditSearchTool = createSoloditSearchTool()

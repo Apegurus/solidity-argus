@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs"
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
@@ -137,9 +137,14 @@ function resolveCustomSkillsRoot(projectDir: string, argusConfig?: ArgusConfig):
 export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig): SkillRoot[] {
   const precedence = argusConfig?.knowledge?.skillPrecedence ?? "bundled-first"
 
-  const bundledRoot: SkillRoot = { path: resolve(import.meta.dir, "../../skills"), source: "bundled" }
+  const bundledRoot: SkillRoot = {
+    path: resolve(import.meta.dir, "../../skills"),
+    source: "bundled",
+  }
   const customRoot = resolveCustomSkillsRoot(projectDir, argusConfig)
-  const customSkillRoot: SkillRoot | null = customRoot ? { path: customRoot, source: "custom" } : null
+  const customSkillRoot: SkillRoot | null = customRoot
+    ? { path: customRoot, source: "custom" }
+    : null
 
   const roots: SkillRoot[] = []
 
@@ -169,7 +174,10 @@ export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig)
   })
 }
 
-export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig): Map<string, ResolvedSkill> {
+export function resolveArgusSkills(
+  projectDir: string,
+  argusConfig?: ArgusConfig,
+): Map<string, ResolvedSkill> {
   const resolved = new Map<string, ResolvedSkill>()
   const roots = resolveSkillRoots(projectDir, argusConfig)
   const logger = createLogger()
@@ -188,7 +196,9 @@ export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig
       if (frontmatter) {
         const validation = validateSkillFrontmatter(frontmatter)
         if (!validation.success) {
-          logger.warn(`Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`)
+          logger.warn(
+            `Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`,
+          )
           continue
         }
       }
@@ -209,7 +219,8 @@ export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig
 
       if (frontmatter) {
         if (typeof frontmatter.source_url === "string") skill.source_url = frontmatter.source_url
-        if (typeof frontmatter.source_license === "string") skill.source_license = frontmatter.source_license
+        if (typeof frontmatter.source_license === "string")
+          skill.source_license = frontmatter.source_license
         if (typeof frontmatter.imported_at === "string") skill.imported_at = frontmatter.imported_at
         if (typeof frontmatter.source_hash === "string") skill.source_hash = frontmatter.source_hash
       }

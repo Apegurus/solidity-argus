@@ -1,10 +1,10 @@
 import os from "node:os"
 import path from "node:path"
-import { tool, type ToolContext } from "@opencode-ai/plugin"
-import { ScvdClient } from "../knowledge/scvd-client"
-import { syncAll, syncIncremental, type SyncResult } from "../knowledge/scvd-sync"
+import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
+import { ScvdClient } from "../knowledge/scvd-client"
+import { type SyncResult, syncAll, syncIncremental } from "../knowledge/scvd-sync"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type SyncKnowledgeArgs = {
@@ -63,7 +63,7 @@ function toErrorMessage(error: unknown): string {
 export async function executeSyncKnowledge(
   args: SyncKnowledgeArgs,
   context: ToolContext,
-  deps: SyncKnowledgeDependencies = {}
+  deps: SyncKnowledgeDependencies = {},
 ): Promise<SyncKnowledgeResult> {
   const dependencies = { ...defaultDependencies(), ...deps }
 
@@ -82,12 +82,7 @@ export async function executeSyncKnowledge(
     }
 
     const apiUrl = argusConfig.knowledge?.scvd?.apiUrl ?? DEFAULT_SCVD_API_URL
-    const indexPath = path.join(
-      os.homedir(),
-      ".cache",
-      "solidity-argus",
-      "scvd-index.json"
-    )
+    const indexPath = path.join(os.homedir(), ".cache", "solidity-argus", "scvd-index.json")
 
     const client = dependencies.createClient(apiUrl, context.abort)
     const result = args.force

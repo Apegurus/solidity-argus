@@ -1,12 +1,13 @@
-import { readFileSync, readdirSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import type { CliCommand } from "../types"
 import { createLogger } from "../../shared/logger"
+import type { CliCommand } from "../types"
 
 const logger = createLogger()
+
+import { loadArgusConfig } from "../../config/loader"
 import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
-import { loadArgusConfig } from "../../config/loader"
 import { cliOutput } from "../cli-output"
 
 const GREEN = "\x1b[32m"
@@ -31,9 +32,7 @@ function findSkillFiles(dir: string, maxDepth = 8): string[] {
           files.push(fullPath)
         }
       }
-    } catch {
-      continue
-    }
+    } catch {}
   }
 
   return files
@@ -99,7 +98,9 @@ export const lintSkillsCommand: CliCommand = {
 
     const result = lintSkillFiles(skillFiles)
 
-    cliOutput.log(`Skill Lint: ${result.valid} valid, ${result.invalid} invalid, ${result.skipped} skipped (no frontmatter)`)
+    cliOutput.log(
+      `Skill Lint: ${result.valid} valid, ${result.invalid} invalid, ${result.skipped} skipped (no frontmatter)`,
+    )
 
     if (result.errors.length > 0) {
       for (const { file, errors } of result.errors) {

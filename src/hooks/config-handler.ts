@@ -1,15 +1,15 @@
-import { resolve, join } from "node:path"
 import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
+import { join, resolve } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
+import { ARGUS_PROMPT } from "../agents/argus-prompt"
+import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
+import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
+import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
 import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import { createLogger } from "../shared/logger"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
-import { ARGUS_PROMPT } from "../agents/argus-prompt"
-import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
-import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
-import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 
 const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
@@ -62,12 +62,12 @@ function ensureTrailOfBitsSkills(): string[] {
       })
   }
 
-    return []
+  return []
 }
 
 export function createConfigHandler(
   argusConfig: ArgusConfig,
-  projectDir: string = process.cwd()
+  projectDir: string = process.cwd(),
 ): (config: Config) => Promise<void> {
   const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
 

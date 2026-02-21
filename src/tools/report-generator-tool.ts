@@ -1,37 +1,31 @@
-import { tool, type ToolContext } from "@opencode-ai/plugin";
-import type { AuditState, Finding, FindingSeverity, ToolExecution } from "../state/types";
+import { type ToolContext, tool } from "@opencode-ai/plugin"
+import type { AuditState, Finding, FindingSeverity } from "../state/types"
 
-type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational";
+type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
 
 type ReportGeneratorArgs = {
-  project_name: string;
-  scope: string[];
-  include_executive_summary?: boolean;
-  severity_threshold?: SeverityThreshold;
-  audit_state: string;
-};
+  project_name: string
+  scope: string[]
+  include_executive_summary?: boolean
+  severity_threshold?: SeverityThreshold
+  audit_state: string
+}
 
 type FindingsCount = {
-  critical: number;
-  high: number;
-  medium: number;
-  low: number;
-  informational: number;
-};
+  critical: number
+  high: number
+  medium: number
+  low: number
+  informational: number
+}
 
 export type ReportGenerationResult = {
-  report: string;
-  findingsCount: FindingsCount;
-  filename: string;
-};
+  report: string
+  findingsCount: FindingsCount
+  filename: string
+}
 
-const SEVERITY_ORDER: FindingSeverity[] = [
-  "Critical",
-  "High",
-  "Medium",
-  "Low",
-  "Informational",
-];
+const SEVERITY_ORDER: FindingSeverity[] = ["Critical", "High", "Medium", "Low", "Informational"]
 
 const SEVERITY_PREFIX: Record<FindingSeverity, string> = {
   Critical: "CRIT",
@@ -39,7 +33,7 @@ const SEVERITY_PREFIX: Record<FindingSeverity, string> = {
   Medium: "MED",
   Low: "LOW",
   Informational: "INFO",
-};
+}
 
 const THRESHOLD_WEIGHT: Record<SeverityThreshold, number> = {
   critical: 5,
@@ -47,7 +41,7 @@ const THRESHOLD_WEIGHT: Record<SeverityThreshold, number> = {
   medium: 3,
   low: 2,
   informational: 1,
-};
+}
 
 const FINDING_WEIGHT: Record<FindingSeverity, number> = {
   Critical: 5,
@@ -55,7 +49,7 @@ const FINDING_WEIGHT: Record<FindingSeverity, number> = {
   Medium: 3,
   Low: 2,
   Informational: 1,
-};
+}
 
 function emptyCounts(): FindingsCount {
   return {
@@ -64,7 +58,7 @@ function emptyCounts(): FindingsCount {
     medium: 0,
     low: 0,
     informational: 0,
-  };
+  }
 }
 
 function emptyAuditState(findings: Finding[] = []): AuditState {
@@ -77,181 +71,196 @@ function emptyAuditState(findings: Finding[] = []): AuditState {
     currentPhase: "complete",
     scope: [],
     startTime: 0,
-  };
+  }
 }
 
 function isValidFinding(f: unknown): f is Finding {
-  if (typeof f !== "object" || f === null) return false;
-  const obj = f as Record<string, unknown>;
+  if (typeof f !== "object" || f === null) return false
+  const obj = f as Record<string, unknown>
   return (
     typeof obj.check === "string" &&
     obj.check.length > 0 &&
     typeof obj.file === "string" &&
     Array.isArray(obj.lines) &&
     obj.lines.length === 2
-  );
+  )
 }
 
 export function parseAuditState(auditState: string): AuditState {
-  let parsed: unknown;
+  let parsed: unknown
   try {
-    parsed = JSON.parse(auditState);
+    parsed = JSON.parse(auditState)
   } catch {
-    throw new Error("audit_state is not valid JSON — expected an AuditState object or Finding[] array");
+    throw new Error(
+      "audit_state is not valid JSON — expected an AuditState object or Finding[] array",
+    )
   }
 
   if (Array.isArray(parsed)) {
-    const validFindings = (parsed as unknown[]).filter(isValidFinding);
-    return emptyAuditState(validFindings as Finding[]);
+    const validFindings = (parsed as unknown[]).filter(isValidFinding)
+    return emptyAuditState(validFindings as Finding[])
   }
 
-  if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as AuditState).findings)) {
-    const state = parsed as AuditState;
-    const validFindings = state.findings.filter(isValidFinding);
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    Array.isArray((parsed as AuditState).findings)
+  ) {
+    const state = parsed as AuditState
+    const validFindings = state.findings.filter(isValidFinding)
     return {
       ...emptyAuditState(),
       ...state,
       findings: validFindings,
-    };
+    }
   }
 
-  return emptyAuditState();
+  return emptyAuditState()
 }
 
 function normalizeTitle(check: string): string {
-  if (!check || typeof check !== "string") return "Unknown Check";
+  if (!check || typeof check !== "string") return "Unknown Check"
   return check
     .split(/[-_\s]+/)
     .filter((part) => part.length > 0)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-    .join(" ");
+    .join(" ")
 }
 
 function formatLocation(finding: Finding): string {
-  if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return "unknown location";
-  return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`;
+  if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2)
+    return "unknown location"
+  return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`
 }
 
 function shouldIncludeFinding(finding: Finding, threshold: SeverityThreshold): boolean {
-  return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold];
+  return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold]
 }
 
 function calculateCounts(findings: Finding[]): FindingsCount {
-  const counts = emptyCounts();
+  const counts = emptyCounts()
 
   for (const finding of findings) {
-    if (finding.severity === "Critical") counts.critical += 1;
-    if (finding.severity === "High") counts.high += 1;
-    if (finding.severity === "Medium") counts.medium += 1;
-    if (finding.severity === "Low") counts.low += 1;
-    if (finding.severity === "Informational") counts.informational += 1;
+    if (finding.severity === "Critical") counts.critical += 1
+    if (finding.severity === "High") counts.high += 1
+    if (finding.severity === "Medium") counts.medium += 1
+    if (finding.severity === "Low") counts.low += 1
+    if (finding.severity === "Informational") counts.informational += 1
   }
 
-  return counts;
+  return counts
 }
 
 function overallRiskAssessment(counts: FindingsCount): string {
-  if (counts.critical > 0) return "Critical risk";
-  if (counts.high > 0) return "High risk";
-  if (counts.medium > 0) return "Medium risk";
-  if (counts.low > 0) return "Low risk";
-  if (counts.informational > 0) return "Informational only";
-  return "No significant risk identified";
+  if (counts.critical > 0) return "Critical risk"
+  if (counts.high > 0) return "High risk"
+  if (counts.medium > 0) return "Medium risk"
+  if (counts.low > 0) return "Low risk"
+  if (counts.informational > 0) return "Informational only"
+  return "No significant risk identified"
 }
 
 function genericImpact(severity: FindingSeverity): string {
   if (severity === "Critical") {
-    return "Could lead to immediate and severe compromise of funds or protocol control.";
+    return "Could lead to immediate and severe compromise of funds or protocol control."
   }
   if (severity === "High") {
-    return "Could materially impact protocol security, user funds, or system integrity.";
+    return "Could materially impact protocol security, user funds, or system integrity."
   }
   if (severity === "Medium") {
-    return "Could cause operational issues or increase exploitability under specific conditions.";
+    return "Could cause operational issues or increase exploitability under specific conditions."
   }
   if (severity === "Low") {
-    return "Limited direct impact but should be addressed to improve security posture.";
+    return "Limited direct impact but should be addressed to improve security posture."
   }
-  return "No immediate exploit impact, but useful for hardening and maintainability.";
+  return "No immediate exploit impact, but useful for hardening and maintainability."
 }
 
 function genericRecommendation(severity: FindingSeverity): string {
   if (severity === "Critical" || severity === "High") {
-    return "Prioritize remediation before production deployment and validate with focused regression tests.";
+    return "Prioritize remediation before production deployment and validate with focused regression tests."
   }
   if (severity === "Medium") {
-    return "Address in the near term and include unit/integration tests to prevent regressions.";
+    return "Address in the near term and include unit/integration tests to prevent regressions."
   }
   if (severity === "Low") {
-    return "Schedule remediation in regular hardening cycles.";
+    return "Schedule remediation in regular hardening cycles."
   }
-  return "Track and resolve during routine code quality and documentation improvements.";
+  return "Track and resolve during routine code quality and documentation improvements."
 }
 
 function buildRecommendations(counts: FindingsCount): string[] {
-  const items: string[] = [];
+  const items: string[] = []
 
   if (counts.critical > 0) {
-    items.push("1. Immediately remediate all Critical findings and block release until fixes are verified.");
+    items.push(
+      "1. Immediately remediate all Critical findings and block release until fixes are verified.",
+    )
   }
   if (counts.high > 0) {
-    items.push("2. Prioritize High findings in the next patch cycle with dedicated security test coverage.");
+    items.push(
+      "2. Prioritize High findings in the next patch cycle with dedicated security test coverage.",
+    )
   }
   if (counts.medium > 0) {
-    items.push("3. Resolve Medium findings to reduce attack surface and improve resilience.");
+    items.push("3. Resolve Medium findings to reduce attack surface and improve resilience.")
   }
   if (counts.low > 0 || counts.informational > 0) {
-    items.push("4. Address Low/Informational findings as part of ongoing hardening and code quality efforts.");
+    items.push(
+      "4. Address Low/Informational findings as part of ongoing hardening and code quality efforts.",
+    )
   }
 
   if (items.length === 0) {
-    items.push("1. Maintain current controls, monitor code changes, and re-audit before major upgrades.");
+    items.push(
+      "1. Maintain current controls, monitor code changes, and re-audit before major upgrades.",
+    )
   }
 
-  return items;
+  return items
 }
 
 function buildFindingsSection(findings: Finding[]): string {
   if (findings.length === 0) {
-    return "## Findings\nNo findings meet the configured severity threshold.";
+    return "## Findings\nNo findings meet the configured severity threshold."
   }
 
-  const lines: string[] = ["## Findings"];
+  const lines: string[] = ["## Findings"]
 
   for (const severity of SEVERITY_ORDER) {
-    const severityFindings = findings.filter((finding) => finding.severity === severity);
+    const severityFindings = findings.filter((finding) => finding.severity === severity)
     if (severityFindings.length === 0) {
-      continue;
+      continue
     }
 
-    lines.push(`### ${severity}`);
+    lines.push(`### ${severity}`)
 
     severityFindings.forEach((finding, index) => {
-      const prefix = SEVERITY_PREFIX[severity];
-      const findingId = `[${prefix}-${index + 1}]`;
-      const title = normalizeTitle(finding.check);
-      const recommendation = finding.remediation ?? genericRecommendation(severity);
+      const prefix = SEVERITY_PREFIX[severity]
+      const findingId = `[${prefix}-${index + 1}]`
+      const title = normalizeTitle(finding.check)
+      const recommendation = finding.remediation ?? genericRecommendation(severity)
 
-      lines.push(`### ${findingId} ${title}`);
-      lines.push(`**Severity**: ${finding.severity}`);
-      lines.push(`**Confidence**: ${finding.confidence}`);
-      lines.push(`**Location**: ${formatLocation(finding)}`);
-      lines.push("");
-      lines.push(`**Description**: ${finding.description}`);
-      lines.push("");
-      lines.push(`**Impact**: ${genericImpact(finding.severity)}`);
-      lines.push("");
-      lines.push(`**Recommendation**: ${recommendation}`);
-      lines.push("");
-    });
+      lines.push(`### ${findingId} ${title}`)
+      lines.push(`**Severity**: ${finding.severity}`)
+      lines.push(`**Confidence**: ${finding.confidence}`)
+      lines.push(`**Location**: ${formatLocation(finding)}`)
+      lines.push("")
+      lines.push(`**Description**: ${finding.description}`)
+      lines.push("")
+      lines.push(`**Impact**: ${genericImpact(finding.severity)}`)
+      lines.push("")
+      lines.push(`**Recommendation**: ${recommendation}`)
+      lines.push("")
+    })
   }
 
-  return lines.join("\n");
+  return lines.join("\n")
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
 }
 
 export function buildProvenanceAppendix(
@@ -259,174 +268,165 @@ export function buildProvenanceAppendix(
   threshold: SeverityThreshold,
   includedCount: number,
 ): string {
-  const lines: string[] = ["## Appendix: Data Provenance"];
+  const lines: string[] = ["## Appendix: Data Provenance"]
 
-  lines.push("- Data source: `audit_state` payload");
-  lines.push(`- Severity threshold applied: ${threshold}`);
-  lines.push(`- Findings included in report: ${includedCount}`);
+  lines.push("- Data source: `audit_state` payload")
+  lines.push(`- Severity threshold applied: ${threshold}`)
+  lines.push(`- Findings included in report: ${includedCount}`)
 
   if (state.findings.length > 0) {
-    const sourceCounts: Record<string, number> = {};
+    const sourceCounts: Record<string, number> = {}
     for (const f of state.findings) {
-      sourceCounts[f.source] = (sourceCounts[f.source] ?? 0) + 1;
+      sourceCounts[f.source] = (sourceCounts[f.source] ?? 0) + 1
     }
-    lines.push("");
-    lines.push("### Source Breakdown");
-    lines.push("");
-    lines.push("| Source | Count |");
-    lines.push("| --- | ---: |");
-    for (const [source, count] of Object.entries(sourceCounts).sort(
-      (a, b) => b[1] - a[1],
-    )) {
-      lines.push(`| ${source} | ${count} |`);
+    lines.push("")
+    lines.push("### Source Breakdown")
+    lines.push("")
+    lines.push("| Source | Count |")
+    lines.push("| --- | ---: |")
+    for (const [source, count] of Object.entries(sourceCounts).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${source} | ${count} |`)
     }
   }
 
   if (state.toolsExecuted.length > 0) {
-    lines.push("");
-    lines.push("### Tool Execution Summary");
-    lines.push("");
-    lines.push("| Tool | Duration | Status | Findings |");
-    lines.push("| --- | --- | --- | ---: |");
+    lines.push("")
+    lines.push("### Tool Execution Summary")
+    lines.push("")
+    lines.push("| Tool | Duration | Status | Findings |")
+    lines.push("| --- | --- | --- | ---: |")
     for (const exec of state.toolsExecuted) {
-      const duration =
-        exec.endTime != null
-          ? formatDuration(exec.endTime - exec.startTime)
-          : "—";
-      const status = exec.success ? "✅ success" : "❌ failure";
-      lines.push(
-        `| ${exec.tool} | ${duration} | ${status} | ${exec.findingsCount} |`,
-      );
+      const duration = exec.endTime != null ? formatDuration(exec.endTime - exec.startTime) : "—"
+      const status = exec.success ? "✅ success" : "❌ failure"
+      lines.push(`| ${exec.tool} | ${duration} | ${status} | ${exec.findingsCount} |`)
     }
   }
 
-  const syncExec = state.toolsExecuted.find((t) => t.tool === "argus_sync_knowledge");
+  const syncExec = state.toolsExecuted.find((t) => t.tool === "argus_sync_knowledge")
   if (state.patternVersion || syncExec) {
-    lines.push("");
-    lines.push("### Data Freshness");
-    lines.push("");
+    lines.push("")
+    lines.push("### Data Freshness")
+    lines.push("")
     if (state.patternVersion) {
-      lines.push(`- Pattern pack version: \`${state.patternVersion}\``);
+      lines.push(`- Pattern pack version: \`${state.patternVersion}\``)
     }
     if (syncExec) {
-      lines.push(`- SCVD last synced: ${new Date(syncExec.startTime).toISOString()}`);
+      lines.push(`- SCVD last synced: ${new Date(syncExec.startTime).toISOString()}`)
     }
   }
 
   if (state.soloditResults && state.soloditResults.length > 0) {
-    lines.push("");
-    lines.push("### Solodit Cross-References");
-    lines.push("");
+    lines.push("")
+    lines.push("### Solodit Cross-References")
+    lines.push("")
     for (const result of state.soloditResults) {
-      lines.push(`**Query**: "${result.query}" — ${result.resultCount} results`);
+      lines.push(`**Query**: "${result.query}" — ${result.resultCount} results`)
       if (result.topResults.length > 0) {
-        lines.push("");
-        lines.push("| Title | Severity | Protocol |");
-        lines.push("| --- | --- | --- |");
+        lines.push("")
+        lines.push("| Title | Severity | Protocol |")
+        lines.push("| --- | --- | --- |")
         for (const top of result.topResults) {
-          lines.push(`| ${top.title} | ${top.severity} | ${top.protocol} |`);
+          lines.push(`| ${top.title} | ${top.severity} | ${top.protocol} |`)
         }
       }
-      lines.push("");
+      lines.push("")
     }
   }
 
   if (state.fuzzCounterexamples && state.fuzzCounterexamples.length > 0) {
-    lines.push("");
-    lines.push("### Fuzz Evidence");
-    lines.push("");
-    lines.push("| Test | Inputs | Runs | Revert Reason |");
-    lines.push("| --- | --- | ---: | --- |");
+    lines.push("")
+    lines.push("### Fuzz Evidence")
+    lines.push("")
+    lines.push("| Test | Inputs | Runs | Revert Reason |")
+    lines.push("| --- | --- | ---: | --- |")
     for (const cx of state.fuzzCounterexamples) {
-      const inputs = cx.inputs.join(", ");
-      const reason = cx.revertReason ?? "—";
-      lines.push(`| ${cx.testName} | ${inputs} | ${cx.runs} | ${reason} |`);
+      const inputs = cx.inputs.join(", ")
+      const reason = cx.revertReason ?? "—"
+      lines.push(`| ${cx.testName} | ${inputs} | ${cx.runs} | ${reason} |`)
     }
   }
 
   if (state.skillsLoaded && state.skillsLoaded.length > 0) {
-    lines.push("");
-    lines.push("### Knowledge Sources");
-    lines.push("");
-    lines.push("Skills loaded during this audit:");
-    lines.push("");
+    lines.push("")
+    lines.push("### Knowledge Sources")
+    lines.push("")
+    lines.push("Skills loaded during this audit:")
+    lines.push("")
     for (const skill of state.skillsLoaded) {
-      lines.push(`- ${skill}`);
+      lines.push(`- ${skill}`)
     }
   }
 
-  return lines.join("\n");
+  return lines.join("\n")
 }
 
 export async function executeReportGeneration(
   args: ReportGeneratorArgs,
-  context: ToolContext
+  context: ToolContext,
 ): Promise<ReportGenerationResult> {
-  const includeExecutiveSummary = args.include_executive_summary ?? true;
-  const threshold = args.severity_threshold ?? "low";
-  const state = parseAuditState(args.audit_state);
-  const findings = state.findings.filter((finding) =>
-    shouldIncludeFinding(finding, threshold)
-  );
-  const counts = calculateCounts(findings);
-  const auditDate = new Date().toISOString().slice(0, 10);
+  const includeExecutiveSummary = args.include_executive_summary ?? true
+  const threshold = args.severity_threshold ?? "low"
+  const state = parseAuditState(args.audit_state)
+  const findings = state.findings.filter((finding) => shouldIncludeFinding(finding, threshold))
+  const counts = calculateCounts(findings)
+  const auditDate = new Date().toISOString().slice(0, 10)
 
-  context.metadata({ title: `Generate audit report: ${args.project_name}` });
+  context.metadata({ title: `Generate audit report: ${args.project_name}` })
 
-  const sections: string[] = [`# Security Audit Report — ${args.project_name}`];
+  const sections: string[] = [`# Security Audit Report — ${args.project_name}`]
 
   if (includeExecutiveSummary) {
-    sections.push("## Executive Summary");
+    sections.push("## Executive Summary")
     sections.push(
-      `This report summarizes security findings identified for ${args.project_name} based on static analysis, testing, and pattern-based review.`
-    );
-    sections.push("");
-    sections.push("| Severity | Count |");
-    sections.push("| --- | ---: |");
-    sections.push(`| Critical | ${counts.critical} |`);
-    sections.push(`| High | ${counts.high} |`);
-    sections.push(`| Medium | ${counts.medium} |`);
-    sections.push(`| Low | ${counts.low} |`);
-    sections.push(`| Informational | ${counts.informational} |`);
-    sections.push("");
-    sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`);
+      `This report summarizes security findings identified for ${args.project_name} based on static analysis, testing, and pattern-based review.`,
+    )
+    sections.push("")
+    sections.push("| Severity | Count |")
+    sections.push("| --- | ---: |")
+    sections.push(`| Critical | ${counts.critical} |`)
+    sections.push(`| High | ${counts.high} |`)
+    sections.push(`| Medium | ${counts.medium} |`)
+    sections.push(`| Low | ${counts.low} |`)
+    sections.push(`| Informational | ${counts.informational} |`)
+    sections.push("")
+    sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`)
   }
 
-  sections.push("## Scope");
-  sections.push("Contracts in scope:");
+  sections.push("## Scope")
+  sections.push("Contracts in scope:")
   if (args.scope.length === 0) {
-    sections.push("- None provided");
+    sections.push("- None provided")
   } else {
     for (const contract of args.scope) {
-      sections.push(`- ${contract}`);
+      sections.push(`- ${contract}`)
     }
   }
-  sections.push(`Audit date: ${auditDate}`);
+  sections.push(`Audit date: ${auditDate}`)
 
-  sections.push("## Methodology");
-  sections.push("Tools and techniques used:");
-  sections.push("- Slither static analysis");
-  sections.push("- Foundry tests and fuzzing");
-  sections.push("- Pattern Analysis");
-  sections.push("- Solodit research cross-referencing");
+  sections.push("## Methodology")
+  sections.push("Tools and techniques used:")
+  sections.push("- Slither static analysis")
+  sections.push("- Foundry tests and fuzzing")
+  sections.push("- Pattern Analysis")
+  sections.push("- Solodit research cross-referencing")
   sections.push(
-    "Approach: Findings were normalized, deduplicated by detector signature and location, then prioritized by severity and confidence."
-  );
+    "Approach: Findings were normalized, deduplicated by detector signature and location, then prioritized by severity and confidence.",
+  )
 
-  sections.push(buildFindingsSection(findings));
+  sections.push(buildFindingsSection(findings))
 
-  sections.push("## Recommendations");
+  sections.push("## Recommendations")
   for (const item of buildRecommendations(counts)) {
-    sections.push(`- ${item}`);
+    sections.push(`- ${item}`)
   }
 
-  sections.push(buildProvenanceAppendix(state, threshold, findings.length));
+  sections.push(buildProvenanceAppendix(state, threshold, findings.length))
 
   return {
     report: sections.join("\n\n"),
     findingsCount: counts,
     filename: `${args.project_name}-audit-report-${auditDate}.md`,
-  };
+  }
 }
 
 export const reportGeneratorTool = tool({
@@ -442,7 +442,7 @@ export const reportGeneratorTool = tool({
     audit_state: tool.schema.string(),
   },
   async execute(args, context) {
-    const result = await executeReportGeneration(args, context);
-    return JSON.stringify(result);
+    const result = await executeReportGeneration(args, context)
+    return JSON.stringify(result)
   },
-});
+})

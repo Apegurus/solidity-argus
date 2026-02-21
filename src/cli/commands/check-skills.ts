@@ -1,22 +1,23 @@
-import { readFileSync, readdirSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import type { CliCommand } from "../types"
 import { createLogger } from "../../shared/logger"
+import type { CliCommand } from "../types"
 
 const logger = createLogger()
-import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
+
 import { loadArgusConfig } from "../../config/loader"
-import { cliOutput } from "../cli-output"
-import { normalizeSkill, type SkillDoc } from "../../skills/analysis/normalize"
-import { buildTfidfCorpus, computeAllPairs } from "../../skills/analysis/similarity"
 import {
-  generateReport,
-  formatReportText,
-  formatReportJson,
   DEFAULT_GATE_CONFIG,
+  formatReportJson,
+  formatReportText,
   type GateConfig,
+  generateReport,
   type SkillReport,
 } from "../../skills/analysis/gates"
+import { normalizeSkill, type SkillDoc } from "../../skills/analysis/normalize"
+import { buildTfidfCorpus, computeAllPairs } from "../../skills/analysis/similarity"
+import { resolveSkillRoots } from "../../skills/argus-skill-resolver"
+import { cliOutput } from "../cli-output"
 
 function findSkillFiles(dir: string, maxDepth = 8): string[] {
   const files: string[] = []
@@ -36,9 +37,7 @@ function findSkillFiles(dir: string, maxDepth = 8): string[] {
           files.push(fullPath)
         }
       }
-    } catch {
-      continue
-    }
+    } catch {}
   }
 
   return files
@@ -98,13 +97,18 @@ export function runAnalysis(docs: SkillDoc[], config: GateConfig): SkillReport {
 
 export const checkSkillsCommand: CliCommand = {
   name: "check-skills",
-  description: "Analyze SKILL.md files for duplicates, near-duplicates, and detection rule conflicts",
+  description:
+    "Analyze SKILL.md files for duplicates, near-duplicates, and detection rule conflicts",
   async execute(args: string[]): Promise<number> {
     const cwd = process.cwd()
     const format = parseFormatArg(args)
 
     const gateConfig: GateConfig = {
-      blockThreshold: parseThresholdArg(args, "--block-threshold", DEFAULT_GATE_CONFIG.blockThreshold),
+      blockThreshold: parseThresholdArg(
+        args,
+        "--block-threshold",
+        DEFAULT_GATE_CONFIG.blockThreshold,
+      ),
       warnThreshold: parseThresholdArg(args, "--warn-threshold", DEFAULT_GATE_CONFIG.warnThreshold),
       infoThreshold: parseThresholdArg(args, "--info-threshold", DEFAULT_GATE_CONFIG.infoThreshold),
       blockExactRegexConflict: !args.includes("--no-regex-conflict"),

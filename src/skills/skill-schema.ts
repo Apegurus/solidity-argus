@@ -1,7 +1,7 @@
-import { z } from "zod"
 import { parse as parseYaml } from "yaml"
-import { PATTERN_CATEGORIES } from "../tools/pattern-schema"
+import { z } from "zod"
 import { createLogger } from "../shared/logger"
+import { PATTERN_CATEGORIES } from "../tools/pattern-schema"
 
 const logger = createLogger()
 
@@ -27,13 +27,7 @@ export const SkillFrontmatterSchema = z.object({
   deprecated: z.boolean().optional(),
   replacement: z.string().optional(),
   category: z
-    .enum([
-      "vulnerability-pattern",
-      "methodology",
-      "protocol-pattern",
-      "checklist",
-      "reference",
-    ])
+    .enum(["vulnerability-pattern", "methodology", "protocol-pattern", "checklist", "reference"])
     .optional(),
   source_url: z.string().url().optional(),
   source_license: z.string().optional(),
@@ -73,7 +67,9 @@ export function parseFrontmatter(content: string): Record<string, unknown> | nul
       if (typeof parsed === "object" && parsed !== null) {
         return parsed as Record<string, unknown>
       }
-    } catch { logger.debug("YAML frontmatter parse failed, falling back to line parser") }
+    } catch {
+      logger.debug("YAML frontmatter parse failed, falling back to line parser")
+    }
   }
 
   const lines = raw.split(/\r?\n/)
@@ -83,7 +79,7 @@ export function parseFrontmatter(content: string): Record<string, unknown> | nul
     const kvMatch = line.match(/^([\w][\w-]*):\s*(.*)$/)
     if (!kvMatch) continue
 
-    const key = kvMatch[1]!
+    const key = kvMatch[1] ?? ""
     let raw = kvMatch[2]?.trim() ?? ""
 
     if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {

@@ -1,8 +1,8 @@
 import os from "node:os"
 import path from "node:path"
-import { ScvdClient } from "../knowledge/scvd-client"
-import { syncIncremental, type SyncResult } from "../knowledge/scvd-sync"
 import type { ArgusConfig } from "../config/types"
+import { ScvdClient } from "../knowledge/scvd-client"
+import { type SyncResult, syncIncremental } from "../knowledge/scvd-sync"
 import { createLogger } from "../shared/logger"
 
 export type KnowledgeSyncDependencies = {
@@ -19,14 +19,14 @@ function defaultDependencies(): Required<KnowledgeSyncDependencies> {
     syncIncrementalFn: async (client: unknown, indexPath: string) =>
       syncIncremental(client as ScvdClient, indexPath),
     log: (message: string) => {
-       createLogger().info(message)
-     },
+      createLogger().info(message)
+    },
   }
 }
 
 export function createKnowledgeSyncHook(
   argusConfig: ArgusConfig,
-  deps: KnowledgeSyncDependencies = {}
+  deps: KnowledgeSyncDependencies = {},
 ): () => void {
   const dependencies = { ...defaultDependencies(), ...deps }
 
@@ -36,23 +36,20 @@ export function createKnowledgeSyncHook(
     }
 
     const apiUrl = argusConfig.knowledge?.scvd?.apiUrl ?? DEFAULT_SCVD_API_URL
-    const indexPath = path.join(
-      os.homedir(),
-      ".cache",
-      "solidity-argus",
-      "scvd-index.json"
-    )
+    const indexPath = path.join(os.homedir(), ".cache", "solidity-argus", "scvd-index.json")
 
     Promise.resolve().then(async () => {
-       try {
-         const client = dependencies.createClient(apiUrl)
-         const result = await dependencies.syncIncrementalFn(client, indexPath)
-         if (result.newFindings > 0) {
-           dependencies.log(
-             `[argus] SCVD index updated: ${result.newFindings} new findings (total: ${result.totalIndexed})`
-           )
-         }
-       } catch (_e) { createLogger().debug("Knowledge sync failed during auto-sync") }
-     })
+      try {
+        const client = dependencies.createClient(apiUrl)
+        const result = await dependencies.syncIncrementalFn(client, indexPath)
+        if (result.newFindings > 0) {
+          dependencies.log(
+            `[argus] SCVD index updated: ${result.newFindings} new findings (total: ${result.totalIndexed})`,
+          )
+        }
+      } catch (_e) {
+        createLogger().debug("Knowledge sync failed during auto-sync")
+      }
+    })
   }
 }

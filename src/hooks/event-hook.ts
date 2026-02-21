@@ -1,6 +1,6 @@
-import type { AuditState } from "../state/types"
-import { createAuditState } from "../state/audit-state"
 import { createLogger } from "../shared/logger"
+import { createAuditState } from "../state/audit-state"
+import type { AuditState } from "../state/types"
 
 export type AuditEventType =
   | "session.created"

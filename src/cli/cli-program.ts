@@ -1,10 +1,10 @@
-import type { CliCommand } from "./types";
-import { doctorCommand } from "./commands/doctor";
-import { initCommand } from "./commands/init";
-import { installCommand } from "./commands/install";
-import { lintSkillsCommand } from "./commands/lint-skills";
-import { checkSkillsCommand } from "./commands/check-skills";
-import { cliOutput } from "./cli-output";
+import { cliOutput } from "./cli-output"
+import { checkSkillsCommand } from "./commands/check-skills"
+import { doctorCommand } from "./commands/doctor"
+import { initCommand } from "./commands/init"
+import { installCommand } from "./commands/install"
+import { lintSkillsCommand } from "./commands/lint-skills"
+import type { CliCommand } from "./types"
 
 const HELP_TEXT = `argus — Solidity Security Auditor for OpenCode
 
@@ -14,39 +14,39 @@ Commands:
   install       Configure argus plugin in opencode config
   lint-skills   Validate SKILL.md files against schema
   check-skills  Analyze skills for duplicates, near-duplicates, and conflicts
-`;
+`
 
 export class CliProgram {
-  private commands: Map<string, CliCommand> = new Map();
+  private commands: Map<string, CliCommand> = new Map()
 
   registerCommand(command: CliCommand): void {
-    this.commands.set(command.name, command);
+    this.commands.set(command.name, command)
   }
 
   async dispatch(args: string[]): Promise<number> {
-    const subcommand = args[0];
+    const subcommand = args[0]
 
     if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-      cliOutput.log(HELP_TEXT);
-      return 0;
+      cliOutput.log(HELP_TEXT)
+      return 0
     }
 
-    const command = this.commands.get(subcommand);
+    const command = this.commands.get(subcommand)
     if (!command) {
-      cliOutput.error(`Unknown command '${subcommand}'. Run 'argus' for help.`);
-      return 1;
+      cliOutput.error(`Unknown command '${subcommand}'. Run 'argus' for help.`)
+      return 1
     }
 
-    return command.execute(args.slice(1));
+    return command.execute(args.slice(1))
   }
 }
 
 export function createCliProgram(): CliProgram {
-  const program = new CliProgram();
-  program.registerCommand(doctorCommand);
-  program.registerCommand(initCommand);
-  program.registerCommand(installCommand);
-  program.registerCommand(lintSkillsCommand);
-  program.registerCommand(checkSkillsCommand);
-  return program;
+  const program = new CliProgram()
+  program.registerCommand(doctorCommand)
+  program.registerCommand(initCommand)
+  program.registerCommand(installCommand)
+  program.registerCommand(lintSkillsCommand)
+  program.registerCommand(checkSkillsCommand)
+  return program
 }
