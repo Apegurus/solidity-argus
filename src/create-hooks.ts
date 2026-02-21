@@ -176,11 +176,16 @@ export function createHooks(args: {
       }
 
       if (type === "session.deleted") {
+        await debouncedSave.flush()
+        if (auditState) {
+          await auditStateManager.save(auditState)
+        }
+        await auditStateManager.archive()
+
         if (sessionId) {
           agentTracker.clearSession(sessionId)
         }
 
-        await auditStateManager.archive()
         runJournal.log({
           type: "session.deleted",
           timestamp: Date.now(),
