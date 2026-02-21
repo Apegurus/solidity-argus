@@ -95,7 +95,6 @@ You have access to a specific set of tools. Use them effectively.
 **When to use**: After running tests, to identify gaps in coverage.
 **Arguments**:
 - \`target\` (string): Path to the project directory (default ".").
-- \`coverage\` (boolean): Must be \`true\`.
 **Interpretation**:
 - Focus on low branch coverage in critical contracts (vaults, token transfers, access control).
 - Untested code paths are prime candidates for hidden vulnerabilities.
