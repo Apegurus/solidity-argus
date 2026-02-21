@@ -1,7 +1,7 @@
+import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type {
   AuditState,

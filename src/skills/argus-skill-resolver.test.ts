@@ -64,7 +64,12 @@ describe("skill precedence", () => {
         customSkillsDir: customDir,
         skillPrecedence: precedence,
       },
-      reporting: { format: "markdown", severityThreshold: "low", gasAnalysis: false, output_dir: ".opencode/reports/" },
+      reporting: {
+        format: "markdown",
+        severityThreshold: "low",
+        gasAnalysis: false,
+        output_dir: ".opencode/reports/",
+      },
       solodit: { enabled: true, port: 3000 },
       disabled_hooks: [],
       hooks: {},

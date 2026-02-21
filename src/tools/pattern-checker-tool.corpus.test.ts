@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { type LoadedPattern, findMatches } from "./pattern-checker-tool"
+import { findMatches, type LoadedPattern } from "./pattern-checker-tool"
 import { extractDetectionRulesFromSkills } from "./pattern-loader"
 
 const CORPUS_DIR = join(import.meta.dir, "../../tests/fixtures/pattern-corpus")

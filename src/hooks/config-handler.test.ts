@@ -35,7 +35,12 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
       gasAnalysis: false,
       output_dir: ".opencode/reports/",
       ...(overrides?.reporting ?? {}),
-    } as unknown as { format: "markdown"; severityThreshold: "critical" | "high" | "medium" | "low" | "informational"; gasAnalysis: boolean; output_dir: string },
+    } as unknown as {
+      format: "markdown"
+      severityThreshold: "critical" | "high" | "medium" | "low" | "informational"
+      gasAnalysis: boolean
+      output_dir: string
+    },
     solodit: {
       enabled: true,
       port: 3000,

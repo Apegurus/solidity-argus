@@ -122,7 +122,12 @@ test("loadArgusConfig accepts valid full config", () => {
         autoSync: true,
         customSkillsDir: "/path/to/skills",
       },
-      reporting: { format: "markdown", severityThreshold: "high", gasAnalysis: true, output_dir: ".opencode/reports/" },
+      reporting: {
+        format: "markdown",
+        severityThreshold: "high",
+        gasAnalysis: true,
+        output_dir: ".opencode/reports/",
+      },
       solodit: { enabled: true },
     }),
   )
