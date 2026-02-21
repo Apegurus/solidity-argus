@@ -1,4 +1,13 @@
+import * as parser from "@solidity-parser/parser"
 import type { ContractProfile } from "../state/types"
+
+const EXTERNAL_CALL_METHODS = new Set([
+  "call",
+  "transfer",
+  "send",
+  "delegatecall",
+  "staticcall",
+])
 
 interface ABIFunction {
   type: string
@@ -25,7 +34,6 @@ interface StorageLayout {
  * Falls back to the original string if no JSON delimiter is found.
  */
 export function extractJson(raw: string, opener: "[" | "{"): string {
-  const _closer = opener === "[" ? "]" : "}"
   const start = raw.indexOf(opener)
   if (start === -1) return raw
 
@@ -67,6 +75,75 @@ export function extractJson(raw: string, opener: "[" | "{"): string {
   }
 
   return raw
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "object" && value !== null) {
+    return value as Record<string, unknown>
+  }
+
+  return undefined
+}
+
+function extractNodeExpressionName(node: unknown): string | undefined {
+  const record = toRecord(node)
+  if (!record) return undefined
+
+  const type = typeof record.type === "string" ? record.type : undefined
+  if (!type) return undefined
+
+  if (type === "Identifier") {
+    return typeof record.name === "string" ? record.name : undefined
+  }
+
+  if (type === "ThisExpression") {
+    return "this"
+  }
+
+  if (type === "MemberAccess") {
+    const expressionName = extractNodeExpressionName(record.expression)
+    const memberName = typeof record.memberName === "string" ? record.memberName : undefined
+
+    if (expressionName && memberName) {
+      return `${expressionName}.${memberName}`
+    }
+
+    return expressionName ?? memberName
+  }
+
+  if (type === "IndexAccess") {
+    return extractNodeExpressionName(record.base)
+  }
+
+  if (type === "FunctionCall") {
+    return extractNodeExpressionName(record.expression)
+  }
+
+  return undefined
+}
+
+export function parseExternalCalls(sourceText: string): string[] {
+  try {
+    const ast = parser.parse(sourceText, { tolerant: true, loc: false, range: false })
+    const externalCalls = new Set<string>()
+
+    parser.visit(ast, {
+      MemberAccess(node: unknown) {
+        const record = toRecord(node)
+        if (!record) return
+
+        const memberName = typeof record.memberName === "string" ? record.memberName : undefined
+        if (!memberName || !EXTERNAL_CALL_METHODS.has(memberName)) return
+
+        const expressionName = extractNodeExpressionName(record.expression)
+        externalCalls.add(expressionName ? `${expressionName}.${memberName}` : memberName)
+      },
+    })
+
+    return [...externalCalls]
+  } catch {
+    return []
+  }
 }
 
 /**

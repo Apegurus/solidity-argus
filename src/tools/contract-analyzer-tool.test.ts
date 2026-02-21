@@ -122,6 +122,44 @@ test("executeContractAnalyzer enriches risk indicators from source text and OZ i
   expect(result.riskIndicators.filter((item) => item === "uses-delegatecall")).toHaveLength(1)
 })
 
+test("executeContractAnalyzer populates externalCalls from Solidity AST", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "ExternalCalls.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(
+    filePath,
+    [
+      "contract ExternalCalls {",
+      "  function ping(address target, bytes calldata data) external {",
+      "    (bool okCall,) = target.call(data);",
+      "    (bool okDelegate,) = target.delegatecall(data);",
+      "    (bool okStatic,) = target.staticcall(data);",
+      "    require(okCall && okDelegate && okStatic);",
+      "  }",
+      "}",
+    ].join("\n"),
+  )
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async () => ({
+        ...createBaseProfile(),
+        externalCalls: ["target.call"],
+      }),
+    },
+  )
+
+  expect(result.externalCalls).toEqual(
+    expect.arrayContaining(["target.call", "target.delegatecall", "target.staticcall"]),
+  )
+  expect(result.externalCalls.filter((item) => item === "target.call")).toHaveLength(1)
+})
+
 test("executeContractAnalyzer returns structured error when file does not exist", async () => {
   const result = await executeContractAnalyzer(
     { file_path: "/tmp/does-not-exist/NotHere.sol" },

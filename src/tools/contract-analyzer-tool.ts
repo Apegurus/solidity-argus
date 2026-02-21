@@ -3,7 +3,7 @@ import { basename } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { findFoundryProjectDir } from "../shared/project-utils"
 import type { ContractProfile } from "../state/types"
-import { extractContractInfo } from "../utils/solidity-parser"
+import { extractContractInfo, parseExternalCalls } from "../utils/solidity-parser"
 
 type ContractAnalyzerArgs = {
   file_path: string
@@ -176,6 +176,9 @@ export async function executeContractAnalyzer(
     const mergedInheritance = [
       ...new Set([...contractProfile.inheritance, ...sourceInheritance]),
     ]
+    const mergedExternalCalls = [
+      ...new Set([...contractProfile.externalCalls, ...parseExternalCalls(sourceText)]),
+    ]
 
     // Extract modifiers from source text for each function
     const visibilityKeywords = new Set([
@@ -212,6 +215,7 @@ export async function executeContractAnalyzer(
       name: contractProfile.name || contractName,
       filePath,
       inheritance: mergedInheritance,
+      externalCalls: mergedExternalCalls,
       riskIndicators: collectRiskIndicators(sourceText, contractProfile.riskIndicators),
     }
   } catch (error) {
