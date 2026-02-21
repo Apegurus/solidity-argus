@@ -37,6 +37,7 @@ function makeManagers(): Managers {
       get: () => null,
       update: async () => {},
       reset: async () => {},
+      archive: async () => {},
     },
   }
 }
@@ -163,6 +164,7 @@ describe("createHooks", () => {
         get: () => activeState,
         update: async () => {},
         reset: async () => {},
+        archive: async () => {},
       },
     }
 

@@ -8,6 +8,11 @@ type ToolHookInput = {
   result: string
 }
 
+type ToolExecutionMetadata = {
+  tool: string
+  findingsCount: number
+}
+
 const VALID_SEVERITIES: ReadonlySet<string> = new Set([
   "Critical",
   "High",
@@ -274,7 +279,8 @@ function recordToolExecution(
  * Findings are deduplicated via the FindingStore (by check+file+lines).
  */
 export function createToolTrackingHook(
-  getAuditState: () => AuditState | null
+  getAuditState: () => AuditState | null,
+  onStateChanged?: (metadata: ToolExecutionMetadata) => void
 ): (input: ToolHookInput) => Promise<void> {
   const storesByState = new WeakMap<AuditState, FindingStore>()
 
@@ -313,6 +319,7 @@ export function createToolTrackingHook(
         }
       }
       recordToolExecution(auditState, input.tool, 0)
+      onStateChanged?.({ tool: input.tool, findingsCount: 0 })
       return
     }
 
@@ -395,5 +402,6 @@ export function createToolTrackingHook(
     }
 
     recordToolExecution(auditState, input.tool, findingsCount)
+    onStateChanged?.({ tool: input.tool, findingsCount })
   }
 }

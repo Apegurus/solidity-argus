@@ -21,6 +21,7 @@ function makeManagers(): Managers {
       get: () => null,
       update: async () => {},
       reset: async () => {},
+      archive: async () => {},
     },
   }
 }

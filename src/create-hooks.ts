@@ -1,5 +1,8 @@
 import type { Hooks as PluginHooks } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
+import { createLogger } from "./shared/logger"
+
+const logger = createLogger()
 import type { Managers } from "./managers/types"
 import type { HookName } from "./hooks/types"
 import { createConfigHandler } from "./hooks/config-handler"
@@ -20,6 +23,10 @@ import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
 import type { ReconContext } from "./hooks/recon-context-builder"
 import { buildReconContextBlock } from "./hooks/recon-context-builder"
 import type { AuditState } from "./state/types"
+import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
+import { createRunJournal } from "./features/persistent-state/run-journal"
+import { recordRun } from "./features/persistent-state/global-run-index"
+import { join } from "node:path"
 
 export type AgentTrackerRef = {
   getAgentForSession(sessionID: string): string | undefined
@@ -71,6 +78,8 @@ export function createHooks(args: {
 
   const contextMonitor = createContextMonitor()
   const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
+  const debouncedSave = createDebouncedSave(auditStateManager.save)
+  const runJournal = createRunJournal(projectDir)
   let auditStateGetter: (() => AuditState | null) | undefined
   const toolErrorRecoveryHandler = createToolErrorRecoveryHandler(
     () => auditStateGetter?.() ?? null,
@@ -83,15 +92,81 @@ export function createHooks(args: {
   const { hook: eventHook, getAuditState, setAuditState } = createEventHook(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {
-        const recoveredState = await auditStateManager.load()
+        const timestamp = Date.now()
+        let recoveredState: AuditState | null = null
+
+        try {
+          recoveredState = await auditStateManager.load()
+        } finally {
+          runJournal.log({
+            type: "state.loaded",
+            timestamp,
+            success: recoveredState !== null,
+            findingsCount: recoveredState?.findings.length ?? 0,
+          })
+        }
+
         if (recoveredState) {
           setState(recoveredState)
         }
+
+        runJournal.log({
+          type: "session.created",
+          sessionId,
+          timestamp: Date.now(),
+        })
+
+        const effectiveState = recoveredState ?? auditStateManager.get()
+        if (effectiveState) {
+          void recordRun({
+            runId: effectiveState.sessionId,
+            opencodeSessionId: sessionId,
+            projectDir: effectiveState.projectDir,
+            statePath: join(effectiveState.projectDir, ".opencode", "argus-state.json"),
+            journalPath: join(effectiveState.projectDir, ".opencode", "argus-journal.jsonl"),
+            startedAt: effectiveState.startTime,
+            phase: effectiveState.currentPhase,
+            findingsCount: effectiveState.findings.length,
+          })
+        }
+
         return
       }
 
       if (type === "session.idle" && auditState) {
-        await auditStateManager.save(auditState)
+        await debouncedSave.flush()
+
+        let saveSuccess = true
+        try {
+          await auditStateManager.save(auditState)
+        } catch {
+          saveSuccess = false
+        } finally {
+          runJournal.log({
+            type: "state.saved",
+            timestamp: Date.now(),
+            success: saveSuccess,
+          })
+        }
+
+        runJournal.log({
+          type: "session.idle",
+          timestamp: Date.now(),
+          findingsCount: auditState.findings.length,
+          toolsExecutedCount: auditState.toolsExecuted.length,
+        })
+
+        void recordRun({
+          runId: auditState.sessionId,
+          opencodeSessionId: sessionId,
+          projectDir: auditState.projectDir,
+          statePath: join(auditState.projectDir, ".opencode", "argus-state.json"),
+          journalPath: join(auditState.projectDir, ".opencode", "argus-journal.jsonl"),
+          startedAt: auditState.startTime,
+          phase: auditState.currentPhase,
+          findingsCount: auditState.findings.length,
+        })
+
         return
       }
 
@@ -99,7 +174,13 @@ export function createHooks(args: {
         if (sessionId) {
           agentTracker.clearSession(sessionId)
         }
-        await auditStateManager.reset()
+
+        await auditStateManager.archive()
+        runJournal.log({
+          type: "session.deleted",
+          timestamp: Date.now(),
+          archived: true,
+        })
       }
     },
     async ({ type, sessionId, setAuditState: setState }) => {
@@ -145,7 +226,7 @@ export function createHooks(args: {
       reconProjectConfig = config
     })
     .catch(() => {
-      // Silent fallback — audit artifacts remain available
+      logger.debug("Project detection failed, using fallback recon context")
     })
 
   const getReconContext = (): ReconContext => ({
@@ -159,7 +240,19 @@ export function createHooks(args: {
     : undefined
 
   const toolTrackingHook = isHookEnabled("tool-tracking")
-    ? safeCreateHook(() => createToolTrackingHook(getAuditState), "tool-tracking")
+    ? safeCreateHook(() => createToolTrackingHook(getAuditState, ({ tool, findingsCount }) => {
+      const currentState = getAuditState()
+      if (currentState) {
+        debouncedSave.save(currentState)
+      }
+
+      runJournal.log({
+        type: "tool.executed",
+        tool,
+        timestamp: Date.now(),
+        findingsCount,
+      })
+    }), "tool-tracking")
     : undefined
 
   const safeEventHook = isHookEnabled("event")

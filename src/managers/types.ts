@@ -73,6 +73,11 @@ export interface AuditStateManager {
    * Reset the audit state (clear all data)
    */
   reset(): Promise<void>;
+
+  /**
+   * Archive current state (if meaningful) then reset
+   */
+  archive(): Promise<void>;
 }
 
 /**

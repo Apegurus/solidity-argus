@@ -48,6 +48,55 @@ function isPersistentAuditState(value: unknown): value is PersistentAuditState {
   );
 }
 
+export function createDebouncedSave(
+  saveState: (state: AuditState) => Promise<void>,
+  delayMs = 5_000,
+): {
+  save: (state: AuditState) => void;
+  flush: () => Promise<void>;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingState: AuditState | null = null;
+
+  async function persistPendingState(): Promise<void> {
+    if (!pendingState) {
+      return;
+    }
+
+    const stateToPersist = pendingState;
+    pendingState = null;
+
+    try {
+      await saveState(stateToPersist);
+    } catch {
+      createLogger().debug("Debounced state persistence failed");
+    }
+  }
+
+  return {
+    save(state: AuditState): void {
+      pendingState = state;
+
+      if (timer) {
+        clearTimeout(timer);
+      }
+
+      timer = setTimeout(() => {
+        timer = null;
+        void persistPendingState();
+      }, delayMs);
+    },
+    async flush(): Promise<void> {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+
+      await persistPendingState();
+    },
+  };
+}
+
 export function createAuditStateManager(projectDir: string): AuditStateManager {
   const logger = createLogger();
   const stateFilePath = join(projectDir, STATE_FILE_DIR, STATE_FILE_NAME);
@@ -84,7 +133,8 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
 
       currentState = state;
       return currentState;
-    } catch (_error) {
+    } catch (err) {
+      logger.warn("Failed to load persisted audit state", err);
       return null;
     }
   }
@@ -115,8 +165,8 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
 
         if (currentState === stateToSave) break;
       }
-    } catch {
-      // Non-critical: state persistence is best-effort
+    } catch (err) {
+      logger.warn("Failed to persist audit state", err);
     } finally {
       saveInFlight = false;
     }
@@ -140,11 +190,39 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
     await save(currentState);
   }
 
+  async function archive(): Promise<void> {
+    const hasContent =
+      currentState.findings.length > 0 ||
+      currentState.toolsExecuted.length > 0 ||
+      currentState.currentPhase !== "reconnaissance";
+
+    if (hasContent) {
+      try {
+        const archivesDir = join(dirname(stateFilePath), "archives");
+        await mkdir(archivesDir, { recursive: true });
+        const archivePath = join(archivesDir, `argus-state.${Date.now()}.json`);
+        const persistentState: PersistentAuditState = {
+          ...currentState,
+          savedAt: Date.now(),
+          version: STATE_VERSION,
+          filePath: archivePath,
+        };
+        await Bun.write(archivePath, `${JSON.stringify(persistentState, null, 2)}\n`);
+      } catch {
+        logger.debug("Failed to archive audit state");
+      }
+    }
+
+    currentState = createAuditState(projectDir).state;
+    await save(currentState);
+  }
+
   return {
     load,
     save,
     get,
     update,
     reset,
+    archive,
   };
 }
