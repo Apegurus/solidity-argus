@@ -1,5 +1,6 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { resolveProjectDir } from "../shared/project-utils"
+import { extractJson } from "../utils/solidity-parser"
 
 type ForgeTestArgs = {
   target?: string
@@ -311,7 +312,7 @@ export async function executeForgeTest(
 
     let payload: ForgeTestPayload
     try {
-      payload = JSON.parse(testResult.stdout) as ForgeTestPayload
+      payload = JSON.parse(extractJson(testResult.stdout, "{")) as ForgeTestPayload
     } catch {
       return fail("Invalid JSON output from forge test")
     }

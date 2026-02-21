@@ -24,7 +24,7 @@ interface StorageLayout {
  * prefix (e.g. forge table-format output, compilation progress).
  * Falls back to the original string if no JSON delimiter is found.
  */
-function extractJson(raw: string, opener: "[" | "{"): string {
+export function extractJson(raw: string, opener: "[" | "{"): string {
   const _closer = opener === "[" ? "]" : "}"
   const start = raw.indexOf(opener)
   if (start === -1) return raw
