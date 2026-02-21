@@ -62,7 +62,7 @@ type PatternCheckDependencies = {
   ) => ScvdIndexEntry[]
 }
 
-type LoadedPattern = {
+export type LoadedPattern = {
   name: string
   category: string
   severity: Match["severity"]
@@ -241,16 +241,27 @@ function lineWindow(content: string, index: number): [number, number] {
   return [start, end]
 }
 
-function findMatches(file: string, patterns: LoadedPattern[]): Match[] {
+export function findMatches(file: string, patterns: LoadedPattern[]): Match[] {
   const content = readFileSync(file, "utf8")
   const matches: Match[] = []
+
+  // Strip comments and string literals to reduce false positives.
+  // Use a space-preserving approach so line numbers remain valid.
+  // Order: multi-line comments first (can contain //), then single-line, then strings.
+  const stripped = content
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (m) => {
+      const quote = m[0]
+      return `${quote}${" ".repeat(Math.max(0, m.length - 2))}${quote}`
+    })
 
   for (const pattern of patterns) {
     const regex = new RegExp(
       pattern.regex.source,
       pattern.regex.flags.includes("g") ? pattern.regex.flags : `${pattern.regex.flags}g`,
     )
-    for (const found of content.matchAll(regex)) {
+    for (const found of stripped.matchAll(regex)) {
       const index = found.index ?? 0
       matches.push({
         pattern: pattern.name,

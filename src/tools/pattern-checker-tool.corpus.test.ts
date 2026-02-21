@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { type LoadedPattern, findMatches } from "./pattern-checker-tool"
 import { extractDetectionRulesFromSkills } from "./pattern-loader"
 
 const CORPUS_DIR = join(import.meta.dir, "../../tests/fixtures/pattern-corpus")
@@ -183,4 +184,19 @@ describe("Pattern Test Corpus", () => {
       })
     })
   }
+
+  describe("comment stripping", () => {
+    it("does NOT match when keyword appears only in comments and strings", () => {
+      const fixture = join(CORPUS_DIR, "comment-only-delegatecall.sol")
+      const pattern: LoadedPattern = {
+        name: "delegatecall-in-comment",
+        category: "delegatecall",
+        severity: "High",
+        regex: /\.delegatecall\(/,
+        description: "Detects delegatecall usage",
+      }
+      const results = findMatches(fixture, [pattern])
+      expect(results).toHaveLength(0)
+    })
+  })
 })
