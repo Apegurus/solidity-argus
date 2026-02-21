@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
+import { _resetSoloditState } from "../solodit-lifecycle"
 import {
   type CallMcpTool,
   executeSoloditSearch,
@@ -308,4 +309,32 @@ test("executeSoloditSearch omits severity filter when not provided", async () =>
   await executeSoloditSearch({ query: "test" }, context, mockMcp)
 
   expect(capturedArgs[0]?.filters).toBeUndefined()
+})
+
+test("executeSoloditSearch returns availability error when Solodit is down outside test env", async () => {
+  const { context } = createContext()
+  const originalNodeEnv = process.env.NODE_ENV
+  process.env.NODE_ENV = "development"
+  _resetSoloditState()
+
+  let mcpCalled = false
+  const mockMcp: CallMcpTool = async () => {
+    mcpCalled = true
+    return []
+  }
+
+  try {
+    const result = await executeSoloditSearch({ query: "oracle" }, context, mockMcp)
+
+    expect(result.results).toEqual([])
+    expect(result.totalFound).toBe(0)
+    expect(result.query).toBe("oracle")
+    expect(result.error).toBe(
+      "Solodit MCP not available — server did not start. Results limited to local patterns.",
+    )
+    expect(mcpCalled).toBe(false)
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv
+    _resetSoloditState()
+  }
 })
