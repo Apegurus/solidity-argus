@@ -80,6 +80,18 @@ function emptyAuditState(findings: Finding[] = []): AuditState {
   };
 }
 
+function isValidFinding(f: unknown): f is Finding {
+  if (typeof f !== "object" || f === null) return false;
+  const obj = f as Record<string, unknown>;
+  return (
+    typeof obj.check === "string" &&
+    obj.check.length > 0 &&
+    typeof obj.file === "string" &&
+    Array.isArray(obj.lines) &&
+    obj.lines.length === 2
+  );
+}
+
 export function parseAuditState(auditState: string): AuditState {
   let parsed: unknown;
   try {
@@ -89,14 +101,17 @@ export function parseAuditState(auditState: string): AuditState {
   }
 
   if (Array.isArray(parsed)) {
-    return emptyAuditState(parsed as Finding[]);
+    const validFindings = (parsed as unknown[]).filter(isValidFinding);
+    return emptyAuditState(validFindings as Finding[]);
   }
 
   if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as AuditState).findings)) {
     const state = parsed as AuditState;
+    const validFindings = state.findings.filter(isValidFinding);
     return {
       ...emptyAuditState(),
       ...state,
+      findings: validFindings,
     };
   }
 
@@ -104,6 +119,7 @@ export function parseAuditState(auditState: string): AuditState {
 }
 
 function normalizeTitle(check: string): string {
+  if (!check || typeof check !== "string") return "Unknown Check";
   return check
     .split(/[-_\s]+/)
     .filter((part) => part.length > 0)
@@ -112,6 +128,7 @@ function normalizeTitle(check: string): string {
 }
 
 function formatLocation(finding: Finding): string {
+  if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return "unknown location";
   return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`;
 }
 
