@@ -107,7 +107,51 @@ function parseTests(payload: ForgeTestPayload): {
 } {
   const collected: Array<ForgeTestItem | { skipped: true }> = []
 
-  if (Array.isArray(payload.tests)) {
+  const topLevelEntries = Object.entries(payload as unknown as Record<string, unknown>)
+  if (topLevelEntries.some(([key]) => key.includes(":"))) {
+    for (const [topLevelKey, suite] of topLevelEntries) {
+      if (!suite || typeof suite !== "object") {
+        continue
+      }
+
+      const suiteRecord = suite as Record<string, unknown>
+      const testResults = suiteRecord.test_results
+      if (!testResults || typeof testResults !== "object") {
+        continue
+      }
+
+      const contract = topLevelKey.split(":").at(1) ?? topLevelKey
+      for (const [name, details] of Object.entries(testResults)) {
+        if (!details || typeof details !== "object") {
+          continue
+        }
+
+        const detailsRecord = details as Record<string, unknown>
+        const statusValue = typeof detailsRecord.status === "string" ? detailsRecord.status : undefined
+        const status = mapStatus(statusValue)
+        if (status === "skip") {
+          collected.push({ skipped: true })
+          continue
+        }
+
+        const kind = detailsRecord.kind
+        const kindRecord = kind && typeof kind === "object" ? (kind as Record<string, unknown>) : undefined
+        const unit = kindRecord?.Unit
+        const unitRecord =
+          unit && typeof unit === "object" ? (unit as Record<string, unknown>) : undefined
+        const fuzz = kindRecord?.Fuzz
+        const fuzzRecord =
+          fuzz && typeof fuzz === "object" ? (fuzz as Record<string, unknown>) : undefined
+
+        collected.push({
+          name,
+          contract,
+          status,
+          gas: toNumber(unitRecord?.gas ?? fuzzRecord?.mean_gas),
+        })
+      }
+    }
+  } else if (Array.isArray(payload.tests)) {
     for (const item of payload.tests) {
       const status = mapStatus(item.status)
       if (status === "skip") {

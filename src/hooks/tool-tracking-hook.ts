@@ -321,8 +321,13 @@ export function createToolTrackingHook(
       case "argus_solodit_search":
         processSoloditResult(record, auditState)
         break
-      case "argus_forge_test":
+      case "argus_forge_test": {
+        const summary = toRecord(record.summary)
+        if (summary && typeof summary.failed === "number") {
+          findingsCount = summary.failed
+        }
         break
+      }
       case "argus_forge_fuzz":
         processFuzzResult(record, auditState)
         break

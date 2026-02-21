@@ -81,6 +81,59 @@ test("executeForgeTest parses flat-array forge test JSON", async () => {
   expect(result.tests[1]?.status).toBe("fail")
 })
 
+test("executeForgeTest parses real forge --json output format", async () => {
+  const { context } = createContext()
+  const stdout = JSON.stringify({
+    "test/VulnerableVault.t.sol:VulnerableVaultTest": {
+      duration: { secs: 0, nanos: 123456789 },
+      test_results: {
+        "testReentrancy()": {
+          status: "Success",
+          reason: null,
+          kind: { Unit: { gas: 45678 } },
+          duration: { secs: 0, nanos: 12345 },
+        },
+        "testInvariantFuzz(uint256)": {
+          status: "Failure",
+          reason: "assertion failed",
+          kind: { Fuzz: { mean_gas: 32100 } },
+          duration: { secs: 0, nanos: 6789 },
+        },
+        "testSkipCase()": {
+          status: "Skipped",
+          reason: null,
+          kind: { Unit: { gas: 111 } },
+          duration: { secs: 0, nanos: 555 },
+        },
+      },
+      warnings: [],
+    },
+  })
+
+  const result = await executeForgeTest({ target: "." }, context, async () => ({
+    stdout,
+    stderr: "",
+    exitCode: 1,
+  }))
+
+  expect(result.success).toBe(false)
+  expect(result.summary).toEqual({ passed: 1, failed: 1, skipped: 1, total: 3 })
+  expect(result.tests).toEqual([
+    {
+      name: "testReentrancy()",
+      contract: "VulnerableVaultTest",
+      status: "pass",
+      gas: 45678,
+    },
+    {
+      name: "testInvariantFuzz(uint256)",
+      contract: "VulnerableVaultTest",
+      status: "fail",
+      gas: 32100,
+    },
+  ])
+})
+
 test("executeForgeTest runs coverage command and parses report", async () => {
   const { context } = createContext()
   const responses: ForgeCommandResult[] = [
