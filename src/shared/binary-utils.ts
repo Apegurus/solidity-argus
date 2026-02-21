@@ -1,11 +1,15 @@
 import { existsSync } from "node:fs";
 import { join } from "path";
+import { createLogger } from "./logger";
+
+const logger = createLogger();
 
 export function hasBinary(name: string): boolean {
   try {
     const result = Bun.spawnSync(["which", name], {
       stdout: "ignore",
       stderr: "ignore",
+      timeout: 5_000,
     });
     return result.exitCode === 0;
   } catch (_e) {
@@ -28,16 +32,18 @@ export async function parseSolcVersion(target: string): Promise<string | undefin
     const srcDir = join(target, "src");
     if (existsSync(srcDir)) {
       try {
-        const proc = Bun.spawn(["find", srcDir, "-maxdepth", "3", "-name", "*.sol"], {
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const exitCode = await proc.exited;
+         const proc = Bun.spawn(["find", srcDir, "-maxdepth", "3", "-name", "*.sol"], {
+           stdout: "pipe",
+           stderr: "pipe",
+           signal: AbortSignal.timeout(10_000),
+         });
+         const exitCode = await proc.exited;
         if (exitCode === 0) {
           const output = await new Response(proc.stdout).text();
           solFiles.push(...output.trim().split("\n").filter(Boolean));
         }
       } catch (_findErr) {
+        logger.debug("find command failed for .sol files");
       }
     }
   }
@@ -49,6 +55,7 @@ export async function parseSolcVersion(target: string): Promise<string | undefin
       const pragma = content.match(/pragma\s+solidity\s+[\^~>=<]*\s*([\d.]+)/);
       if (pragma?.[1]) return pragma[1];
     } catch (_readErr) {
+      logger.debug("Failed to read .sol file for pragma detection");
     }
   }
   return undefined;

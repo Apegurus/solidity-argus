@@ -4,7 +4,10 @@ import { join, resolve, dirname, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 
 import { tool, type ToolContext } from "@opencode-ai/plugin";
+import { createLogger } from "../shared/logger";
 import type { Finding, FindingSeverity } from "../state/types";
+
+const logger = createLogger();
 import { hasBinary as hasBinaryShared, parseSolcVersion as parseSolcVersionShared, extractContractNames as extractContractNamesShared } from "../shared/binary-utils";
 import { resolveProjectDir } from "../shared/project-utils";
 
@@ -162,6 +165,7 @@ async function ensureSolc(version: string): Promise<boolean> {
     const installProc = Bun.spawn(["solc-select", "install", version], {
       stdout: "pipe",
       stderr: "pipe",
+      signal: AbortSignal.timeout(30_000),
     });
     const installExit = await installProc.exited;
     if (installExit !== 0) return false;
@@ -169,6 +173,7 @@ async function ensureSolc(version: string): Promise<boolean> {
     const useProc = Bun.spawn(["solc-select", "use", version], {
       stdout: "pipe",
       stderr: "pipe",
+      signal: AbortSignal.timeout(30_000),
     });
     const useExit = await useProc.exited;
     return useExit === 0;
@@ -381,7 +386,7 @@ export async function flattenFallback(
     try {
       rmSync(tmpDir, { recursive: true, force: true });
     } catch (_cleanupErr) {
-      // best-effort: temp dir cleanup failure is non-fatal
+      logger.debug("Failed to clean up temp directory");
     }
   }
 }
@@ -541,7 +546,7 @@ export function detectViaIr(target: string): boolean {
         const content = readFileSync(foundryTomlPath, "utf-8");
         if (/^\s*via[_-]ir\s*=\s*true/m.test(content)) return true;
       } catch {
-        // unreadable file — keep walking
+        logger.debug("Unreadable foundry.toml, continuing directory walk");
       }
     }
     if (dir === root) break;

@@ -47,6 +47,7 @@ function ensureTrailOfBitsSkills(): string[] {
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
+        signal: AbortSignal.timeout(60_000),
       },
     )
     cloneProcess.exited

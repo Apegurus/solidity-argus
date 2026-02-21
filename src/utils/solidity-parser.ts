@@ -98,6 +98,7 @@ export async function extractContractInfo(
         cwd: projectDir,
         stdout: "pipe",
         stderr: "pipe",
+        timeout: 15_000,
       }
     );
 
@@ -114,6 +115,7 @@ export async function extractContractInfo(
         cwd: projectDir,
         stdout: "pipe",
         stderr: "pipe",
+        timeout: 15_000,
       }
     );
 
