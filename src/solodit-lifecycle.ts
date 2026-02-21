@@ -182,21 +182,19 @@ export async function startSoloditMcp(port: number): Promise<void> {
   soloditChild = spawnSoloditChild(port)
   trackChildExit(soloditChild)
 
-  ;(async () => {
-    const delays = [2000, 4000, 8000]
-    for (const delay of delays) {
-      await Bun.sleep(delay)
-      const health = await checkSoloditHealth(port, true)
-      if (health.reachable) {
-        soloditAvailable = true
-        logger.debug(`Solodit MCP healthy on port ${port}`)
-        return
-      }
+  const delays = [1000, 2000]
+  for (const delay of delays) {
+    await Bun.sleep(delay)
+    const health = await checkSoloditHealth(port, true)
+    if (health.reachable) {
+      soloditAvailable = true
+      logger.debug(`Solodit MCP healthy on port ${port}`)
+      break
     }
-    logger.debug(
-      `Solodit MCP not reachable after 3 retries on port ${port} — will retry on first use`,
-    )
-  })()
+  }
+  if (!soloditAvailable) {
+    logger.warn(`Solodit MCP not reachable after startup — monitoring will retry`)
+  }
 
   startMonitoring(port)
 }

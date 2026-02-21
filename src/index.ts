@@ -13,7 +13,7 @@ const ArgusPlugin: Plugin = async (ctx) => {
   const config = loadArgusConfig(projectDir)
 
   if (config.solodit?.enabled !== false) {
-    startSoloditMcp(config.solodit?.port ?? 3000)
+    await startSoloditMcp(config.solodit?.port ?? 3000)
   }
 
   const isHookEnabled = createHookGuard(config.disabled_hooks)

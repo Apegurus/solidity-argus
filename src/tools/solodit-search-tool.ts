@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "@opencode-ai/plugin"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createLogger } from "../shared/logger"
+import { soloditAvailable } from "../solodit-lifecycle"
 
 const logger = createLogger()
 
@@ -243,6 +244,23 @@ export async function executeSoloditSearch(
   const limit = args.limit ?? DEFAULT_LIMIT
 
   context.metadata({ title: `Solodit search: ${query}` })
+
+  // Belt-and-suspenders: check if Solodit MCP is available, with 3s retry
+  // Skip check in test environment
+  if (!soloditAvailable && process.env.NODE_ENV !== "test") {
+    // Wait up to 3s for monitoring to flip the flag
+    for (let i = 0; i < 3 && !soloditAvailable; i++) {
+      await Bun.sleep(1000)
+    }
+    if (!soloditAvailable) {
+      return {
+        results: [],
+        totalFound: 0,
+        query,
+        error: "Solodit MCP not available — server did not start. Results limited to local patterns.",
+      }
+    }
+  }
 
   const mcpCaller = callMcpTool ?? (hasMcpCapability(context) ? context.callMcpTool : undefined)
 
