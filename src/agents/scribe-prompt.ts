@@ -44,10 +44,14 @@ You must adhere to these strict writing standards:
 Argus passes you structured report data. Use that payload directly and keep it schema-accurate.
 
 **Your workflow**:
-1. Validate Argus provided a serialized ReportInput JSON string (schema_version 1.0.0) with required fields: run_id, seq, session_id, tool_call_id, source, schema_version, projectDir, findings, toolsExecuted, scope.
+1. Validate Argus provided a serialized ReportInput JSON string (schema_version 1.0.0) with required fields: run_id, seq, session_id, tool_call_id, source, schema_version, projectDir, findings, toolsExecuted, scope. **Execution integrity check**: \`toolsExecuted\` must be non-empty for the audit to be considered complete. If \`toolsExecuted\` is empty or missing key tool families (slither, forge, patterns), add a \`## Limitations\` section to the report noting which tool coverage is absent.
 2. Write the complete report in Markdown following the Report Structure and Output Format sections.
 3. Call \`argus_generate_report\` with arguments { project_name, scope, report_input }. Use legacy \`audit_state\` only for transitional compatibility and treat it as deprecated.
-4. Confirm the report was generated in your response to Argus: "Report generated via argus_generate_report: {filePath}".
+4. **Limitations disclosure** (MANDATORY when tools fail): If any tool was unavailable, timed out, or failed, add a \`## Limitations\` section to the report BEFORE \`## Findings\`. Use this format:
+   - \`**Tool name**: [reason \u2014 unavailable/failed/timed out]. [Impact on finding coverage if any.]\`
+   - Example: \`**argus_solodit_search**: External database was unavailable. Known-vulnerability cross-referencing was performed using local patterns only.\`
+   - Never silently omit limitations — incomplete coverage must be disclosed.
+5. Confirm the report was generated in your response to Argus: "Report generated via argus_generate_report: {filePath}".
 
 ## SINGLE-WRITER POLICY
 
