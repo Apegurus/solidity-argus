@@ -83,7 +83,6 @@ function buildReportMetadataComment(runId: string): string {
   const metadata = {
     run_id: runId,
     policy_version: SINGLE_WRITER_POLICY_VERSION,
-    generated_at: new Date().toISOString(),
   }
   return `<!-- argus:report_metadata ${JSON.stringify(metadata)} -->`
 }
@@ -407,13 +406,13 @@ function buildLegacyCompatibleReportInput(
     "audit_state",
   )
 
-  const runId = state.sessionId || `legacy-run-${Date.now()}`
-  const sessionId = state.sessionId || runId
+  const runId = state.sessionId || context.sessionID || "legacy-run"
+  const sessionId = state.sessionId || context.sessionID || runId
 
   if (!state.sessionId) {
     diagnostics.warn(
       "REPORT_INPUT_SYNTHESIZED_SESSION",
-      "Legacy payload missing sessionId; synthesized session_id from generated run_id.",
+      "Legacy payload missing sessionId; synthesized session_id from tool context/run_id.",
       "session_id",
     )
   }
