@@ -12,6 +12,14 @@ const TOOL_SHORT_NAMES: Record<string, string> = {
 }
 const KEY_TOOLS = ["slither", "forge-test", "patterns", "solodit", "analyzer"]
 
+
+/** Maps unavailable-tool short names to their KEY_TOOLS counterpart */
+const UNAVAILABLE_TO_KEY_TOOL: Record<string, string> = {
+  slither: "slither",
+  forge: "forge-test",
+  solodit: "solodit",
+}
+
 export interface SystemPromptHookDeps {
   getAuditState: () => AuditState | null
   getAgentForSession: (sessionID: string) => string | undefined
@@ -69,8 +77,19 @@ export function buildDynamicContext(
     (t) => `${t}=${executedToolNames.has(t) ? "done" : "pending"}`,
   ).join(" ")
   const unavailable = auditState.unavailableTools ?? []
+  const excusedTools = new Set(
+    unavailable.map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean),
+  )
+  const pendingKeyTools = KEY_TOOLS.filter(
+    (t) => !executedToolNames.has(t) && !excusedTools.has(t),
+  )
+  const gateStatus =
+    pendingKeyTools.length > 0
+      ? `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
+      : "REPORTING GATE: ALLOWED"
   const lines: string[] = [
     `<argus-context agent="${agent}">`,
+    gateStatus,
     `Phase: ${auditState.currentPhase}`,
     `Contracts: ${auditState.contractsReviewed.length} reviewed`,
     `Findings: Critical=${severityCounts.Critical} High=${severityCounts.High} Medium=${severityCounts.Medium} Low=${severityCounts.Low} Info=${severityCounts.Informational}`,
@@ -91,6 +110,7 @@ export function buildDynamicContext(
     const doneCount = KEY_TOOLS.filter((t) => executedToolNames.has(t)).length
     summary = [
       `<argus-context agent="${agent}">`,
+      gateStatus,
       `Phase: ${auditState.currentPhase} | Findings: ${auditState.findings.length} | Contracts: ${auditState.contractsReviewed.length} | Tasks: ${doneCount}/${KEY_TOOLS.length} done`,
       "</argus-context>",
     ].join("\n")
