@@ -164,3 +164,16 @@ test("uses current date when date not provided", () => {
   const matchedDate = result.filename.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? ""
   expect([todayStr, tomorrowStr]).toContain(matchedDate)
 })
+
+
+test("formatReportDate uses UTC date regardless of local timezone (timezone boundary)", () => {
+  // A Date at UTC midnight: local time in UTC-N timezones would show the previous day
+  const utcMidnight = new Date("2024-01-15T00:00:00Z")
+  expect(formatReportDate(utcMidnight)).toBe("2024-01-15")
+})
+
+test("formatReportDate UTC midnight end-of-year boundary", () => {
+  // 2023-12-31T00:00:00Z — local UTC-5 would see 2023-12-30
+  const utcMidnightNewYear = new Date("2023-12-31T00:00:00Z")
+  expect(formatReportDate(utcMidnightNewYear)).toBe("2023-12-31")
+})

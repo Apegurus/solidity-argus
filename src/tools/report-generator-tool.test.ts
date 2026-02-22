@@ -1045,3 +1045,28 @@ test("preflight strict-fail throws when event read fails", async () => {
     ),
   ).rejects.toThrow("unable to read event stream")
 })
+
+
+test("filename date matches body audit date (parity)", async () => {
+  // The date in the report body ("Audit date: YYYY-MM-DD") must match the date in the filename
+  const result = await executeReportGeneration(
+    {
+      project_name: "ParityProject",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify({ findings: [] }),
+    },
+    createContext(),
+  )
+
+  // Extract date from filename: ParityProject-security-audit-YYYY-MM-DD.md
+  const filenameMatch = result.filename.match(/-(\d{4}-\d{2}-\d{2})\.md$/)
+  expect(filenameMatch).not.toBeNull()
+  const filenameDate = filenameMatch![1]
+
+  // Extract date from report body: "Audit date: YYYY-MM-DD"
+  const bodyMatch = result.report.match(/Audit date: (\d{4}-\d{2}-\d{2})/)
+  expect(bodyMatch).not.toBeNull()
+  const bodyDate = bodyMatch![1]
+
+  expect(filenameDate).toBe(bodyDate)
+})
