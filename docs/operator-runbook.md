@@ -440,7 +440,93 @@ cat .opencode/runs/$(ls -t .opencode/runs/ | head -1)/events.jsonl | grep "parit
 
 ---
 
-## 9. CI Gates Reference
+## 9. Background vs Foreground Delegation
+
+This section covers when to use background (async) vs foreground (sync) subagent delegation, how to recognize degraded `background_output` retrieval, and how to recover.
+
+### 9.1 Decision Table: Background vs Foreground
+
+Use this table to determine the correct execution mode for each audit situation.
+
+| Audit Situation | Execution Mode | Rationale |
+|-----------------|---------------|-----------|
+| Independent tool scans (Slither + pattern check) | **Background** | No data dependency; parallel execution saves wall-clock time |
+| Solodit research concurrent with static analysis | **Background** | Independent knowledge retrieval; safe to parallelize |
+| Synthesis of findings from multiple tools | **Foreground** | Requires reading durable state from prior tool outputs |
+| Report generation via Scribe | **Foreground** | Depends on complete findings and `toolsExecuted` state |
+| Re-dispatch for missing evidence segments | **Foreground** | Must confirm retrieval before proceeding; re-dispatch is foreground-only |
+| Single-tool quick checks (≤60s workload class) | **Background** | Low retrieval risk; quick turnaround |
+| Multi-agent deep audits (≤600s workload class) | **Background (bounded)** | Use bounded fan-out: max 2 concurrent high-context tasks; split into waves |
+
+**Bounded fan-out rule**: Never exceed 2 concurrent high-context background delegations. Split larger workloads into sequential waves to prevent retrieval blind spots.
+
+### 9.2 Workload Classes and Retrieval Budgets
+
+Each background delegation should be classified by expected duration:
+
+| Workload Class | Budget | Criteria | Retrieval Risk |
+|----------------|--------|----------|----------------|
+| **quick** | ≤60s | Single-tool or single-contract checks | Low |
+| **standard** | ≤180s | Multi-tool single-agent batches | Medium |
+| **deep** | ≤600s | Multi-agent or synthesis-heavy runs | High — apply bounded fan-out |
+
+Poll until the task reaches a terminal state: `completed`, `error`, `cancelled`, or `interrupt`.
+
+### 9.3 Recognized Symptoms of Degraded `background_output` Retrieval
+
+When background delegations complete but retrieval is degraded, operators may observe:
+
+| Symptom | Description | Likely Cause |
+|---------|-------------|-------------|
+| Empty transcript | `background_output` returns no messages despite task completing | Retrieval timeout; transcript evicted before read |
+| Missing terminal status | Task appears stuck without `completed`/`error` state | Background task crashed or exceeded budget |
+| Partial tool results | Some `toolsExecuted` entries present but others missing | Concurrent fan-out exceeded retrieval capacity |
+| Stale or incomplete findings | Findings count lower than expected for the scope | Background task produced results but transcript was truncated |
+| Orphaned tool starts | `toolsExecuted` shows start but no end time | Task interrupted mid-execution |
+
+### 9.4 Recovery Steps: Foreground Re-dispatch
+
+When degraded retrieval is confirmed, follow these steps:
+
+1. **Check durable state first**: Before re-dispatching, verify whether durable evidence already exists in `toolsExecuted` records, `findings` state, and the event stream (`events.jsonl`). If durable state is complete, no re-dispatch is needed — proceed to synthesis.
+
+2. **Identify specific gaps**: Determine exactly which tool outputs or evidence segments are missing. Do not re-dispatch everything — target only the missing segments.
+
+3. **Re-dispatch in foreground only**: Use `run_in_background=false` for all recovery dispatches. This ensures results are retrieved synchronously and avoids compounding retrieval failures.
+   ```
+   Task(subagent_type="sentinel", run_in_background=false,
+     prompt="Re-run argus_check_patterns on src/Vault.sol — prior background run did not produce durable pattern results.")
+   ```
+
+4. **Verify evidence after re-dispatch**: Confirm that `toolsExecuted` now contains the missing entries and that finding counts match expectations before proceeding to synthesis or reporting.
+
+5. **Do not retry indefinitely**: Re-dispatch is a **last resort**. If a foreground re-dispatch also fails, note the gap in the report Limitations section (see 9.5) and proceed with available evidence.
+
+### 9.5 Limitation Disclosure Policy
+
+When background retrieval degrades and re-dispatch cannot fully recover, the operator must ensure the final report discloses the gap:
+
+- Scribe's `## Limitations` section must list any tool that was unavailable, timed out, or produced incomplete results.
+- Use the format: `**Tool name**: [reason]. [Impact on finding coverage.]`
+- Example: `**argus_forge_fuzz**: Background retrieval returned empty transcript; foreground re-dispatch timed out. Fuzz testing coverage is absent for mathematical functions.`
+- Never silently omit limitations — incomplete coverage must always be disclosed per Scribe's contract.
+
+### 9.6 Operator Checklist: Background Retrieval Incident
+
+Use this checklist when a background retrieval incident occurs during an audit:
+
+- [ ] Confirm the background task reached terminal state (`completed`, `error`, `cancelled`, `interrupt`)
+- [ ] Check durable state: are `toolsExecuted` records and findings present despite empty transcript?
+- [ ] If durable state is complete: proceed to synthesis (no re-dispatch needed)
+- [ ] If durable state has gaps: identify specific missing evidence segments
+- [ ] Re-dispatch missing segments in foreground (`run_in_background=false`)
+- [ ] Verify re-dispatched results appear in durable state
+- [ ] If re-dispatch fails: document gap in report Limitations section
+- [ ] Confirm bounded fan-out was respected (max 2 concurrent background tasks)
+
+---
+
+## 10. CI Gates Reference
 
 | CI Job | Command | What It Enforces |
 |--------|---------|-----------------|
