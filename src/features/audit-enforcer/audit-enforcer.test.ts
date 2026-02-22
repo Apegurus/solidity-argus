@@ -67,4 +67,41 @@ describe("createAuditEnforcer", () => {
     expect(result).toContain("1 findings")
     expect(result).toContain("1 contracts")
   })
+
+  it("emits missing-tool reminder when in reporting phase with no tools executed", () => {
+    const enforcer = createAuditEnforcer()
+    const state = makeMockState("reporting")
+    const result = enforcer(state)
+
+    expect(result).toContain("Tool coverage incomplete")
+    expect(result).toContain("slither")
+    expect(result).toContain("forge_test")
+    expect(result).toContain("forge_fuzz")
+    expect(result).toContain("forge_coverage")
+    expect(result).toContain("Do not proceed to report generation")
+  })
+
+  it("stays silent on missing-tool reminder when all key tools have been executed", () => {
+    const enforcer = createAuditEnforcer()
+    const state: AuditState = {
+      ...makeMockState("complete"),
+      toolsExecuted: [
+        { tool: "argus_slither_analyze", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_forge_test", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_forge_fuzz", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_forge_coverage", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+      ],
+    }
+    const result = enforcer(state)
+
+    expect(result).toBeNull()
+  })
+
+  it("emits missing-tool reminder only for reporting/complete phases, not earlier phases", () => {
+    const enforcer = createAuditEnforcer()
+    const state = makeMockState("scanning")
+    const result = enforcer(state)
+
+    expect(result).not.toContain("Tool coverage incomplete")
+  })
 })
