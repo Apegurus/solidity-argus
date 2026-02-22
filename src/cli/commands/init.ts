@@ -20,7 +20,7 @@ export const initCommand: CliCommand = {
   description: "Initialize Argus configuration for this project",
   async execute(_args: string[]): Promise<number> {
     const cwd = process.cwd()
-    const configDir = join(cwd, ".opencode")
+    const configDir = join(cwd, ".argus")
     const configPath = join(configDir, "solidity-argus.json")
 
     if (existsSync(configPath)) {

@@ -217,7 +217,7 @@ describe("createHooks", () => {
       event: { type: "session.created", sessionId: "oc-parent" },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
-    const eventsPath = join(FIXTURE_DIR, ".opencode", "runs", runId, "events.jsonl")
+    const eventsPath = join(FIXTURE_DIR, ".argus", "runs", runId, "events.jsonl")
     const existing = await Bun.file(eventsPath).text()
     const orphanToolStarted = {
       type: "tool.started",

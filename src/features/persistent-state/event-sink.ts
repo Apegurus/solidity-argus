@@ -1,5 +1,9 @@
 import { mkdir, rename } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import {
+  type ArgusRootResolver,
+  defaultRootResolver,
+} from "../../shared/path-root-resolver"
 import type { AuditEvent, AuditEventType } from "../../state/schemas"
 
 export type EventSinkErrorCode = "SEQUENCE_CONFLICT" | "INVALID_EVENT" | "IO_ERROR"
@@ -52,8 +56,8 @@ function createMutex() {
   }
 }
 
-function buildJournalPath(runId: string, projectDir: string): string {
-  return join(projectDir, ".opencode", "runs", runId, "events.jsonl")
+function buildJournalPath(runId: string, projectDir: string, resolver: ArgusRootResolver): string {
+  return join(resolver.writeRoot(projectDir), "runs", runId, "events.jsonl")
 }
 
 async function readRawContent(path: string): Promise<string> {
@@ -85,8 +89,8 @@ function parseJournalLines(content: string): AuditEvent[] {
 /**
  * Replay-safe stateless read — returns all events for a run sorted by seq.
  */
-export async function readEvents(runId: string, projectDir: string): Promise<AuditEvent[]> {
-  const journalPath = buildJournalPath(runId, projectDir)
+export async function readEvents(runId: string, projectDir: string, resolver: ArgusRootResolver = defaultRootResolver): Promise<AuditEvent[]> {
+  const journalPath = buildJournalPath(runId, projectDir, resolver)
   const content = await readRawContent(journalPath)
   return parseJournalLines(content)
 }
@@ -95,8 +99,8 @@ export async function readEvents(runId: string, projectDir: string): Promise<Aud
  * Append-only event sink with monotonic seq allocation, in-process mutex,
  * and atomic temp-file-then-rename writes. Restart-safe via journal replay.
  */
-export function createEventSink(runId: string, projectDir: string): EventSink {
-  const journalPath = buildJournalPath(runId, projectDir)
+export function createEventSink(runId: string, projectDir: string, resolver: ArgusRootResolver = defaultRootResolver): EventSink {
+  const journalPath = buildJournalPath(runId, projectDir, resolver)
   const mutex = createMutex()
   let lastSeq = 0
   let initialized = false

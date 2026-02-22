@@ -1,10 +1,13 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import {
+  type ArgusRootResolver,
+  defaultRootResolver,
+} from "../../shared/path-root-resolver"
 import { createLogger } from "../../shared/logger"
 
 const logger = createLogger()
 
-const JOURNAL_DIR = ".opencode"
 const JOURNAL_FILE = "argus-journal.jsonl"
 
 export type JournalEvent =
@@ -35,12 +38,15 @@ export type JournalEvent =
       findingsCount: number
     }
 
-export function createRunJournal(projectDir: string): {
+export function createRunJournal(
+  projectDir: string,
+  resolver: ArgusRootResolver = defaultRootResolver,
+): {
   log(event: JournalEvent): void
   close(): Promise<void>
   getPath(): string
 } {
-  const journalPath = join(projectDir, JOURNAL_DIR, JOURNAL_FILE)
+  const journalPath = join(resolver.writeRoot(projectDir), JOURNAL_FILE)
   let ensureDirPromise: Promise<void> | null = null
   const pendingWrites = new Set<Promise<void>>()
 

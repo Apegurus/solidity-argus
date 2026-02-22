@@ -5,7 +5,8 @@ import { join } from "node:path"
 import type { AuditState, Finding } from "../../state/types"
 import { createAuditStateManager } from "./audit-state-manager"
 
-const STATE_DIR = ".opencode"
+const WRITE_DIR = ".argus"
+const LEGACY_DIR = ".opencode"
 const STATE_FILE = "argus-state.json"
 
 describe("createAuditStateManager", () => {
@@ -28,6 +29,7 @@ describe("createAuditStateManager", () => {
     projectDir: string,
     version: "1" | "2",
     statePatch: Partial<AuditState> = {},
+    stateDir = WRITE_DIR,
   ): Record<string, unknown> {
     const baseState: AuditState = {
       sessionId: "session-1",
@@ -45,7 +47,7 @@ describe("createAuditStateManager", () => {
       ...baseState,
       savedAt: 123,
       version,
-      filePath: join(projectDir, STATE_DIR, STATE_FILE),
+      filePath: join(projectDir, stateDir, STATE_FILE),
     }
   }
 
@@ -153,6 +155,54 @@ describe("createAuditStateManager", () => {
     expect(state.fuzzCounterexamples?.[0]?.testName).toBe("testFuzz_withdraw")
   })
 
+  test("state file path uses .argus root", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    expect(state).not.toBeNull()
+    if (!state) return
+    await manager.save(state)
+
+    const argusStatePath = join(projectDir, WRITE_DIR, STATE_FILE)
+    expect(existsSync(argusStatePath)).toBe(true)
+
+    const legacyStatePath = join(projectDir, LEGACY_DIR, STATE_FILE)
+    expect(existsSync(legacyStatePath)).toBe(false)
+  })
+
+  test("save writes source_of_truth provenance field", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    expect(state).not.toBeNull()
+    if (!state) return
+    await manager.save(state)
+
+    const statePath = join(projectDir, WRITE_DIR, STATE_FILE)
+    const raw = readFileSync(statePath, "utf8")
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+
+    expect(parsed.source_of_truth).toBe("events")
+  })
+
+  test("loads state from legacy .opencode fallback", async () => {
+    const projectDir = makeTempDir()
+    const legacyDir = join(projectDir, LEGACY_DIR)
+    const legacyPath = join(legacyDir, STATE_FILE)
+
+    mkdirSync(legacyDir, { recursive: true })
+    writeFileSync(
+      legacyPath,
+      `${JSON.stringify(buildPersistentState(projectDir, "2", { currentPhase: "testing" }, LEGACY_DIR))}\n`,
+    )
+
+    const manager = createAuditStateManager(projectDir)
+    const loaded = await manager.load()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded?.currentPhase).toBe("testing")
+  })
+
   test("saves and loads state round-trip", async () => {
     const projectDir = makeTempDir()
     const manager = createAuditStateManager(projectDir)
@@ -189,7 +239,7 @@ describe("createAuditStateManager", () => {
 
     await manager.save(state)
 
-    const statePath = join(projectDir, STATE_DIR, STATE_FILE)
+    const statePath = join(projectDir, WRITE_DIR, STATE_FILE)
     const tmpPath = `${statePath}.tmp`
 
     expect(existsSync(statePath)).toBe(true)
@@ -206,7 +256,7 @@ describe("createAuditStateManager", () => {
 
   test("returns null when loading invalid state file", async () => {
     const projectDir = makeTempDir()
-    const stateDir = join(projectDir, STATE_DIR)
+    const stateDir = join(projectDir, WRITE_DIR)
     const statePath = join(stateDir, STATE_FILE)
 
     mkdirSync(stateDir, { recursive: true })
@@ -265,7 +315,7 @@ describe("createAuditStateManager", () => {
 
     await manager.save(state)
 
-    const statePath = join(projectDir, STATE_DIR, STATE_FILE)
+    const statePath = join(projectDir, WRITE_DIR, STATE_FILE)
     const raw = readFileSync(statePath, "utf8")
     const parsed = JSON.parse(raw) as Record<string, unknown>
 
@@ -276,7 +326,7 @@ describe("createAuditStateManager", () => {
 
   test("v1 state migrates by adding empty arrays for new fields", async () => {
     const projectDir = makeTempDir()
-    const stateDir = join(projectDir, STATE_DIR)
+    const stateDir = join(projectDir, WRITE_DIR)
     const statePath = join(stateDir, STATE_FILE)
 
     mkdirSync(stateDir, { recursive: true })
@@ -292,7 +342,7 @@ describe("createAuditStateManager", () => {
 
   test("v2 state loads and preserves new fields", async () => {
     const projectDir = makeTempDir()
-    const stateDir = join(projectDir, STATE_DIR)
+    const stateDir = join(projectDir, WRITE_DIR)
     const statePath = join(stateDir, STATE_FILE)
 
     mkdirSync(stateDir, { recursive: true })
@@ -339,7 +389,7 @@ describe("createAuditStateManager", () => {
 
   test("isPersistentAuditState path accepts v1 state", async () => {
     const projectDir = makeTempDir()
-    const stateDir = join(projectDir, STATE_DIR)
+    const stateDir = join(projectDir, WRITE_DIR)
     const statePath = join(stateDir, STATE_FILE)
 
     mkdirSync(stateDir, { recursive: true })
@@ -353,7 +403,7 @@ describe("createAuditStateManager", () => {
 
   test("isPersistentAuditState path accepts v2 state", async () => {
     const projectDir = makeTempDir()
-    const stateDir = join(projectDir, STATE_DIR)
+    const stateDir = join(projectDir, WRITE_DIR)
     const statePath = join(stateDir, STATE_FILE)
 
     mkdirSync(stateDir, { recursive: true })

@@ -168,4 +168,15 @@ describe("EventSink", () => {
     expect(events.map((e) => e.seq)).toEqual([1, 2, 3])
     expect(events.map((e) => e.type)).toEqual(["tool.started", "finding.added", "phase.changed"])
   })
+
+  test("event sink writes to .argus root by default", async () => {
+    const { existsSync } = await import("node:fs")
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "tool.started" }))
+
+    const expectedPath = join(projectDir, ".argus", "runs", RUN_ID, "events.jsonl")
+    expect(existsSync(expectedPath)).toBe(true)
+  })
 })

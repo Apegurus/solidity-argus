@@ -170,4 +170,69 @@ describe("loadArgusConfig", () => {
     expect(config.reporting.gasAnalysis).toBe(true)
     expect(config.agents).toBeDefined()
   })
+
+  it("loads config from .argus directory first", async () => {
+    const argusDir = join(tempDir, ".argus")
+    mkdirSync(argusDir, { recursive: true })
+    writeFileSync(
+      join(argusDir, "solidity-argus.json"),
+      JSON.stringify({
+        agents: {
+          argus: { model: "argus-model" },
+        },
+      }),
+    )
+
+    const { loadArgusConfig } = await import("./loader")
+    const config = loadArgusConfig(tempDir)
+
+    expect(config.agents.argus.model).toBe("argus-model")
+  })
+
+  it("falls back to .opencode when .argus config does not exist", async () => {
+    const opencodeDir = join(tempDir, ".opencode")
+    mkdirSync(opencodeDir, { recursive: true })
+    writeFileSync(
+      join(opencodeDir, "solidity-argus.json"),
+      JSON.stringify({
+        agents: {
+          argus: { model: "legacy-model" },
+        },
+      }),
+    )
+
+    const { loadArgusConfig } = await import("./loader")
+    const config = loadArgusConfig(tempDir)
+
+    expect(config.agents.argus.model).toBe("legacy-model")
+  })
+
+  it(".argus config takes precedence over .opencode config", async () => {
+    const argusDir = join(tempDir, ".argus")
+    mkdirSync(argusDir, { recursive: true })
+    writeFileSync(
+      join(argusDir, "solidity-argus.json"),
+      JSON.stringify({
+        agents: {
+          argus: { model: "new-model" },
+        },
+      }),
+    )
+
+    const opencodeDir = join(tempDir, ".opencode")
+    mkdirSync(opencodeDir, { recursive: true })
+    writeFileSync(
+      join(opencodeDir, "solidity-argus.json"),
+      JSON.stringify({
+        agents: {
+          argus: { model: "old-model" },
+        },
+      }),
+    )
+
+    const { loadArgusConfig } = await import("./loader")
+    const config = loadArgusConfig(tempDir)
+
+    expect(config.agents.argus.model).toBe("new-model")
+  })
 })

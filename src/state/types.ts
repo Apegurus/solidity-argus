@@ -110,4 +110,10 @@ export interface PersistentAuditState extends AuditState {
   savedAt: number
   version: string
   filePath: string
+  /** Whether this snapshot was projected from events or loaded from a prior snapshot */
+  source_of_truth?: "events" | "snapshot"
+  /** Sequence number of the last event included in this snapshot */
+  last_event_seq?: number
+  /** Hash of the event stream for staleness detection */
+  event_stream_hash?: string
 }

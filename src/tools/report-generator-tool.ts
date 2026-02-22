@@ -1159,7 +1159,7 @@ export async function executeReportGeneration(
     const loadConfig = deps.loadConfig ?? loadArgusConfig
     const projectDir = resolveProjectDir(context)
     const config = loadConfig(projectDir)
-    const outputDir = config.reporting?.output_dir ?? ".opencode/reports/"
+    const outputDir = config.reporting?.output_dir ?? ".argus/reports/"
     const fullPath = path.join(projectDir, outputDir, canonicalFilename)
 
     // Single-writer policy: check for duplicate writes with same run_id

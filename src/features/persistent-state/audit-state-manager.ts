@@ -2,10 +2,10 @@ import { mkdir, rename } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { AuditStateManager } from "../../managers/types"
 import { createLogger } from "../../shared/logger"
+import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 import { createAuditState } from "../../state/audit-state"
 import type { AuditState, PersistentAuditState } from "../../state/types"
 
-const STATE_FILE_DIR = ".opencode"
 const STATE_FILE_NAME = "argus-state.json"
 const STATE_VERSION = "2"
 
@@ -95,14 +95,21 @@ export function createDebouncedSave(
   }
 }
 
-export function createAuditStateManager(projectDir: string): AuditStateManager {
+export function createAuditStateManager(
+  projectDir: string,
+  resolver: ArgusRootResolver = defaultRootResolver,
+): AuditStateManager {
   const logger = createLogger()
-  const stateFilePath = join(projectDir, STATE_FILE_DIR, STATE_FILE_NAME)
+
+  const stateFilePath = join(resolver.writeRoot(projectDir), STATE_FILE_NAME)
   let currentState: AuditState = createAuditState(projectDir).state
 
   async function load(): Promise<AuditState | null> {
     try {
-      const file = Bun.file(stateFilePath)
+      const resolvedPath = resolver.resolveReadPath(projectDir, STATE_FILE_NAME)
+      const readPath = resolvedPath ?? stateFilePath
+
+      const file = Bun.file(readPath)
       if (!(await file.exists())) {
         return null
       }
@@ -114,11 +121,19 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
 
       const parsed: unknown = JSON.parse(content)
       if (!isPersistentAuditState(parsed)) {
-        logger.warn("Persistent audit state is invalid, ignoring", stateFilePath)
+        logger.warn("Persistent audit state is invalid, ignoring", readPath)
         return null
       }
 
-      const { savedAt: _savedAt, version, filePath: _filePath, ...state } = parsed
+      const {
+        savedAt: _savedAt,
+        version,
+        filePath: _filePath,
+        source_of_truth: _sourceOfTruth,
+        last_event_seq: snapshotSeq,
+        event_stream_hash: _eventStreamHash,
+        ...state
+      } = parsed
 
       if (version === "1") {
         if (!state.soloditResults) {
@@ -127,6 +142,11 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
         if (!state.fuzzCounterexamples) {
           state.fuzzCounterexamples = []
         }
+      }
+
+
+      if (snapshotSeq !== undefined) {
+        logger.debug(`Loaded snapshot with last_event_seq=${snapshotSeq} from ${readPath}`)
       }
 
       currentState = state
@@ -154,6 +174,7 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
           savedAt: Date.now(),
           version: STATE_VERSION,
           filePath: stateFilePath,
+          source_of_truth: "events",
         }
 
         const tempFilePath = `${stateFilePath}.${Date.now()}.tmp`
@@ -205,6 +226,7 @@ export function createAuditStateManager(projectDir: string): AuditStateManager {
           savedAt: Date.now(),
           version: STATE_VERSION,
           filePath: archivePath,
+          source_of_truth: "events",
         }
         await Bun.write(archivePath, `${JSON.stringify(persistentState, null, 2)}\n`)
       } catch {
