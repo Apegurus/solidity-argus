@@ -1,4 +1,3 @@
-import { join } from "node:path"
 import type { Hooks as PluginHooks } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
 import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
@@ -8,6 +7,8 @@ import {
   createToolErrorRecoveryHandler,
 } from "./features/error-recovery"
 import { getMigrationMode } from "./features/migration"
+import { adaptLegacyFindings } from "./features/migration/migration-adapter"
+import { computeParityMetrics, formatParityReport } from "./features/migration/parity-telemetry"
 import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
 import { createEventSink, type EventSink } from "./features/persistent-state/event-sink"
 import { recordRun } from "./features/persistent-state/global-run-index"
@@ -135,10 +136,10 @@ export function createHooks(args: {
 
         const effectiveState = recoveredState ?? auditStateManager.get()
         if (effectiveState) {
+          // createAuditArtifactResolver is the canonical source for all run artifact paths.
+          // The journal file path is: {projectDir}/.opencode/runs/{runId}/events.jsonl
+          const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
           try {
-            // createAuditArtifactResolver is the canonical source for all run artifact paths.
-            // The journal file path is: {projectDir}/.opencode/runs/{runId}/events.jsonl
-            const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
             const journalFile = resolver.paths().journalFile
             // createEventSink builds the same path internally; the resolver makes it explicit.
             currentEventSink = createEventSink(effectiveState.sessionId, projectDir)
@@ -149,13 +150,12 @@ export function createHooks(args: {
               `Failed to create event sink: ${error instanceof Error ? error.message : String(error)}`,
             )
           }
-
           void recordRun({
             runId: effectiveState.sessionId,
             opencodeSessionId: sessionId,
             projectDir: effectiveState.projectDir,
-            statePath: join(effectiveState.projectDir, ".opencode", "argus-state.json"),
-            journalPath: join(effectiveState.projectDir, ".opencode", "argus-journal.jsonl"),
+            statePath: resolver.paths().stateFile,
+            journalPath: resolver.paths().journalFile,
             startedAt: effectiveState.startTime,
             phase: effectiveState.currentPhase,
             findingsCount: effectiveState.findings.length,
@@ -188,17 +188,36 @@ export function createHooks(args: {
           toolsExecutedCount: auditState.toolsExecuted.length,
         })
 
+        const idleResolver = createAuditArtifactResolver(
+          auditState.sessionId,
+          auditState.projectDir,
+        )
         void recordRun({
           runId: auditState.sessionId,
           opencodeSessionId: sessionId,
           projectDir: auditState.projectDir,
-          statePath: join(auditState.projectDir, ".opencode", "argus-state.json"),
-          journalPath: join(auditState.projectDir, ".opencode", "argus-journal.jsonl"),
+          statePath: idleResolver.paths().stateFile,
+          journalPath: idleResolver.paths().journalFile,
           startedAt: auditState.startTime,
           phase: auditState.currentPhase,
           findingsCount: auditState.findings.length,
         })
 
+        if (migrationMode !== "legacy") {
+          try {
+            const { legacyFindings, canonicalFindings } = adaptLegacyFindings(
+              auditState,
+              migrationMode,
+              auditState.sessionId,
+            )
+            const parityMetrics = computeParityMetrics(legacyFindings, canonicalFindings)
+            logger.debug(formatParityReport(parityMetrics))
+          } catch (error) {
+            logger.warn(
+              `Migration parity check failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+        }
         return
       }
 
