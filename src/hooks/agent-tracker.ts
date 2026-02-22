@@ -11,6 +11,7 @@ export type AgentTracker = ReturnType<typeof createAgentTracker>
 
 export function createAgentTracker() {
   const sessions = new Map<string, string>()
+  const childSessions = new Map<string, Set<string>>()
 
   const trackSession = (sessionID: string, agent?: string): void => {
     if (!agent) {
@@ -48,6 +49,20 @@ export function createAgentTracker() {
 
     getTrackedSessions: (): Map<string, string> => {
       return sessions
+    },
+
+    trackChildSession: (parentSessionId: string, childSessionId: string): void => {
+      let children = childSessions.get(parentSessionId)
+      if (!children) {
+        children = new Set()
+        childSessions.set(parentSessionId, children)
+      }
+      children.add(childSessionId)
+    },
+
+    getChildSessions: (parentSessionId: string): string[] => {
+      const children = childSessions.get(parentSessionId)
+      return children ? Array.from(children) : []
     },
   }
 }

@@ -9,3 +9,17 @@ export {
 export { stripJsoncComments } from "./jsonc-parser"
 export { createLogger, type Logger, type LoggerConfig } from "./logger"
 export { findFoundryProjectDir, resolveProjectDir } from "./project-utils"
+export {
+  ArtifactResolverError,
+  type AuditArtifactPaths,
+  type AuditArtifactResolver,
+  createAuditArtifactResolver,
+} from "./audit-artifact-resolver"
+export {
+  ReportPathError,
+  type ReportPathOptions,
+  type ResolvedReportPath,
+  formatReportDate,
+  sanitizeContractName,
+  resolveReportPath,
+} from "./report-path-resolver"

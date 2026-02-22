@@ -164,3 +164,12 @@ process is healthy. But a `callMcpTool` caller may still work even when the flag
 - Legacy transition path emits deterministic deprecation diagnostics via `createDropDiagnosticsCollector("warn")` with explicit codes instead of silent coercion.
 - Argus and Scribe prompts are now aligned on the same machine-actionable handoff: pass serialized ReportInput JSON to `argus_generate_report` and treat `audit_state` as deprecated.
 - ReportInput now carries optional `patternVersion` and `skillsLoaded` so legacy and projected contexts preserve provenance appendix sections.
+
+## Task 16: Migration Adapters & Parity Telemetry
+
+- **Config schema additions must be optional**: Adding a required field to `ArgusConfigSchema` breaks all existing test files that construct `ArgusConfig` objects manually (without using `ArgusConfigSchema.parse()`). Use `.optional()` for new fields to avoid cascading type errors across the codebase.
+- **Zod `.default()` vs `.optional()`**: `.default()` makes the output type required (guarantees value after parsing), but forces all inline object constructions to include the field. `.optional()` keeps the output type flexible. For migration features, `.optional()` with runtime fallback (`config.migration?.mode ?? "legacy"`) is the safer pattern.
+- **`normalizeLegacyFindingsArray` bridges legacy→canonical**: The existing adapter in `src/state/adapters.ts` handles the heavy lifting of converting `Finding[]` to `CanonicalFinding[]`. Migration adapter wraps it with mode-specific behavior.
+- **`createDropDiagnosticsCollector("strict-fail")` throws via `throwIfStrict()`**: This is the correct pattern for strict mode rejection — collect all diagnostics first, then throw a single `DropDiagnosticsError` with all accumulated violations.
+- **`stableHash` for parity comparison**: Using `stableHash` from projectors.ts with projection of key fields (id, check, severity, file) gives deterministic content comparison between legacy and canonical findings.
+- **Pre-existing flaky test**: `tests/integration/report-quality-gates.test.ts` "identical input produces identical content hash across 5 runs" is flaky (timestamp-dependent). Not caused by migration changes.

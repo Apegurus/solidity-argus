@@ -43,6 +43,10 @@ const BackgroundConfigSchema = z.object({
   max_concurrent: z.number().positive().default(3),
 })
 
+const MigrationConfigSchema = z.object({
+  mode: z.enum(["legacy", "dual", "strict"]).default("legacy"),
+})
+
 export const ArgusConfigSchema = z.object({
   agents: z
     .object({
@@ -82,4 +86,5 @@ export const ArgusConfigSchema = z.object({
   background: BackgroundConfigSchema.default({
     max_concurrent: 3,
   }),
+  migration: MigrationConfigSchema.optional(),
 })

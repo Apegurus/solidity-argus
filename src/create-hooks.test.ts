@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test"
-import { resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
 import { createHooks } from "./create-hooks"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
+import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 
 const FIXTURE_DIR = resolve(import.meta.dir, "../tests/fixtures/vulnerable-vault")
@@ -177,5 +178,78 @@ describe("createHooks", () => {
 
     expect(savedStates).toHaveLength(1)
     expect(savedStates[0]?.sessionId).toBe("active")
+  })
+
+  it("archives even when finalization invariants fail", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const runId = `run-fail-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: runId })
+    let archiveCount = 0
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {
+          archiveCount += 1
+        },
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", sessionId: "oc-parent" },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const eventsPath = join(FIXTURE_DIR, ".opencode", "runs", runId, "events.jsonl")
+    const existing = await Bun.file(eventsPath).text()
+    const orphanToolStarted = {
+      type: "tool.started",
+      run_id: runId,
+      seq: 2,
+      session_id: "oc-parent",
+      tool_call_id: "tool-orphan",
+      source: "test",
+      schema_version: SCHEMA_VERSION,
+      timestamp: Date.now(),
+      payload: {
+        tool: "task",
+        correlation_id: "corr-1",
+        child_session_id: "child-1",
+      },
+    }
+    await Bun.write(eventsPath, `${existing}${JSON.stringify(orphanToolStarted)}\n`)
+
+    await hooks.event?.({
+      event: { type: "session.deleted", sessionId: "oc-parent" },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    expect(archiveCount).toBe(1)
+
+    const lines = (await Bun.file(eventsPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+    const finalizationEvent = [...lines].reverse().find((event) => event.type === "run.finalized")
+
+    expect(finalizationEvent).toBeDefined()
+    expect(finalizationEvent?.payload?.status).toBe("failed-finalization")
+    expect(finalizationEvent?.payload?.invariantsPassed).toBe(false)
   })
 })

@@ -245,33 +245,20 @@ export async function executeSoloditSearch(
 
   context.metadata({ title: `Solodit search: ${query}` })
 
-  // Belt-and-suspenders: check if Solodit MCP is available, with 3s retry
-  // Skip check in test environment
-  if (!soloditAvailable && process.env.NODE_ENV !== "test") {
-    // Wait up to 3s for monitoring to flip the flag
-    for (let i = 0; i < 3 && !soloditAvailable; i++) {
-      await Bun.sleep(1000)
-    }
-    if (!soloditAvailable) {
-      return {
-        results: [],
-        totalFound: 0,
-        query,
-        error:
-          "Solodit MCP not available — server did not start. Results limited to local patterns.",
-      }
-    }
-  }
-
   const mcpCaller = callMcpTool ?? (hasMcpCapability(context) ? context.callMcpTool : undefined)
 
+  // When MCP is unavailable or no caller exists, go straight to HTTP fallback
   if (!mcpCaller) {
+    const reason = !soloditAvailable ? "MCP unavailable" : "no callMcpTool"
+    logger.debug(`[solodit] ${reason} — using HTTP fallback for query: ${query}`)
     return callSoloditHttp(query, limit, args.severity, port)
   }
 
+  // MCP path: try each tool name in order, fall back to HTTP on any failure
   let hadMcpError = false
   for (const toolName of SOLODIT_MCP_TOOLS) {
     try {
+      logger.debug(`[solodit] Trying MCP tool '${toolName}' on server '${SOLODIT_MCP_SERVER}' for query: ${query}`)
       const response = await mcpCaller(
         SOLODIT_MCP_SERVER,
         toolName,
@@ -279,6 +266,7 @@ export async function executeSoloditSearch(
       )
 
       if (hasMcpError(response)) {
+        logger.debug(`[solodit] MCP tool '${toolName}' returned error envelope — trying next tool`)
         hadMcpError = true
         continue
       }
@@ -288,22 +276,21 @@ export async function executeSoloditSearch(
         args.severity,
       )
 
+      logger.debug(`[solodit] MCP tool '${toolName}' succeeded — found ${findings.length} findings`)
       return {
         results: findings.slice(0, limit),
         totalFound: findings.length,
         query,
       }
     } catch {
+      logger.debug(`[solodit] MCP tool '${toolName}' threw — trying next tool`)
       hadMcpError = true
     }
   }
 
-  const fallback = await callSoloditHttp(query, limit, args.severity, port)
-  if (fallback.error || hadMcpError) {
-    return fallback
-  }
-
-  return fallback
+  // All MCP tools failed — fall back to HTTP
+  logger.debug(`[solodit] All MCP tools failed (hadMcpError=${hadMcpError}) — falling back to HTTP for query: ${query}`)
+  return callSoloditHttp(query, limit, args.severity, port)
 }
 
 export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): ToolDefinition {

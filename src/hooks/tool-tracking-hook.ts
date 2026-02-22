@@ -1,6 +1,20 @@
+import { randomUUID } from "node:crypto"
+import type { EventSink } from "../features/persistent-state/event-sink"
+import type {
+  DropDiagnostic,
+  DropDiagnosticsCollector,
+  DropPolicy,
+} from "../shared/drop-diagnostics"
+import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
+import { createLogger } from "../shared/logger"
+import { normalizeToCanonicalFinding } from "../state/adapters"
 import type { FindingStore } from "../state/finding-store"
 import { createFindingStore } from "../state/finding-store"
+import type { AuditEvent } from "../state/schemas"
+import { SCHEMA_VERSION } from "../state/schemas"
 import type { AuditState, FindingSeverity, FuzzCounterexample, SoloditResult } from "../state/types"
+
+const logger = createLogger()
 
 type ToolHookInput = {
   tool: string
@@ -11,6 +25,13 @@ type ToolHookInput = {
 type ToolExecutionMetadata = {
   tool: string
   findingsCount: number
+}
+
+export type ToolTrackingOptions = {
+  getEventSink?: () => EventSink | null
+  getSessionId?: () => string
+  dropPolicy?: DropPolicy
+  onChildSessionDetected?: (parentSessionId: string, childSessionId: string) => void
 }
 
 const VALID_SEVERITIES: ReadonlySet<string> = new Set([
@@ -56,7 +77,90 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined
 }
 
-function processSlitherResult(parsed: Record<string, unknown>, store: FindingStore): number {
+async function emitToSink(sink: EventSink, event: AuditEvent): Promise<void> {
+  try {
+    await sink.append(event)
+  } catch (error) {
+    logger.error(
+      `Failed to emit ${event.type} event to sink: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+function buildEvent(
+  type: AuditEvent["type"],
+  runId: string,
+  sessionId: string,
+  toolCallId: string,
+  payload: unknown,
+): AuditEvent {
+  return {
+    type,
+    run_id: runId,
+    seq: 0,
+    session_id: sessionId,
+    tool_call_id: toolCallId,
+    source: "tool-tracking-hook",
+    schema_version: SCHEMA_VERSION,
+    timestamp: Date.now(),
+    payload,
+  }
+}
+
+/**
+ * Defensively parse a child session_id from a `task` tool result.
+ * The result may be JSON with a top-level or nested `session_id` field,
+ * or plain text with an embedded JSON fragment.
+ */
+function parseChildSessionId(result: string): string | null {
+  try {
+    const parsed = JSON.parse(result)
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      if (typeof parsed.session_id === "string" && parsed.session_id.length > 0) {
+        return parsed.session_id
+      }
+      if (
+        typeof parsed.result === "object" &&
+        parsed.result !== null &&
+        !Array.isArray(parsed.result) &&
+        typeof parsed.result.session_id === "string" &&
+        parsed.result.session_id.length > 0
+      ) {
+        return parsed.result.session_id
+      }
+    }
+  } catch {
+    const match = result.match(/"session_id"\s*:\s*"([^"]+)"/)
+    if (match?.[1]) {
+      return match[1]
+    }
+  }
+  return null
+}
+
+function identifyMissingFields(
+  finding: Record<string, unknown>,
+  requiredFields: readonly string[],
+): string[] {
+  const missing: string[] = []
+  for (const field of requiredFields) {
+    if (field === "lines") {
+      if (!toLines(finding.lines)) missing.push(field)
+    } else if (typeof finding[field] !== "string") {
+      missing.push(field)
+    }
+  }
+  return missing
+}
+
+const SLITHER_REQUIRED = ["check", "description", "file", "lines"] as const
+const PATTERN_REQUIRED = ["pattern", "description", "file", "lines"] as const
+
+function processSlitherResult(
+  parsed: Record<string, unknown>,
+  store: FindingStore,
+  diag: DropDiagnosticsCollector,
+): number {
   const findings = parsed.findings
   if (!Array.isArray(findings)) return 0
 
@@ -76,6 +180,12 @@ function processSlitherResult(parsed: Record<string, unknown>, store: FindingSto
       typeof file !== "string" ||
       !lines
     ) {
+      const missing = identifyMissingFields(finding, SLITHER_REQUIRED)
+      diag.error(
+        "MISSING_REQUIRED_FIELD",
+        `Slither finding skipped: missing ${missing.join(", ")}`,
+        missing[0],
+      )
       continue
     }
 
@@ -94,7 +204,11 @@ function processSlitherResult(parsed: Record<string, unknown>, store: FindingSto
   return count
 }
 
-function processPatternResult(parsed: Record<string, unknown>, store: FindingStore): number {
+function processPatternResult(
+  parsed: Record<string, unknown>,
+  store: FindingStore,
+  diag: DropDiagnosticsCollector,
+): number {
   const sources = parsed.sources
   if (!Array.isArray(sources)) return 0
 
@@ -121,6 +235,12 @@ function processPatternResult(parsed: Record<string, unknown>, store: FindingSto
         typeof file !== "string" ||
         !lines
       ) {
+        const missing = identifyMissingFields(match, PATTERN_REQUIRED)
+        diag.error(
+          "MISSING_REQUIRED_FIELD",
+          `Pattern finding skipped: missing ${missing.join(", ")}`,
+          missing[0],
+        )
         continue
       }
 
@@ -141,7 +261,6 @@ function processPatternResult(parsed: Record<string, unknown>, store: FindingSto
 }
 
 function processContractAnalyzerResult(parsed: Record<string, unknown>, state: AuditState): void {
-  // Handle direct ContractProfile format (actual tool output)
   if (typeof parsed.filePath === "string") {
     if (!state.contractsReviewed.includes(parsed.filePath)) {
       state.contractsReviewed.push(parsed.filePath)
@@ -149,7 +268,6 @@ function processContractAnalyzerResult(parsed: Record<string, unknown>, state: A
     return
   }
 
-  // Handle wrapped { contractProfile: { filePath } } format
   const profile = toRecord(parsed.contractProfile)
   if (profile && typeof profile.filePath === "string") {
     if (!state.contractsReviewed.includes(profile.filePath)) {
@@ -220,19 +338,6 @@ function processSoloditResult(parsed: Record<string, unknown>, state: AuditState
   })
 }
 
-/**
- * Records a tool execution in the audit state.
- *
- * Multiple entries per tool name are allowed — if the same tool runs multiple times
- * (e.g., argus_slither_analyze on different targets), each execution is recorded
- * with its own findingsCount.
- *
- * Timing limitation: startTime and endTime are both set to Date.now() because this
- * hook fires in the tool.execute.after phase, after execution has already completed.
- * We cannot capture the actual start time. This is a known limitation of the hook
- * architecture. For accurate timing, the hook would need to fire in tool.execute.before
- * and tool.execute.after phases separately.
- */
 function recordToolExecution(state: AuditState, toolName: string, findingsCount: number): void {
   const now = Date.now()
   state.toolsExecuted.push({
@@ -244,18 +349,18 @@ function recordToolExecution(state: AuditState, toolName: string, findingsCount:
   })
 }
 
-/**
- * Creates a tool tracking hook that intercepts argus_* tool results
- * and updates audit state with extracted findings.
- *
- * Non-argus tools are ignored. Malformed JSON results are silently skipped.
- * Findings are deduplicated via the FindingStore (by check+file+lines).
- */
+export type ToolTrackingHook = {
+  (input: ToolHookInput): Promise<void>
+  getLastDiagnostics(): DropDiagnostic[]
+}
+
 export function createToolTrackingHook(
   getAuditState: () => AuditState | null,
   onStateChanged?: (metadata: ToolExecutionMetadata) => void,
-): (input: ToolHookInput) => Promise<void> {
+  options?: ToolTrackingOptions,
+): ToolTrackingHook {
   const storesByState = new WeakMap<AuditState, FindingStore>()
+  let lastDiagnostics: DropDiagnostic[] = []
 
   function resolveStateAndStore(): { state: AuditState; store: FindingStore } | null {
     const state = getAuditState()
@@ -270,7 +375,52 @@ export function createToolTrackingHook(
     return { state, store }
   }
 
-  return async (input: ToolHookInput): Promise<void> => {
+  const hookFn = async (input: ToolHookInput): Promise<void> => {
+    // Handle task tool (subagent dispatch) before argus_ filter
+    if (input.tool === "task") {
+      const childSessionId = parseChildSessionId(input.result)
+      const correlationId = randomUUID()
+      const resolved = resolveStateAndStore()
+      const sink = options?.getEventSink?.()
+      const sessionId = options?.getSessionId?.() ?? ""
+      const toolCallId = randomUUID()
+
+      if (childSessionId) {
+        options?.onChildSessionDetected?.(sessionId, childSessionId)
+      }
+
+      if (sink && resolved) {
+        const runId = resolved.state.sessionId
+        await emitToSink(
+          sink,
+          buildEvent("tool.started", runId, sessionId, toolCallId, {
+            tool: "task",
+            args: input.args,
+            correlation_id: correlationId,
+            child_session_id: childSessionId ?? null,
+          }),
+        )
+
+        await emitToSink(
+          sink,
+          buildEvent("tool.completed", runId, sessionId, toolCallId, {
+            tool: "task",
+            findingsCount: 0,
+            success: true,
+            correlation_id: correlationId,
+            child_session_id: childSessionId ?? null,
+          }),
+        )
+      }
+
+      if (resolved) {
+        recordToolExecution(resolved.state, "task", 0)
+        onStateChanged?.({ tool: "task", findingsCount: 0 })
+      }
+
+      return
+    }
+
     if (!input.tool.startsWith("argus_")) {
       return
     }
@@ -279,10 +429,26 @@ export function createToolTrackingHook(
     if (!resolved) return
 
     const { state: auditState, store } = resolved
+    const sink = options?.getEventSink?.()
+    const runId = auditState.sessionId
+    const sessionId = options?.getSessionId?.() ?? ""
+    const toolCallId = randomUUID()
+    const policy = options?.dropPolicy ?? "warn"
+    const diag = createDropDiagnosticsCollector(policy, "tool-tracking-hook", input.tool)
 
-    // Handle argus_skill_load first — it returns markdown, not JSON
+    if (sink) {
+      await emitToSink(
+        sink,
+        buildEvent("tool.started", runId, sessionId, toolCallId, {
+          tool: input.tool,
+          args: input.args,
+        }),
+      )
+    }
+
+    const findingsCountBefore = auditState.findings.length
+
     if (input.tool === "argus_skill_load") {
-      // Extract skill name from markdown header: "## Argus Skill: {name} [Source: ...]"
       const nameMatch = input.result.match(/^##\s+Argus Skill:\s+(.+?)(?:\s+\[|$)/m)
       const skillName = nameMatch?.[1]?.trim()
       if (skillName) {
@@ -293,6 +459,19 @@ export function createToolTrackingHook(
       }
       recordToolExecution(auditState, input.tool, 0)
       onStateChanged?.({ tool: input.tool, findingsCount: 0 })
+
+      if (sink) {
+        await emitToSink(
+          sink,
+          buildEvent("tool.completed", runId, sessionId, toolCallId, {
+            tool: input.tool,
+            findingsCount: 0,
+            success: true,
+          }),
+        )
+      }
+
+      lastDiagnostics = diag.getDiagnostics()
       return
     }
 
@@ -300,20 +479,26 @@ export function createToolTrackingHook(
     try {
       parsed = JSON.parse(input.result)
     } catch {
-      return // non-JSON tool output — nothing to track
+      diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
+      lastDiagnostics = diag.getDiagnostics()
+      diag.throwIfStrict()
+      return
     }
 
     const record = toRecord(parsed)
-    if (!record) return
+    if (!record) {
+      lastDiagnostics = diag.getDiagnostics()
+      return
+    }
 
     let findingsCount = 0
 
     switch (input.tool) {
       case "argus_slither_analyze":
-        findingsCount = processSlitherResult(record, store)
+        findingsCount = processSlitherResult(record, store, diag)
         break
       case "argus_check_patterns":
-        findingsCount = processPatternResult(record, store)
+        findingsCount = processPatternResult(record, store, diag)
         break
       case "argus_analyze_contract":
         processContractAnalyzerResult(record, auditState)
@@ -386,7 +571,31 @@ export function createToolTrackingHook(
       }
     }
 
+    lastDiagnostics = diag.getDiagnostics()
+    diag.throwIfStrict()
+
     recordToolExecution(auditState, input.tool, findingsCount)
     onStateChanged?.({ tool: input.tool, findingsCount })
+
+    if (sink) {
+      const newFindings = auditState.findings.slice(findingsCountBefore)
+      for (const finding of newFindings) {
+        const { data: canonical } = normalizeToCanonicalFinding(finding, runId, 0)
+        await emitToSink(sink, buildEvent("finding.added", runId, sessionId, toolCallId, canonical))
+      }
+
+      await emitToSink(
+        sink,
+        buildEvent("tool.completed", runId, sessionId, toolCallId, {
+          tool: input.tool,
+          findingsCount,
+          success: true,
+        }),
+      )
+    }
   }
+
+  hookFn.getLastDiagnostics = (): DropDiagnostic[] => lastDiagnostics
+
+  return hookFn
 }

@@ -8,6 +8,7 @@ import {
   createToolErrorRecoveryHandler,
 } from "./features/error-recovery"
 import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
+import { createEventSink, type EventSink } from "./features/persistent-state/event-sink"
 import { recordRun } from "./features/persistent-state/global-run-index"
 import { createRunJournal } from "./features/persistent-state/run-journal"
 import { createAgentTracker } from "./hooks/agent-tracker"
@@ -88,15 +89,20 @@ export function createHooks(args: {
   )
   const outputTruncator = createToolOutputTruncator()
 
+  let currentEventSink: EventSink | null = null
+  let currentOpencodeSessionId = ""
+
   // Sub-handlers run sequentially. The state persistence handler MUST be first:
   // it loads persisted state on session.created, overriding the fresh default.
   const {
     hook: eventHook,
     getAuditState,
     setAuditState,
+    setEventSink,
   } = createEventHook(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {
+        currentOpencodeSessionId = sessionId ?? ""
         const timestamp = Date.now()
         let recoveredState: AuditState | null = null
 
@@ -123,6 +129,15 @@ export function createHooks(args: {
 
         const effectiveState = recoveredState ?? auditStateManager.get()
         if (effectiveState) {
+          try {
+            currentEventSink = createEventSink(effectiveState.sessionId, projectDir)
+            setEventSink(currentEventSink)
+          } catch (error) {
+            logger.error(
+              `Failed to create event sink: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+
           void recordRun({
             runId: effectiveState.sessionId,
             opencodeSessionId: sessionId,
@@ -180,16 +195,10 @@ export function createHooks(args: {
         if (auditState) {
           await auditStateManager.save(auditState)
         }
-        await auditStateManager.archive()
-
-        if (sessionId) {
-          agentTracker.clearSession(sessionId)
-        }
-
         runJournal.log({
-          type: "session.deleted",
+          type: "state.saved",
           timestamp: Date.now(),
-          archived: true,
+          success: true,
         })
       }
     },
@@ -253,25 +262,59 @@ export function createHooks(args: {
   const toolTrackingHook = isHookEnabled("tool-tracking")
     ? safeCreateHook(
         () =>
-          createToolTrackingHook(getAuditState, ({ tool, findingsCount }) => {
-            const currentState = getAuditState()
-            if (currentState) {
-              debouncedSave.save(currentState)
-            }
+          createToolTrackingHook(
+            getAuditState,
+            ({ tool, findingsCount }) => {
+              const currentState = getAuditState()
+              if (currentState) {
+                debouncedSave.save(currentState)
+              }
 
-            runJournal.log({
-              type: "tool.executed",
-              tool,
-              timestamp: Date.now(),
-              findingsCount,
-            })
-          }),
+              runJournal.log({
+                type: "tool.executed",
+                tool,
+                timestamp: Date.now(),
+                findingsCount,
+              })
+            },
+            {
+              getEventSink: () => currentEventSink,
+              getSessionId: () => currentOpencodeSessionId,
+            },
+          ),
         "tool-tracking",
       )
     : undefined
 
   const safeEventHook = isHookEnabled("event")
-    ? safeCreateHook(() => eventHook, "event")
+    ? safeCreateHook(
+        () => async (input: Parameters<typeof eventHook>[0]) => {
+          const isSessionDeleted = input.event.type === "session.deleted"
+
+          try {
+            await eventHook(input)
+          } finally {
+            if (isSessionDeleted) {
+              await auditStateManager.archive()
+
+              const deletedSessionId = input.event.sessionId
+              if (deletedSessionId) {
+                agentTracker.clearSession(deletedSessionId)
+              }
+
+              runJournal.log({
+                type: "session.deleted",
+                timestamp: Date.now(),
+                archived: true,
+              })
+
+              currentEventSink = null
+              currentOpencodeSessionId = ""
+            }
+          }
+        },
+        "event",
+      )
     : undefined
 
   return {

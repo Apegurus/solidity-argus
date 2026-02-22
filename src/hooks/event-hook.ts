@@ -1,5 +1,9 @@
+import type { EventSink } from "../features/persistent-state/event-sink"
+import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
 import { createAuditState } from "../state/audit-state"
+import type { AuditEvent } from "../state/schemas"
+import { SCHEMA_VERSION } from "../state/schemas"
 import type { AuditState } from "../state/types"
 
 export type AuditEventType =
@@ -29,17 +33,48 @@ export function createEventHook(
   hook: EventHookFn
   getAuditState: () => AuditState | null
   setAuditState: (state: AuditState | null) => void
+  setEventSink: (sink: EventSink | null) => void
 } {
   const logger = createLogger()
   let currentAuditState: AuditState | null = null
+  let eventSink: EventSink | null = null
 
   const getAuditState = (): AuditState | null => currentAuditState
   const setAuditState = (state: AuditState | null): void => {
     currentAuditState = state
   }
+  const setEventSink = (sink: EventSink | null): void => {
+    eventSink = sink
+  }
+
+  async function emitToSink(
+    type: AuditEvent["type"],
+    runId: string,
+    sessionId: string | undefined,
+    payload: unknown,
+  ): Promise<void> {
+    if (!eventSink) return
+    try {
+      await eventSink.append({
+        type,
+        run_id: runId,
+        seq: 0, // auto-assigned by sink
+        session_id: sessionId ?? "",
+        source: "event-hook",
+        schema_version: SCHEMA_VERSION,
+        timestamp: Date.now(),
+        payload,
+      })
+    } catch (error) {
+      logger.error(
+        `Failed to emit ${type} event to sink: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
 
   const hook: EventHookFn = async (input): Promise<void> => {
     const { type, sessionId } = input.event
+    let preDeleteState: AuditState | null = null
 
     switch (type) {
       case "session.created": {
@@ -73,6 +108,7 @@ export function createEventHook(
       }
 
       case "session.deleted": {
+        preDeleteState = currentAuditState
         currentAuditState = null
         break
       }
@@ -93,7 +129,54 @@ export function createEventHook(
         logger.error(`Sub-handler failed for event ${type}:`, error)
       }
     }
+
+    // Emit canonical events to sink (after sub-handlers, so sink may have been set during session.created)
+    switch (type) {
+      case "session.created": {
+        if (currentAuditState) {
+          await emitToSink("session.created", currentAuditState.sessionId, sessionId, {
+            projectDir: currentAuditState.projectDir,
+            sessionId: currentAuditState.sessionId,
+          })
+        }
+        break
+      }
+
+      case "session.idle": {
+        if (currentAuditState) {
+          await emitToSink("session.idle", currentAuditState.sessionId, sessionId, {
+            findingsCount: currentAuditState.findings.length,
+            toolsExecutedCount: currentAuditState.toolsExecuted.length,
+            phase: currentAuditState.currentPhase,
+          })
+        }
+        break
+      }
+
+      case "session.deleted": {
+        if (preDeleteState) {
+          await emitToSink("session.deleted", preDeleteState.sessionId, sessionId, {
+            archived: true,
+          })
+
+          if (eventSink) {
+            try {
+              await finalizeRun(preDeleteState.sessionId, preDeleteState.projectDir, eventSink)
+            } catch (error) {
+              logger.error(
+                `Failed to finalize run ${preDeleteState.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+              )
+            }
+          }
+        }
+        eventSink = null
+        break
+      }
+
+      default:
+        break
+    }
   }
 
-  return { hook, getAuditState, setAuditState }
+  return { hook, getAuditState, setAuditState, setEventSink }
 }

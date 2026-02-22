@@ -1,7 +1,36 @@
 import { beforeEach, describe, expect, test } from "bun:test"
+import type { EventSink } from "../features/persistent-state/event-sink"
+import { DropDiagnosticsError } from "../shared/drop-diagnostics"
 import { createAuditState } from "../state/audit-state"
+import type { AuditEvent } from "../state/schemas"
 import type { AuditState } from "../state/types"
 import { createToolTrackingHook } from "./tool-tracking-hook"
+
+function createMockSink(): EventSink & { events: AuditEvent[] } {
+  const events: AuditEvent[] = []
+  let seq = 0
+  return {
+    events,
+    async append(event: AuditEvent): Promise<void> {
+      seq++
+      events.push({ ...event, seq })
+    },
+    async readAll(): Promise<AuditEvent[]> {
+      return [...events]
+    },
+  }
+}
+
+function createFailingSink(): EventSink {
+  return {
+    async append(): Promise<void> {
+      throw new Error("Sink write failure")
+    },
+    async readAll(): Promise<AuditEvent[]> {
+      return []
+    },
+  }
+}
 
 describe("createToolTrackingHook", () => {
   let auditState: AuditState
@@ -158,7 +187,6 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
-    // Same check + file + lines → deduped by finding store
     expect(auditState.findings).toHaveLength(1)
     expect(auditState.findings.at(0)?.source).toBe("slither")
   })
@@ -252,7 +280,6 @@ describe("createToolTrackingHook", () => {
     })
 
     expect(auditState.findings).toHaveLength(0)
-    // Tool execution is still recorded
     expect(auditState.toolsExecuted).toHaveLength(1)
     expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_slither_analyze")
     expect(auditState.toolsExecuted.at(0)?.findingsCount).toBe(0)
@@ -279,7 +306,6 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(slitherResult),
     })
 
-    // Multiple executions of the same tool are recorded separately
     expect(auditState.toolsExecuted).toHaveLength(2)
     expect(auditState.toolsExecuted[0]?.tool).toBe("argus_slither_analyze")
     expect(auditState.toolsExecuted[1]?.tool).toBe("argus_slither_analyze")
@@ -550,7 +576,6 @@ describe("createToolTrackingHook", () => {
       expect(ce?.revertReason).toBe("Arithmetic overflow")
       expect(ce?.runs).toBe(128)
       expect(ce?.timestamp).toBeGreaterThan(0)
-      // Should NOT create findings
       expect(auditState.findings).toHaveLength(0)
     })
 
@@ -698,7 +723,6 @@ describe("createToolTrackingHook", () => {
         result: JSON.stringify(firstRun),
       })
 
-      // Reset toolsExecuted to allow second recording (dedup guard)
       auditState.toolsExecuted = []
 
       await hook({
@@ -910,7 +934,6 @@ Content...`
       expect(proxy0?.file).toBe("src/VaultProxy.sol")
       expect(proxy0?.proxyType).toBe("UUPS")
       expect(proxy0?.indicators).toEqual(["delegatecall", "ERC1967 storage slot"])
-      // Should NOT create findings
       expect(auditState.findings).toHaveLength(0)
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_proxy_detection")
@@ -981,6 +1004,370 @@ Content...`
 
       expect(auditState.gasHotspots).toBeDefined()
       expect(auditState.gasHotspots).toHaveLength(0)
+    })
+  })
+
+  describe("event sink emission", () => {
+    test("emits tool.started and tool.completed for argus tools", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+        getSessionId: () => "oc-session-1",
+      })
+
+      await hookWithSink({
+        tool: "argus_forge_test",
+        args: { target: "." },
+        result: JSON.stringify({
+          success: true,
+          summary: { passed: 5, failed: 0, skipped: 0, total: 5 },
+          tests: [],
+        }),
+      })
+
+      const started = sink.events.filter((e) => e.type === "tool.started")
+      const completed = sink.events.filter((e) => e.type === "tool.completed")
+
+      expect(started).toHaveLength(1)
+      expect(completed).toHaveLength(1)
+
+      expect(started[0]?.source).toBe("tool-tracking-hook")
+      expect(started[0]?.session_id).toBe("oc-session-1")
+      expect(started[0]?.run_id).toBe(auditState.sessionId)
+      const startPayload = started[0]?.payload as Record<string, unknown>
+      expect(startPayload.tool).toBe("argus_forge_test")
+
+      const completedPayload = completed[0]?.payload as Record<string, unknown>
+      expect(completedPayload.tool).toBe("argus_forge_test")
+      expect(completedPayload.findingsCount).toBe(0)
+      expect(completedPayload.success).toBe(true)
+
+      expect(started[0]?.tool_call_id).toBe(completed[0]?.tool_call_id)
+    })
+
+    test("emits finding.added for each new finding from slither", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      const slitherResult = {
+        findings: [
+          {
+            check: "reentrancy-eth",
+            severity: "High",
+            confidence: "High",
+            description: "Reentrancy",
+            file: "src/Vault.sol",
+            lines: [10, 20],
+            source: "slither",
+          },
+          {
+            check: "unchecked-transfer",
+            severity: "Medium",
+            confidence: "Medium",
+            description: "Unchecked transfer",
+            file: "src/Token.sol",
+            lines: [30, 35],
+            source: "slither",
+          },
+        ],
+      }
+
+      await hookWithSink({
+        tool: "argus_slither_analyze",
+        args: { target: "." },
+        result: JSON.stringify(slitherResult),
+      })
+
+      const findingEvents = sink.events.filter((e) => e.type === "finding.added")
+      expect(findingEvents).toHaveLength(2)
+
+      const f1 = findingEvents[0]?.payload as Record<string, unknown>
+      expect(f1.check).toBe("reentrancy-eth")
+      expect(f1.severity).toBe("High")
+      expect(f1.run_id).toBe(auditState.sessionId)
+
+      const f2 = findingEvents[1]?.payload as Record<string, unknown>
+      expect(f2.check).toBe("unchecked-transfer")
+    })
+
+    test("emits tool.started and tool.completed for skill_load", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_skill_load",
+        args: { name: "reentrancy" },
+        result: `## Argus Skill: reentrancy [Source: bundled]\n\nContent...`,
+      })
+
+      const started = sink.events.filter((e) => e.type === "tool.started")
+      const completed = sink.events.filter((e) => e.type === "tool.completed")
+
+      expect(started).toHaveLength(1)
+      expect(completed).toHaveLength(1)
+
+      const startPayload = started[0]?.payload as Record<string, unknown>
+      expect(startPayload.tool).toBe("argus_skill_load")
+    })
+
+    test("does not emit finding.added for deduplicated findings", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      const slitherResult = {
+        findings: [
+          {
+            check: "reentrancy-eth",
+            severity: "High",
+            confidence: "High",
+            description: "Reentrancy",
+            file: "src/Vault.sol",
+            lines: [10, 20],
+            source: "slither",
+          },
+        ],
+      }
+
+      await hookWithSink({
+        tool: "argus_slither_analyze",
+        args: { target: "." },
+        result: JSON.stringify(slitherResult),
+      })
+
+      const findingsBefore = sink.events.filter((e) => e.type === "finding.added").length
+      expect(findingsBefore).toBe(1)
+
+      const patternResult = {
+        sources: [
+          {
+            source: "pattern-db",
+            matches: [
+              {
+                pattern: "reentrancy-eth",
+                severity: "High",
+                file: "src/Vault.sol",
+                lines: [10, 20],
+                description: "Reentrancy from pattern",
+              },
+            ],
+          },
+        ],
+      }
+
+      await hookWithSink({
+        tool: "argus_check_patterns",
+        args: { target: "." },
+        result: JSON.stringify(patternResult),
+      })
+
+      const findingsAfter = sink.events.filter((e) => e.type === "finding.added").length
+      expect(findingsAfter).toBe(1)
+    })
+
+    test("does not emit to sink for non-argus tools", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "bash",
+        args: {},
+        result: "hello",
+      })
+
+      expect(sink.events).toHaveLength(0)
+    })
+
+    test("gracefully handles sink failure without crashing", async () => {
+      const failingSink = createFailingSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => failingSink,
+      })
+
+      await expect(
+        hookWithSink({
+          tool: "argus_forge_test",
+          args: { target: "." },
+          result: JSON.stringify({
+            success: true,
+            summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+            tests: [],
+          }),
+        }),
+      ).resolves.toBeUndefined()
+
+      expect(auditState.toolsExecuted).toHaveLength(1)
+    })
+
+    test("does not emit when no sink is provided", async () => {
+      const hookWithoutSink = createToolTrackingHook(() => auditState)
+
+      await hookWithoutSink({
+        tool: "argus_forge_test",
+        args: { target: "." },
+        result: JSON.stringify({
+          success: true,
+          summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+          tests: [],
+        }),
+      })
+
+      expect(auditState.toolsExecuted).toHaveLength(1)
+    })
+
+    test("tool_call_id is consistent between started and completed events", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_analyze_contract",
+        args: { file_path: "src/Vault.sol" },
+        result: JSON.stringify({ filePath: "src/Vault.sol", functions: [] }),
+      })
+
+      const started = sink.events.find((e) => e.type === "tool.started")
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+
+      expect(started?.tool_call_id).toBeDefined()
+      expect(started?.tool_call_id).toBe(completed?.tool_call_id)
+      expect(started?.tool_call_id?.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe("drop diagnostics", () => {
+    test("malformed JSON emits MALFORMED_JSON diagnostic", async () => {
+      const hookWithDiag = createToolTrackingHook(() => auditState)
+
+      await hookWithDiag({
+        tool: "argus_slither_analyze",
+        args: {},
+        result: "not json at all",
+      })
+
+      const diags = hookWithDiag.getLastDiagnostics()
+      expect(diags).toHaveLength(1)
+      expect(diags[0]?.type).toBe("drop")
+      expect(diags[0]?.source).toBe("tool-tracking-hook")
+      expect(diags[0]?.tool).toBe("argus_slither_analyze")
+      expect(diags[0]?.reason.code).toBe("MALFORMED_JSON")
+      expect(diags[0]?.reason.policy).toBe("warn")
+      expect(diags[0]?.timestamp).toBeGreaterThan(0)
+    })
+
+    test("missing required field emits MISSING_REQUIRED_FIELD diagnostic for slither", async () => {
+      const hookWithDiag = createToolTrackingHook(() => auditState)
+
+      const slitherResult = {
+        findings: [
+          { check: "reentrancy", description: "desc" },
+          { check: "overflow", description: "desc", file: "Vault.sol", lines: [1, 5] },
+        ],
+      }
+
+      await hookWithDiag({
+        tool: "argus_slither_analyze",
+        args: {},
+        result: JSON.stringify(slitherResult),
+      })
+
+      const diags = hookWithDiag.getLastDiagnostics()
+      expect(diags.length).toBeGreaterThanOrEqual(1)
+
+      const missingField = diags.find((d) => d.reason.code === "MISSING_REQUIRED_FIELD")
+      expect(missingField).toBeDefined()
+      expect(missingField?.reason.message).toContain("Slither finding skipped")
+      expect(missingField?.tool).toBe("argus_slither_analyze")
+
+      expect(auditState.findings).toHaveLength(1)
+    })
+
+    test("missing required field emits MISSING_REQUIRED_FIELD diagnostic for patterns", async () => {
+      const hookWithDiag = createToolTrackingHook(() => auditState)
+
+      const patternResult = {
+        sources: [
+          {
+            source: "pattern-db",
+            matches: [
+              { pattern: "reentrancy", description: "desc" },
+            ],
+          },
+        ],
+      }
+
+      await hookWithDiag({
+        tool: "argus_check_patterns",
+        args: {},
+        result: JSON.stringify(patternResult),
+      })
+
+      const diags = hookWithDiag.getLastDiagnostics()
+      expect(diags).toHaveLength(1)
+      expect(diags[0]?.reason.code).toBe("MISSING_REQUIRED_FIELD")
+      expect(diags[0]?.reason.message).toContain("Pattern finding skipped")
+    })
+
+    test("strict-fail mode throws on MALFORMED_JSON", async () => {
+      const hookStrict = createToolTrackingHook(() => auditState, undefined, {
+        dropPolicy: "strict-fail",
+      })
+
+      await expect(
+        hookStrict({
+          tool: "argus_slither_analyze",
+          args: {},
+          result: "not json",
+        }),
+      ).rejects.toThrow(DropDiagnosticsError)
+    })
+
+    test("strict-fail mode throws on MISSING_REQUIRED_FIELD", async () => {
+      const hookStrict = createToolTrackingHook(() => auditState, undefined, {
+        dropPolicy: "strict-fail",
+      })
+
+      const slitherResult = {
+        findings: [{ check: "reentrancy" }],
+      }
+
+      await expect(
+        hookStrict({
+          tool: "argus_slither_analyze",
+          args: {},
+          result: JSON.stringify(slitherResult),
+        }),
+      ).rejects.toThrow(DropDiagnosticsError)
+    })
+
+    test("warn mode does not throw on missing fields", async () => {
+      const hookWarn = createToolTrackingHook(() => auditState, undefined, {
+        dropPolicy: "warn",
+      })
+
+      const slitherResult = {
+        findings: [{ check: "reentrancy" }],
+      }
+
+      await expect(
+        hookWarn({
+          tool: "argus_slither_analyze",
+          args: {},
+          result: JSON.stringify(slitherResult),
+        }),
+      ).resolves.toBeUndefined()
+
+      const diags = hookWarn.getLastDiagnostics()
+      expect(diags).toHaveLength(1)
+      expect(diags[0]?.reason.code).toBe("MISSING_REQUIRED_FIELD")
     })
   })
 })

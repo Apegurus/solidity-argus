@@ -311,30 +311,80 @@ test("executeSoloditSearch omits severity filter when not provided", async () =>
   expect(capturedArgs[0]?.filters).toBeUndefined()
 })
 
-test("executeSoloditSearch returns availability error when Solodit is down outside test env", async () => {
+test("executeSoloditSearch still tries MCP when soloditAvailable=false (callMcpTool provided)", async () => {
   const { context } = createContext()
-  const originalNodeEnv = process.env.NODE_ENV
-  process.env.NODE_ENV = "development"
-  _resetSoloditState()
+  _resetSoloditState() // soloditAvailable = false
 
   let mcpCalled = false
   const mockMcp: CallMcpTool = async () => {
     mcpCalled = true
-    return []
+    return [{ title: "Found via MCP", severity: "High" }]
   }
 
-  try {
-    const result = await executeSoloditSearch({ query: "oracle" }, context, mockMcp)
+  const result = await executeSoloditSearch({ query: "oracle" }, context, mockMcp)
 
-    expect(result.results).toEqual([])
-    expect(result.totalFound).toBe(0)
-    expect(result.query).toBe("oracle")
-    expect(result.error).toBe(
-      "Solodit MCP not available — server did not start. Results limited to local patterns.",
+  // MCP should still be tried even when soloditAvailable=false
+  expect(mcpCalled).toBe(true)
+  expect(result.query).toBe("oracle")
+  expect(result.results).toHaveLength(1)
+  expect(result.results[0]?.title).toBe("Found via MCP")
+  expect(result.error).toBeUndefined()
+
+  _resetSoloditState()
+})
+
+test("executeSoloditSearch falls back to HTTP when soloditAvailable=false and no callMcpTool", async () => {
+  const { context } = createContext()
+  _resetSoloditState() // soloditAvailable = false
+
+  // No callMcpTool provided, no MCP capability on context
+  const result = await executeSoloditSearch({ query: "oracle" }, context)
+
+  // Should reach HTTP fallback (not return early with availability error)
+  expect(result.query).toBe("oracle")
+  expect(Array.isArray(result.results)).toBe(true)
+  expect(typeof result.totalFound).toBe("number")
+  // Error may be present (connection refused) but must NOT be the old availability message
+  if (result.error) {
+    expect(result.error).not.toBe(
+      "Solodit MCP not available \u2014 server did not start. Results limited to local patterns.",
     )
-    expect(mcpCalled).toBe(false)
-  } finally {
-    process.env.NODE_ENV = originalNodeEnv
-    _resetSoloditState()
   }
+
+  _resetSoloditState()
+})
+
+test("executeSoloditSearch falls back to HTTP when MCP returns error envelope", async () => {
+  const { context } = createContext()
+
+  // Both tool names return error envelopes
+  const mockMcp: CallMcpTool = async (_server, _tool, _args) => {
+    return { error: { code: -32601, message: "Method not found" } }
+  }
+
+  const result = await executeSoloditSearch({ query: "reentrancy" }, context, mockMcp)
+
+  // Should fall through to HTTP fallback after both MCP tools return errors
+  expect(result.query).toBe("reentrancy")
+  expect(Array.isArray(result.results)).toBe(true)
+  expect(typeof result.totalFound).toBe("number")
+})
+
+test("executeSoloditSearch falls back to HTTP when unknown MCP tool name throws", async () => {
+  const { context } = createContext()
+  const capturedTools: string[] = []
+
+  const mockMcp: CallMcpTool = async (_server, tool, _args) => {
+    capturedTools.push(tool)
+    throw new Error(`Unknown tool: ${tool}`)
+  }
+
+  const result = await executeSoloditSearch({ query: "flash loan" }, context, mockMcp)
+
+  // Both tool names should have been tried before falling back
+  expect(capturedTools).toContain("search")
+  expect(capturedTools).toContain("search_findings")
+  // HTTP fallback reached
+  expect(result.query).toBe("flash loan")
+  expect(Array.isArray(result.results)).toBe(true)
 })

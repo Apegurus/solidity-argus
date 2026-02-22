@@ -6,6 +6,15 @@ interface SoloditChildProcess {
   kill(signal?: number): void
   unref(): void
   readonly exited: Promise<number | null>
+  readonly pid?: number
+}
+
+export type LifecycleState = "starting" | "running" | "failed" | "stopped"
+
+export interface LifecycleStatus {
+  state: LifecycleState
+  error?: string
+  pid?: number
 }
 
 let soloditChild: SoloditChildProcess | null = null
@@ -14,6 +23,9 @@ let isRestarting = false
 
 /** Whether the Solodit MCP server is currently available for tool calls. */
 export let soloditAvailable = false
+
+let lifecycleState: LifecycleState = "stopped"
+let lifecycleError: string | undefined
 
 const DEFAULT_RESTART_SETTLE_MS = 2_000
 const DEFAULT_RETRY_BASE_DELAY_MS = 1_000
@@ -43,10 +55,37 @@ export function _setTestConfig(config: {
   if (config.spawnFn !== undefined) spawnFn = config.spawnFn
 }
 
+/** Returns the current lifecycle status of the Solodit MCP server. */
+export function getLifecycleStatus(): LifecycleStatus {
+  const status: LifecycleStatus = { state: lifecycleState }
+  if (lifecycleError) status.error = lifecycleError
+  if (soloditChild?.pid !== undefined) status.pid = soloditChild.pid
+  return status
+}
+
+function classifySpawnError(err: unknown, port: number): string {
+  const error = err instanceof Error ? err : new Error(String(err))
+  const code = (error as NodeJS.ErrnoException).code
+  if (code === "EADDRINUSE") {
+    return `Port ${port} already in use — cannot spawn Solodit MCP (EADDRINUSE)`
+  }
+  if (code === "ENOENT") {
+    return `Solodit MCP binary not found — ensure npx and @lyuboslavlyubenov/solodit-mcp are available (ENOENT)`
+  }
+  return `Failed to spawn Solodit MCP on port ${port}: ${error.message}`
+}
+
 function spawnSoloditChild(port: number): SoloditChildProcess {
-  const child = spawnFn(port)
-  child.unref()
-  return child
+  try {
+    const child = spawnFn(port)
+    child.unref()
+    return child
+  } catch (err) {
+    const message = classifySpawnError(err, port)
+    lifecycleState = "failed"
+    lifecycleError = message
+    throw new Error(message)
+  }
 }
 
 function trackChildExit(child: SoloditChildProcess): void {
@@ -64,6 +103,16 @@ function trackChildExit(child: SoloditChildProcess): void {
 async function restartSoloditMcp(port: number): Promise<boolean> {
   const logger = createLogger()
 
+  // Pre-check: if existing instance recovered, skip restart entirely
+  const preCheck = await checkSoloditHealth(port, true)
+  if (preCheck.reachable) {
+    soloditAvailable = true
+    lifecycleState = "running"
+    lifecycleError = undefined
+    logger.info("Solodit MCP already healthy — skipping restart")
+    return true
+  }
+
   if (soloditChild) {
     try {
       soloditChild.kill()
@@ -74,10 +123,16 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
   }
 
   try {
+    lifecycleState = "starting"
+    lifecycleError = undefined
     soloditChild = spawnSoloditChild(port)
     trackChildExit(soloditChild)
   } catch (err) {
-    logger.warn("Failed to spawn Solodit MCP:", err)
+    const message = err instanceof Error ? err.message : String(err)
+    logger.warn(`Solodit MCP spawn failed: ${message}`)
+    lifecycleState = "failed"
+    lifecycleError = message
+    soloditAvailable = false
     return false
   }
 
@@ -99,10 +154,14 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
 
   if (result.success) {
     soloditAvailable = true
+    lifecycleState = "running"
+    lifecycleError = undefined
     logger.info("Solodit MCP restarted successfully")
     return true
   }
 
+  lifecycleState = "failed"
+  lifecycleError = "Solodit MCP not reachable after restart attempts"
   logger.warn("Solodit MCP restart failed — will retry next cycle")
   return false
 }
@@ -115,6 +174,8 @@ export async function _runMonitoringCycle(port: number): Promise<void> {
     if (health.reachable) {
       if (!soloditAvailable) {
         soloditAvailable = true
+        lifecycleState = "running"
+        lifecycleError = undefined
         logger.info("Solodit MCP recovered — now available")
       }
     } else if (soloditAvailable) {
@@ -155,6 +216,8 @@ export function _resetSoloditState(): void {
   stopSoloditMonitoring()
   soloditAvailable = false
   isRestarting = false
+  lifecycleState = "stopped"
+  lifecycleError = undefined
   restartSettleMs = DEFAULT_RESTART_SETTLE_MS
   retryBaseDelayMs = DEFAULT_RETRY_BASE_DELAY_MS
   spawnFn = defaultSpawnFn
@@ -170,17 +233,30 @@ export function _resetSoloditState(): void {
 
 export async function startSoloditMcp(port: number): Promise<void> {
   const logger = createLogger()
+  lifecycleState = "starting"
+  lifecycleError = undefined
 
   const health = await checkSoloditHealth(port, true)
   if (health.reachable) {
     logger.debug(`Solodit MCP already running on port ${port} — skipping spawn`)
     soloditAvailable = true
+    lifecycleState = "running"
     startMonitoring(port)
     return
   }
 
-  soloditChild = spawnSoloditChild(port)
-  trackChildExit(soloditChild)
+  try {
+    soloditChild = spawnSoloditChild(port)
+    trackChildExit(soloditChild)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.warn(`Solodit MCP startup failed: ${message}`)
+    lifecycleState = "failed"
+    lifecycleError = message
+    soloditAvailable = false
+    startMonitoring(port)
+    return
+  }
 
   const deadline = AbortSignal.timeout(5000)
   const delays = [1000, 2000]
@@ -191,12 +267,15 @@ export async function startSoloditMcp(port: number): Promise<void> {
     const healthResult = await checkSoloditHealth(port, true)
     if (healthResult.reachable) {
       soloditAvailable = true
+      lifecycleState = "running"
       logger.debug(`Solodit MCP healthy on port ${port}`)
       break
     }
   }
   if (!soloditAvailable) {
-    logger.warn(`Solodit MCP not reachable after startup — monitoring will retry`)
+    lifecycleState = "failed"
+    lifecycleError = "Solodit MCP not reachable after startup — monitoring will retry"
+    logger.warn(lifecycleError)
   }
 
   startMonitoring(port)
