@@ -258,7 +258,9 @@ export async function executeSoloditSearch(
   let hadMcpError = false
   for (const toolName of SOLODIT_MCP_TOOLS) {
     try {
-      logger.debug(`[solodit] Trying MCP tool '${toolName}' on server '${SOLODIT_MCP_SERVER}' for query: ${query}`)
+      logger.debug(
+        `[solodit] Trying MCP tool '${toolName}' on server '${SOLODIT_MCP_SERVER}' for query: ${query}`,
+      )
       const response = await mcpCaller(
         SOLODIT_MCP_SERVER,
         toolName,
@@ -289,7 +291,9 @@ export async function executeSoloditSearch(
   }
 
   // All MCP tools failed — fall back to HTTP
-  logger.debug(`[solodit] All MCP tools failed (hadMcpError=${hadMcpError}) — falling back to HTTP for query: ${query}`)
+  logger.debug(
+    `[solodit] All MCP tools failed (hadMcpError=${hadMcpError}) — falling back to HTTP for query: ${query}`,
+  )
   return callSoloditHttp(query, limit, args.severity, port)
 }
 

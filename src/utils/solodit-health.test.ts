@@ -137,8 +137,8 @@ describe("checkSoloditHealth", () => {
 
     expect(capturedMethod).toBe("POST")
     expect(capturedHeaders["Content-Type"]).toBe("application/json")
-    expect(capturedHeaders["Accept"]).toContain("application/json")
-    expect(capturedHeaders["Accept"]).toContain("text/event-stream")
+    expect(capturedHeaders.Accept).toContain("application/json")
+    expect(capturedHeaders.Accept).toContain("text/event-stream")
 
     const body = JSON.parse(capturedBody ?? "{}")
     expect(body.jsonrpc).toBe("2.0")

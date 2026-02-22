@@ -1,3 +1,9 @@
+export {
+  ArtifactResolverError,
+  type AuditArtifactPaths,
+  type AuditArtifactResolver,
+  createAuditArtifactResolver,
+} from "./audit-artifact-resolver"
 export { extractContractNames, hasBinary, parseSolcVersion } from "./binary-utils"
 export { deepMerge } from "./deep-merge"
 export {
@@ -10,16 +16,10 @@ export { stripJsoncComments } from "./jsonc-parser"
 export { createLogger, type Logger, type LoggerConfig } from "./logger"
 export { findFoundryProjectDir, resolveProjectDir } from "./project-utils"
 export {
-  ArtifactResolverError,
-  type AuditArtifactPaths,
-  type AuditArtifactResolver,
-  createAuditArtifactResolver,
-} from "./audit-artifact-resolver"
-export {
+  formatReportDate,
   ReportPathError,
   type ReportPathOptions,
   type ResolvedReportPath,
-  formatReportDate,
-  sanitizeContractName,
   resolveReportPath,
+  sanitizeContractName,
 } from "./report-path-resolver"

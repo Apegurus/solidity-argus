@@ -1,6 +1,6 @@
 import type { EventSink } from "../features/persistent-state/event-sink"
-import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import type { FinalizationResult } from "../features/persistent-state/run-finalizer"
+import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
 import { createAuditState } from "../state/audit-state"
 import type { AuditEvent } from "../state/schemas"

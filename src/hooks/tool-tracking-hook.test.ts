@@ -1332,9 +1332,7 @@ Content...`
         sources: [
           {
             source: "pattern-db",
-            matches: [
-              { pattern: "reentrancy", description: "desc" },
-            ],
+            matches: [{ pattern: "reentrancy", description: "desc" }],
           },
         ],
       }

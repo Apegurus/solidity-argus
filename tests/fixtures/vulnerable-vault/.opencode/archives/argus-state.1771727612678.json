@@ -9,10 +9,7 @@
       "confidence": "High",
       "description": "External call before state update",
       "file": "src/VulnerableVault.sol",
-      "lines": [
-        18,
-        22
-      ],
+      "lines": [18, 22],
       "source": "slither",
       "id": "559f6b7aa543c67b"
     }
