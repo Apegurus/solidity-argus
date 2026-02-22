@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { normalizeLegacyFindingsArray, normalizeToCanonicalFinding } from "./adapters"
-import { type CanonicalFinding, SCHEMA_VERSION, validateCanonicalFinding } from "./schemas"
+import { type CanonicalFinding, SCHEMA_VERSION, validateCanonicalFinding, validateCanonicalToolExecution, validateReportInput } from "./schemas"
 
 function makeCanonicalFinding(overrides: Partial<CanonicalFinding> = {}): CanonicalFinding {
   return {
@@ -186,5 +186,80 @@ describe("normalizeLegacyFindingsArray", () => {
         (d) => d.level === "warn" && d.code === "field.dropped" && d.message.includes("index:2"),
       ),
     ).toBe(true)
+  })
+})
+
+describe("validateReportInput", () => {
+  function makeValidReportInput(overrides: Record<string, unknown> = {}) {
+    return {
+      run_id: "run-1",
+      seq: 1,
+      session_id: "ses-1",
+      tool_call_id: "tc-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      projectDir: "/tmp/project",
+      scope: ["src/Vault.sol"],
+      findings: [],
+      toolsExecuted: [
+        {
+          tool: "slither",
+          startTime: 1700000000,
+          endTime: 1700000010,
+          success: true,
+          findingsCount: 3,
+          run_id: "run-1",
+          schema_version: SCHEMA_VERSION,
+        },
+      ],
+      ...overrides,
+    }
+  }
+
+  test("accepts valid toolsExecuted entry", () => {
+    const result = validateReportInput(makeValidReportInput())
+    expect(result.success).toBe(true)
+  })
+
+  test("returns field-indexed error when toolsExecuted entry missing success", () => {
+    const result = validateReportInput(
+      makeValidReportInput({
+        toolsExecuted: [
+          {
+            tool: "slither",
+            startTime: 1700000000,
+            findingsCount: 3,
+            run_id: "run-1",
+            schema_version: SCHEMA_VERSION,
+            // success intentionally omitted
+          },
+        ],
+      }),
+    )
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors.some((e) => e.field === "toolsExecuted[0].success")).toBe(true)
+    }
+  })
+
+  test("returns field-indexed error when toolsExecuted entry has negative findingsCount", () => {
+    const result = validateReportInput(
+      makeValidReportInput({
+        toolsExecuted: [
+          {
+            tool: "slither",
+            startTime: 1700000000,
+            success: true,
+            findingsCount: -1,
+            run_id: "run-1",
+            schema_version: SCHEMA_VERSION,
+          },
+        ],
+      }),
+    )
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors.some((e) => e.field === "toolsExecuted[0].findingsCount")).toBe(true)
+    }
   })
 })

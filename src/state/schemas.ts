@@ -260,6 +260,91 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
   return { success: true, data: raw as unknown as CanonicalFinding }
 }
 
+
+export function validateCanonicalToolExecution(
+  raw: unknown,
+): ValidationResult<CanonicalToolExecution> {
+  if (!isRecord(raw)) {
+    return {
+      success: false,
+      errors: [
+        {
+          field: "$root",
+          code: "type",
+          message: "canonical tool execution must be an object",
+        },
+      ],
+    }
+  }
+
+  const errors: ValidationError[] = []
+
+  if (typeof raw.tool !== "string" || raw.tool.trim().length === 0) {
+    errors.push({
+      field: "tool",
+      code: "required",
+      message: "tool is required and must be a non-empty string",
+    })
+  }
+
+  if (typeof raw.startTime !== "number" || !Number.isInteger(raw.startTime) || raw.startTime <= 0) {
+    errors.push({
+      field: "startTime",
+      code: "invalid",
+      message: "startTime must be a positive integer",
+    })
+  }
+
+  if (raw.endTime != null && (typeof raw.endTime !== "number" || !Number.isInteger(raw.endTime))) {
+    errors.push({
+      field: "endTime",
+      code: "invalid",
+      message: "endTime must be an integer when provided",
+    })
+  }
+
+  if (typeof raw.success !== "boolean") {
+    errors.push({
+      field: "success",
+      code: "required",
+      message: "success is required and must be a boolean",
+    })
+  }
+
+  if (
+    typeof raw.findingsCount !== "number" ||
+    !Number.isInteger(raw.findingsCount) ||
+    raw.findingsCount < 0
+  ) {
+    errors.push({
+      field: "findingsCount",
+      code: "invalid",
+      message: "findingsCount must be a non-negative integer",
+    })
+  }
+
+  if (typeof raw.run_id !== "string" || raw.run_id.trim().length === 0) {
+    errors.push({
+      field: "run_id",
+      code: "required",
+      message: "run_id is required and must be a non-empty string",
+    })
+  }
+
+  if (typeof raw.schema_version !== "string" || raw.schema_version.trim().length === 0) {
+    errors.push({
+      field: "schema_version",
+      code: "required",
+      message: "schema_version is required and must be a non-empty string",
+    })
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors }
+  }
+
+  return { success: true, data: raw as unknown as CanonicalToolExecution }
+}
 export function validateReportInput(raw: unknown): ValidationResult<ReportInput> {
   if (!isRecord(raw)) {
     return {
@@ -306,6 +391,18 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
       code: "invalid",
       message: "toolsExecuted must be an array",
     })
+  } else {
+    for (const [index, entry] of raw.toolsExecuted.entries()) {
+      const toolValidation = validateCanonicalToolExecution(entry)
+      if (toolValidation.success) continue
+      for (const toolError of toolValidation.errors) {
+        errors.push({
+          field: `toolsExecuted[${index}].${toolError.field}`,
+          code: toolError.code,
+          message: toolError.message,
+        })
+      }
+    }
   }
 
   if (raw.patternVersion != null && typeof raw.patternVersion !== "string") {
