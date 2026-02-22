@@ -1070,3 +1070,73 @@ test("filename date matches body audit date (parity)", async () => {
 
   expect(filenameDate).toBe(bodyDate)
 })
+
+test("tool execution summary renders stable values for valid execution rows", async () => {
+  const toolsExecuted: ToolExecution[] = [
+    { tool: "slither_analyze", startTime: 1000, endTime: 4500, success: true, findingsCount: 3 },
+    { tool: "forge_test", startTime: 5000, endTime: 8200, success: false, findingsCount: 0 },
+  ]
+
+  const state = makeAuditState({
+    findings: [makeFinding({})],
+    toolsExecuted,
+  })
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "StableValuesTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  )
+
+  // Valid rows should render their literal values, not N/A or malformed
+  expect(result.report).toContain("| slither_analyze | 3.5s | \u2705 success | 3 |")
+  expect(result.report).toContain("| forge_test | 3.2s | \u274C failure | 0 |")
+})
+
+test("malformed execution row never prints undefined in tool summary", async () => {
+  // Construct an AuditState with a deliberately malformed toolsExecuted entry
+  // by casting through unknown to bypass TypeScript type checks
+  const malformedExec = {
+    // tool: missing
+    // startTime: missing
+    // endTime: missing
+    // success: missing (not boolean)
+    // findingsCount: missing (not number)
+  } as unknown as ToolExecution
+
+  const partialExec = {
+    tool: "partial_tool",
+    startTime: undefined as unknown as number,
+    endTime: undefined as unknown as number,
+    success: "yes" as unknown as boolean,
+    findingsCount: "three" as unknown as number,
+  } as unknown as ToolExecution
+
+  const state = makeAuditState({
+    findings: [makeFinding({})],
+    toolsExecuted: [malformedExec, partialExec],
+  })
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "MalformedExecTest",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(state),
+    },
+    createContext(),
+  )
+
+  // The word "undefined" must NEVER appear in the rendered report
+  expect(result.report).not.toContain("undefined")
+  // NaN must NEVER appear in the rendered report
+  expect(result.report).not.toContain("NaN")
+
+  // Malformed entries should show diagnostic markers, not coerced success
+  expect(result.report).toContain("\u26A0 malformed")
+  expect(result.report).toContain("N/A")
+  expect(result.report).toContain("(unknown tool)")
+  expect(result.report).toContain("### Tool Execution Summary")
+})

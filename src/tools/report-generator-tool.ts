@@ -1002,9 +1002,25 @@ export function buildProvenanceAppendix(
     lines.push("| Tool | Duration | Status | Findings |")
     lines.push("| --- | --- | --- | ---: |")
     for (const exec of state.toolsExecuted) {
-      const duration = exec.endTime != null ? formatDuration(exec.endTime - exec.startTime) : "—"
-      const status = exec.success ? "✅ success" : "❌ failure"
-      lines.push(`| ${exec.tool} | ${duration} | ${status} | ${exec.findingsCount} |`)
+      const toolName = typeof exec.tool === "string" && exec.tool ? exec.tool : "(unknown tool)"
+      const hasTimes =
+        typeof exec.startTime === "number" &&
+        !Number.isNaN(exec.startTime) &&
+        exec.endTime != null &&
+        typeof exec.endTime === "number" &&
+        !Number.isNaN(exec.endTime)
+      const duration = hasTimes ? formatDuration(exec.endTime! - exec.startTime) : "N/A"
+      const status =
+        typeof exec.success === "boolean"
+          ? exec.success
+            ? "\u2705 success"
+            : "\u274C failure"
+          : "\u26A0 malformed"
+      const findings =
+        typeof exec.findingsCount === "number" && !Number.isNaN(exec.findingsCount)
+          ? exec.findingsCount
+          : "N/A"
+      lines.push(`| ${toolName} | ${duration} | ${status} | ${findings} |`)
     }
   }
 
@@ -1017,7 +1033,8 @@ export function buildProvenanceAppendix(
       lines.push(`- Pattern pack version: \`${state.patternVersion}\``)
     }
     if (syncExec) {
-      lines.push(`- SCVD last synced: ${new Date(syncExec.startTime).toISOString()}`)
+      const syncTime = typeof syncExec.startTime === "number" && !Number.isNaN(syncExec.startTime) ? new Date(syncExec.startTime).toISOString() : "N/A"
+      lines.push(`- SCVD last synced: ${syncTime}`)
     }
   }
 
