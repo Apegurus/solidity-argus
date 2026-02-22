@@ -12,18 +12,23 @@ export type FinalizationResult = {
   timestamp: number
 }
 
-function hasSessionCreated(events: AuditEvent[]): boolean {
+export function hasSessionCreated(events: AuditEvent[]): boolean {
   return events.some((event) => event.type === "session.created")
 }
 
-function hasSessionDeleted(events: AuditEvent[]): boolean {
+export function hasSessionDeleted(events: AuditEvent[]): boolean {
   return events.some((event) => event.type === "session.deleted")
 }
 
-function collectOrphanedToolStarts(events: AuditEvent[]): string[] {
+export type ToolLifecycleCheckResult = {
+  orphanedToolCallIds: string[]
+  malformedEvents: string[]
+}
+
+export function collectToolLifecycleIssues(events: AuditEvent[]): ToolLifecycleCheckResult {
   const startedCallIds = new Set<string>()
   const completedCallIds = new Set<string>()
-  const errors: string[] = []
+  const malformedEvents: string[] = []
 
   for (const event of events) {
     if (event.type !== "tool.started" && event.type !== "tool.completed") {
@@ -31,7 +36,7 @@ function collectOrphanedToolStarts(events: AuditEvent[]): string[] {
     }
 
     if (typeof event.tool_call_id !== "string" || event.tool_call_id.length === 0) {
-      errors.push(`${event.type} at seq ${event.seq} missing tool_call_id`)
+      malformedEvents.push(`${event.type} at seq ${event.seq} missing tool_call_id`)
       continue
     }
 
@@ -44,13 +49,25 @@ function collectOrphanedToolStarts(events: AuditEvent[]): string[] {
     }
   }
 
+  const orphanedToolCallIds: string[] = []
   for (const toolCallId of startedCallIds) {
     if (!completedCallIds.has(toolCallId)) {
-      errors.push(`orphaned tool.started without matching tool.completed: ${toolCallId}`)
+      orphanedToolCallIds.push(toolCallId)
     }
   }
 
-  return errors
+  return {
+    orphanedToolCallIds,
+    malformedEvents,
+  }
+}
+
+function collectOrphanedToolStarts(events: AuditEvent[]): string[] {
+  const { orphanedToolCallIds, malformedEvents } = collectToolLifecycleIssues(events)
+  const orphanedErrors = orphanedToolCallIds.map(
+    (toolCallId) => `orphaned tool.started without matching tool.completed: ${toolCallId}`,
+  )
+  return [...malformedEvents, ...orphanedErrors]
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
