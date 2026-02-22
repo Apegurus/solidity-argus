@@ -142,14 +142,14 @@ describe("E2E B: CLI Commands", () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  test("argus init creates config file in .opencode/", async () => {
+  test("argus init creates config file in .argus/", async () => {
     const out = captureConsole()
     try {
       const exitCode = await initCommand.execute([])
       out.restore()
 
       expect(exitCode).toBe(0)
-      const configPath = join(tmpDir, ".opencode", "solidity-argus.json")
+      const configPath = join(tmpDir, ".argus", "solidity-argus.json")
       expect(existsSync(configPath)).toBe(true)
 
       const content = JSON.parse(await Bun.file(configPath).text())
@@ -164,8 +164,8 @@ describe("E2E B: CLI Commands", () => {
   })
 
   test("argus init fails gracefully if config already exists", async () => {
-    mkdirSync(join(tmpDir, ".opencode"), { recursive: true })
-    writeFileSync(join(tmpDir, ".opencode", "solidity-argus.json"), "{}")
+    mkdirSync(join(tmpDir, ".argus"), { recursive: true })
+    writeFileSync(join(tmpDir, ".argus", "solidity-argus.json"), "{}")
 
     const out = captureConsole()
     try {
@@ -477,7 +477,7 @@ describe("E2E E: Persistent State", () => {
       ],
     })
 
-    const stateFile = join(tmpDir, ".opencode", "argus-state.json")
+    const stateFile = join(tmpDir, ".argus", "argus-state.json")
     expect(existsSync(stateFile)).toBe(true)
 
     const manager2 = createAuditStateManager(tmpDir)

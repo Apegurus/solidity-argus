@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { normalizeLegacyFindingsArray, normalizeToCanonicalFinding } from "./adapters"
-import { type CanonicalFinding, SCHEMA_VERSION, validateCanonicalFinding, validateCanonicalToolExecution, validateReportInput } from "./schemas"
+import {
+  type CanonicalFinding,
+  SCHEMA_VERSION,
+  validateCanonicalFinding,
+  validateReportInput,
+} from "./schemas"
 
 function makeCanonicalFinding(overrides: Partial<CanonicalFinding> = {}): CanonicalFinding {
   return {

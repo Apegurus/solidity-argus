@@ -3,6 +3,7 @@ import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
+import { readEvents } from "../features/persistent-state/event-sink"
 import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
@@ -12,6 +13,7 @@ import { normalizeToCanonicalFinding } from "../state/adapters"
 import { stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { AuditState, Finding, FindingSeverity } from "../state/types"
+import { checkReportPreflight } from "./report-preflight"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
 
@@ -23,6 +25,7 @@ type ReportGeneratorArgs = {
   quality_gate_policy?: QualityGatePolicy
   report_input?: string
   audit_state?: string
+  preflight_policy?: PreflightPolicy
 }
 
 type FindingsCount = {
@@ -46,6 +49,8 @@ export type ReportGenerationResult = {
 
 type QualityGatePolicy = "warn" | "strict-fail"
 
+type PreflightPolicy = "warn" | "strict-fail"
+
 type ReportQualityViolation = {
   findingId: string
   code: string
@@ -59,6 +64,10 @@ type ReportQualityValidation = {
 
 export type ReportGenerationDependencies = {
   loadConfig?: (projectDir: string) => ArgusConfig
+  readEvents?: (
+    runId: string,
+    projectDir: string,
+  ) => Promise<import("../state/schemas").AuditEvent[]>
 }
 
 export const SINGLE_WRITER_POLICY_VERSION = "1.0.0"
@@ -1066,6 +1075,48 @@ export async function executeReportGeneration(
   const threshold = args.severity_threshold ?? "low"
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
   const { reportInput, diagnostics } = parseReportInputPayload(args, context)
+  const preflightPolicy = args.preflight_policy ?? "warn"
+  let preflightWarningSection: string | null = null
+  try {
+    const readEventsFn = deps.readEvents ?? readEvents
+    const events = await readEventsFn(reportInput.run_id, reportInput.projectDir)
+    const preflightResult = checkReportPreflight(events)
+    if (!preflightResult.passed) {
+      if (preflightPolicy === "strict-fail") {
+        const parts: string[] = []
+        if (preflightResult.orphanedTools.length > 0)
+          parts.push(`orphaned tools: ${preflightResult.orphanedTools.join(", ")}`)
+        if (preflightResult.missingLifecycle.length > 0)
+          parts.push(`missing lifecycle: ${preflightResult.missingLifecycle.join(", ")}`)
+        if (preflightResult.missingRequiredTools.length > 0)
+          parts.push(`missing required tools: ${preflightResult.missingRequiredTools.join(", ")}`)
+        throw new Error(`Preflight failed (strict-fail): ${parts.join("; ")}`)
+      }
+      const lines: string[] = [
+        "## \u26A0 Completeness Warning",
+        "",
+        "This report was generated with incomplete orchestration state.",
+        "",
+      ]
+      if (preflightResult.orphanedTools.length > 0)
+        lines.push(`- Orphaned tools: ${preflightResult.orphanedTools.join(", ")}`)
+      if (preflightResult.missingLifecycle.length > 0)
+        lines.push(`- Missing lifecycle: ${preflightResult.missingLifecycle.join(", ")}`)
+      if (preflightResult.missingRequiredTools.length > 0)
+        lines.push(`- Missing required tools: ${preflightResult.missingRequiredTools.join(", ")}`)
+      if (preflightResult.warnings.length > 0)
+        lines.push(`- Warnings: ${preflightResult.warnings.join(", ")}`)
+      preflightWarningSection = lines.join("\n")
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Preflight failed (strict-fail)")) {
+      throw err
+    }
+    if (preflightPolicy === "strict-fail") {
+      throw new Error("Preflight failed: unable to read event stream for completeness check")
+    }
+    // warn mode: skip preflight when events cannot be read
+  }
   const state = reportInputToAuditState(reportInput)
   const scope = args.scope.length > 0 ? args.scope : reportInput.scope
   const findings = sortFindingsDeterministically(
@@ -1127,6 +1178,10 @@ export async function executeReportGeneration(
   sections.push("## Recommendations")
   for (const item of buildRecommendations(counts)) {
     sections.push(`- ${item}`)
+  }
+
+  if (preflightWarningSection) {
+    sections.push(preflightWarningSection)
   }
 
   sections.push(buildProvenanceAppendix(state, threshold, findings.length))
@@ -1194,6 +1249,7 @@ export const reportGeneratorTool = tool({
       .default("low"),
     report_input: tool.schema.string().optional(),
     audit_state: tool.schema.string().optional(),
+    preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
   },
   async execute(args, context) {
     const result = await executeReportGeneration(args, context)

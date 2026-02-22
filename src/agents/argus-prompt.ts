@@ -499,6 +499,7 @@ Scribe must call argus_generate_report with:
 - project_name: project name
 - scope: audited file list
 - report_input: serialized ReportInput JSON string
+- preflight_policy: "strict-fail" (non-negotiable for final report)
 
 Legacy audit_state is transitional-only and deprecated.
 
