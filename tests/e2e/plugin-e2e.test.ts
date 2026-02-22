@@ -251,9 +251,9 @@ describe("E2E C: Config Merge", () => {
   test("loadArgusConfig reads real JSONC from disk", () => {
     const tmpDir = makeTempDir("config-merge")
     try {
-      mkdirSync(join(tmpDir, ".opencode"), { recursive: true })
+      mkdirSync(join(tmpDir, ".argus"), { recursive: true })
       writeFileSync(
-        join(tmpDir, ".opencode", "solidity-argus.jsonc"),
+        join(tmpDir, ".argus", "solidity-argus.jsonc"),
         [
           "{",
           '  "agents": {',
