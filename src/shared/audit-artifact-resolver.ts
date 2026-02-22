@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { defaultRootResolver } from "./path-root-resolver"
 
 export class ArtifactResolverError extends Error {
   constructor(message: string) {
@@ -8,19 +9,19 @@ export class ArtifactResolverError extends Error {
 }
 
 export interface AuditArtifactPaths {
-  /** {projectDir}/.opencode/argus-state.json (legacy compat) */
+  /** {projectDir}/.argus/argus-state.json */
   stateFile: string
-  /** {projectDir}/.opencode/runs/{runId}/events.jsonl */
+  /** {projectDir}/.argus/runs/{runId}/events.jsonl */
   journalFile: string
-  /** {projectDir}/.opencode/runs/{runId}/findings.json */
+  /** {projectDir}/.argus/runs/{runId}/findings.json */
   findingsFile: string
-  /** {projectDir}/.opencode/reports */
+  /** {projectDir}/.argus/reports */
   reportDir: string
-  /** {projectDir}/.opencode/runs/{runId}/evidence */
+  /** {projectDir}/.argus/runs/{runId}/evidence */
   evidenceDir: string
-  /** {projectDir}/.opencode/archives */
+  /** {projectDir}/.argus/archives */
   archiveDir: string
-  /** {projectDir}/.opencode/runs/{runId} */
+  /** {projectDir}/.argus/runs/{runId} */
   runDir: string
 }
 
@@ -45,16 +46,16 @@ export function createAuditArtifactResolver(
     throw new ArtifactResolverError("projectDir must not be empty")
   }
 
-  const opencodeDir = join(projectDir, ".opencode")
-  const runDir = join(opencodeDir, "runs", runId)
+  const writeRoot = defaultRootResolver.writeRoot(projectDir)
+  const runDir = join(writeRoot, "runs", runId)
 
   const cachedPaths: AuditArtifactPaths = {
-    stateFile: join(opencodeDir, "argus-state.json"),
+    stateFile: join(writeRoot, "argus-state.json"),
     journalFile: join(runDir, "events.jsonl"),
     findingsFile: join(runDir, "findings.json"),
-    reportDir: join(opencodeDir, "reports"),
+    reportDir: join(writeRoot, "reports"),
     evidenceDir: join(runDir, "evidence"),
-    archiveDir: join(opencodeDir, "archives"),
+    archiveDir: join(writeRoot, "archives"),
     runDir,
   }
 

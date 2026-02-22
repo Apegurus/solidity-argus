@@ -70,10 +70,11 @@ describe("createAuditArtifactResolver", () => {
     expect(journalFile).toContain(join("runs", RUN_ID, "events.jsonl"))
   })
 
-  test("stateFile is {projectDir}/.opencode/argus-state.json (legacy compat)", () => {
+  test("paths() uses .argus as write root by default", () => {
     const resolver = createAuditArtifactResolver(RUN_ID, PROJECT_DIR)
     const { stateFile } = resolver.paths()
-    expect(stateFile).toBe(join(PROJECT_DIR, ".opencode", "argus-state.json"))
+    expect(stateFile).toContain(join(PROJECT_DIR, ".argus"))
+    expect(stateFile).toBe(join(PROJECT_DIR, ".argus", "argus-state.json"))
   })
 
   test("resolver exposes runId and projectDir as readonly properties", () => {
@@ -82,10 +83,10 @@ describe("createAuditArtifactResolver", () => {
     expect(resolver.projectDir).toBe(PROJECT_DIR)
   })
 
-  test("runDir is {projectDir}/.opencode/runs/{runId}", () => {
+  test("paths().runDir is under .argus/runs/{runId}", () => {
     const resolver = createAuditArtifactResolver(RUN_ID, PROJECT_DIR)
     const { runDir } = resolver.paths()
-    expect(runDir).toBe(join(PROJECT_DIR, ".opencode", "runs", RUN_ID))
+    expect(runDir).toBe(join(PROJECT_DIR, ".argus", "runs", RUN_ID))
   })
 
   test("findingsFile is inside runDir", () => {
@@ -100,15 +101,15 @@ describe("createAuditArtifactResolver", () => {
     expect(evidenceDir).toBe(join(runDir, "evidence"))
   })
 
-  test("reportDir is {projectDir}/.opencode/reports", () => {
+  test("reportDir is {projectDir}/.argus/reports", () => {
     const resolver = createAuditArtifactResolver(RUN_ID, PROJECT_DIR)
     const { reportDir } = resolver.paths()
-    expect(reportDir).toBe(join(PROJECT_DIR, ".opencode", "reports"))
+    expect(reportDir).toBe(join(PROJECT_DIR, ".argus", "reports"))
   })
 
-  test("archiveDir is {projectDir}/.opencode/archives", () => {
+  test("archiveDir is {projectDir}/.argus/archives", () => {
     const resolver = createAuditArtifactResolver(RUN_ID, PROJECT_DIR)
     const { archiveDir } = resolver.paths()
-    expect(archiveDir).toBe(join(PROJECT_DIR, ".opencode", "archives"))
+    expect(archiveDir).toBe(join(PROJECT_DIR, ".argus", "archives"))
   })
 })

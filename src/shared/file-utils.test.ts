@@ -59,6 +59,34 @@ describe("file-utils", () => {
       expect(result.format).toBe("jsonc")
       expect(result.path).toContain("solidity-argus.jsonc")
     })
+
+    it("detectConfigFile returns .argus path when .argus config exists", () => {
+      const argusDir = join(testDir, ".argus")
+      const opencodeDir = join(testDir, ".opencode")
+      mkdirSync(argusDir, { recursive: true })
+      mkdirSync(opencodeDir, { recursive: true })
+
+      const argusConfigPath = join(argusDir, "solidity-argus.jsonc")
+      const opencodeConfigPath = join(opencodeDir, "solidity-argus.jsonc")
+      writeFileSync(argusConfigPath, '{"source": "argus"}')
+      writeFileSync(opencodeConfigPath, '{"source": "opencode"}')
+
+      const result = detectConfigFile(testDir)
+      expect(result.format).toBe("jsonc")
+      expect(result.path).toBe(argusConfigPath)
+    })
+
+    it("detectConfigFile falls back to .opencode when .argus is absent", () => {
+      const opencodeDir = join(testDir, ".opencode")
+      mkdirSync(opencodeDir, { recursive: true })
+
+      const opencodeConfigPath = join(opencodeDir, "solidity-argus.json")
+      writeFileSync(opencodeConfigPath, '{"source": "opencode"}')
+
+      const result = detectConfigFile(testDir)
+      expect(result.format).toBe("json")
+      expect(result.path).toBe(opencodeConfigPath)
+    })
   })
 
   describe("readJsoncFile", () => {

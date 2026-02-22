@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { stripJsoncComments } from "./jsonc-parser"
+import { defaultRootResolver } from "./path-root-resolver"
 
 export type ConfigFormat = "json" | "jsonc" | "none"
 
@@ -10,9 +11,13 @@ export interface ConfigFileInfo {
 }
 
 export function detectConfigFile(basePath: string): ConfigFileInfo {
+  const rootCandidates = defaultRootResolver.readRoots(basePath).flatMap((rootPath) => [
+    { path: join(rootPath, "solidity-argus.jsonc"), format: "jsonc" as const },
+    { path: join(rootPath, "solidity-argus.json"), format: "json" as const },
+  ])
+
   const candidates = [
-    { path: join(basePath, ".opencode", "solidity-argus.jsonc"), format: "jsonc" as const },
-    { path: join(basePath, ".opencode", "solidity-argus.json"), format: "json" as const },
+    ...rootCandidates,
     { path: join(basePath, "solidity-argus.jsonc"), format: "jsonc" as const },
     { path: join(basePath, "solidity-argus.json"), format: "json" as const },
   ]
