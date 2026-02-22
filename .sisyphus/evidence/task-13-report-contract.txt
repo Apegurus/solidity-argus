@@ -1,0 +1,35 @@
+Task 13 Evidence: Unify Argus -> Scribe -> Report Tool Data Contract
+Date: 2026-02-22
+
+Implemented:
+- Added structured ReportInput validation contract via `validateReportInput` in `src/state/schemas.ts`.
+- Updated `argus_generate_report` tool contract to prefer `report_input` (versioned ReportInput JSON) with legacy `audit_state` compatibility adapter.
+- Added explicit contract mismatch failures with deterministic diagnostic codes:
+  - REPORT_INPUT_MISSING
+  - REPORT_INPUT_MALFORMED_JSON
+  - REPORT_INPUT_CONTRACT_MISMATCH
+- Added explicit transitional deprecation diagnostics for legacy payloads:
+  - REPORT_INPUT_DEPRECATED_LEGACY_PAYLOAD
+  - REPORT_INPUT_SYNTHESIZED_SESSION
+  - REPORT_INPUT_SYNTHESIZED_PROJECT_DIR
+- Aligned prompt instructions in:
+  - src/agents/argus-prompt.ts
+  - src/agents/scribe-prompt.ts
+- Added integration coverage:
+  - tests/integration/report-contract.test.ts
+
+Verification commands run:
+1) bun test src/tools/report-generator-tool.test.ts tests/integration/report-contract.test.ts
+   Result: PASS (40 tests, 0 fail)
+
+2) bun run typecheck
+   Result: FAIL due pre-existing unrelated repository errors requiring `migration` field in many config mocks outside Task 13 scope.
+   Note: No TypeScript/LSP diagnostics in modified Task 13 files.
+
+LSP diagnostics on changed files:
+- src/agents/argus-prompt.ts: clean
+- src/agents/scribe-prompt.ts: clean
+- src/tools/report-generator-tool.ts: clean
+- src/state/schemas.ts: clean
+- src/state/projectors.ts: clean
+- tests/integration/report-contract.test.ts: clean

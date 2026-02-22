@@ -272,7 +272,7 @@ Your subagents have access to these specialized tools. Know when to delegate eac
 - **\`argus_generate_report\`**:
   - **Use**: During Reporting.
   - **Purpose**: Generates the final artifact.
-  - **Note**: Requires structured input of findings. Ensure the tone is objective and helpful.
+  - **Note**: Requires a versioned report_input JSON string matching the ReportInput contract (schema_version 1.0.0). Do not send natural-language-only findings to Scribe for tool invocation.
 
 - **\`argus_sync_knowledge\`**:
   - **Use**: Maintenance.
@@ -422,18 +422,26 @@ Tools may fail. You must be resilient.
 
 **An audit without a report is an incomplete audit.** Your FINAL action before finishing MUST be delegating to Scribe. No exceptions.
 
-After you have synthesized your findings, compile them into a structured list and invoke Scribe:
+After you have synthesized your findings, build a canonical ReportInput payload and invoke Scribe:
 
 \`\`\`
 Task(subagent_type="scribe", prompt="Generate the final security audit report.
 
 Project: {name}
 Scope: {list of audited files}
-
-Findings (pass ALL of these):
-1. [SEVERITY] Title — File:Lines — Description — Impact — Recommendation
-2. [SEVERITY] Title — File:Lines — Description — Impact — Recommendation
-...
+ReportInput JSON (pass EXACTLY, no prose substitution):
+{
+  "run_id": "{run-id}",
+  "seq": {last-seq},
+  "session_id": "{session-id}",
+  "tool_call_id": "{tool-call-id}",
+  "source": "argus",
+  "schema_version": "1.0.0",
+  "projectDir": "{project-dir}",
+  "findings": [canonical findings],
+  "toolsExecuted": [canonical tool executions],
+  "scope": ["..."]
+}
 
 Additional context:
 - Tools used: Slither, Forge, Pattern Checker, Solodit
@@ -442,7 +450,12 @@ Additional context:
 ")
 \`\`\`
 
-You do NOT need to pass raw JSON or serialized audit state. Just pass your findings as a structured list in natural language — Scribe will format them professionally.
+Scribe must call argus_generate_report with:
+- project_name: project name
+- scope: audited file list
+- report_input: serialized ReportInput JSON string
+
+Legacy audit_state is transitional-only and deprecated.
 
 **If you have zero findings, still invoke Scribe** with an empty findings list. A clean report is still a report.
 

@@ -1,9 +1,15 @@
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
+import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
+import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
+import { normalizeToCanonicalFinding } from "../state/adapters"
+import { stableHash } from "../state/projectors"
+import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { AuditState, Finding, FindingSeverity } from "../state/types"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
@@ -13,7 +19,9 @@ type ReportGeneratorArgs = {
   scope: string[]
   include_executive_summary?: boolean
   severity_threshold?: SeverityThreshold
-  audit_state: string
+  quality_gate_policy?: QualityGatePolicy
+  report_input?: string
+  audit_state?: string
 }
 
 type FindingsCount = {
@@ -28,11 +36,76 @@ export type ReportGenerationResult = {
   report: string
   findingsCount: FindingsCount
   filename: string
+  contentHash: string
+  qualityGates: ReportQualityValidation
+  contractDiagnostics: DropDiagnostic[]
   filePath?: string
+  error?: { code: string; message: string }
+}
+
+type QualityGatePolicy = "warn" | "strict-fail"
+
+type ReportQualityViolation = {
+  findingId: string
+  code: string
+  message: string
+}
+
+type ReportQualityValidation = {
+  passed: boolean
+  violations: ReportQualityViolation[]
 }
 
 export type ReportGenerationDependencies = {
   loadConfig?: (projectDir: string) => ArgusConfig
+}
+
+export const SINGLE_WRITER_POLICY_VERSION = "1.0.0"
+
+const REPORT_METADATA_REGEX = /<!-- argus:report_metadata (.+?) -->/
+
+/**
+ * Extract the run_id from report metadata embedded as an HTML comment.
+ * Returns null if no metadata is found or run_id is missing.
+ */
+export function extractReportRunId(content: string): string | null {
+  const match = content.match(REPORT_METADATA_REGEX)
+  if (!match?.[1]) return null
+  try {
+    const metadata = JSON.parse(match[1])
+    return typeof metadata.run_id === "string" ? metadata.run_id : null
+  } catch {
+    return null
+  }
+}
+
+function buildReportMetadataComment(runId: string): string {
+  const metadata = {
+    run_id: runId,
+    policy_version: SINGLE_WRITER_POLICY_VERSION,
+    generated_at: new Date().toISOString(),
+  }
+  return `<!-- argus:report_metadata ${JSON.stringify(metadata)} -->`
+}
+
+async function checkDuplicateWrite(
+  filePath: string,
+  runId: string,
+): Promise<{ code: string; message: string } | null> {
+  if (!existsSync(filePath)) return null
+  try {
+    const existingContent = await Bun.file(filePath).text()
+    const existingRunId = extractReportRunId(existingContent)
+    if (existingRunId === runId) {
+      return {
+        code: "DUPLICATE_WRITE_ATTEMPT",
+        message: `Report for run_id "${runId}" already exists at ${filePath}. Single-writer policy (v${SINGLE_WRITER_POLICY_VERSION}) prevents duplicate writes for the same run.`,
+      }
+    }
+  } catch {
+    // Cannot read existing file; allow write
+  }
+  return null
 }
 
 const SEVERITY_ORDER: FindingSeverity[] = ["Critical", "High", "Medium", "Low", "Informational"]
@@ -59,6 +132,24 @@ const FINDING_WEIGHT: Record<FindingSeverity, number> = {
   Medium: 3,
   Low: 2,
   Informational: 1,
+}
+
+const SEVERITY_RANK: Record<FindingSeverity, number> = {
+  Critical: 0,
+  High: 1,
+  Medium: 2,
+  Low: 3,
+  Informational: 4,
+}
+
+const MISSING_IMPACT_TEXT = "Impact details were not provided in the finding payload."
+const MISSING_RECOMMENDATION_TEXT =
+  "Recommendation details were not provided in the finding payload."
+
+type ReportFindingFields = {
+  impact?: string
+  recommendation?: string
+  proofOfConcept?: string
 }
 
 function emptyCounts(): FindingsCount {
@@ -252,20 +343,236 @@ function normalizeFinding(f: Record<string, unknown>): Finding {
     source,
     remediation: typeof f.remediation === "string" ? f.remediation : undefined,
     exploitReference: typeof f.exploitReference === "string" ? f.exploitReference : undefined,
+    ...(typeof f.impact === "string" ? { impact: f.impact } : {}),
+    ...(typeof f.recommendation === "string" ? { recommendation: f.recommendation } : {}),
+    ...(typeof f.proofOfConcept === "string" ? { proofOfConcept: f.proofOfConcept } : {}),
+    ...(typeof f.proof_of_concept === "string" ? { proofOfConcept: f.proof_of_concept } : {}),
+  } as Finding
+}
+
+export type ParseAuditStateOptions = {
+  dropPolicy?: DropPolicy
+}
+
+export type ParseAuditStateResult = {
+  state: AuditState
+  diagnostics: DropDiagnostic[]
+}
+
+type ParseReportInputResult = {
+  reportInput: ReportInput
+  diagnostics: DropDiagnostic[]
+}
+
+function diagnosticsSummary(diagnostics: DropDiagnostic[]): string {
+  return diagnostics.map((diag) => `${diag.reason.code}:${diag.reason.message}`).join("; ")
+}
+
+function throwContractMismatch(message: string, diagnostics: DropDiagnostic[]): never {
+  const details = diagnosticsSummary(diagnostics)
+  const fullMessage = details.length > 0 ? `${message}. Diagnostics: ${details}` : message
+  throw new Error(fullMessage)
+}
+
+function reportInputToAuditState(reportInput: ReportInput): AuditState {
+  return {
+    sessionId: reportInput.session_id,
+    projectDir: reportInput.projectDir,
+    contractsReviewed: Array.from(
+      new Set(reportInput.findings.map((finding) => finding.file)),
+    ).sort((a, b) => a.localeCompare(b)),
+    findings: reportInput.findings,
+    toolsExecuted: reportInput.toolsExecuted,
+    currentPhase: "complete",
+    scope: reportInput.scope,
+    startTime: 0,
+    soloditResults: reportInput.soloditResults,
+    fuzzCounterexamples: reportInput.fuzzCounterexamples,
+    coverageReport: reportInput.coverageReport,
+    gasHotspots: reportInput.gasHotspots,
+    proxyContracts: reportInput.proxyContracts,
+    patternVersion: reportInput.patternVersion,
+    skillsLoaded: reportInput.skillsLoaded,
   }
 }
 
-export function parseAuditState(auditState: string): AuditState {
+function buildLegacyCompatibleReportInput(
+  state: AuditState,
+  context: ToolContext,
+  diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
+): ReportInput {
+  diagnostics.warn(
+    "REPORT_INPUT_DEPRECATED_LEGACY_PAYLOAD",
+    "Legacy audit_state payload is deprecated; pass report_input with canonical ReportInput schema.",
+    "audit_state",
+  )
+
+  const runId = state.sessionId || `legacy-run-${Date.now()}`
+  const sessionId = state.sessionId || runId
+
+  if (!state.sessionId) {
+    diagnostics.warn(
+      "REPORT_INPUT_SYNTHESIZED_SESSION",
+      "Legacy payload missing sessionId; synthesized session_id from generated run_id.",
+      "session_id",
+    )
+  }
+  if (!state.projectDir) {
+    diagnostics.warn(
+      "REPORT_INPUT_SYNTHESIZED_PROJECT_DIR",
+      "Legacy payload missing projectDir; synthesized projectDir from tool context.",
+      "projectDir",
+    )
+  }
+
+  const canonicalFindings = state.findings
+    .map((finding, index) => {
+      const normalized = normalizeToCanonicalFinding(finding, runId, index + 1)
+      for (const diag of normalized.diagnostics) {
+        diagnostics.warn(
+          "REPORT_INPUT_LEGACY_FINDING_NORMALIZED",
+          `[index:${index}] ${diag.message}`,
+          diag.field,
+        )
+      }
+      return normalized.data
+    })
+    .filter((finding) => finding.check.length > 0 && finding.file.length > 0)
+
+  return {
+    run_id: runId,
+    seq: state.toolsExecuted.length + canonicalFindings.length,
+    session_id: sessionId,
+    tool_call_id: "legacy-adapter",
+    source: "report-generator-legacy-adapter",
+    schema_version: SCHEMA_VERSION,
+    projectDir: state.projectDir || resolveProjectDir(context),
+    findings: canonicalFindings,
+    toolsExecuted: state.toolsExecuted.map((toolExec) => ({
+      ...toolExec,
+      run_id: runId,
+      schema_version: SCHEMA_VERSION,
+    })),
+    scope: state.scope,
+    soloditResults: state.soloditResults,
+    fuzzCounterexamples: state.fuzzCounterexamples,
+    coverageReport: state.coverageReport,
+    gasHotspots: state.gasHotspots,
+    proxyContracts: state.proxyContracts,
+    patternVersion: state.patternVersion,
+    skillsLoaded: state.skillsLoaded,
+  }
+}
+
+function parseReportInputPayload(
+  args: ReportGeneratorArgs,
+  context: ToolContext,
+): ParseReportInputResult {
+  const diagnostics = createDropDiagnosticsCollector(
+    "warn",
+    "report-generator",
+    "argus_generate_report",
+  )
+
+  if (typeof args.report_input === "string" && args.report_input.trim().length > 0) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(args.report_input)
+    } catch {
+      diagnostics.error(
+        "REPORT_INPUT_MALFORMED_JSON",
+        "report_input is not valid JSON. Expected serialized ReportInput object.",
+        "report_input",
+      )
+      throwContractMismatch(
+        "ReportInput contract mismatch: malformed report_input JSON",
+        diagnostics.getDiagnostics(),
+      )
+    }
+
+    const validation = validateReportInput(parsed)
+    if (!validation.success) {
+      for (const error of validation.errors) {
+        diagnostics.error(
+          "REPORT_INPUT_CONTRACT_MISMATCH",
+          `${error.field}: ${error.message}`,
+          error.field,
+        )
+      }
+      throwContractMismatch(
+        "ReportInput contract mismatch: report_input failed schema validation",
+        diagnostics.getDiagnostics(),
+      )
+    }
+
+    if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
+      diagnostics.warn(
+        "REPORT_INPUT_LEGACY_FIELD_IGNORED",
+        "Both report_input and audit_state were provided; audit_state is ignored.",
+        "audit_state",
+      )
+    }
+
+    return { reportInput: validation.data, diagnostics: diagnostics.getDiagnostics() }
+  }
+
+  if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
+    const legacy = parseAuditStateWithDiagnostics(args.audit_state, { dropPolicy: "warn" })
+    for (const diagnostic of legacy.diagnostics) {
+      diagnostics.warn(diagnostic.reason.code, diagnostic.reason.message, diagnostic.reason.field)
+    }
+    const reportInput = buildLegacyCompatibleReportInput(legacy.state, context, diagnostics)
+    return { reportInput, diagnostics: diagnostics.getDiagnostics() }
+  }
+
+  diagnostics.error(
+    "REPORT_INPUT_MISSING",
+    "Missing report_input payload. Provide report_input (preferred) or legacy audit_state for transition.",
+    "report_input",
+  )
+  throwContractMismatch(
+    "ReportInput contract mismatch: missing required payload",
+    diagnostics.getDiagnostics(),
+  )
+}
+
+function emitDropDiagnosticsForFindings(
+  rawItems: unknown[],
+  normalized: Record<string, unknown>[],
+  validFindings: Finding[],
+  diag: ReturnType<typeof createDropDiagnosticsCollector>,
+): void {
+  const droppedCount = rawItems.length - validFindings.length
+  if (droppedCount <= 0) return
+
+  for (const item of normalized) {
+    if (hasMinimumFindingFields(item)) continue
+    const missing: string[] = []
+    if (typeof item.check !== "string" || (item.check as string).length === 0) missing.push("check")
+    if (typeof item.file !== "string") missing.push("file")
+    if (!Array.isArray(item.lines) || (item.lines as unknown[]).length !== 2) missing.push("lines")
+    diag.error(
+      "MISSING_REQUIRED_FIELD",
+      `Finding dropped: missing ${missing.join(", ") || "unknown fields"} after normalization`,
+      missing[0],
+    )
+  }
+}
+
+export function parseAuditState(auditState: string, options?: ParseAuditStateOptions): AuditState {
+  const policy = options?.dropPolicy ?? "warn"
+  const diag = createDropDiagnosticsCollector(policy, "report-generator")
+
   let parsed: unknown
   try {
     parsed = JSON.parse(auditState)
   } catch {
+    diag.error("MALFORMED_JSON", "audit_state is not valid JSON")
+    diag.throwIfStrict()
     throw new Error(
       "audit_state is not valid JSON — expected an AuditState object or Finding[] array",
     )
   }
-
-  const logger = createLogger()
 
   if (Array.isArray(parsed)) {
     const rawItems = parsed as unknown[]
@@ -275,12 +582,8 @@ export function parseAuditState(auditState: string): AuditState {
     const validFindings = normalized
       .filter(hasMinimumFindingFields)
       .map((f) => normalizeFinding(f as Record<string, unknown>))
-    const dropped = rawItems.length - validFindings.length
-    if (dropped > 0) {
-      logger.warn(
-        `parseAuditState: ${dropped}/${rawItems.length} findings dropped (missing required fields after normalization)`,
-      )
-    }
+    emitDropDiagnosticsForFindings(rawItems, normalized, validFindings, diag)
+    diag.throwIfStrict()
     return emptyAuditState(validFindings)
   }
 
@@ -297,12 +600,8 @@ export function parseAuditState(auditState: string): AuditState {
     const validFindings = normalized
       .filter(hasMinimumFindingFields)
       .map((f) => normalizeFinding(f as Record<string, unknown>))
-    const dropped = rawFindings.length - validFindings.length
-    if (dropped > 0) {
-      logger.warn(
-        `parseAuditState: ${dropped}/${rawFindings.length} findings dropped (missing required fields after normalization)`,
-      )
-    }
+    emitDropDiagnosticsForFindings(rawFindings, normalized, validFindings, diag)
+    diag.throwIfStrict()
     return {
       ...emptyAuditState(),
       ...state,
@@ -311,6 +610,59 @@ export function parseAuditState(auditState: string): AuditState {
   }
 
   return emptyAuditState()
+}
+
+export function parseAuditStateWithDiagnostics(
+  auditState: string,
+  options?: ParseAuditStateOptions,
+): ParseAuditStateResult {
+  const policy = options?.dropPolicy ?? "warn"
+  const diag = createDropDiagnosticsCollector(policy, "report-generator")
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(auditState)
+  } catch {
+    diag.error("MALFORMED_JSON", "audit_state is not valid JSON")
+    diag.throwIfStrict()
+    return { state: emptyAuditState(), diagnostics: diag.getDiagnostics() }
+  }
+
+  if (Array.isArray(parsed)) {
+    const rawItems = parsed as unknown[]
+    const normalized = rawItems
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => normalizeRawFinding(item))
+    const validFindings = normalized
+      .filter(hasMinimumFindingFields)
+      .map((f) => normalizeFinding(f as Record<string, unknown>))
+    emitDropDiagnosticsForFindings(rawItems, normalized, validFindings, diag)
+    diag.throwIfStrict()
+    return { state: emptyAuditState(validFindings), diagnostics: diag.getDiagnostics() }
+  }
+
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    Array.isArray((parsed as AuditState).findings)
+  ) {
+    const auditStateObj = parsed as AuditState
+    const rawFindings = auditStateObj.findings as unknown[]
+    const normalized = rawFindings
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => normalizeRawFinding(item))
+    const validFindings = normalized
+      .filter(hasMinimumFindingFields)
+      .map((f) => normalizeFinding(f as Record<string, unknown>))
+    emitDropDiagnosticsForFindings(rawFindings, normalized, validFindings, diag)
+    diag.throwIfStrict()
+    return {
+      state: { ...emptyAuditState(), ...auditStateObj, findings: validFindings },
+      diagnostics: diag.getDiagnostics(),
+    }
+  }
+
+  return { state: emptyAuditState(), diagnostics: diag.getDiagnostics() }
 }
 
 function normalizeTitle(check: string): string {
@@ -384,6 +736,146 @@ function genericRecommendation(severity: FindingSeverity): string {
   return "Track and resolve during routine code quality and documentation improvements."
 }
 
+function getExtendedFinding(finding: Finding): Finding & ReportFindingFields {
+  return finding as Finding & ReportFindingFields
+}
+
+function getFindingImpact(finding: Finding): string {
+  const extended = getExtendedFinding(finding)
+  if (typeof extended.impact === "string" && extended.impact.trim().length > 0) {
+    return extended.impact.trim()
+  }
+  return MISSING_IMPACT_TEXT
+}
+
+function getFindingRecommendation(finding: Finding): string {
+  const extended = getExtendedFinding(finding)
+  if (typeof extended.recommendation === "string" && extended.recommendation.trim().length > 0) {
+    return extended.recommendation.trim()
+  }
+  if (typeof finding.remediation === "string" && finding.remediation.trim().length > 0) {
+    return finding.remediation.trim()
+  }
+  return MISSING_RECOMMENDATION_TEXT
+}
+
+function getPocEvidence(finding: Finding): string | undefined {
+  const extended = getExtendedFinding(finding)
+  if (typeof extended.proofOfConcept === "string" && extended.proofOfConcept.trim().length > 0) {
+    return extended.proofOfConcept.trim()
+  }
+  if (typeof finding.exploitReference === "string" && finding.exploitReference.trim().length > 0) {
+    return finding.exploitReference.trim()
+  }
+  return undefined
+}
+
+function compareFindingsDeterministically(a: Finding, b: Finding): number {
+  const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+  if (severityDelta !== 0) return severityDelta
+
+  const fileDelta = a.file.localeCompare(b.file)
+  if (fileDelta !== 0) return fileDelta
+
+  const lineDelta = (a.lines[0] ?? 0) - (b.lines[0] ?? 0)
+  if (lineDelta !== 0) return lineDelta
+
+  return a.id.localeCompare(b.id)
+}
+
+function sortFindingsDeterministically(findings: Finding[]): Finding[] {
+  return [...findings].sort(compareFindingsDeterministically)
+}
+
+export function validateReportQuality(
+  findings: Finding[],
+  policy: QualityGatePolicy,
+): ReportQualityValidation {
+  const violations: ReportQualityViolation[] = []
+
+  for (const finding of findings) {
+    const findingId = finding.id
+    const impact = getFindingImpact(finding)
+    const recommendation = getFindingRecommendation(finding)
+    const severity = finding.severity
+
+    if (!finding.id || !finding.check || !finding.file || !Array.isArray(finding.lines)) {
+      violations.push({
+        findingId,
+        code: "schema.missing-required",
+        message: "Finding is missing required fields for deterministic report rendering.",
+      })
+    }
+
+    if (!finding.description || finding.description.trim().length === 0) {
+      violations.push({
+        findingId,
+        code: "completeness.missing-description",
+        message: "Finding description must be non-empty.",
+      })
+    }
+
+    if (!finding.source || finding.source.trim().length === 0) {
+      violations.push({
+        findingId,
+        code: "provenance.missing-source",
+        message: "Finding source is required for provenance traceability.",
+      })
+    }
+
+    if (severity !== "Critical" && severity !== "High") {
+      continue
+    }
+
+    if (
+      impact.length === 0 ||
+      impact === MISSING_IMPACT_TEXT ||
+      impact === genericImpact(severity)
+    ) {
+      violations.push({
+        findingId,
+        code: "severity-justification.missing-impact",
+        message: `${severity} findings must include specific non-generic impact details.`,
+      })
+    }
+
+    if (
+      recommendation.length === 0 ||
+      recommendation === MISSING_RECOMMENDATION_TEXT ||
+      recommendation === genericRecommendation(severity)
+    ) {
+      violations.push({
+        findingId,
+        code: "severity-justification.missing-recommendation",
+        message: `${severity} findings must include specific non-generic recommendations.`,
+      })
+    }
+
+    if (getPocEvidence(finding) == null) {
+      violations.push({
+        findingId,
+        code: "severity-justification.missing-poc",
+        message: `${severity} findings must satisfy PoC policy with exploitReference or proofOfConcept.`,
+      })
+    }
+  }
+
+  if (policy === "warn" && violations.length > 0) {
+    const logger = createLogger()
+    logger.warn(`[report-generator] quality gates failed with ${violations.length} violation(s)`)
+    for (const violation of violations) {
+      logger.warn(
+        `[report-generator] [${violation.code}] finding=${violation.findingId}: ${violation.message}`,
+      )
+    }
+  }
+
+  return {
+    passed: violations.length === 0,
+    violations,
+  }
+}
+
 function buildRecommendations(counts: FindingsCount): string[] {
   const items: string[] = []
 
@@ -434,7 +926,8 @@ function buildFindingsSection(findings: Finding[]): string {
       const prefix = SEVERITY_PREFIX[severity]
       const findingId = `[${prefix}-${index + 1}]`
       const title = normalizeTitle(finding.check)
-      const recommendation = finding.remediation ?? genericRecommendation(severity)
+      const recommendation = getFindingRecommendation(finding)
+      const impact = getFindingImpact(finding)
 
       lines.push(`### ${findingId} ${title}`)
       lines.push(`**Severity**: ${finding.severity}`)
@@ -443,9 +936,14 @@ function buildFindingsSection(findings: Finding[]): string {
       lines.push("")
       lines.push(`**Description**: ${finding.description}`)
       lines.push("")
-      lines.push(`**Impact**: ${genericImpact(finding.severity)}`)
+      lines.push(`**Impact**: ${impact}`)
       lines.push("")
       lines.push(`**Recommendation**: ${recommendation}`)
+      const pocEvidence = getPocEvidence(finding)
+      if (pocEvidence) {
+        lines.push("")
+        lines.push(`**PoC / Evidence**: ${pocEvidence}`)
+      }
       lines.push("")
     })
   }
@@ -465,7 +963,7 @@ export function buildProvenanceAppendix(
 ): string {
   const lines: string[] = ["## Appendix: Data Provenance"]
 
-  lines.push("- Data source: `audit_state` payload")
+  lines.push("- Data source: `report_input` payload (legacy `audit_state` supported via adapter)")
   lines.push(`- Severity threshold applied: ${threshold}`)
   lines.push(`- Findings included in report: ${includedCount}`)
 
@@ -479,7 +977,11 @@ export function buildProvenanceAppendix(
     lines.push("")
     lines.push("| Source | Count |")
     lines.push("| --- | ---: |")
-    for (const [source, count] of Object.entries(sourceCounts).sort((a, b) => b[1] - a[1])) {
+    for (const [source, count] of Object.entries(sourceCounts).sort((a, b) => {
+      const countDelta = b[1] - a[1]
+      if (countDelta !== 0) return countDelta
+      return a[0].localeCompare(b[0])
+    })) {
       lines.push(`| ${source} | ${count} |`)
     }
   }
@@ -562,8 +1064,19 @@ export async function executeReportGeneration(
 ): Promise<ReportGenerationResult> {
   const includeExecutiveSummary = args.include_executive_summary ?? true
   const threshold = args.severity_threshold ?? "low"
-  const state = parseAuditState(args.audit_state)
-  const findings = state.findings.filter((finding) => shouldIncludeFinding(finding, threshold))
+  const qualityGatePolicy = args.quality_gate_policy ?? "warn"
+  const { reportInput, diagnostics } = parseReportInputPayload(args, context)
+  const state = reportInputToAuditState(reportInput)
+  const scope = args.scope.length > 0 ? args.scope : reportInput.scope
+  const findings = sortFindingsDeterministically(
+    state.findings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+  )
+  const qualityGates = validateReportQuality(findings, qualityGatePolicy)
+  if (!qualityGates.passed && qualityGatePolicy === "strict-fail") {
+    throw new Error(
+      `Report quality gates failed: ${JSON.stringify({ passed: false, violations: qualityGates.violations })}`,
+    )
+  }
   const counts = calculateCounts(findings)
   const auditDate = new Date().toISOString().slice(0, 10)
 
@@ -590,10 +1103,10 @@ export async function executeReportGeneration(
 
   sections.push("## Scope")
   sections.push("Contracts in scope:")
-  if (args.scope.length === 0) {
+  if (scope.length === 0) {
     sections.push("- None provided")
   } else {
-    for (const contract of args.scope) {
+    for (const contract of scope) {
       sections.push(`- ${contract}`)
     }
   }
@@ -606,7 +1119,7 @@ export async function executeReportGeneration(
   sections.push("- Pattern Analysis")
   sections.push("- Solodit research cross-referencing")
   sections.push(
-    "Approach: Findings were normalized, deduplicated by detector signature and location, then prioritized by severity and confidence.",
+    "Approach: Findings are normalized, deterministically ordered by severity/file/line, and validated against report quality gates before emission.",
   )
 
   sections.push(buildFindingsSection(findings))
@@ -618,14 +1131,26 @@ export async function executeReportGeneration(
 
   sections.push(buildProvenanceAppendix(state, threshold, findings.length))
 
+  // Embed report metadata for single-writer policy enforcement
+  const runId = reportInput.run_id || state.sessionId || ""
+  if (runId) {
+    sections.push(buildReportMetadataComment(runId))
+  }
+
   const reportMarkdown = sections.join("\n\n")
+  const contentHash = stableHash(reportMarkdown)
   const safeName = args.project_name.replace(/[^a-zA-Z0-9-_]/g, "-")
-  const diskFilename = `${safeName}-${Date.now()}.md`
+  // Canonical date-based path when run_id available (deterministic for duplicate detection);
+  // timestamp-based path otherwise (backward compat)
+  const diskFilename = runId ? `${safeName}-audit-${auditDate}.md` : `${safeName}-${Date.now()}.md`
 
   const result: ReportGenerationResult = {
     report: reportMarkdown,
     findingsCount: counts,
     filename: `${args.project_name}-audit-report-${auditDate}.md`,
+    contentHash,
+    qualityGates,
+    contractDiagnostics: diagnostics,
   }
 
   try {
@@ -634,6 +1159,16 @@ export async function executeReportGeneration(
     const config = loadConfig(projectDir)
     const outputDir = config.reporting?.output_dir ?? ".opencode/reports/"
     const fullPath = path.join(projectDir, outputDir, diskFilename)
+
+    // Single-writer policy: check for duplicate writes with same run_id
+    if (runId) {
+      const duplicateError = await checkDuplicateWrite(fullPath, runId)
+      if (duplicateError) {
+        result.error = duplicateError
+        return result
+      }
+    }
+
     await Bun.write(fullPath, reportMarkdown)
     result.filePath = fullPath
   } catch (err: unknown) {
@@ -647,7 +1182,7 @@ export async function executeReportGeneration(
 
 export const reportGeneratorTool = tool({
   description:
-    "Generate a professional markdown security audit report from serialized findings and audit context.",
+    "Generate a professional markdown security audit report from versioned ReportInput payloads with legacy audit_state compatibility.",
   args: {
     project_name: tool.schema.string(),
     scope: tool.schema.array(tool.schema.string()),
@@ -655,7 +1190,8 @@ export const reportGeneratorTool = tool({
     severity_threshold: tool.schema
       .enum(["critical", "high", "medium", "low", "informational"])
       .default("low"),
-    audit_state: tool.schema.string(),
+    report_input: tool.schema.string().optional(),
+    audit_state: tool.schema.string().optional(),
   },
   async execute(args, context) {
     const result = await executeReportGeneration(args, context)
