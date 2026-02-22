@@ -91,3 +91,46 @@ jobs:
 
       - name: Run full test suite
         run: bun test
+
+  production-readiness:
+    name: Production Readiness
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Determinism replay tests
+        run: bun test tests/integration/determinism-replay.test.ts
+
+      - name: Subagent telemetry capture tests
+        run: bun test tests/integration/subagent-telemetry-capture.test.ts
+
+      - name: Report contract tests
+        run: bun test tests/integration/report-contract.test.ts
+
+      - name: Report quality gates tests
+        run: bun test tests/integration/report-quality-gates.test.ts
+
+      - name: Migration modes tests
+        run: bun test tests/integration/migration-modes.test.ts
+
+      - name: Single writer policy tests
+        run: bun test tests/integration/single-writer-policy.test.ts
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-readiness-evidence
+          path: .sisyphus/evidence/
+          retention-days: 90
+          if-no-files-found: ignore

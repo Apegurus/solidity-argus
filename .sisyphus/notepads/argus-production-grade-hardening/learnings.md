@@ -173,3 +173,11 @@ process is healthy. But a `callMcpTool` caller may still work even when the flag
 - **`createDropDiagnosticsCollector("strict-fail")` throws via `throwIfStrict()`**: This is the correct pattern for strict mode rejection — collect all diagnostics first, then throw a single `DropDiagnosticsError` with all accumulated violations.
 - **`stableHash` for parity comparison**: Using `stableHash` from projectors.ts with projection of key fields (id, check, severity, file) gives deterministic content comparison between legacy and canonical findings.
 - **Pre-existing flaky test**: `tests/integration/report-quality-gates.test.ts` "identical input produces identical content hash across 5 runs" is flaky (timestamp-dependent). Not caused by migration changes.
+
+## Task 17: Production Readiness CI Enforcement (2026-02-22)
+- Added `production-readiness` CI job that runs 6 integration test suites individually for clear failure attribution
+- All 6 integration test files from tasks 6, 7, 13, 14, 15, 16 verified passing (58 tests total)
+- CI artifact retention: `.sisyphus/evidence/` uploaded with 90-day retention via actions/upload-artifact@v4
+- Job depends on `test` (needs: [test]) — runs after unit tests pass
+- `if: always()` on artifact upload ensures evidence is captured even on test failure
+- Full suite remains at 1138 tests, 0 failures after CI changes
