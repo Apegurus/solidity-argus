@@ -367,6 +367,41 @@ describe("createToolTrackingHook", () => {
     })
   })
 
+  test("emits tool events to sink even when audit state is unavailable", async () => {
+    const sink = createMockSink()
+    const hookWithoutState = createToolTrackingHook(() => null, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-1",
+    })
+
+    await hookWithoutState({
+      tool: "argus_slither_analyze",
+      args: { target: "." },
+      result: JSON.stringify({ success: true, findings: [] }),
+    })
+
+    const started = sink.events.filter((e) => e.type === "tool.started")
+    const completed = sink.events.filter((e) => e.type === "tool.completed")
+
+    expect(started).toHaveLength(1)
+    expect(completed).toHaveLength(1)
+
+    const startPayload = started[0]?.payload as Record<string, unknown>
+    expect(startPayload.tool).toBe("argus_slither_analyze")
+
+    const completedPayload = completed[0]?.payload as Record<string, unknown>
+    expect(completedPayload.tool).toBe("argus_slither_analyze")
+    expect(completedPayload.findingsCount).toBe(0)
+    expect(completedPayload.success).toBe(false)
+
+    // tool_call_id must be consistent between started and completed
+    expect(started[0]?.tool_call_id).toBe(completed[0]?.tool_call_id)
+
+    // run_id and session_id are empty strings when state is unavailable
+    expect(started[0]?.run_id).toBe("")
+    expect(started[0]?.session_id).toBe("")
+  })
+
   describe("solodit evidence tracking", () => {
     test("solodit search results captured in auditState.soloditResults", async () => {
       const soloditResult = {

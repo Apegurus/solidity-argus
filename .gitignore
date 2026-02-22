@@ -62,4 +62,8 @@ opus-h-production-readiness-assessment.md
 
 # test artifacts
 tests/fixtures/vulnerable-vault/.opencode/reports/
+tests/fixtures/vulnerable-vault/.opencode/runs/
 tests/fixtures/vulnerable-vault/test/ReentrancyPoC.t.sol
+
+# claude-generated reports
+.claude/reports/

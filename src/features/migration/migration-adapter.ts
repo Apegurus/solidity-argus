@@ -10,6 +10,13 @@ import type { AuditState, Finding } from "../../state/types"
 export type MigrationMode = "legacy" | "dual" | "strict"
 
 /**
+ * Returns the active migration mode from config, defaulting to "legacy".
+ */
+export function getMigrationMode(config: { migration?: { mode?: MigrationMode } }): MigrationMode {
+  return config.migration?.mode ?? "legacy"
+}
+
+/**
  * Adapts a legacy `AuditState` into canonical `CanonicalFinding[]`.
  *
  * In legacy mode: returns the raw findings as-is (backward compatible).

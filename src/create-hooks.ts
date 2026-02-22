@@ -8,6 +8,7 @@ import {
   createToolErrorRecoveryHandler,
 } from "./features/error-recovery"
 import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
+import { getMigrationMode } from "./features/migration"
 import { createEventSink, type EventSink } from "./features/persistent-state/event-sink"
 import { recordRun } from "./features/persistent-state/global-run-index"
 import { createRunJournal } from "./features/persistent-state/run-journal"
@@ -24,6 +25,7 @@ import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createLogger } from "./shared/logger"
+import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import type { AuditState } from "./state/types"
 import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
 import { detectProject, type ProjectConfig } from "./utils/project-detector"
@@ -78,6 +80,9 @@ export function createHooks(args: {
   const agentTracker = createAgentTracker()
   _agentTrackerRef = agentTracker
 
+  const migrationMode = getMigrationMode(config)
+  logger.debug(`Migration mode: ${migrationMode}`)
+
   const contextMonitor = createContextMonitor()
   const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
   const debouncedSave = createDebouncedSave(auditStateManager.save)
@@ -99,6 +104,7 @@ export function createHooks(args: {
     getAuditState,
     setAuditState,
     setEventSink,
+    getLastFinalizationResult,
   } = createEventHook(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
       if (type === "session.created") {
@@ -130,8 +136,14 @@ export function createHooks(args: {
         const effectiveState = recoveredState ?? auditStateManager.get()
         if (effectiveState) {
           try {
+            // createAuditArtifactResolver is the canonical source for all run artifact paths.
+            // The journal file path is: {projectDir}/.opencode/runs/{runId}/events.jsonl
+            const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
+            const journalFile = resolver.paths().journalFile
+            // createEventSink builds the same path internally; the resolver makes it explicit.
             currentEventSink = createEventSink(effectiveState.sessionId, projectDir)
             setEventSink(currentEventSink)
+            logger.debug(`Event sink journal path: ${journalFile}`)
           } catch (error) {
             logger.error(
               `Failed to create event sink: ${error instanceof Error ? error.message : String(error)}`,
@@ -306,6 +318,7 @@ export function createHooks(args: {
                 type: "session.deleted",
                 timestamp: Date.now(),
                 archived: true,
+                finalizationPassed: getLastFinalizationResult()?.invariantsPassed ?? null,
               })
 
               currentEventSink = null

@@ -426,7 +426,28 @@ export function createToolTrackingHook(
     }
 
     const resolved = resolveStateAndStore()
-    if (!resolved) return
+    if (!resolved) {
+      const sinkForNoState = options?.getEventSink?.()
+      if (sinkForNoState) {
+        const toolCallId = randomUUID()
+        await emitToSink(
+          sinkForNoState,
+          buildEvent("tool.started", "", "", toolCallId, {
+            tool: input.tool,
+            args: input.args,
+          }),
+        )
+        await emitToSink(
+          sinkForNoState,
+          buildEvent("tool.completed", "", "", toolCallId, {
+            tool: input.tool,
+            findingsCount: 0,
+            success: false,
+          }),
+        )
+      }
+      return
+    }
 
     const { state: auditState, store } = resolved
     const sink = options?.getEventSink?.()

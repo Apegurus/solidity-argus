@@ -1,6 +1,7 @@
 export {
   adaptLegacyFindings,
   adaptLegacyStateToReportInput,
+  getMigrationMode,
   type MigrationMode,
   validateStrictCompatibility,
 } from "./migration-adapter"

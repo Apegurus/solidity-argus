@@ -1,5 +1,6 @@
 import type { EventSink } from "../features/persistent-state/event-sink"
 import { finalizeRun } from "../features/persistent-state/run-finalizer"
+import type { FinalizationResult } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
 import { createAuditState } from "../state/audit-state"
 import type { AuditEvent } from "../state/schemas"
@@ -34,10 +35,12 @@ export function createEventHook(
   getAuditState: () => AuditState | null
   setAuditState: (state: AuditState | null) => void
   setEventSink: (sink: EventSink | null) => void
+  getLastFinalizationResult: () => FinalizationResult | null
 } {
   const logger = createLogger()
   let currentAuditState: AuditState | null = null
   let eventSink: EventSink | null = null
+  let lastFinalizationResult: FinalizationResult | null = null
 
   const getAuditState = (): AuditState | null => currentAuditState
   const setAuditState = (state: AuditState | null): void => {
@@ -161,7 +164,11 @@ export function createEventHook(
 
           if (eventSink) {
             try {
-              await finalizeRun(preDeleteState.sessionId, preDeleteState.projectDir, eventSink)
+              lastFinalizationResult = await finalizeRun(
+                preDeleteState.sessionId,
+                preDeleteState.projectDir,
+                eventSink,
+              )
             } catch (error) {
               logger.error(
                 `Failed to finalize run ${preDeleteState.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -178,5 +185,7 @@ export function createEventHook(
     }
   }
 
-  return { hook, getAuditState, setAuditState, setEventSink }
+  const getLastFinalizationResult = (): FinalizationResult | null => lastFinalizationResult
+
+  return { hook, getAuditState, setAuditState, setEventSink, getLastFinalizationResult }
 }

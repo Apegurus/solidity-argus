@@ -15,7 +15,7 @@ export type JournalEvent =
       findingsCount: number
       toolsExecutedCount: number
     }
-  | { type: "session.deleted"; timestamp: number; archived: boolean }
+  | { type: "session.deleted"; timestamp: number; archived: boolean; finalizationPassed: boolean | null }
   | {
       type: "tool.executed"
       tool: string

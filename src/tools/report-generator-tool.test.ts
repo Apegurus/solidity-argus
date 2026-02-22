@@ -151,7 +151,7 @@ test("executeReportGeneration creates complete markdown report with findings by 
   expect(result.report).toContain("| Informational | 1 |")
 
   const today = new Date().toISOString().slice(0, 10)
-  expect(result.filename).toBe(`TestVault-audit-report-${today}.md`)
+  expect(result.filename).toBe(`TestVault-security-audit-${today}.md`)
 })
 
 test("executeReportGeneration applies medium severity threshold", async () => {
@@ -861,7 +861,7 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
 
     expect(result.filePath).toBeDefined()
     const filename = path.basename(result.filePath ?? "")
-    expect(filename).toMatch(/^My-Cool-Project-----.+\.md$/)
+    expect(filename).toMatch(/^My-Cool-Project-security-audit-\d{4}-\d{2}-\d{2}\.md$/)
     expect(filename).not.toMatch(/[!@#$]/)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })

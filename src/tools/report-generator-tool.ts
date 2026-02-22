@@ -7,6 +7,7 @@ import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
+import { resolveReportPath } from "../shared/report-path-resolver"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import { stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
@@ -1138,15 +1139,17 @@ export async function executeReportGeneration(
 
   const reportMarkdown = sections.join("\n\n")
   const contentHash = stableHash(reportMarkdown)
-  const safeName = args.project_name.replace(/[^a-zA-Z0-9-_]/g, "-")
-  // Canonical date-based path when run_id available (deterministic for duplicate detection);
-  // timestamp-based path otherwise (backward compat)
-  const diskFilename = runId ? `${safeName}-audit-${auditDate}.md` : `${safeName}-${Date.now()}.md`
+  const { filename: canonicalFilename } = resolveReportPath({
+    contractName: args.project_name,
+    date: new Date(auditDate),
+    outputDir: ".opencode/reports/",
+    runId: runId || undefined,
+  })
 
   const result: ReportGenerationResult = {
     report: reportMarkdown,
     findingsCount: counts,
-    filename: `${args.project_name}-audit-report-${auditDate}.md`,
+    filename: canonicalFilename,
     contentHash,
     qualityGates,
     contractDiagnostics: diagnostics,
@@ -1157,7 +1160,7 @@ export async function executeReportGeneration(
     const projectDir = resolveProjectDir(context)
     const config = loadConfig(projectDir)
     const outputDir = config.reporting?.output_dir ?? ".opencode/reports/"
-    const fullPath = path.join(projectDir, outputDir, diskFilename)
+    const fullPath = path.join(projectDir, outputDir, canonicalFilename)
 
     // Single-writer policy: check for duplicate writes with same run_id
     if (runId) {
