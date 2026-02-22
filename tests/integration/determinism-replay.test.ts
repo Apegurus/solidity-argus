@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { materializeFindings } from "../../src/features/persistent-state/findings-materializer"
@@ -287,6 +287,34 @@ describe("deterministic replay projectors", () => {
       expect(first.content_hash.length).toBeGreaterThan(0)
     } finally {
       await rm(tempProjectDir, { recursive: true, force: true })
+    }
+  })
+
+  test("materializeFindings writes byte-identical artifact for identical events", async () => {
+    const tempProjectDirA = await mkdtemp(join(tmpdir(), "argus-determinism-replay-a-"))
+    const tempProjectDirB = await mkdtemp(join(tmpdir(), "argus-determinism-replay-b-"))
+
+    try {
+      const events = fixtureEvents()
+      await writeReplayEvents(tempProjectDirA, RUN_ID, events)
+      await writeReplayEvents(tempProjectDirB, RUN_ID, events)
+
+      const first = await materializeFindings(RUN_ID, tempProjectDirA, SESSION_ID)
+      const second = await materializeFindings(RUN_ID, tempProjectDirB, SESSION_ID)
+
+      const findingsPathA = createAuditArtifactResolver(RUN_ID, tempProjectDirA).paths()
+        .findingsFile
+      const findingsPathB = createAuditArtifactResolver(RUN_ID, tempProjectDirB).paths()
+        .findingsFile
+
+      const bytesA = await readFile(findingsPathA)
+      const bytesB = await readFile(findingsPathB)
+
+      expect(bytesA.equals(bytesB)).toBe(true)
+      expect(first.content_hash).toBe(second.content_hash)
+    } finally {
+      await rm(tempProjectDirA, { recursive: true, force: true })
+      await rm(tempProjectDirB, { recursive: true, force: true })
     }
   })
 })

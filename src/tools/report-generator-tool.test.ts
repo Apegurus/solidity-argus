@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
+import { SCHEMA_VERSION } from "../state/schemas"
 import type {
   AuditState,
   Finding,
@@ -978,6 +979,143 @@ test("preflight warn mode adds Completeness Warning section", async () => {
 
   expect(result.report).toContain("\u26A0 Completeness Warning")
   expect(result.report).toContain("incomplete orchestration state")
+  expect(result.report).toContain("Missing lifecycle")
+})
+
+test("executeReportGeneration rejects malformed toolsExecuted in report_input", async () => {
+  const malformedReportInput = {
+    run_id: "run-malformed-tools",
+    seq: 1,
+    session_id: "sess-malformed-tools",
+    tool_call_id: "tc-report-malformed",
+    source: "argus",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [
+      {
+        tool: "argus_forge_test",
+        startTime: 100,
+        endTime: 120,
+        findingsCount: 0,
+        run_id: "run-malformed-tools",
+        schema_version: SCHEMA_VERSION,
+      },
+    ],
+    scope: ["Vault.sol"],
+  }
+
+  expect(
+    executeReportGeneration(
+      {
+        project_name: "MalformedToolsExecuted",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(malformedReportInput),
+      },
+      createContext(),
+    ),
+  ).rejects.toThrow("ReportInput contract mismatch")
+})
+
+test("durable-evidence report path renders without undefined when synthesis text is absent", async () => {
+  const reportInput = {
+    run_id: "run-durable-only",
+    seq: 2,
+    session_id: "sess-durable-only",
+    tool_call_id: "tc-report-durable",
+    source: "argus",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp/project",
+    findings: [
+      {
+        id: "f-durable-1",
+        check: "reentrancy-withdraw",
+        severity: "High",
+        confidence: "High",
+        description: "State update follows external call",
+        file: "src/Vault.sol",
+        lines: [42, 55],
+        source: "manual",
+        run_id: "run-durable-only",
+        seq: 2,
+        schema_version: SCHEMA_VERSION,
+      },
+    ],
+    toolsExecuted: [
+      {
+        tool: "argus_forge_test",
+        startTime: 100,
+        endTime: 200,
+        success: true,
+        findingsCount: 1,
+        run_id: "run-durable-only",
+        schema_version: SCHEMA_VERSION,
+      },
+    ],
+    scope: ["src/Vault.sol"],
+  }
+
+  const completeEvents = [
+    {
+      type: "session.created" as const,
+      run_id: "run-durable-only",
+      seq: 1,
+      session_id: "sess-durable-only",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_401,
+      payload: { scope: ["src/Vault.sol"] },
+    },
+    {
+      type: "tool.started" as const,
+      run_id: "run-durable-only",
+      seq: 2,
+      session_id: "sess-durable-only",
+      tool_call_id: "tool-call-durable",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_402,
+      payload: { tool: "argus_forge_test" },
+    },
+    {
+      type: "tool.completed" as const,
+      run_id: "run-durable-only",
+      seq: 3,
+      session_id: "sess-durable-only",
+      tool_call_id: "tool-call-durable",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_403,
+      payload: { tool: "argus_forge_test", success: true, findingsCount: 1 },
+    },
+    {
+      type: "session.deleted" as const,
+      run_id: "run-durable-only",
+      seq: 4,
+      session_id: "sess-durable-only",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_404,
+      payload: {},
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "DurableOnlyNoSynthesis",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(reportInput),
+      preflight_policy: "warn",
+    },
+    createContext(),
+    {
+      readEvents: async () => completeEvents,
+    },
+  )
+
+  expect(result.report).toContain("# Security Audit Report — DurableOnlyNoSynthesis")
+  expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
+  expect(result.report).not.toContain("undefined")
 })
 
 test("preflight warn mode succeeds when event read fails", async () => {
@@ -1046,7 +1184,6 @@ test("preflight strict-fail throws when event read fails", async () => {
   ).rejects.toThrow("unable to read event stream")
 })
 
-
 test("filename date matches body audit date (parity)", async () => {
   // The date in the report body ("Audit date: YYYY-MM-DD") must match the date in the filename
   const result = await executeReportGeneration(
@@ -1061,12 +1198,18 @@ test("filename date matches body audit date (parity)", async () => {
   // Extract date from filename: ParityProject-security-audit-YYYY-MM-DD.md
   const filenameMatch = result.filename.match(/-(\d{4}-\d{2}-\d{2})\.md$/)
   expect(filenameMatch).not.toBeNull()
-  const filenameDate = filenameMatch![1]
+  if (!filenameMatch) {
+    throw new Error("expected filename to contain date suffix")
+  }
+  const filenameDate = filenameMatch[1]
 
   // Extract date from report body: "Audit date: YYYY-MM-DD"
   const bodyMatch = result.report.match(/Audit date: (\d{4}-\d{2}-\d{2})/)
   expect(bodyMatch).not.toBeNull()
-  const bodyDate = bodyMatch![1]
+  if (!bodyMatch) {
+    throw new Error("expected report body to contain audit date")
+  }
+  const bodyDate = bodyMatch[1]
 
   expect(filenameDate).toBe(bodyDate)
 })
