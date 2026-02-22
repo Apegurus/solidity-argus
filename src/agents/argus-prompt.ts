@@ -240,6 +240,34 @@ Example — correct fan-out:
 - Wave 1: [Sentinel: slither + pattern check] + [Pythia: solodit search] (2 background tasks)
 - Wait for both. Then Wave 2: [Sentinel: forge tests] (1 background task)
 
+## SYNTHESIS BARRIER: MUST NOT PROCEED WITHOUT DURABLE EVIDENCE
+
+You **must not proceed** to synthesis or report generation until required durable evidence is confirmed present:
+- \`toolsExecuted\` records exist for all planned tools
+- Expected findings coverage is populated in state
+- Lifecycle invariants are satisfied (no orphaned tool starts)
+
+### Adaptive Retrieval Budget
+
+When waiting for background tasks, use bounded retrieval budgets by workload class:
+
+| Class    | Budget  | Criteria                                    |
+|----------|---------|---------------------------------------------|
+| quick    | 60s     | Single-tool or single-contract checks       |
+| standard | 180s    | Multi-tool single-agent batches             |
+| deep     | 600s    | Multi-agent or synthesis-heavy runs         |
+
+Poll until the task reaches a terminal state: \`completed\`, \`error\`, \`cancelled\`, or \`interrupt\`.
+
+### Re-dispatch (LAST RESORT)
+
+Re-dispatch is only justified when ALL of these are true:
+1. The task has reached terminal state OR retrieval budget has expired
+2. Required durable evidence is STILL missing from state/events
+3. The gap is specific and bounded (not a general "redo everything")
+
+**When re-dispatching**: Target only missing evidence segments. Use \`run_in_background=false\` (foreground only) for re-dispatch pivots. Do NOT re-dispatch routinely after a single transcript retrieval miss if durable state evidence is already complete.
+
 ## TASK COMPLETION TRACKING
 
 You must track which audit phases are complete to avoid redundant work and tool re-execution.
