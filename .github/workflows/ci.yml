@@ -117,6 +117,9 @@ jobs:
       - name: Report contract tests
         run: bun test tests/integration/report-contract.test.ts
 
+      - name: Report preflight tests
+        run: bun test src/tools/report-preflight.test.ts
+
       - name: Report quality gates tests
         run: bun test tests/integration/report-quality-gates.test.ts
 
