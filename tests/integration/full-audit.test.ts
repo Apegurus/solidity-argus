@@ -199,6 +199,7 @@ describe("full audit integration", () => {
         scope: ["VulnerableVault.sol"],
         include_executive_summary: true,
         severity_threshold: "low",
+        preflight_policy: "warn",
         audit_state: JSON.stringify({ findings }),
       },
       createMockContext(),

@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { materializeFindings } from "../../src/features/persistent-state/findings-materializer"
+import { createAuditArtifactResolver } from "../../src/shared/audit-artifact-resolver"
 import {
   ProjectorError,
   projectAuditState,
@@ -185,6 +190,17 @@ function fixtureEvents(): AuditEvent[] {
   ]
 }
 
+async function writeReplayEvents(
+  projectDir: string,
+  runId: string,
+  events: AuditEvent[],
+): Promise<void> {
+  const resolver = createAuditArtifactResolver(runId, projectDir)
+  const journalFile = resolver.paths().journalFile
+  await mkdir(dirname(journalFile), { recursive: true })
+  await writeFile(journalFile, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`)
+}
+
 describe("deterministic replay projectors", () => {
   test("projectors are byte-identical across 10 replays", () => {
     const events = fixtureEvents()
@@ -249,6 +265,28 @@ describe("deterministic replay projectors", () => {
       if (error instanceof ProjectorError) {
         expect(error.code).toBe("DUPLICATE_SEQ")
       }
+    }
+  })
+
+  test("materialized findings artifact includes identity metadata and stable content hash", async () => {
+    const tempProjectDir = await mkdtemp(join(tmpdir(), "argus-determinism-replay-"))
+    try {
+      const events = fixtureEvents()
+      await writeReplayEvents(tempProjectDir, RUN_ID, events)
+
+      const first = await materializeFindings(RUN_ID, tempProjectDir, SESSION_ID)
+      const second = await materializeFindings(RUN_ID, tempProjectDir, SESSION_ID)
+
+      expect(first.run_id).toBe(RUN_ID)
+      expect(first.session_id).toBe(SESSION_ID)
+      expect(first.seq_first).toBe(1)
+      expect(first.seq_last).toBe(10)
+      expect(first.event_count).toBe(events.length)
+      expect(first.findings.length).toBeGreaterThan(0)
+      expect(first.content_hash).toBe(second.content_hash)
+      expect(first.content_hash.length).toBeGreaterThan(0)
+    } finally {
+      await rm(tempProjectDir, { recursive: true, force: true })
     }
   })
 })

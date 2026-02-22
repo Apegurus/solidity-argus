@@ -246,6 +246,7 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
       scope: ["Vault.sol"],
       include_executive_summary: true,
       severity_threshold: "low",
+      preflight_policy: "warn",
       audit_state: JSON.stringify(findings),
     },
     createContext(),
@@ -866,4 +867,181 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
+})
+
+test("preflight strict-fail throws when events have orphaned tool", async () => {
+  const orphanedEvents = [
+    {
+      type: "session.created" as const,
+      run_id: "run-1",
+      seq: 1,
+      session_id: "sess-1",
+      source: "argus",
+      schema_version: "1.0.0",
+      timestamp: Date.now(),
+      payload: {},
+    },
+    {
+      type: "tool.started" as const,
+      run_id: "run-1",
+      seq: 2,
+      session_id: "sess-1",
+      tool_call_id: "orphan-call-1",
+      source: "sentinel",
+      schema_version: "1.0.0",
+      timestamp: Date.now(),
+      payload: { name: "argus_slither_analyze" },
+    },
+    // No tool.completed for orphan-call-1 → orphaned
+  ]
+
+  const reportInput = {
+    run_id: "run-1",
+    seq: 3,
+    session_id: "sess-1",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: "1.0.0",
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  expect(
+    executeReportGeneration(
+      {
+        project_name: "PreflightStrictTest",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+        preflight_policy: "strict-fail",
+      },
+      createContext(),
+      {
+        readEvents: async () => orphanedEvents,
+      },
+    ),
+  ).rejects.toThrow("Preflight failed (strict-fail)")
+})
+
+test("preflight warn mode adds Completeness Warning section", async () => {
+  const orphanedEvents = [
+    {
+      type: "session.created" as const,
+      run_id: "run-2",
+      seq: 1,
+      session_id: "sess-2",
+      source: "argus",
+      schema_version: "1.0.0",
+      timestamp: Date.now(),
+      payload: {},
+    },
+    {
+      type: "tool.started" as const,
+      run_id: "run-2",
+      seq: 2,
+      session_id: "sess-2",
+      tool_call_id: "orphan-call-2",
+      source: "sentinel",
+      schema_version: "1.0.0",
+      timestamp: Date.now(),
+      payload: { name: "argus_slither_analyze" },
+    },
+    // No tool.completed → orphaned
+  ]
+
+  const reportInput = {
+    run_id: "run-2",
+    seq: 3,
+    session_id: "sess-2",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: "1.0.0",
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "PreflightWarnTest",
+      scope: ["Vault.sol"],
+      report_input: JSON.stringify(reportInput),
+      preflight_policy: "warn",
+    },
+    createContext(),
+    {
+      readEvents: async () => orphanedEvents,
+    },
+  )
+
+  expect(result.report).toContain("\u26A0 Completeness Warning")
+  expect(result.report).toContain("incomplete orchestration state")
+})
+
+test("preflight warn mode succeeds when event read fails", async () => {
+  const reportInput = {
+    run_id: "run-3",
+    seq: 1,
+    session_id: "sess-3",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: "1.0.0",
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "PreflightWarnFallback",
+      scope: ["Vault.sol"],
+      report_input: JSON.stringify(reportInput),
+      preflight_policy: "warn",
+    },
+    createContext(),
+    {
+      readEvents: async () => {
+        throw new Error("Event file not found")
+      },
+    },
+  )
+
+  // Should succeed — no throw in warn mode
+  expect(result.report).toContain("# Security Audit Report")
+  expect(result.report).not.toContain("Completeness Warning")
+})
+
+test("preflight strict-fail throws when event read fails", async () => {
+  const reportInput = {
+    run_id: "run-4",
+    seq: 1,
+    session_id: "sess-4",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: "1.0.0",
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  expect(
+    executeReportGeneration(
+      {
+        project_name: "PreflightStrictNoEvents",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+        preflight_policy: "strict-fail",
+      },
+      createContext(),
+      {
+        readEvents: async () => {
+          throw new Error("Event file not found")
+        },
+      },
+    ),
+  ).rejects.toThrow("unable to read event stream")
 })
