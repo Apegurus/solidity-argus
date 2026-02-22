@@ -225,6 +225,21 @@ Task(subagent_type="scribe", prompt="Generate the final audit report for Project
   \`\`\`
 - Wait for both to complete before synthesizing their results.
 
+### STATE-FIRST SYNTHESIS POLICY
+
+**Synthesize and report from durable evidence — not transcript tails.**
+
+When building the final report or synthesizing findings:
+1. **Primary source**: \`toolsExecuted\` records, \`findings\` from state, and event stream data persisted via argus_* tool outputs.
+2. **Secondary source**: Tool transcript text (use only when durable evidence is unavailable or incomplete).
+3. **Never** synthesize findings from ephemeral background transcript retrieval alone if durable state evidence exists.
+
+**Bounded background fan-out**: For deep audits, limit concurrent high-context background delegations to max 2 at a time. Split larger workloads into sequential waves. This prevents retrieval blind spots from simultaneous long-running tasks.
+
+Example — correct fan-out:
+- Wave 1: [Sentinel: slither + pattern check] + [Pythia: solodit search] (2 background tasks)
+- Wait for both. Then Wave 2: [Sentinel: forge tests] (1 background task)
+
 ## TASK COMPLETION TRACKING
 
 You must track which audit phases are complete to avoid redundant work and tool re-execution.
@@ -423,6 +438,8 @@ Tools may fail. You must be resilient.
 **An audit without a report is an incomplete audit.** Your FINAL action before finishing MUST be delegating to Scribe. No exceptions.
 
 After you have synthesized your findings, build a canonical ReportInput payload and invoke Scribe:
+
+**State-first requirement**: Before invoking Scribe, verify that \`toolsExecuted\` in your ReportInput contains entries for each tool you ran. Do NOT proceed to report generation if required tool coverage is missing from durable state — re-run the missing tool instead. Use \`preflight_policy: "strict-fail"\` for the final report invocation.
 
 \`\`\`
 Task(subagent_type="scribe", prompt="Generate the final security audit report.
