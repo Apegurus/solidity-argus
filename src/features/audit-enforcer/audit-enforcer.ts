@@ -13,7 +13,6 @@ const PHASE_ORDER: AuditPhase[] = [
 
 const REPORTING_PHASES: AuditPhase[] = ["reporting", "complete"]
 
-
 const KEY_TOOL_FAMILIES: Array<{ family: string; prefixes: string[] }> = [
   { family: "slither", prefixes: ["argus_slither_analyze", "slither"] },
   { family: "forge_test", prefixes: ["argus_forge_test", "forge_test"] },

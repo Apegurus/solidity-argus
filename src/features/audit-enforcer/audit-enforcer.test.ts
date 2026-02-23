@@ -86,7 +86,13 @@ describe("createAuditEnforcer", () => {
     const state: AuditState = {
       ...makeMockState("complete"),
       toolsExecuted: [
-        { tool: "argus_slither_analyze", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        {
+          tool: "argus_slither_analyze",
+          startTime: 1,
+          endTime: 2,
+          success: true,
+          findingsCount: 0,
+        },
         { tool: "argus_forge_test", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
         { tool: "argus_forge_fuzz", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
         { tool: "argus_forge_coverage", startTime: 1, endTime: 2, success: true, findingsCount: 0 },

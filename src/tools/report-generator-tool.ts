@@ -1009,7 +1009,7 @@ export function buildProvenanceAppendix(
         exec.endTime != null &&
         typeof exec.endTime === "number" &&
         !Number.isNaN(exec.endTime)
-      const duration = hasTimes ? formatDuration(exec.endTime! - exec.startTime) : "N/A"
+      const duration = hasTimes ? formatDuration((exec.endTime as number) - exec.startTime) : "N/A"
       const status =
         typeof exec.success === "boolean"
           ? exec.success
@@ -1033,7 +1033,10 @@ export function buildProvenanceAppendix(
       lines.push(`- Pattern pack version: \`${state.patternVersion}\``)
     }
     if (syncExec) {
-      const syncTime = typeof syncExec.startTime === "number" && !Number.isNaN(syncExec.startTime) ? new Date(syncExec.startTime).toISOString() : "N/A"
+      const syncTime =
+        typeof syncExec.startTime === "number" && !Number.isNaN(syncExec.startTime)
+          ? new Date(syncExec.startTime).toISOString()
+          : "N/A"
       lines.push(`- SCVD last synced: ${syncTime}`)
     }
   }

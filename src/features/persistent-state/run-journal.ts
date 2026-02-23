@@ -1,10 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import {
-  type ArgusRootResolver,
-  defaultRootResolver,
-} from "../../shared/path-root-resolver"
 import { createLogger } from "../../shared/logger"
+import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 
 const logger = createLogger()
 

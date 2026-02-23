@@ -12,7 +12,6 @@ const TOOL_SHORT_NAMES: Record<string, string> = {
 }
 const KEY_TOOLS = ["slither", "forge-test", "patterns", "solodit", "analyzer"]
 
-
 /** Maps unavailable-tool short names to their KEY_TOOLS counterpart */
 const UNAVAILABLE_TO_KEY_TOOL: Record<string, string> = {
   slither: "slither",
@@ -77,12 +76,8 @@ export function buildDynamicContext(
     (t) => `${t}=${executedToolNames.has(t) ? "done" : "pending"}`,
   ).join(" ")
   const unavailable = auditState.unavailableTools ?? []
-  const excusedTools = new Set(
-    unavailable.map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean),
-  )
-  const pendingKeyTools = KEY_TOOLS.filter(
-    (t) => !executedToolNames.has(t) && !excusedTools.has(t),
-  )
+  const excusedTools = new Set(unavailable.map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean))
+  const pendingKeyTools = KEY_TOOLS.filter((t) => !executedToolNames.has(t) && !excusedTools.has(t))
   const gateStatus =
     pendingKeyTools.length > 0
       ? `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`

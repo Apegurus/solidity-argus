@@ -260,7 +260,6 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
   return { success: true, data: raw as unknown as CanonicalFinding }
 }
 
-
 export function validateCanonicalToolExecution(
   raw: unknown,
 ): ValidationResult<CanonicalToolExecution> {

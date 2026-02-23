@@ -1,9 +1,6 @@
 import { mkdir, rename } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import {
-  type ArgusRootResolver,
-  defaultRootResolver,
-} from "../../shared/path-root-resolver"
+import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 import type { AuditEvent, AuditEventType } from "../../state/schemas"
 
 export type EventSinkErrorCode = "SEQUENCE_CONFLICT" | "INVALID_EVENT" | "IO_ERROR"
@@ -89,7 +86,11 @@ function parseJournalLines(content: string): AuditEvent[] {
 /**
  * Replay-safe stateless read — returns all events for a run sorted by seq.
  */
-export async function readEvents(runId: string, projectDir: string, resolver: ArgusRootResolver = defaultRootResolver): Promise<AuditEvent[]> {
+export async function readEvents(
+  runId: string,
+  projectDir: string,
+  resolver: ArgusRootResolver = defaultRootResolver,
+): Promise<AuditEvent[]> {
   const journalPath = buildJournalPath(runId, projectDir, resolver)
   const content = await readRawContent(journalPath)
   return parseJournalLines(content)
@@ -99,7 +100,11 @@ export async function readEvents(runId: string, projectDir: string, resolver: Ar
  * Append-only event sink with monotonic seq allocation, in-process mutex,
  * and atomic temp-file-then-rename writes. Restart-safe via journal replay.
  */
-export function createEventSink(runId: string, projectDir: string, resolver: ArgusRootResolver = defaultRootResolver): EventSink {
+export function createEventSink(
+  runId: string,
+  projectDir: string,
+  resolver: ArgusRootResolver = defaultRootResolver,
+): EventSink {
   const journalPath = buildJournalPath(runId, projectDir, resolver)
   const mutex = createMutex()
   let lastSeq = 0

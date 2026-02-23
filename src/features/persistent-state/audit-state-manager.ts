@@ -144,7 +144,6 @@ export function createAuditStateManager(
         }
       }
 
-
       if (snapshotSeq !== undefined) {
         logger.debug(`Loaded snapshot with last_event_seq=${snapshotSeq} from ${readPath}`)
       }

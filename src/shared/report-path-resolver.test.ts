@@ -165,7 +165,6 @@ test("uses current date when date not provided", () => {
   expect([todayStr, tomorrowStr]).toContain(matchedDate)
 })
 
-
 test("formatReportDate uses UTC date regardless of local timezone (timezone boundary)", () => {
   // A Date at UTC midnight: local time in UTC-N timezones would show the previous day
   const utcMidnight = new Date("2024-01-15T00:00:00Z")
