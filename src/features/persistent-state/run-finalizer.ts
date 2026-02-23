@@ -1,3 +1,4 @@
+import { ARGUS_PLUGIN_VERSION } from "../../shared/plugin-metadata"
 import { validateEventSequence } from "../../state/projectors"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
@@ -178,6 +179,7 @@ export async function finalizeRun(
         invariantsPassed,
         errors,
         status: invariantsPassed ? "finalized" : "failed-finalization",
+        plugin_version: ARGUS_PLUGIN_VERSION,
       },
     })
   }

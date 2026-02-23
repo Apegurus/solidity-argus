@@ -1,10 +1,11 @@
+import { computeIssueFingerprint, computeObservationFingerprint } from "./finding-fingerprint"
 import {
   type CanonicalFinding,
   SCHEMA_VERSION,
   type ValidationError,
   validateCanonicalFinding,
 } from "./schemas"
-import type { AuditPhase, Finding, FindingSeverity } from "./types"
+import type { ArgusAgentName, AuditPhase, Finding, FindingSeverity } from "./types"
 
 export interface Diagnostic {
   level: "warn" | "error"
@@ -35,6 +36,13 @@ const VALID_SOURCES: ReadonlySet<CanonicalFinding["source"]> = new Set([
   "solodit",
   "fuzz",
 ])
+const VALID_REPORTED_AGENTS: ReadonlySet<ArgusAgentName> = new Set([
+  "argus",
+  "sentinel",
+  "pythia",
+  "scribe",
+  "unknown",
+])
 
 const KNOWN_INPUT_FIELDS = new Set([
   "id",
@@ -59,8 +67,25 @@ const KNOWN_INPUT_FIELDS = new Set([
   "session_id",
   "tool_call_id",
   "schema_version",
+  "observation_id",
+  "observation_fingerprint",
+  "issue_fingerprint",
+  "reported_by_agent",
+  "reported_by_session_id",
+  "reportedByAgent",
+  "reportedBySessionId",
+  "observationId",
+  "observationFingerprint",
+  "issueFingerprint",
   "elements",
 ])
+
+export interface NormalizeFindingOptions {
+  reportedByAgent?: ArgusAgentName
+  reportedBySessionId?: string
+  toolCallId?: string
+  observationId?: string
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -143,6 +168,7 @@ export function normalizeToCanonicalFinding(
   raw: Finding | Record<string, unknown>,
   runId: string,
   seq: number,
+  options: NormalizeFindingOptions = {},
 ): AdapterResult<CanonicalFinding> {
   const diagnostics: Diagnostic[] = []
   const input = isRecord(raw) ? raw : {}
@@ -189,11 +215,74 @@ export function normalizeToCanonicalFinding(
       ? (input.source as CanonicalFinding["source"])
       : "manual"
 
+  const reportedByAgentRaw =
+    (typeof input.reported_by_agent === "string" ? input.reported_by_agent : undefined) ??
+    (typeof input.reportedByAgent === "string" ? input.reportedByAgent : undefined) ??
+    options.reportedByAgent ??
+    "unknown"
+  const reportedByAgent: ArgusAgentName = VALID_REPORTED_AGENTS.has(
+    reportedByAgentRaw as ArgusAgentName,
+  )
+    ? (reportedByAgentRaw as ArgusAgentName)
+    : "unknown"
+
+  const reportedBySessionId =
+    (typeof input.reported_by_session_id === "string" && input.reported_by_session_id.length > 0
+      ? input.reported_by_session_id
+      : undefined) ??
+    (typeof input.reportedBySessionId === "string" && input.reportedBySessionId.length > 0
+      ? input.reportedBySessionId
+      : undefined) ??
+    options.reportedBySessionId
+
+  const issueFingerprint =
+    (typeof input.issue_fingerprint === "string" && input.issue_fingerprint.length > 0
+      ? input.issue_fingerprint
+      : undefined) ??
+    (typeof input.issueFingerprint === "string" && input.issueFingerprint.length > 0
+      ? input.issueFingerprint
+      : undefined) ??
+    computeIssueFingerprint({
+      check,
+      file,
+      lines: lines ?? [0, 0],
+      severity: VALID_SEVERITIES.has(severity) ? severity : "Informational",
+    })
+
+  const observationId =
+    (typeof input.observation_id === "string" && input.observation_id.length > 0
+      ? input.observation_id
+      : undefined) ??
+    (typeof input.observationId === "string" && input.observationId.length > 0
+      ? input.observationId
+      : undefined) ??
+    options.observationId ??
+    `${runId}:${seq}:${computeObservationFingerprint({
+      issueFingerprint,
+      source,
+      reportedByAgent,
+      toolCallId: options.toolCallId,
+      sessionId: reportedBySessionId,
+    })}`
+
+  const observationFingerprint =
+    (typeof input.observation_fingerprint === "string" && input.observation_fingerprint.length > 0
+      ? input.observation_fingerprint
+      : undefined) ??
+    (typeof input.observationFingerprint === "string" && input.observationFingerprint.length > 0
+      ? input.observationFingerprint
+      : undefined) ??
+    computeObservationFingerprint({
+      issueFingerprint,
+      source,
+      reportedByAgent,
+      toolCallId: options.toolCallId,
+      sessionId: reportedBySessionId,
+      observationId,
+    })
+
   const canonical: CanonicalFinding = {
-    id:
-      typeof input.id === "string" && input.id.length > 0
-        ? input.id
-        : `${check}:${file}:${lines?.[0] ?? 0}`,
+    id: observationId,
     check,
     severity: VALID_SEVERITIES.has(severity) ? severity : "Informational",
     confidence: VALID_CONFIDENCES.has(confidence) ? confidence : "Low",
@@ -201,6 +290,11 @@ export function normalizeToCanonicalFinding(
     file,
     lines: lines ?? [0, 0],
     source,
+    reported_by_agent: reportedByAgent,
+    reported_by_session_id: reportedBySessionId,
+    issue_fingerprint: issueFingerprint,
+    observation_fingerprint: observationFingerprint,
+    observation_id: observationId,
     remediation: typeof input.remediation === "string" ? input.remediation : undefined,
     exploitReference:
       typeof input.exploitReference === "string" ? input.exploitReference : undefined,

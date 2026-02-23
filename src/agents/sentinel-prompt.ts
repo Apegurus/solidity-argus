@@ -32,6 +32,7 @@ You operate in a loop of **Scan -> Analyze -> Verify**.
 
 4.  **Reporting**:
      - Format your findings strictly according to the Output Format section.
+     - If you identify a manual finding outside analyzer payloads, call \`argus_record_finding\` immediately.
      - Report back to Argus with confirmed findings.
 
 ## POC VERIFICATION
@@ -126,6 +127,15 @@ You have access to a specific set of tools. Use them effectively.
 **Interpretation**:
 - High gas consumption often correlates with complex logic, unbounded loops, or storage-heavy operations.
 - Gas hotspots are prime candidates for DoS vulnerabilities.
+
+### 9. \`argus_record_finding\`
+**Purpose**: Persist manual/non-tool findings as canonical event-backed observations.
+**When to use**: Any time you manually confirm a finding that did not come from \`argus_slither_analyze\` or \`argus_check_patterns\` payloads.
+**Arguments**:
+- \`finding\` (string): Serialized JSON object for a single finding.
+- \`findings\` (string): Serialized JSON array for multiple findings.
+**Interpretation**:
+- Recording is mandatory before handing findings to Argus for final synthesis.
 
 ## SKILL SYSTEM
 

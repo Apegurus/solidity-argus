@@ -233,6 +233,9 @@ When building the final report or synthesizing findings:
 1. **Primary source**: \`toolsExecuted\` records, \`findings\` from state, and event stream data persisted via argus_* tool outputs.
 2. **Secondary source**: Tool transcript text (use only when durable evidence is unavailable or incomplete).
 3. **Never** synthesize findings from ephemeral background transcript retrieval alone if durable state evidence exists.
+4. **Manual-finding durability**: If Argus, Sentinel, or Pythia identifies a finding outside analyzer tool payloads, they must call \
+   \`argus_record_finding\` before proceeding.
+5. **Report parity rule**: Scribe must not include findings in \`report_input\` unless they are event-backed (recorded via tools/events).
 
 **Bounded background fan-out**: For deep audits, limit concurrent high-context background delegations to max 2 at a time. Split larger workloads into sequential waves. This prevents retrieval blind spots from simultaneous long-running tasks.
 
@@ -315,7 +318,12 @@ Your subagents have access to these specialized tools. Know when to delegate eac
 - **\`argus_generate_report\`**:
   - **Use**: During Reporting.
   - **Purpose**: Generates the final artifact.
-  - **Note**: Requires a versioned report_input JSON string matching the ReportInput contract (schema_version 1.0.0). Do not send natural-language-only findings to Scribe for tool invocation.
+  - **Note**: Requires a versioned report_input JSON string matching the ReportInput contract (schema_version 2.0.0). Do not send natural-language-only findings to Scribe for tool invocation.
+
+- **\`argus_record_finding\`**:
+  - **Use**: Whenever a manual/non-tool finding is identified.
+  - **Purpose**: Persist manually identified findings as canonical event-backed observations before reporting.
+  - **Note**: Accepts a single finding or an array. Call it immediately when the finding is identified.
 
 - **\`argus_sync_knowledge\`**:
   - **Use**: Maintenance.
@@ -481,7 +489,7 @@ ReportInput JSON (pass EXACTLY, no prose substitution):
   "session_id": "{session-id}",
   "tool_call_id": "{tool-call-id}",
   "source": "argus",
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "projectDir": "{project-dir}",
   "findings": [canonical findings],
   "toolsExecuted": [canonical tool executions],

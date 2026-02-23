@@ -245,7 +245,7 @@ export function validateEventSequence(events: AuditEvent[]): void {
 export function projectFindings(events: AuditEvent[]): CanonicalFinding[] {
   validateEventSequence(events)
 
-  const byId = new Map<string, CanonicalFinding>()
+  const findings: CanonicalFinding[] = []
 
   for (const event of events) {
     if (event.type !== "finding.added") continue
@@ -258,10 +258,15 @@ export function projectFindings(events: AuditEvent[]): CanonicalFinding[] {
       )
     }
 
-    byId.set(validation.data.id, validation.data)
+    findings.push({
+      ...validation.data,
+      seq: event.seq,
+      run_id: event.run_id,
+      schema_version: event.schema_version,
+    })
   }
 
-  return Array.from(byId.values()).sort((left, right) => {
+  return findings.sort((left, right) => {
     const bySeverity = SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity]
     if (bySeverity !== 0) return bySeverity
 
@@ -271,7 +276,16 @@ export function projectFindings(events: AuditEvent[]): CanonicalFinding[] {
     const byLine = left.lines[0] - right.lines[0]
     if (byLine !== 0) return byLine
 
-    return left.id.localeCompare(right.id)
+    const byIssue = left.issue_fingerprint.localeCompare(right.issue_fingerprint)
+    if (byIssue !== 0) return byIssue
+
+    const byObservation = left.observation_fingerprint.localeCompare(right.observation_fingerprint)
+    if (byObservation !== 0) return byObservation
+
+    const byId = left.id.localeCompare(right.id)
+    if (byId !== 0) return byId
+
+    return left.seq - right.seq
   })
 }
 

@@ -1,4 +1,5 @@
 export type FindingSeverity = "Critical" | "High" | "Medium" | "Low" | "Informational"
+export type ArgusAgentName = "argus" | "sentinel" | "pythia" | "scribe" | "unknown"
 export type AuditPhase =
   | "reconnaissance"
   | "scanning"
@@ -10,7 +11,7 @@ export type AuditPhase =
   | "complete"
 
 export interface Finding {
-  id: string // unique hash: check+file+lines
+  id: string
   check: string // detector name e.g. "reentrancy-eth"
   severity: FindingSeverity
   confidence: "High" | "Medium" | "Low"
@@ -18,6 +19,15 @@ export interface Finding {
   file: string // relative file path
   lines: [number, number] // [start, end]
   source: "slither" | "manual" | "pattern" | "scvd" | "solodit" | "fuzz"
+  reported_by_agent?: ArgusAgentName
+  reported_by_session_id?: string
+  issue_fingerprint?: string
+  observation_fingerprint?: string
+  observation_id?: string
+  observation_ids?: string[]
+  reported_by_agents?: string[]
+  sources?: string[]
+  observation_count?: number
   remediation?: string
   exploitReference?: string
   provenance?: {

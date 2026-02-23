@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
+import { dedupeFindingsForFinalOutput } from "../../state/finding-aggregation"
 import { projectFindings, projectToolExecutions, stableHash } from "../../state/projectors"
 import type { CanonicalFinding, CanonicalToolExecution } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
@@ -25,7 +26,7 @@ export async function materializeFindings(
   sessionId?: string,
 ): Promise<FindingsArtifact> {
   const events = await readEvents(runId, projectDir)
-  const findings = projectFindings(events)
+  const findings = dedupeFindingsForFinalOutput(projectFindings(events))
   const toolsExecuted = projectToolExecutions(events)
   const contentHash = stableHash(JSON.stringify(findings))
   const generatedAt = events.at(-1)?.timestamp ?? 0

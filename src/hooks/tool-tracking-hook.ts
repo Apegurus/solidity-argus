@@ -12,7 +12,14 @@ import type { FindingStore } from "../state/finding-store"
 import { createFindingStore } from "../state/finding-store"
 import type { AuditEvent } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
-import type { AuditState, FindingSeverity, FuzzCounterexample, SoloditResult } from "../state/types"
+import type {
+  ArgusAgentName,
+  AuditState,
+  Finding,
+  FindingSeverity,
+  FuzzCounterexample,
+  SoloditResult,
+} from "../state/types"
 
 const logger = createLogger()
 
@@ -30,6 +37,7 @@ type ToolExecutionMetadata = {
 export type ToolTrackingOptions = {
   getEventSink?: () => EventSink | null
   getSessionId?: () => string
+  getAgentName?: () => ArgusAgentName | undefined
   dropPolicy?: DropPolicy
   onChildSessionDetected?: (parentSessionId: string, childSessionId: string) => void
 }
@@ -77,13 +85,35 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined
 }
 
-async function emitToSink(sink: EventSink, event: AuditEvent): Promise<void> {
+function toFindingSource(value: unknown): Finding["source"] {
+  if (
+    value === "slither" ||
+    value === "manual" ||
+    value === "pattern" ||
+    value === "scvd" ||
+    value === "solodit" ||
+    value === "fuzz"
+  ) {
+    return value
+  }
+
+  return "manual"
+}
+
+async function emitToSink(
+  sink: EventSink,
+  event: AuditEvent,
+  options?: { failFast?: boolean },
+): Promise<void> {
   try {
     await sink.append(event)
   } catch (error) {
-    logger.error(
-      `Failed to emit ${event.type} event to sink: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    const message = `Failed to emit ${event.type} event to sink: ${error instanceof Error ? error.message : String(error)}`
+    logger.error(message)
+
+    if (options?.failFast) {
+      throw new Error(message)
+    }
   }
 }
 
@@ -155,11 +185,13 @@ function identifyMissingFields(
 
 const SLITHER_REQUIRED = ["check", "description", "file", "lines"] as const
 const PATTERN_REQUIRED = ["pattern", "description", "file", "lines"] as const
+const MANUAL_REQUIRED = ["check", "description", "file", "lines"] as const
 
 function processSlitherResult(
   parsed: Record<string, unknown>,
   store: FindingStore,
   diag: DropDiagnosticsCollector,
+  metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
 ): number {
   const findings = parsed.findings
   if (!Array.isArray(findings)) return 0
@@ -197,6 +229,8 @@ function processSlitherResult(
       file,
       lines,
       source: "slither",
+      reported_by_agent: metadata.reportedByAgent,
+      reported_by_session_id: metadata.reportedBySessionId,
     })
     count++
   }
@@ -208,6 +242,7 @@ function processPatternResult(
   parsed: Record<string, unknown>,
   store: FindingStore,
   diag: DropDiagnosticsCollector,
+  metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
 ): number {
   const sources = parsed.sources
   if (!Array.isArray(sources)) return 0
@@ -252,9 +287,94 @@ function processPatternResult(
         file,
         lines,
         source: "pattern",
+        reported_by_agent: metadata.reportedByAgent,
+        reported_by_session_id: metadata.reportedBySessionId,
       })
       count++
     }
+  }
+
+  return count
+}
+
+function processRecordedFindingResult(
+  parsed: Record<string, unknown>,
+  store: FindingStore,
+  diag: DropDiagnosticsCollector,
+  metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
+): number {
+  const findings = parsed.findings
+  if (!Array.isArray(findings)) {
+    diag.error(
+      "MISSING_REQUIRED_FIELD",
+      "argus_record_finding result missing findings array",
+      "findings",
+    )
+    return 0
+  }
+
+  let count = 0
+  for (const raw of findings) {
+    const finding = toRecord(raw)
+    if (!finding) continue
+
+    const check = finding.check
+    const description = finding.description
+    const file = finding.file
+    const lines = toLines(finding.lines)
+
+    if (
+      typeof check !== "string" ||
+      typeof description !== "string" ||
+      typeof file !== "string" ||
+      !lines
+    ) {
+      const missing = identifyMissingFields(finding, MANUAL_REQUIRED)
+      diag.error(
+        "MISSING_REQUIRED_FIELD",
+        `Recorded finding skipped: missing ${missing.join(", ")}`,
+        missing[0],
+      )
+      continue
+    }
+
+    const reportedByAgentRaw = finding.reported_by_agent
+    const reportedByAgent =
+      reportedByAgentRaw === "argus" ||
+      reportedByAgentRaw === "sentinel" ||
+      reportedByAgentRaw === "pythia" ||
+      reportedByAgentRaw === "scribe" ||
+      reportedByAgentRaw === "unknown"
+        ? (reportedByAgentRaw as ArgusAgentName)
+        : metadata.reportedByAgent
+
+    store.addFinding({
+      check,
+      severity: toSeverity(finding.severity),
+      confidence: toConfidence(finding.confidence),
+      description,
+      file,
+      lines,
+      source: toFindingSource(finding.source),
+      remediation: typeof finding.remediation === "string" ? finding.remediation : undefined,
+      exploitReference:
+        typeof finding.exploitReference === "string" ? finding.exploitReference : undefined,
+      reported_by_agent: reportedByAgent,
+      reported_by_session_id:
+        typeof finding.reported_by_session_id === "string" &&
+        finding.reported_by_session_id.length > 0
+          ? finding.reported_by_session_id
+          : metadata.reportedBySessionId,
+      issue_fingerprint:
+        typeof finding.issue_fingerprint === "string" ? finding.issue_fingerprint : undefined,
+      observation_fingerprint:
+        typeof finding.observation_fingerprint === "string"
+          ? finding.observation_fingerprint
+          : undefined,
+      observation_id:
+        typeof finding.observation_id === "string" ? finding.observation_id : undefined,
+    })
+    count++
   }
 
   return count
@@ -427,6 +547,10 @@ export function createToolTrackingHook(
 
     const resolved = resolveStateAndStore()
     if (!resolved) {
+      if (input.tool === "argus_record_finding") {
+        throw new Error("argus_record_finding requires active audit state")
+      }
+
       const sinkForNoState = options?.getEventSink?.()
       if (sinkForNoState) {
         const toolCallId = randomUUID()
@@ -453,6 +577,11 @@ export function createToolTrackingHook(
     const sink = options?.getEventSink?.()
     const runId = auditState.sessionId
     const sessionId = options?.getSessionId?.() ?? ""
+    const reportedByAgent = options?.getAgentName?.() ?? "unknown"
+    const findingMetadata = {
+      reportedByAgent,
+      reportedBySessionId: sessionId,
+    }
     const toolCallId = randomUUID()
     const policy = options?.dropPolicy ?? "warn"
     const diag = createDropDiagnosticsCollector(policy, "tool-tracking-hook", input.tool)
@@ -464,6 +593,7 @@ export function createToolTrackingHook(
           tool: input.tool,
           args: input.args,
         }),
+        { failFast: input.tool === "argus_record_finding" },
       )
     }
 
@@ -502,6 +632,9 @@ export function createToolTrackingHook(
     } catch {
       diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
       lastDiagnostics = diag.getDiagnostics()
+      if (input.tool === "argus_record_finding") {
+        throw new Error("argus_record_finding returned malformed JSON")
+      }
       diag.throwIfStrict()
       return
     }
@@ -509,6 +642,9 @@ export function createToolTrackingHook(
     const record = toRecord(parsed)
     if (!record) {
       lastDiagnostics = diag.getDiagnostics()
+      if (input.tool === "argus_record_finding") {
+        throw new Error("argus_record_finding response must be a JSON object")
+      }
       return
     }
 
@@ -516,10 +652,13 @@ export function createToolTrackingHook(
 
     switch (input.tool) {
       case "argus_slither_analyze":
-        findingsCount = processSlitherResult(record, store, diag)
+        findingsCount = processSlitherResult(record, store, diag, findingMetadata)
         break
       case "argus_check_patterns":
-        findingsCount = processPatternResult(record, store, diag)
+        findingsCount = processPatternResult(record, store, diag, findingMetadata)
+        break
+      case "argus_record_finding":
+        findingsCount = processRecordedFindingResult(record, store, diag, findingMetadata)
         break
       case "argus_analyze_contract":
         processContractAnalyzerResult(record, auditState)
@@ -595,14 +734,32 @@ export function createToolTrackingHook(
     lastDiagnostics = diag.getDiagnostics()
     diag.throwIfStrict()
 
+    if (input.tool === "argus_record_finding" && findingsCount === 0) {
+      throw new Error("argus_record_finding did not persist any findings")
+    }
+
     recordToolExecution(auditState, input.tool, findingsCount)
     onStateChanged?.({ tool: input.tool, findingsCount })
 
+    if (input.tool === "argus_record_finding" && !sink) {
+      throw new Error("argus_record_finding requires an active event sink for durable persistence")
+    }
+
     if (sink) {
+      const failFast = input.tool === "argus_record_finding"
       const newFindings = auditState.findings.slice(findingsCountBefore)
-      for (const finding of newFindings) {
-        const { data: canonical } = normalizeToCanonicalFinding(finding, runId, 0)
-        await emitToSink(sink, buildEvent("finding.added", runId, sessionId, toolCallId, canonical))
+      for (const [index, finding] of newFindings.entries()) {
+        const { data: canonical } = normalizeToCanonicalFinding(finding, runId, 0, {
+          reportedByAgent,
+          reportedBySessionId: sessionId,
+          toolCallId,
+          observationId: `${toolCallId}:${index + 1}`,
+        })
+        await emitToSink(
+          sink,
+          buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
+          { failFast },
+        )
       }
 
       await emitToSink(
@@ -612,6 +769,7 @@ export function createToolTrackingHook(
           findingsCount,
           success: true,
         }),
+        { failFast },
       )
     }
   }

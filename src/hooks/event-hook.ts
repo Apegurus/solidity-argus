@@ -2,6 +2,7 @@ import type { EventSink } from "../features/persistent-state/event-sink"
 import type { FinalizationResult } from "../features/persistent-state/run-finalizer"
 import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
+import { ARGUS_PLUGIN_VERSION } from "../shared/plugin-metadata"
 import { createAuditState } from "../state/audit-state"
 import type { AuditEvent } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
@@ -140,6 +141,7 @@ export function createEventHook(
           await emitToSink("session.created", currentAuditState.sessionId, sessionId, {
             projectDir: currentAuditState.projectDir,
             sessionId: currentAuditState.sessionId,
+            plugin_version: ARGUS_PLUGIN_VERSION,
           })
         }
         break
@@ -160,6 +162,7 @@ export function createEventHook(
         if (preDeleteState) {
           await emitToSink("session.deleted", preDeleteState.sessionId, sessionId, {
             archived: true,
+            plugin_version: ARGUS_PLUGIN_VERSION,
           })
 
           if (eventSink) {

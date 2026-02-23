@@ -310,11 +310,57 @@ export function createHooks(args: {
             {
               getEventSink: () => currentEventSink,
               getSessionId: () => currentOpencodeSessionId,
+              getAgentName: () => {
+                if (!currentOpencodeSessionId) {
+                  return undefined
+                }
+
+                const agent = agentTracker.getAgentForSession(currentOpencodeSessionId)
+                if (
+                  agent === "argus" ||
+                  agent === "sentinel" ||
+                  agent === "pythia" ||
+                  agent === "scribe" ||
+                  agent === "unknown"
+                ) {
+                  return agent
+                }
+
+                return "unknown"
+              },
             },
           ),
         "tool-tracking",
       )
     : undefined
+
+  const materializeCurrentFindings = async (
+    trigger: "session.idle" | "tool.execute.after",
+    failFast = false,
+  ): Promise<void> => {
+    const state = getAuditState()
+    if (!state || state.sessionId.length === 0) {
+      return
+    }
+
+    try {
+      await materializeFindings(
+        state.sessionId,
+        state.projectDir,
+        currentOpencodeSessionId.length > 0 ? currentOpencodeSessionId : undefined,
+      )
+    } catch (error) {
+      if (failFast) {
+        throw new Error(
+          `Failed to materialize findings artifact on ${trigger} for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      logger.warn(
+        `Failed to materialize findings artifact on ${trigger} for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
 
   const safeEventHook = isHookEnabled("event")
     ? safeCreateHook(
@@ -392,6 +438,10 @@ export function createHooks(args: {
             args: input.args,
             result: output.output,
           })
+
+          if (input.tool === "argus_generate_report") {
+            await materializeCurrentFindings("tool.execute.after", true)
+          }
 
           const outputWithHint = recoveryHint ? `${output.output}${recoveryHint}` : output.output
           output.output = outputTruncator(outputWithHint)

@@ -1,4 +1,5 @@
 import type {
+  ArgusAgentName,
   AuditPhase,
   Finding,
   FindingSeverity,
@@ -7,7 +8,7 @@ import type {
   ToolExecution,
 } from "./types"
 
-export const SCHEMA_VERSION = "1.0.0"
+export const SCHEMA_VERSION = "2.0.0"
 
 export type AuditEventType =
   | "session.created"
@@ -45,6 +46,11 @@ export interface CanonicalFinding extends Finding {
   run_id: string
   seq: number
   schema_version: string
+  observation_id: string
+  issue_fingerprint: string
+  observation_fingerprint: string
+  reported_by_agent: ArgusAgentName
+  reported_by_session_id?: string
 }
 
 export interface CanonicalToolExecution extends ToolExecution {
@@ -156,6 +162,13 @@ const VALID_SOURCES: ReadonlySet<CanonicalFinding["source"]> = new Set([
   "solodit",
   "fuzz",
 ])
+const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([
+  "argus",
+  "sentinel",
+  "pythia",
+  "scribe",
+  "unknown",
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -197,6 +210,10 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
   pushRequiredStringError(errors, raw, "file")
   pushRequiredStringError(errors, raw, "run_id")
   pushRequiredStringError(errors, raw, "schema_version")
+  pushRequiredStringError(errors, raw, "observation_id")
+  pushRequiredStringError(errors, raw, "issue_fingerprint")
+  pushRequiredStringError(errors, raw, "observation_fingerprint")
+  pushRequiredStringError(errors, raw, "reported_by_agent")
 
   if (typeof raw.seq !== "number" || !Number.isInteger(raw.seq) || raw.seq < 0) {
     errors.push({
@@ -250,6 +267,37 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
       field: "source",
       code: "enum",
       message: "source must be one of: slither, manual, pattern, scvd, solodit, fuzz",
+    })
+  }
+
+  if (
+    typeof raw.reported_by_agent !== "string" ||
+    !VALID_AGENTS.has(raw.reported_by_agent as ArgusAgentName)
+  ) {
+    errors.push({
+      field: "reported_by_agent",
+      code: "enum",
+      message: "reported_by_agent must be one of: argus, sentinel, pythia, scribe, unknown",
+    })
+  }
+
+  if (
+    raw.reported_by_session_id != null &&
+    (typeof raw.reported_by_session_id !== "string" ||
+      raw.reported_by_session_id.trim().length === 0)
+  ) {
+    errors.push({
+      field: "reported_by_session_id",
+      code: "invalid",
+      message: "reported_by_session_id must be a non-empty string when provided",
+    })
+  }
+
+  if (raw.schema_version !== SCHEMA_VERSION) {
+    errors.push({
+      field: "schema_version",
+      code: "version_mismatch",
+      message: `schema_version must be ${SCHEMA_VERSION}`,
     })
   }
 

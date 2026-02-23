@@ -10,7 +10,11 @@ import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
 import { normalizeToCanonicalFinding } from "../state/adapters"
-import { stableHash } from "../state/projectors"
+import {
+  compareIssueFingerprintSets,
+  dedupeFindingsForFinalOutput,
+} from "../state/finding-aggregation"
+import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { AuditState, Finding, FindingSeverity } from "../state/types"
 import { checkReportPreflight } from "./report-preflight"
@@ -1097,6 +1101,7 @@ export async function executeReportGeneration(
   const { reportInput, diagnostics } = parseReportInputPayload(args, context)
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
+  const warningBullets: string[] = []
   try {
     const readEventsFn = deps.readEvents ?? readEvents
     const events = await readEventsFn(reportInput.run_id, reportInput.projectDir)
@@ -1112,21 +1117,37 @@ export async function executeReportGeneration(
           parts.push(`missing required tools: ${preflightResult.missingRequiredTools.join(", ")}`)
         throw new Error(`Preflight failed (strict-fail): ${parts.join("; ")}`)
       }
-      const lines: string[] = [
-        "## \u26A0 Completeness Warning",
-        "",
-        "This report was generated with incomplete orchestration state.",
-        "",
-      ]
       if (preflightResult.orphanedTools.length > 0)
-        lines.push(`- Orphaned tools: ${preflightResult.orphanedTools.join(", ")}`)
+        warningBullets.push(`- Orphaned tools: ${preflightResult.orphanedTools.join(", ")}`)
       if (preflightResult.missingLifecycle.length > 0)
-        lines.push(`- Missing lifecycle: ${preflightResult.missingLifecycle.join(", ")}`)
+        warningBullets.push(`- Missing lifecycle: ${preflightResult.missingLifecycle.join(", ")}`)
       if (preflightResult.missingRequiredTools.length > 0)
-        lines.push(`- Missing required tools: ${preflightResult.missingRequiredTools.join(", ")}`)
+        warningBullets.push(
+          `- Missing required tools: ${preflightResult.missingRequiredTools.join(", ")}`,
+        )
       if (preflightResult.warnings.length > 0)
-        lines.push(`- Warnings: ${preflightResult.warnings.join(", ")}`)
-      preflightWarningSection = lines.join("\n")
+        warningBullets.push(`- Warnings: ${preflightResult.warnings.join(", ")}`)
+    }
+
+    const eventFindings = dedupeFindingsForFinalOutput(projectFindings(events))
+    const inputFindings = dedupeFindingsForFinalOutput(reportInput.findings)
+    const parity = compareIssueFingerprintSets(eventFindings, inputFindings)
+
+    if (!parity.matches) {
+      const mismatchSummary = `missing=${parity.missing.length}, extra=${parity.extra.length}`
+      if (preflightPolicy === "strict-fail") {
+        throw new Error(
+          `Preflight failed (strict-fail): finding parity mismatch (${mismatchSummary})`,
+        )
+      }
+
+      warningBullets.push(`- Finding parity mismatch: ${mismatchSummary}`)
+      if (parity.missing.length > 0) {
+        warningBullets.push(`- Missing issue fingerprints: ${parity.missing.join(", ")}`)
+      }
+      if (parity.extra.length > 0) {
+        warningBullets.push(`- Extra issue fingerprints: ${parity.extra.join(", ")}`)
+      }
     }
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Preflight failed (strict-fail)")) {
@@ -1137,10 +1158,22 @@ export async function executeReportGeneration(
     }
     // warn mode: skip preflight when events cannot be read
   }
+
+  if (warningBullets.length > 0) {
+    preflightWarningSection = [
+      "## \u26A0 Completeness Warning",
+      "",
+      "This report was generated with incomplete orchestration state.",
+      "",
+      ...warningBullets,
+    ].join("\n")
+  }
+
   const state = reportInputToAuditState(reportInput)
   const scope = args.scope.length > 0 ? args.scope : reportInput.scope
+  const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
   const findings = sortFindingsDeterministically(
-    state.findings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
   const qualityGates = validateReportQuality(findings, qualityGatePolicy)
   if (!qualityGates.passed && qualityGatePolicy === "strict-fail") {

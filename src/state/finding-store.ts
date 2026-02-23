@@ -8,10 +8,6 @@ export interface FindingStore {
   serialize(): string
 }
 
-/**
- * Creates a finding store with deduplication by check+file+lines
- * Deduplication key: `${check}:${file}:${lines[0]}-${lines[1]}`
- */
 function isValidHydrationFinding(f: unknown): f is Finding {
   if (typeof f !== "object" || f === null) return false
   const obj = f as Record<string, unknown>
@@ -28,39 +24,26 @@ function isValidHydrationFinding(f: unknown): f is Finding {
 }
 
 export function createFindingStore(state: AuditState): FindingStore {
-  const findingMap = new Map<string, Finding>()
+  let observationCounter = state.findings.length
 
-  function generateId(check: string, file: string, lines: [number, number]): string {
-    const key = `${check}:${file}:${lines[0]}-${lines[1]}`
-    // Use deterministic hash for stable IDs
+  function generateObservationId(check: string, file: string, lines: [number, number]): string {
+    const key = `${check}:${file}:${lines[0]}-${lines[1]}:${observationCounter}`
+    observationCounter += 1
     return createHash("sha256").update(key).digest("hex").substring(0, 16)
   }
 
-  // Hydrate findingMap from persisted state.findings
-  for (const f of state.findings) {
-    if (!isValidHydrationFinding(f)) continue
-    const id = generateId(f.check, f.file, f.lines)
-    if (!findingMap.has(id)) {
-      findingMap.set(id, { ...f, id })
-    }
-  }
+  const hydratedFindings = state.findings.filter(isValidHydrationFinding)
 
   function addFinding(finding: Omit<Finding, "id">): Finding {
-    const id = generateId(finding.check, finding.file, finding.lines)
-
-    // Check if finding already exists (deduplication)
-    const existing = findingMap.get(id)
-    if (existing) {
-      return existing
-    }
+    const id = generateObservationId(finding.check, finding.file, finding.lines)
 
     const newFinding: Finding = {
       ...finding,
       id,
     }
 
-    findingMap.set(id, newFinding)
     state.findings.push(newFinding)
+    hydratedFindings.push(newFinding)
 
     return newFinding
   }
@@ -69,11 +52,13 @@ export function createFindingStore(state: AuditState): FindingStore {
     severity?: FindingSeverity
     source?: Finding["source"]
   }): Finding[] {
+    const findings = hydratedFindings.slice()
+
     if (!filter) {
-      return Array.from(findingMap.values())
+      return findings
     }
 
-    return Array.from(findingMap.values()).filter((finding) => {
+    return findings.filter((finding) => {
       if (filter.severity && finding.severity !== filter.severity) {
         return false
       }
@@ -85,12 +70,17 @@ export function createFindingStore(state: AuditState): FindingStore {
   }
 
   function hasFinding(check: string, file: string, lines: [number, number]): boolean {
-    const id = generateId(check, file, lines)
-    return findingMap.has(id)
+    return hydratedFindings.some(
+      (finding) =>
+        finding.check === check &&
+        finding.file === file &&
+        finding.lines[0] === lines[0] &&
+        finding.lines[1] === lines[1],
+    )
   }
 
   function serialize(): string {
-    const findings = Array.from(findingMap.values())
+    const findings = hydratedFindings.slice()
     const contractCount = state.contractsReviewed.length
     const findingCount = findings.length
 
