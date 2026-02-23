@@ -293,13 +293,17 @@ describe("deterministic replay projectors", () => {
   test("materializeFindings writes byte-identical artifact for identical events", async () => {
     const tempProjectDirA = await mkdtemp(join(tmpdir(), "argus-determinism-replay-a-"))
     const tempProjectDirB = await mkdtemp(join(tmpdir(), "argus-determinism-replay-b-"))
+    const originalNow = Date.now
 
     try {
       const events = fixtureEvents()
       await writeReplayEvents(tempProjectDirA, RUN_ID, events)
       await writeReplayEvents(tempProjectDirB, RUN_ID, events)
 
+      Date.now = () => 1_700_000_999_111
       const first = await materializeFindings(RUN_ID, tempProjectDirA, SESSION_ID)
+
+      Date.now = () => 1_900_000_999_222
       const second = await materializeFindings(RUN_ID, tempProjectDirB, SESSION_ID)
 
       const findingsPathA = createAuditArtifactResolver(RUN_ID, tempProjectDirA).paths()
@@ -312,7 +316,10 @@ describe("deterministic replay projectors", () => {
 
       expect(bytesA.equals(bytesB)).toBe(true)
       expect(first.content_hash).toBe(second.content_hash)
+      expect(first.generated_at).toBe(1_700_000_000_010)
+      expect(second.generated_at).toBe(1_700_000_000_010)
     } finally {
+      Date.now = originalNow
       await rm(tempProjectDirA, { recursive: true, force: true })
       await rm(tempProjectDirB, { recursive: true, force: true })
     }

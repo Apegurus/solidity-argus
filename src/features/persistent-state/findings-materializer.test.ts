@@ -98,10 +98,26 @@ describe("materializeFindings", () => {
     const sessionId = "session-hash"
     await writeEventsJsonl(projectDir, runId, makeEvents(runId, sessionId))
 
-    const first = await materializeFindings(runId, projectDir, sessionId)
-    const second = await materializeFindings(runId, projectDir, sessionId)
+    const originalNow = Date.now
+    let firstBytes = ""
+    let secondBytes = ""
+    try {
+      Date.now = () => 1_700_000_123_000
+      const first = await materializeFindings(runId, projectDir, sessionId)
+      const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
+      firstBytes = await readFile(findingsFile, "utf8")
 
-    expect(first.content_hash).toBe(second.content_hash)
+      Date.now = () => 1_800_000_123_000
+      const second = await materializeFindings(runId, projectDir, sessionId)
+      secondBytes = await readFile(findingsFile, "utf8")
+
+      expect(first.content_hash).toBe(second.content_hash)
+      expect(first.generated_at).toBe(1_700_000_000_004)
+      expect(second.generated_at).toBe(1_700_000_000_004)
+      expect(firstBytes).toBe(secondBytes)
+    } finally {
+      Date.now = originalNow
+    }
   })
 
   test("output contains run_id, session_id, seq_first, seq_last, event_count", async () => {

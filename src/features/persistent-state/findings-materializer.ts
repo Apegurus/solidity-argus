@@ -28,6 +28,7 @@ export async function materializeFindings(
   const findings = projectFindings(events)
   const toolsExecuted = projectToolExecutions(events)
   const contentHash = stableHash(JSON.stringify(findings))
+  const generatedAt = events.at(-1)?.timestamp ?? 0
 
   const artifact: FindingsArtifact = {
     run_id: runId,
@@ -37,7 +38,7 @@ export async function materializeFindings(
     seq_last: events.at(-1)?.seq ?? 0,
     event_count: events.length,
     content_hash: contentHash,
-    generated_at: Date.now(),
+    generated_at: generatedAt,
     findings,
     toolsExecuted,
   }
