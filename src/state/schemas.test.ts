@@ -22,6 +22,11 @@ function makeCanonicalFinding(overrides: Partial<CanonicalFinding> = {}): Canoni
     provenance: overrides.provenance,
     run_id: overrides.run_id ?? "run-123",
     seq: overrides.seq ?? 1,
+    observation_id: overrides.observation_id ?? "obs-1",
+    issue_fingerprint: overrides.issue_fingerprint ?? "issue-fp-1",
+    observation_fingerprint: overrides.observation_fingerprint ?? "obs-fp-1",
+    reported_by_agent: overrides.reported_by_agent ?? "sentinel",
+    reported_by_session_id: overrides.reported_by_session_id ?? "ses-1",
     schema_version: overrides.schema_version ?? SCHEMA_VERSION,
   }
 }
@@ -68,6 +73,20 @@ describe("validateCanonicalFinding", () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.errors.some((e) => e.field === "run_id")).toBe(true)
+    }
+  })
+
+  test("fails when reported_by_agent is invalid", () => {
+    const invalidAgent = makeCanonicalFinding({
+      reported_by_agent: "invalid-agent" as CanonicalFinding["reported_by_agent"],
+    })
+    const result = validateCanonicalFinding(invalidAgent)
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors.some((e) => e.field === "reported_by_agent" && e.code === "enum")).toBe(
+        true,
+      )
     }
   })
 })

@@ -281,7 +281,7 @@ describe("full audit lifecycle simulation", () => {
     expect(state.contractsReviewed).toEqual(["src/Vault.sol"])
   })
 
-  it("cross-tool deduplication across slither and patterns", async () => {
+  it("cross-tool observations are both retained", async () => {
     const { state, toolHook } = createHarness()
 
     await toolHook({
@@ -329,8 +329,9 @@ describe("full audit lifecycle simulation", () => {
       }),
     })
 
-    expect(state.findings).toHaveLength(1)
+    expect(state.findings).toHaveLength(2)
     expect(state.findings[0]?.source).toBe("slither")
+    expect(state.findings[1]?.source).toBe("pattern")
   })
 
   it("agent context injection reflects accumulated state", async () => {

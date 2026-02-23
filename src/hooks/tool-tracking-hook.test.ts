@@ -136,7 +136,54 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings.at(0)?.lines).toEqual([15, 25])
   })
 
-  test("cross-tool deduplication", async () => {
+  test("argus_record_finding records manual findings", async () => {
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {
+        findings: JSON.stringify([
+          {
+            check: "manual-auth-bypass",
+            severity: "High",
+            confidence: "High",
+            description: "Manual finding",
+            file: "src/Auth.sol",
+            lines: [12, 14],
+            source: "manual",
+          },
+        ]),
+      },
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "manual-auth-bypass",
+            severity: "High",
+            confidence: "High",
+            description: "Manual finding",
+            file: "src/Auth.sol",
+            lines: [12, 14],
+            source: "manual",
+            reported_by_agent: "argus",
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(1)
+    expect(auditState.findings.at(0)?.check).toBe("manual-auth-bypass")
+    expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_record_finding")
+    expect(sink.events.some((event) => event.type === "finding.added")).toBe(true)
+  })
+
+  test("cross-tool observations are both retained", async () => {
     const slitherResult = {
       success: true,
       findingsCount: 1,
@@ -187,8 +234,9 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
-    expect(auditState.findings).toHaveLength(1)
+    expect(auditState.findings).toHaveLength(2)
     expect(auditState.findings.at(0)?.source).toBe("slither")
+    expect(auditState.findings.at(1)?.source).toBe("pattern")
   })
 
   test("contract analyzer updates contractsReviewed", async () => {
@@ -1149,7 +1197,7 @@ Content...`
       expect(startPayload.tool).toBe("argus_skill_load")
     })
 
-    test("does not emit finding.added for deduplicated findings", async () => {
+    test("keeps repeated observations and emits finding.added for each", async () => {
       const sink = createMockSink()
       const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
         getEventSink: () => sink,
@@ -1202,7 +1250,7 @@ Content...`
       })
 
       const findingsAfter = sink.events.filter((e) => e.type === "finding.added").length
-      expect(findingsAfter).toBe(1)
+      expect(findingsAfter).toBe(2)
     })
 
     test("does not emit to sink for non-argus tools", async () => {
@@ -1239,6 +1287,36 @@ Content...`
       ).resolves.toBeUndefined()
 
       expect(auditState.toolsExecuted).toHaveLength(1)
+    })
+
+    test("argus_record_finding fails fast when sink write fails", async () => {
+      const failingSink = createFailingSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => failingSink,
+        getSessionId: () => "oc-session-1",
+      })
+
+      await expect(
+        hookWithSink({
+          tool: "argus_record_finding",
+          args: {},
+          result: JSON.stringify({
+            success: true,
+            count: 1,
+            findings: [
+              {
+                check: "manual-issue",
+                severity: "High",
+                confidence: "High",
+                description: "Manual issue",
+                file: "src/Vault.sol",
+                lines: [10, 12],
+                source: "manual",
+              },
+            ],
+          }),
+        }),
+      ).rejects.toThrow("Failed to emit tool.started event to sink")
     })
 
     test("does not emit when no sink is provided", async () => {

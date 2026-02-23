@@ -20,6 +20,10 @@ function makeFinding(runId: string, seq: number, id: string): CanonicalFinding {
     run_id: runId,
     seq,
     schema_version: SCHEMA_VERSION,
+    observation_id: `obs-${id}`,
+    issue_fingerprint: `issue-${id}`,
+    observation_fingerprint: `observation-${id}`,
+    reported_by_agent: "argus",
   }
 }
 

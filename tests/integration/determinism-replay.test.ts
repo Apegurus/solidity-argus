@@ -11,7 +11,7 @@ import {
   projectReportInput,
   stableHash,
 } from "../../src/state/projectors"
-import type { AuditEvent, CanonicalFinding } from "../../src/state/schemas"
+import { type AuditEvent, type CanonicalFinding, SCHEMA_VERSION } from "../../src/state/schemas"
 
 const RUN_ID = "run-determinism"
 const SESSION_ID = "session-determinism"
@@ -29,7 +29,13 @@ function makeFinding(overrides: Partial<CanonicalFinding>): CanonicalFinding {
     source: overrides.source ?? "manual",
     run_id: overrides.run_id ?? RUN_ID,
     seq: overrides.seq ?? 1,
-    schema_version: overrides.schema_version ?? "1.0.0",
+    schema_version: overrides.schema_version ?? SCHEMA_VERSION,
+    observation_id: overrides.observation_id ?? `obs-${overrides.seq ?? 1}`,
+    issue_fingerprint: overrides.issue_fingerprint ?? `issue-${overrides.id ?? "default"}`,
+    observation_fingerprint:
+      overrides.observation_fingerprint ?? `obsfp-${overrides.id ?? "default"}`,
+    reported_by_agent: overrides.reported_by_agent ?? "sentinel",
+    reported_by_session_id: overrides.reported_by_session_id ?? SESSION_ID,
     remediation: overrides.remediation,
     exploitReference: overrides.exploitReference,
     provenance: overrides.provenance,
@@ -40,7 +46,7 @@ function fixtureEvents(): AuditEvent[] {
   const base = {
     run_id: RUN_ID,
     session_id: SESSION_ID,
-    schema_version: "1.0.0",
+    schema_version: SCHEMA_VERSION,
     source: "argus",
   }
 

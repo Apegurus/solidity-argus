@@ -47,7 +47,7 @@ describe("createPluginInterface", () => {
     expect(result.event).toBeDefined()
   })
 
-  it("tool map has 12 entries", () => {
+  it("tool map has 13 entries", () => {
     const config = ArgusConfigSchema.parse({})
     const tools = createTools(config)
     const hooks = createHooks({
@@ -58,7 +58,7 @@ describe("createPluginInterface", () => {
     })
 
     const result = createPluginInterface({ tools, hooks })
-    expect(Object.keys(result.tool)).toHaveLength(12)
+    expect(Object.keys(result.tool)).toHaveLength(13)
   })
 
   it("omits disabled hooks from interface", () => {

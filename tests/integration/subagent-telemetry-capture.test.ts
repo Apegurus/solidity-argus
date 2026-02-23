@@ -4,6 +4,7 @@ import { createAgentTracker } from "../../src/hooks/agent-tracker"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
 import { projectFindings, projectToolExecutions } from "../../src/state/projectors"
 import type { AuditEvent } from "../../src/state/schemas"
+import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { AuditState } from "../../src/state/types"
 
 function createMockEventSink(): { sink: EventSink; events: AuditEvent[] } {
@@ -290,7 +291,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "parent-session",
           tool_call_id: "tc-parent-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1000,
           payload: {
             tool: "task",
@@ -306,7 +307,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "parent-session",
           tool_call_id: "tc-parent-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1001,
           payload: {
             tool: "task",
@@ -323,7 +324,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "child-session-42",
           tool_call_id: "tc-child-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1002,
           payload: {
             tool: "argus_slither_analyze",
@@ -337,7 +338,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "child-session-42",
           tool_call_id: "tc-child-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1003,
           payload: {
             id: "reentrancy-eth:src/Vault.sol:42",
@@ -349,8 +350,12 @@ describe("Subagent telemetry capture", () => {
             lines: [42, 55],
             source: "slither",
             run_id: "run-1",
-            seq: 0,
-            schema_version: "1.0.0",
+            seq: 4,
+            schema_version: SCHEMA_VERSION,
+            observation_id: "obs-reentrancy-1",
+            issue_fingerprint: "issue-reentrancy-1",
+            observation_fingerprint: "observation-reentrancy-1",
+            reported_by_agent: "sentinel",
           },
         },
         {
@@ -360,7 +365,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "child-session-42",
           tool_call_id: "tc-child-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1004,
           payload: {
             tool: "argus_slither_analyze",
@@ -417,7 +422,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "parent-session",
           tool_call_id: "tc-orphan-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1000,
           payload: {
             tool: "task",
@@ -433,7 +438,7 @@ describe("Subagent telemetry capture", () => {
           session_id: "parent-session",
           tool_call_id: "tc-orphan-1",
           source: "tool-tracking-hook",
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
           timestamp: 1001,
           payload: {
             tool: "task",

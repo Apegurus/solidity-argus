@@ -5,6 +5,7 @@ import { createHooks } from "./create-hooks"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
+import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 
@@ -252,6 +253,7 @@ describe("createHooks", () => {
     expect(finalizationEvent).toBeDefined()
     expect(finalizationEvent?.payload?.status).toBe("failed-finalization")
     expect(finalizationEvent?.payload?.invariantsPassed).toBe(false)
+    expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
   })
 
   it("materializes findings artifact after successful session finalization", async () => {
@@ -300,5 +302,64 @@ describe("createHooks", () => {
     }
     expect(findingsArtifact.run_id).toBe(runId)
     expect(findingsArtifact.event_count).toBe(3)
+  })
+
+  it("materializes findings artifact when report generation completes before session deletion", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const runId = `run-live-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: runId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", sessionId: "oc-live" },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          success: true,
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
+    expect(await Bun.file(findingsPath).exists()).toBe(true)
+    const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
+      run_id: string
+      event_count: number
+    }
+    expect(findingsArtifact.run_id).toBe(runId)
+    expect(findingsArtifact.event_count).toBeGreaterThan(0)
   })
 })

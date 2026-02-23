@@ -47,6 +47,10 @@ function makeCanonicalReportInput(): ReportInput {
         run_id: "run-structured-1",
         seq: 7,
         schema_version: SCHEMA_VERSION,
+        observation_id: "obs-finding-1",
+        issue_fingerprint: "issue-finding-1",
+        observation_fingerprint: "observation-finding-1",
+        reported_by_agent: "scribe",
       },
     ],
     toolsExecuted: [

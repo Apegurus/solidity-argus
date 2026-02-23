@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
+import type { AuditEvent } from "../../state/schemas"
+import { SCHEMA_VERSION } from "../../state/schemas"
 import type { AuditState, Finding } from "../../state/types"
 import { createAuditStateManager } from "./audit-state-manager"
 
@@ -49,6 +52,33 @@ describe("createAuditStateManager", () => {
       version,
       filePath: join(projectDir, stateDir, STATE_FILE),
     }
+  }
+
+  function buildEvent(
+    runId: string,
+    sessionId: string,
+    type: AuditEvent["type"],
+    seq: number,
+    payload: Record<string, unknown>,
+    toolCallId?: string,
+  ): AuditEvent {
+    return {
+      type,
+      run_id: runId,
+      seq,
+      session_id: sessionId,
+      source: "test",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_000 + seq,
+      payload,
+      tool_call_id: toolCallId,
+    }
+  }
+
+  function writeRunEvents(projectDir: string, runId: string, events: AuditEvent[]): void {
+    const eventsPath = createAuditArtifactResolver(runId, projectDir).paths().journalFile
+    mkdirSync(dirname(eventsPath), { recursive: true })
+    writeFileSync(eventsPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`)
   }
 
   test("Finding supports source 'solodit'", () => {
@@ -183,6 +213,189 @@ describe("createAuditStateManager", () => {
     const parsed = JSON.parse(raw) as Record<string, unknown>
 
     expect(parsed.source_of_truth).toBe("events")
+  })
+
+  test("save stamps event stream sequence and hash metadata", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    expect(state).not.toBeNull()
+    if (!state) return
+
+    writeRunEvents(projectDir, state.sessionId, [
+      buildEvent(state.sessionId, "oc-state-stamp", "session.created", 1, {
+        scope: ["src/Vault.sol"],
+      }),
+      buildEvent(state.sessionId, "oc-state-stamp", "session.idle", 2, {
+        findingsCount: 0,
+        toolsExecutedCount: 0,
+      }),
+    ])
+
+    await manager.save(state)
+
+    const statePath = join(projectDir, WRITE_DIR, STATE_FILE)
+    const raw = readFileSync(statePath, "utf8")
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+
+    expect(parsed.last_event_seq).toBe(2)
+    expect(typeof parsed.event_stream_hash).toBe("string")
+    expect((parsed.event_stream_hash as string).length).toBeGreaterThan(0)
+  })
+
+  test("load auto-repairs canonical state fields from event stream while preserving optional fields", async () => {
+    const projectDir = makeTempDir()
+    const runId = "run-repair-load"
+    const opencodeSessionId = "oc-repair"
+    const stateDir = join(projectDir, WRITE_DIR)
+    const statePath = join(stateDir, STATE_FILE)
+
+    mkdirSync(stateDir, { recursive: true })
+    writeFileSync(
+      statePath,
+      `${JSON.stringify(
+        buildPersistentState(projectDir, "2", {
+          sessionId: runId,
+          findings: [],
+          contractsReviewed: [],
+          toolsExecuted: [],
+          currentPhase: "reconnaissance",
+          patternVersion: "patterns-v4",
+        }),
+      )}\n`,
+    )
+
+    writeRunEvents(projectDir, runId, [
+      buildEvent(runId, opencodeSessionId, "session.created", 1, { scope: ["src/Vault.sol"] }),
+      buildEvent(
+        runId,
+        opencodeSessionId,
+        "tool.started",
+        2,
+        { tool: "argus_slither_analyze" },
+        "tc-1",
+      ),
+      buildEvent(
+        runId,
+        opencodeSessionId,
+        "finding.added",
+        3,
+        {
+          id: "f-repair",
+          check: "reentrancy-eth",
+          severity: "High",
+          confidence: "High",
+          description: "Reentrancy risk",
+          file: "src/Vault.sol",
+          lines: [10, 20],
+          source: "slither",
+          run_id: runId,
+          seq: 3,
+          schema_version: SCHEMA_VERSION,
+          observation_id: "obs-f-repair",
+          issue_fingerprint: "issue-f-repair",
+          observation_fingerprint: "observation-f-repair",
+          reported_by_agent: "argus",
+        },
+        "tc-1",
+      ),
+      buildEvent(
+        runId,
+        opencodeSessionId,
+        "tool.completed",
+        4,
+        { tool: "argus_slither_analyze", success: true, findingsCount: 1 },
+        "tc-1",
+      ),
+      buildEvent(runId, opencodeSessionId, "phase.changed", 5, { phase: "scanning" }),
+    ])
+
+    const manager = createAuditStateManager(projectDir)
+    const loaded = await manager.load()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded?.sessionId).toBe(runId)
+    expect(loaded?.findings.length).toBe(1)
+    expect(loaded?.findings[0]?.id).toBe("f-repair")
+    expect(loaded?.currentPhase).toBe("scanning")
+    expect(loaded?.patternVersion).toBe("patterns-v4")
+    expect(loaded?.toolsExecuted.length).toBe(1)
+  })
+
+  test("save auto-repairs findings and tools from events before persisting", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    expect(state).not.toBeNull()
+    if (!state) return
+
+    writeRunEvents(projectDir, state.sessionId, [
+      buildEvent(state.sessionId, "oc-save-repair", "session.created", 1, {
+        scope: ["src/Vault.sol"],
+      }),
+      buildEvent(
+        state.sessionId,
+        "oc-save-repair",
+        "tool.started",
+        2,
+        { tool: "argus_slither_analyze" },
+        "tc-1",
+      ),
+      buildEvent(
+        state.sessionId,
+        "oc-save-repair",
+        "finding.added",
+        3,
+        {
+          id: "f-save-repair",
+          check: "unchecked-call",
+          severity: "Medium",
+          confidence: "Medium",
+          description: "Unchecked call result",
+          file: "src/Vault.sol",
+          lines: [22, 25],
+          source: "pattern",
+          run_id: state.sessionId,
+          seq: 3,
+          schema_version: SCHEMA_VERSION,
+          observation_id: "obs-f-save-repair",
+          issue_fingerprint: "issue-f-save-repair",
+          observation_fingerprint: "observation-f-save-repair",
+          reported_by_agent: "argus",
+        },
+        "tc-1",
+      ),
+      buildEvent(
+        state.sessionId,
+        "oc-save-repair",
+        "tool.completed",
+        4,
+        { tool: "argus_slither_analyze", success: true, findingsCount: 1 },
+        "tc-1",
+      ),
+      buildEvent(state.sessionId, "oc-save-repair", "phase.changed", 5, { phase: "scanning" }),
+    ])
+
+    await manager.save({
+      ...state,
+      findings: [],
+      toolsExecuted: [],
+      currentPhase: "reconnaissance",
+      contractsReviewed: [],
+      scope: [],
+    })
+
+    const statePath = join(projectDir, WRITE_DIR, STATE_FILE)
+    const raw = readFileSync(statePath, "utf8")
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const persistedFindings = parsed.findings as Array<Record<string, unknown>>
+    const persistedTools = parsed.toolsExecuted as Array<Record<string, unknown>>
+
+    expect(persistedFindings.length).toBe(1)
+    expect(persistedFindings[0]?.id).toBe("f-save-repair")
+    expect(persistedTools.length).toBe(1)
+    expect(parsed.currentPhase).toBe("scanning")
+    expect(parsed.last_event_seq).toBe(5)
   })
 
   test("loads state from legacy .opencode fallback", async () => {

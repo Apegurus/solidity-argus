@@ -27,7 +27,7 @@ describe("AuditState - Finding Deduplication", () => {
     expect(finding.severity).toBe("High")
   })
 
-  test("should deduplicate findings by check+file+lines", () => {
+  test("should retain repeated observations as distinct findings", () => {
     const { store } = createAuditState("/test/project")
 
     // Add first finding
@@ -52,12 +52,10 @@ describe("AuditState - Finding Deduplication", () => {
       source: "slither",
     })
 
-    // Should have same ID (deduped)
-    expect(finding1.id).toBe(finding2.id)
+    expect(finding1.id).not.toBe(finding2.id)
 
-    // Store should only have 1 finding
     const findings = store.getFindings()
-    expect(findings.length).toBe(1)
+    expect(findings.length).toBe(2)
   })
 
   test("should not deduplicate findings with different lines", () => {

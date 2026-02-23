@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import type { EventSink } from "../features/persistent-state/event-sink"
+import { ARGUS_PLUGIN_VERSION } from "../shared/plugin-metadata"
 import type { AuditEvent } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
 import type { EventSubHandler } from "./event-hook"
@@ -149,6 +150,7 @@ describe("createEventHook", () => {
       const payload = sink.events[0]?.payload as Record<string, unknown>
       expect(payload.projectDir).toBe("/tmp/recovered")
       expect(payload.sessionId).toBe("recovered-id")
+      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
     })
 
     it("emits session.idle to sink with state summary", async () => {
@@ -223,11 +225,13 @@ describe("createEventHook", () => {
       expect(sink.events[1]?.session_id).toBe("oc-del")
       const payload = sink.events[1]?.payload as Record<string, unknown>
       expect(payload.archived).toBe(true)
+      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
 
       expect(sink.events[2]?.type).toBe("run.finalized")
       const finalizationPayload = sink.events[2]?.payload as Record<string, unknown>
       expect(finalizationPayload.invariantsPassed).toBe(true)
       expect(finalizationPayload.status).toBe("finalized")
+      expect(finalizationPayload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
     })
 
     it("records finalization failure when a tool.start has no completion", async () => {
@@ -274,6 +278,7 @@ describe("createEventHook", () => {
       const payload = finalEvent?.payload as Record<string, unknown>
       expect(payload.invariantsPassed).toBe(false)
       expect(payload.status).toBe("failed-finalization")
+      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
       expect(Array.isArray(payload.errors)).toBe(true)
       expect(
         (payload.errors as string[]).some((entry) => entry.includes("orphaned tool.started")),

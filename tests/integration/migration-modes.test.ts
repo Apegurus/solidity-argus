@@ -8,6 +8,7 @@ import {
   validateStrictCompatibility,
 } from "../../src/features/migration"
 import { DropDiagnosticsError } from "../../src/shared/drop-diagnostics"
+import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { AuditState, Finding } from "../../src/state/types"
 
 const RUN_ID = "run-migration-test"
@@ -110,7 +111,7 @@ describe("Migration Modes", () => {
       expect(result.legacyFindings).toHaveLength(2)
       expect(result.canonicalFindings).toHaveLength(2)
       expect(result.canonicalFindings[0]?.run_id).toBe(RUN_ID)
-      expect(result.canonicalFindings[0]?.schema_version).toBe("1.0.0")
+      expect(result.canonicalFindings[0]?.schema_version).toBe(SCHEMA_VERSION)
     })
 
     test("computes parity metrics comparing legacy and canonical", () => {
@@ -139,13 +140,21 @@ describe("Migration Modes", () => {
           ...makeValidFinding({ id: "f1", severity: "High" }),
           run_id: RUN_ID,
           seq: 1,
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
+          observation_id: "obs-f1",
+          issue_fingerprint: "issue-f1",
+          observation_fingerprint: "observation-f1",
+          reported_by_agent: "argus" as const,
         },
         {
           ...makeValidFinding({ id: "f2", severity: "Medium" }),
           run_id: RUN_ID,
           seq: 2,
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
+          observation_id: "obs-f2",
+          issue_fingerprint: "issue-f2",
+          observation_fingerprint: "observation-f2",
+          reported_by_agent: "argus" as const,
         },
       ]
       const metrics = computeParityMetrics(legacyFindings, canonicalFindings)
@@ -164,13 +173,21 @@ describe("Migration Modes", () => {
           ...makeValidFinding({ id: "shared-1" }),
           run_id: RUN_ID,
           seq: 1,
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
+          observation_id: "obs-shared-1",
+          issue_fingerprint: "issue-shared-1",
+          observation_fingerprint: "observation-shared-1",
+          reported_by_agent: "argus" as const,
         },
         {
           ...makeValidFinding({ id: "canonical-only" }),
           run_id: RUN_ID,
           seq: 2,
-          schema_version: "1.0.0",
+          schema_version: SCHEMA_VERSION,
+          observation_id: "obs-canonical-only",
+          issue_fingerprint: "issue-canonical-only",
+          observation_fingerprint: "observation-canonical-only",
+          reported_by_agent: "argus" as const,
         },
       ]
       const metrics = computeParityMetrics(legacyFindings, canonicalFindings)
@@ -204,7 +221,7 @@ describe("Migration Modes", () => {
       const { reportInput } = adaptLegacyStateToReportInput(state, "dual", RUN_ID)
 
       expect(reportInput.run_id).toBe(RUN_ID)
-      expect(reportInput.schema_version).toBe("1.0.0")
+      expect(reportInput.schema_version).toBe(SCHEMA_VERSION)
       expect(reportInput.findings).toHaveLength(1)
       expect(reportInput.projectDir).toBe("/tmp/migration-project")
       expect(reportInput.scope).toEqual(["src/Vault.sol"])
