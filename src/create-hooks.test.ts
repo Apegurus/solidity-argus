@@ -4,6 +4,7 @@ import { ArgusConfigSchema } from "./config/schema"
 import { createHooks } from "./create-hooks"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
+import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 
@@ -251,5 +252,53 @@ describe("createHooks", () => {
     expect(finalizationEvent).toBeDefined()
     expect(finalizationEvent?.payload?.status).toBe("failed-finalization")
     expect(finalizationEvent?.payload?.invariantsPassed).toBe(false)
+  })
+
+  it("materializes findings artifact after successful session finalization", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const runId = `run-materialize-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: runId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", sessionId: "oc-materialize" },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    await hooks.event?.({
+      event: { type: "session.deleted", sessionId: "oc-materialize" },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
+    expect(await Bun.file(findingsPath).exists()).toBe(true)
+    const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
+      run_id: string
+      event_count: number
+    }
+    expect(findingsArtifact.run_id).toBe(runId)
+    expect(findingsArtifact.event_count).toBe(3)
   })
 })

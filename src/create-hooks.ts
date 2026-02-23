@@ -11,6 +11,7 @@ import { adaptLegacyFindings } from "./features/migration/migration-adapter"
 import { computeParityMetrics, formatParityReport } from "./features/migration/parity-telemetry"
 import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
 import { createEventSink, type EventSink } from "./features/persistent-state/event-sink"
+import { materializeFindings } from "./features/persistent-state/findings-materializer"
 import { recordRun } from "./features/persistent-state/global-run-index"
 import { createRunJournal } from "./features/persistent-state/run-journal"
 import { createAgentTracker } from "./hooks/agent-tracker"
@@ -136,8 +137,6 @@ export function createHooks(args: {
 
         const effectiveState = recoveredState ?? auditStateManager.get()
         if (effectiveState) {
-          // createAuditArtifactResolver is the canonical source for all run artifact paths.
-          // The journal file path is: {projectDir}/.opencode/runs/{runId}/events.jsonl
           const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
           try {
             const journalFile = resolver.paths().journalFile
@@ -321,11 +320,26 @@ export function createHooks(args: {
     ? safeCreateHook(
         () => async (input: Parameters<typeof eventHook>[0]) => {
           const isSessionDeleted = input.event.type === "session.deleted"
+          const finalizationBeforeDelete = isSessionDeleted ? getLastFinalizationResult() : null
 
           try {
             await eventHook(input)
           } finally {
             if (isSessionDeleted) {
+              const finalizationResult = getLastFinalizationResult()
+              const hasNewFinalization =
+                finalizationResult !== null && finalizationResult !== finalizationBeforeDelete
+
+              if (hasNewFinalization && finalizationResult.runId.length > 0) {
+                try {
+                  await materializeFindings(finalizationResult.runId, projectDir)
+                } catch (error) {
+                  logger.warn(
+                    `Failed to materialize findings artifact for run ${finalizationResult.runId}: ${error instanceof Error ? error.message : String(error)}`,
+                  )
+                }
+              }
+
               await auditStateManager.archive()
 
               const deletedSessionId = input.event.sessionId
@@ -337,7 +351,7 @@ export function createHooks(args: {
                 type: "session.deleted",
                 timestamp: Date.now(),
                 archived: true,
-                finalizationPassed: getLastFinalizationResult()?.invariantsPassed ?? null,
+                finalizationPassed: finalizationResult?.invariantsPassed ?? null,
               })
 
               currentEventSink = null
