@@ -129,6 +129,13 @@ jobs:
       - name: Single writer policy tests
         run: bun test tests/integration/single-writer-policy.test.ts
 
+      - name: Docs migration contract checks
+        run: |
+          grep -q "\.argus" docs/operator-runbook.md
+          grep -q "\.opencode" docs/operator-runbook.md
+          grep -qi "fallback" docs/operator-runbook.md
+          grep -qi "precedence" docs/operator-runbook.md
+
       - name: Upload evidence artifacts
         if: always()
         uses: actions/upload-artifact@v4

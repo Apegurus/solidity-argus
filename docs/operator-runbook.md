@@ -38,13 +38,18 @@ Audit Session
               └── {ContractName}-security-audit-YYYY-MM-DD.md
 ```
 
-**Artifact paths:**
+**Artifact paths (write root is `.argus`; `.opencode` is transitional read fallback):**
 | Artifact | Path |
 |----------|------|
-| Event journal | `{projectDir}/.opencode/runs/{runId}/events.jsonl` |
-| Legacy state | `{projectDir}/.opencode/argus-state.json` |
-| Archives | `{projectDir}/.opencode/archives/argus-state.{timestamp}.json` |
-| Reports | `{projectDir}/.opencode/reports/{ContractName}-security-audit-YYYY-MM-DD.md` |
+| Event journal | `{projectDir}/.argus/runs/{runId}/events.jsonl` |
+| Legacy state | `{projectDir}/.argus/argus-state.json` |
+| Archives | `{projectDir}/.argus/archives/argus-state.{timestamp}.json` |
+| Reports | `{projectDir}/.argus/reports/{ContractName}-security-audit-YYYY-MM-DD.md` |
+
+**Root precedence contract:**
+- Write root: `.argus` only.
+- Read roots: `[.argus, .opencode]` in that order.
+- Migration posture: `.opencode` remains supported as a read fallback during transition.
 
 ### Report Pipeline
 
@@ -70,7 +75,7 @@ const hash     = stableHash(findings)              // SHA-256 of sorted JSON
 
 ## 3. Migration Modes
 
-Configure in `.opencode/solidity-argus.jsonc`:
+Configure in `.argus/solidity-argus.jsonc`:
 
 ```jsonc
 {
@@ -154,7 +159,7 @@ Expected: Exit 0, no errors.
 
 ```bash
 # Create a timestamped backup of current state before cutover
-cp .opencode/argus-state.json .opencode/argus-state.pre-cutover-$(date +%Y%m%d-%H%M%S).json
+cp .argus/argus-state.json .argus/argus-state.pre-cutover-$(date +%Y%m%d-%H%M%S).json
 ```
 
 ---
@@ -163,7 +168,7 @@ cp .opencode/argus-state.json .opencode/argus-state.pre-cutover-$(date +%Y%m%d-%
 
 ### 5.1 Switch to Dual Mode (validation phase)
 
-1. Edit `.opencode/solidity-argus.jsonc`:
+1. Edit `.argus/solidity-argus.jsonc`:
    ```jsonc
    {
      "migration": {
@@ -180,7 +185,7 @@ cp .opencode/argus-state.json .opencode/argus-state.pre-cutover-$(date +%Y%m%d-%
 
 3. Check parity metrics in the run journal:
    ```bash
-   cat .opencode/runs/$(ls -t .opencode/runs/ | head -1)/events.jsonl | grep "parity"
+    cat .argus/runs/$(ls -t .argus/runs/ | head -1)/events.jsonl | grep "parity"
    ```
 
 4. Verify `findingCountDiff = 0` and `contentHashMatch = true` before proceeding to strict mode.
@@ -189,7 +194,7 @@ cp .opencode/argus-state.json .opencode/argus-state.pre-cutover-$(date +%Y%m%d-%
 
 Only proceed if dual-mode parity validation passed (Step 5.1).
 
-1. Edit `.opencode/solidity-argus.jsonc`:
+1. Edit `.argus/solidity-argus.jsonc`:
    ```jsonc
    {
      "migration": {
@@ -215,7 +220,7 @@ After switching modes, verify the system is operating correctly.
 
 ```bash
 # After running an audit, check that events.jsonl exists
-ls -la .opencode/runs/*/events.jsonl
+ls -la .argus/runs/*/events.jsonl
 ```
 
 Expected: One `events.jsonl` per run, with `session.created`, `tool.executed`, `finding.added`, and `session.deleted` events.
@@ -259,7 +264,7 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 
 ### 7.1 Rollback from Strict to Dual
 
-1. Edit `.opencode/solidity-argus.jsonc`:
+1. Edit `.argus/solidity-argus.jsonc`:
    ```jsonc
    {
      "migration": {
@@ -276,7 +281,7 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 
 ### 7.2 Rollback from Dual to Legacy
 
-1. Edit `.opencode/solidity-argus.jsonc`:
+1. Edit `.argus/solidity-argus.jsonc`:
    ```jsonc
    {
      "migration": {
@@ -289,7 +294,7 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 2. Restore pre-cutover state if needed:
    ```bash
    # Restore from the backup created in Pre-Cutover step 4.5
-   cp .opencode/argus-state.pre-cutover-YYYYMMDD-HHMMSS.json .opencode/argus-state.json
+    cp .argus/argus-state.pre-cutover-YYYYMMDD-HHMMSS.json .argus/argus-state.json
    ```
 
 3. Verify:
@@ -301,10 +306,10 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 ### 7.3 Emergency Rollback (data corruption suspected)
 
 1. Immediately switch to `legacy` mode (see 7.2).
-2. Do NOT delete any `.opencode/runs/*/events.jsonl` files — they are forensic evidence.
+2. Do NOT delete any `.argus/runs/*/events.jsonl` files — they are forensic evidence.
 3. Archive the corrupted run:
    ```bash
-   mv .opencode/runs/{runId} .opencode/runs/{runId}.corrupted-$(date +%Y%m%d-%H%M%S)
+    mv .argus/runs/{runId} .argus/runs/{runId}.corrupted-$(date +%Y%m%d-%H%M%S)
    ```
 4. File an incident report with the archived run directory for post-mortem analysis.
 
@@ -319,13 +324,13 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 **Diagnosis**:
 ```bash
 # Check if the event sink is writing
-ls -la .opencode/runs/*/events.jsonl
+ls -la .argus/runs/*/events.jsonl
 # Check for permission issues
-ls -la .opencode/runs/
+ls -la .argus/runs/
 ```
 
 **Remediation**:
-- Ensure `.opencode/runs/` directory is writable.
+- Ensure `.argus/runs/` directory is writable.
 - Check for disk space issues.
 - Review `src/features/persistent-state/event-sink.ts` for `EventSinkError` in logs.
 
@@ -336,7 +341,7 @@ ls -la .opencode/runs/
 **Diagnosis**:
 ```bash
 # Check for failed-finalization events in the journal
-cat .opencode/runs/*/events.jsonl | grep "finalization"
+cat .argus/runs/*/events.jsonl | grep "finalization"
 ```
 
 **Remediation**:
@@ -353,7 +358,7 @@ cat .opencode/runs/*/events.jsonl | grep "finalization"
 **Diagnosis**:
 ```bash
 # Check canonical report path
-ls -la .opencode/reports/
+ls -la .argus/reports/
 # Check for DUPLICATE_WRITE_ATTEMPT error in report result
 ```
 
@@ -430,7 +435,7 @@ bun test tests/integration/migration-modes.test.ts --verbose
 **Diagnosis**:
 ```bash
 # Check parity events in the run journal
-cat .opencode/runs/$(ls -t .opencode/runs/ | head -1)/events.jsonl | grep "parity"
+cat .argus/runs/$(ls -t .argus/runs/ | head -1)/events.jsonl | grep "parity"
 ```
 
 **Remediation**:
@@ -556,7 +561,7 @@ Evidence artifacts from CI runs are uploaded to the `production-readiness-eviden
 ## Appendix: Key Configuration Reference
 
 ```jsonc
-// .opencode/solidity-argus.jsonc
+// .argus/solidity-argus.jsonc
 {
   "migration": {
     "mode": "legacy"   // "legacy" | "dual" | "strict" — default: "legacy"
