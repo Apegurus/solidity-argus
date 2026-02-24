@@ -37,7 +37,7 @@ const baseConfig: ArgusConfig = {
 }
 
 describe("createTools", () => {
-  it("registers exactly 13 tools when solodit is enabled", () => {
+  it("registers exactly 14 tools when solodit is enabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
       solodit: { enabled: true, port: 3000 },
@@ -45,7 +45,7 @@ describe("createTools", () => {
     const tools = createTools(config)
     const toolNames = Object.keys(tools).sort()
 
-    expect(toolNames).toHaveLength(13)
+    expect(toolNames).toHaveLength(14)
     expect(toolNames).toEqual([
       "argus_analyze_contract",
       "argus_check_patterns",
@@ -55,6 +55,7 @@ describe("createTools", () => {
       "argus_gas_analysis",
       "argus_generate_report",
       "argus_proxy_detection",
+      "argus_read_findings",
       "argus_record_finding",
       "argus_skill_load",
       "argus_slither_analyze",
@@ -63,14 +64,14 @@ describe("createTools", () => {
     ])
   })
 
-  it("registers 12 tools when solodit is disabled", () => {
+  it("registers 13 tools when solodit is disabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
       solodit: { enabled: false, port: 3000 },
     }
     const tools = createTools(config)
 
-    expect(Object.keys(tools)).toHaveLength(12)
+    expect(Object.keys(tools)).toHaveLength(13)
     expect(tools.argus_solodit_search).toBeUndefined()
   })
 })

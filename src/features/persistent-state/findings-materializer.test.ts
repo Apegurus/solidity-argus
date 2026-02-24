@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
 import type { AuditEvent, CanonicalFinding } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
-import { materializeFindings } from "./findings-materializer"
+import { materializeFindings, materializeReportInput } from "./findings-materializer"
 
 function makeFinding(runId: string, seq: number, id: string): CanonicalFinding {
   return {
@@ -162,5 +162,94 @@ describe("materializeFindings", () => {
 
     expect(runOneArtifact.run_id).toBe(runOne)
     expect(runTwoArtifact.run_id).toBe(runTwo)
+  })
+
+  test("throws when validateSessionId is enabled and session does not match events", async () => {
+    const runId = "run-session-mismatch"
+    const projectDir = await makeTempDir()
+    await writeEventsJsonl(projectDir, runId, makeEvents(runId, "session-from-events"))
+
+    await expect(
+      materializeFindings(runId, projectDir, "session-from-caller", { validateSessionId: true }),
+    ).rejects.toThrow("Session mismatch")
+  })
+
+  test("throws when requireEvents is enabled and run has no events", async () => {
+    const runId = "run-no-events"
+    const projectDir = await makeTempDir()
+
+    await expect(
+      materializeFindings(runId, projectDir, "session-any", { requireEvents: true }),
+    ).rejects.toThrow("No events found")
+  })
+})
+
+describe("materializeReportInput", () => {
+  const tempDirs: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
+    tempDirs.length = 0
+  })
+
+  async function makeTempDir(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "argus-report-input-materializer-"))
+    tempDirs.push(dir)
+    return dir
+  }
+
+  test("writes report-input.json to the correct path", async () => {
+    const runId = "run-report-input-path"
+    const projectDir = await makeTempDir()
+    const sessionId = "session-report-input-path"
+    await writeEventsJsonl(projectDir, runId, makeEvents(runId, sessionId))
+
+    await materializeReportInput(runId, projectDir)
+
+    const reportInputFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
+    const onDisk = JSON.parse(await readFile(reportInputFile, "utf8")) as { run_id: string }
+    expect(onDisk.run_id).toBe(runId)
+  })
+
+  test("returns a valid ReportInput with all required fields", async () => {
+    const runId = "run-report-input-shape"
+    const projectDir = await makeTempDir()
+    const sessionId = "session-report-input-shape"
+    await writeEventsJsonl(projectDir, runId, makeEvents(runId, sessionId))
+
+    const reportInput = await materializeReportInput(runId, projectDir)
+
+    expect(reportInput.run_id).toBe(runId)
+    expect(reportInput.schema_version).toBe(SCHEMA_VERSION)
+    expect(Array.isArray(reportInput.findings)).toBe(true)
+    expect(Array.isArray(reportInput.toolsExecuted)).toBe(true)
+    expect(Array.isArray(reportInput.scope)).toBe(true)
+    expect(reportInput.projectDir).toBe(projectDir)
+  })
+
+  test("throws when no events exist", async () => {
+    const runId = "run-report-input-no-events"
+    const projectDir = await makeTempDir()
+
+    await expect(materializeReportInput(runId, projectDir)).rejects.toThrow(
+      `No events found for run ${runId}`,
+    )
+  })
+
+  test("produces deterministic output for same events", async () => {
+    const runId = "run-report-input-deterministic"
+    const projectDir = await makeTempDir()
+    const sessionId = "session-report-input-deterministic"
+    await writeEventsJsonl(projectDir, runId, makeEvents(runId, sessionId))
+
+    const reportInputFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
+
+    await materializeReportInput(runId, projectDir)
+    const firstBytes = await readFile(reportInputFile, "utf8")
+
+    await materializeReportInput(runId, projectDir)
+    const secondBytes = await readFile(reportInputFile, "utf8")
+
+    expect(firstBytes).toBe(secondBytes)
   })
 })

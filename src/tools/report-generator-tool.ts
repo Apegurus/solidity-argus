@@ -1,8 +1,9 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
+import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import { readEvents } from "../features/persistent-state/event-sink"
 import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
@@ -30,6 +31,7 @@ type ReportGeneratorArgs = {
   report_input?: string
   audit_state?: string
   preflight_policy?: PreflightPolicy
+  run_id?: string
 }
 
 type FindingsCount = {
@@ -44,6 +46,7 @@ export type ReportGenerationResult = {
   report: string
   findingsCount: FindingsCount
   filename: string
+  run_id: string
   contentHash: string
   qualityGates: ReportQualityValidation
   contractDiagnostics: DropDiagnostic[]
@@ -526,6 +529,19 @@ function parseReportInputPayload(
       )
     }
 
+    if (validation.data.run_id.startsWith("ses_")) {
+      const message =
+        "ReportInput run_id must be a canonical run identifier, not an OpenCode session id (ses_*)."
+      if ((args.preflight_policy ?? "warn") === "strict-fail") {
+        diagnostics.error("REPORT_INPUT_RUN_ID_MISMATCH", message, "run_id")
+        throwContractMismatch(
+          "ReportInput contract mismatch: run_id/session_id conflation detected",
+          diagnostics.getDiagnostics(),
+        )
+      }
+      diagnostics.warn("REPORT_INPUT_RUN_ID_MISMATCH", message, "run_id")
+    }
+
     return { reportInput: validation.data, diagnostics: diagnostics.getDiagnostics() }
   }
 
@@ -538,9 +554,50 @@ function parseReportInputPayload(
     return { reportInput, diagnostics: diagnostics.getDiagnostics() }
   }
 
+  if (typeof args.run_id === "string" && args.run_id.trim().length > 0) {
+    const projectDir = resolveProjectDir(context)
+    const resolver = createAuditArtifactResolver(args.run_id, projectDir)
+    const reportInputFile = resolver.paths().reportInputFile
+    if (existsSync(reportInputFile)) {
+      diagnostics.warn(
+        "REPORT_INPUT_DISK_FALLBACK",
+        "No report_input or audit_state provided; reading materialized report-input.json from disk.",
+        "report_input",
+      )
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(readFileSync(reportInputFile, "utf-8"))
+      } catch {
+        diagnostics.error(
+          "REPORT_INPUT_DISK_CORRUPT",
+          `Materialized report-input.json for run ${args.run_id} is not valid JSON.`,
+          "report_input",
+        )
+        throwContractMismatch(
+          "ReportInput contract mismatch: corrupted disk artifact",
+          diagnostics.getDiagnostics(),
+        )
+      }
+      const validation = validateReportInput(parsed)
+      if (!validation.success) {
+        for (const error of validation.errors) {
+          diagnostics.error(
+            "REPORT_INPUT_DISK_VALIDATION_FAILED",
+            `${error.field}: ${error.message}`,
+            error.field,
+          )
+        }
+        throwContractMismatch(
+          "ReportInput contract mismatch: disk artifact failed schema validation",
+          diagnostics.getDiagnostics(),
+        )
+      }
+      return { reportInput: validation.data, diagnostics: diagnostics.getDiagnostics() }
+    }
+  }
   diagnostics.error(
     "REPORT_INPUT_MISSING",
-    "Missing report_input payload. Provide report_input (preferred) or legacy audit_state for transition.",
+    "Missing report_input payload. Provide report_input (preferred), run_id for disk fallback, or legacy audit_state.",
     "report_input",
   )
   throwContractMismatch(
@@ -1258,6 +1315,7 @@ export async function executeReportGeneration(
     report: reportMarkdown,
     findingsCount: counts,
     filename: canonicalFilename,
+    run_id: runId,
     contentHash,
     qualityGates,
     contractDiagnostics: diagnostics,
@@ -1303,6 +1361,7 @@ export const reportGeneratorTool = tool({
     report_input: tool.schema.string().optional(),
     audit_state: tool.schema.string().optional(),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
+    run_id: tool.schema.string().optional().describe("Run ID for disk fallback. When report_input is omitted, reads materialized report-input.json from disk."),
   },
   async execute(args, context) {
     const result = await executeReportGeneration(args, context)

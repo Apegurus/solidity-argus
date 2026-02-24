@@ -62,6 +62,23 @@ describe("checkReportPreflight", () => {
     expect(result.missingLifecycle.includes("session.created")).toBe(true)
   })
 
+  test("passes lifecycle check when run.finalized exists without session.deleted", () => {
+    const events: AuditEvent[] = [
+      buildEvent("session.created", 1),
+      buildEvent("tool.started", 2, { tool_call_id: "t-final" }),
+      buildEvent("tool.completed", 3, {
+        tool_call_id: "t-final",
+        payload: { tool: "argus_generate_report", success: true },
+      }),
+      buildEvent("run.finalized", 4),
+    ]
+
+    const result = checkReportPreflight(events)
+
+    expect(result.passed).toBe(true)
+    expect(result.missingLifecycle).toHaveLength(0)
+  })
+
   test("fails when required tool was not executed", () => {
     const events: AuditEvent[] = [
       buildEvent("session.created", 1),

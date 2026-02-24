@@ -109,6 +109,42 @@ describe("createEventHook", () => {
     expect(calls).toEqual(["session.created"])
   })
 
+  it("passes pre-delete state to sub-handlers during session.deleted", async () => {
+    let observedFindings = -1
+    const subHandler: EventSubHandler = async ({ type, auditState }) => {
+      if (type === "session.deleted") {
+        observedFindings = auditState?.findings.length ?? -1
+      }
+    }
+
+    const { hook, setAuditState } = createEventHook("/tmp", [subHandler])
+    setAuditState({
+      sessionId: "run-pre-delete",
+      projectDir: "/tmp",
+      contractsReviewed: [],
+      findings: [
+        {
+          id: "f-pre-delete",
+          check: "reentrancy",
+          severity: "High",
+          confidence: "High",
+          description: "test",
+          file: "Vault.sol",
+          lines: [1, 2],
+          source: "manual",
+        },
+      ],
+      toolsExecuted: [],
+      currentPhase: "reporting",
+      scope: [],
+      startTime: Date.now(),
+    })
+
+    await hook({ event: { type: "session.deleted", sessionId: "oc-pre-delete" } })
+
+    expect(observedFindings).toBe(1)
+  })
+
   it("sub-handler errors do not crash the hook", async () => {
     const failHandler: EventSubHandler = async () => {
       throw new Error("handler failed")

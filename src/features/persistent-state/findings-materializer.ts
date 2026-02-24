@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
 import { dedupeFindingsForFinalOutput } from "../../state/finding-aggregation"
-import { projectFindings, projectToolExecutions, stableHash } from "../../state/projectors"
-import type { CanonicalFinding, CanonicalToolExecution } from "../../state/schemas"
+import { projectFindings, projectReportInput, projectToolExecutions, stableHash } from "../../state/projectors"
+import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import { readEvents } from "./event-sink"
 
@@ -20,12 +20,34 @@ export interface FindingsArtifact {
   toolsExecuted: CanonicalToolExecution[]
 }
 
+export interface FindingsMaterializeOptions {
+  validateSessionId?: boolean
+  requireEvents?: boolean
+}
+
 export async function materializeFindings(
   runId: string,
   projectDir: string,
   sessionId?: string,
+  options: FindingsMaterializeOptions = {},
 ): Promise<FindingsArtifact> {
   const events = await readEvents(runId, projectDir)
+  if (options.requireEvents && events.length === 0) {
+    throw new Error(`No events found for run ${runId}`)
+  }
+
+  const sessionIdFromEvents = events[0]?.session_id ?? ""
+  if (
+    options.validateSessionId &&
+    sessionId &&
+    sessionIdFromEvents.length > 0 &&
+    sessionId !== sessionIdFromEvents
+  ) {
+    throw new Error(
+      `Session mismatch for run ${runId}: provided ${sessionId}, event stream has ${sessionIdFromEvents}`,
+    )
+  }
+
   const findings = dedupeFindingsForFinalOutput(projectFindings(events))
   const toolsExecuted = projectToolExecutions(events)
   const contentHash = stableHash(JSON.stringify(findings))
@@ -33,7 +55,7 @@ export async function materializeFindings(
 
   const artifact: FindingsArtifact = {
     run_id: runId,
-    session_id: sessionId ?? events[0]?.session_id ?? "",
+    session_id: sessionId ?? sessionIdFromEvents,
     schema_version: SCHEMA_VERSION,
     seq_first: events[0]?.seq ?? 0,
     seq_last: events.at(-1)?.seq ?? 0,
@@ -49,4 +71,23 @@ export async function materializeFindings(
   await writeFile(findingsFile, JSON.stringify(artifact, null, 2))
 
   return artifact
+}
+
+export async function materializeReportInput(
+  runId: string,
+  projectDir: string,
+  _sessionId?: string,
+): Promise<ReportInput> {
+  const events = await readEvents(runId, projectDir)
+  if (events.length === 0) {
+    throw new Error(`No events found for run ${runId}`)
+  }
+
+  const reportInput = projectReportInput(events, runId, projectDir)
+
+  const reportInputFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
+  await mkdir(dirname(reportInputFile), { recursive: true })
+  await writeFile(reportInputFile, JSON.stringify(reportInput, null, 2))
+
+  return reportInput
 }

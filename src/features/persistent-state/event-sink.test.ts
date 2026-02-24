@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
-import { createEventSink, EventSinkError, readEvents } from "./event-sink"
+import { createEventSink, EventSinkError, readEvents, releaseEventSink, resetSinkRegistry } from "./event-sink"
 
 const RUN_ID = "test-run-1"
 
@@ -30,6 +30,7 @@ describe("EventSink", () => {
       rmSync(dir, { recursive: true, force: true })
     }
     tempDirs.length = 0
+    resetSinkRegistry()
   })
 
   function makeTempDir(): string {
@@ -70,55 +71,87 @@ describe("EventSink", () => {
     expect(seqs).toEqual(expected)
   })
 
-  test("duplicate seq injection is rejected with SEQUENCE_CONFLICT", async () => {
+  test("caller-provided seq is overwritten with canonical seq at read time", async () => {
     const projectDir = makeTempDir()
     const sink = createEventSink(RUN_ID, projectDir)
 
-    await sink.append(makeEvent())
-    await sink.append(makeEvent())
+    // Append events with arbitrary caller seq values — all get overwritten.
+    await sink.append(makeEvent({ seq: 999 }))
+    await sink.append(makeEvent({ seq: 1 }))
+    await sink.append(makeEvent({ seq: 0 }))
 
-    let caught: unknown
-    try {
-      await sink.append(makeEvent({ seq: 1 }))
-    } catch (err) {
-      caught = err
-    }
-    expect(caught).toBeInstanceOf(EventSinkError)
-    expect((caught as EventSinkError).code).toBe("SEQUENCE_CONFLICT")
-
-    let caught2: unknown
-    try {
-      await sink.append(makeEvent({ seq: 2 }))
-    } catch (err) {
-      caught2 = err
-    }
-    expect(caught2).toBeInstanceOf(EventSinkError)
-    expect((caught2 as EventSinkError).code).toBe("SEQUENCE_CONFLICT")
+    const events = await sink.readAll()
+    expect(events).toHaveLength(3)
+    // Canonical seq is assigned at read time: 1, 2, 3
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3])
   })
 
   test("restart: write events, reload from disk, events restored and seq continues", async () => {
     const projectDir = makeTempDir()
-
     const sink1 = createEventSink(RUN_ID, projectDir)
     await sink1.append(makeEvent({ type: "session.created" }))
     await sink1.append(makeEvent({ type: "tool.started" }))
     await sink1.append(makeEvent({ type: "tool.completed" }))
+    releaseEventSink(RUN_ID)
 
     const sink2 = createEventSink(RUN_ID, projectDir)
-
     const restored = await sink2.readAll()
     expect(restored).toHaveLength(3)
     expect(restored.map((e) => e.seq)).toEqual([1, 2, 3])
-
     await sink2.append(makeEvent({ type: "finding.added" }))
-
     const allEvents = await sink2.readAll()
     expect(allEvents).toHaveLength(4)
     expect(allEvents.map((e) => e.seq)).toEqual([1, 2, 3, 4])
-
     const last = allEvents.at(-1)
     expect(last).toBeDefined()
     expect(last?.type).toBe("finding.added")
+  })
+
+  test("createEventSink returns same instance for same runId", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    expect(sink1).toBe(sink2)
+  })
+
+  test("releaseEventSink allows fresh instance creation", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    await sink1.append(makeEvent())
+    releaseEventSink(RUN_ID)
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    expect(sink2).not.toBe(sink1)
+    const events = await sink2.readAll()
+    expect(events).toHaveLength(1)
+    await sink2.append(makeEvent())
+    const allEvents = await sink2.readAll()
+    expect(allEvents).toHaveLength(2)
+    expect(allEvents.map((e) => e.seq)).toEqual([1, 2])
+  })
+
+  test("concurrent callers sharing memoized sink produce contiguous sequences", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    expect(sink1).toBe(sink2)
+    const promises = [
+      ...Array.from({ length: 25 }, (_, i) => sink1.append(makeEvent({ payload: { index: i, from: 1 } }))),
+      ...Array.from({ length: 25 }, (_, i) => sink2.append(makeEvent({ payload: { index: i, from: 2 } }))),
+    ]
+    await Promise.all(promises)
+    const events = await sink1.readAll()
+    expect(events).toHaveLength(50)
+    const seqs = events.map((e) => e.seq).sort((a, b) => a - b)
+    expect(new Set(seqs).size).toBe(50)
+    const expected = Array.from({ length: 50 }, (_, i) => i + 1)
+    expect(seqs).toEqual(expected)
+  })
+
+  test("different runIds get different sink instances", async () => {
+    const projectDir = makeTempDir()
+    const sinkA = createEventSink("run-a", projectDir)
+    const sinkB = createEventSink("run-b", projectDir)
+    expect(sinkA).not.toBe(sinkB)
   })
 
   test("readEvents standalone returns events sorted by seq", async () => {

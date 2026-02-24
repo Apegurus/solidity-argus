@@ -104,24 +104,23 @@ test("executeSoloditSearch falls back to HTTP when callMcpTool absent", async ()
   }
 })
 
-test("executeSoloditSearch passes severity filter to MCP", async () => {
+test("executeSoloditSearch returns all findings regardless of severity", async () => {
   const { context } = createContext()
   const mockMcp: CallMcpTool = async () => {
     return [
       { title: "A", severity: "High" },
       { title: "B", severity: "Low" },
+      { title: "C", severity: "" },
     ]
   }
 
-  const result = await executeSoloditSearch(
-    { query: "overflow", severity: ["High", "Critical"] },
-    context,
-    mockMcp,
-  )
+  const result = await executeSoloditSearch({ query: "overflow" }, context, mockMcp)
 
-  expect(result.results).toHaveLength(1)
+  expect(result.results).toHaveLength(3)
   expect(result.results[0]?.title).toBe("A")
-  expect(result.totalFound).toBe(1)
+  expect(result.results[1]?.title).toBe("B")
+  expect(result.results[2]?.title).toBe("C")
+  expect(result.totalFound).toBe(3)
 })
 
 test("executeSoloditSearch applies default limit (10)", async () => {
@@ -206,7 +205,7 @@ test("executeSoloditSearch retries with search_findings tool when search fails",
   }
 
   const result = await executeSoloditSearch(
-    { query: "overflow", severity: ["High"], limit: 7 },
+    { query: "overflow", limit: 7 },
     context,
     mockMcp,
   )
@@ -218,7 +217,6 @@ test("executeSoloditSearch retries with search_findings tool when search fails",
   expect(capturedCalls[1]?.tool).toBe("search_findings")
   expect(capturedCalls[1]?.args).toEqual({
     keywords: "overflow",
-    impact: ["HIGH"],
     pageSize: 7,
   })
 
@@ -297,7 +295,7 @@ test("soloditSearchTool.execute returns JSON string", async () => {
   expect(typeof parsed.totalFound).toBe("number")
 })
 
-test("executeSoloditSearch omits severity filter when not provided", async () => {
+test("executeSoloditSearch does not send severity or filters to MCP", async () => {
   const { context } = createContext()
   const capturedArgs: Array<Record<string, unknown>> = []
 
@@ -309,6 +307,8 @@ test("executeSoloditSearch omits severity filter when not provided", async () =>
   await executeSoloditSearch({ query: "test" }, context, mockMcp)
 
   expect(capturedArgs[0]?.filters).toBeUndefined()
+  expect(capturedArgs[0]?.severity).toBeUndefined()
+  expect(capturedArgs[0]?.impact).toBeUndefined()
 })
 
 test("executeSoloditSearch still tries MCP when soloditAvailable=false (callMcpTool provided)", async () => {

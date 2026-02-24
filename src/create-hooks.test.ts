@@ -362,4 +362,58 @@ describe("createHooks", () => {
     expect(findingsArtifact.run_id).toBe(runId)
     expect(findingsArtifact.event_count).toBeGreaterThan(0)
   })
+
+  it("uses canonical state run_id for report materialization when tool output run_id mismatches", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const runId = `run-canonical-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: runId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", sessionId: "oc-canonical" },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          success: true,
+          run_id: "ses_should_not_be_used",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
+    expect(await Bun.file(findingsPath).exists()).toBe(true)
+  })
 })

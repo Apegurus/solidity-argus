@@ -411,7 +411,7 @@ export function projectReportInput(
     run_id: runId,
     seq: events.at(-1)?.seq ?? 0,
     session_id: sessionCreated?.session_id ?? events[0]?.session_id ?? "",
-    tool_call_id: latestFinalized?.tool_call_id ?? "",
+    tool_call_id: latestFinalized?.tool_call_id ?? "pending-finalization",
     source: latestFinalized?.source ?? events[0]?.source ?? "projector",
     schema_version: latestFinalized?.schema_version ?? events[0]?.schema_version ?? SCHEMA_VERSION,
     projectDir,

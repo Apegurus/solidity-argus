@@ -11,8 +11,9 @@ type RecordFindingArgs = {
 type RecordFindingResponse = {
   success: boolean
   count: number
-  findings: ReturnType<typeof normalizeToCanonicalFinding>["data"][]
+  findings: Array<{ id: string; check: string; severity: string; file: string }>
   schema_version: string
+  note: string
 }
 
 function parseFindingObject(raw: string, label: "finding" | "findings"): Record<string, unknown>[] {
@@ -67,7 +68,7 @@ export async function executeRecordFinding(
 
   const reportedByAgent = normalizeAgent(context.agent)
   const reportedBySessionId = context.sessionID
-  const runId = context.sessionID || "manual-run"
+  const runId = "tool-local"
 
   const findings: ReturnType<typeof normalizeToCanonicalFinding>["data"][] = []
   const errors: string[] = []
@@ -99,8 +100,14 @@ export async function executeRecordFinding(
   const response: RecordFindingResponse = {
     success: true,
     count: findings.length,
-    findings,
+    findings: findings.map((f) => ({
+      id: f.id,
+      check: f.check,
+      severity: f.severity,
+      file: f.file,
+    })),
     schema_version: SCHEMA_VERSION,
+    note: "Findings recorded to event journal. The system assigns the canonical run_id automatically — use the run_id from <argus-context> for Scribe dispatch.",
   }
 
   return JSON.stringify(response)

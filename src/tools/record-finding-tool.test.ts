@@ -40,14 +40,18 @@ test("executeRecordFinding normalizes one finding", async () => {
     success: boolean
     count: number
     schema_version: string
-    findings: Array<{ reported_by_agent: string; issue_fingerprint: string }>
+    findings: Array<{ id: string; check: string; severity: string; file: string }>
+    note: string
   }
 
   expect(parsed.success).toBe(true)
   expect(parsed.count).toBe(1)
   expect(parsed.schema_version).toBe(SCHEMA_VERSION)
-  expect(parsed.findings[0]?.reported_by_agent).toBe("sentinel")
-  expect(typeof parsed.findings[0]?.issue_fingerprint).toBe("string")
+  expect(parsed.findings[0]?.check).toBe("manual-auth-bypass")
+  expect(parsed.findings[0]?.severity).toBe("High")
+  expect(parsed.findings[0]?.file).toBe("src/Vault.sol")
+  expect(typeof parsed.findings[0]?.id).toBe("string")
+  expect(parsed.note).toContain("run_id")
 })
 
 test("executeRecordFinding accepts findings array", async () => {
@@ -79,10 +83,12 @@ test("executeRecordFinding accepts findings array", async () => {
 
   const parsed = JSON.parse(payload) as {
     count: number
-    findings: Array<{ reported_by_agent: string }>
+    findings: Array<{ id: string; check: string; severity: string; file: string }>
   }
   expect(parsed.count).toBe(2)
-  expect(parsed.findings.every((finding) => finding.reported_by_agent === "pythia")).toBe(true)
+  expect(parsed.findings[0]?.check).toBe("issue-a")
+  expect(parsed.findings[1]?.check).toBe("issue-b")
+  expect(parsed.findings.every((f) => typeof f.id === "string")).toBe(true)
 })
 
 test("executeRecordFinding rejects malformed finding payload", async () => {

@@ -27,6 +27,8 @@ type ToolHookInput = {
   tool: string
   args: unknown
   result: string
+  sessionID?: string
+  callID?: string
 }
 
 type ToolExecutionMetadata = {
@@ -36,8 +38,10 @@ type ToolExecutionMetadata = {
 
 export type ToolTrackingOptions = {
   getEventSink?: () => EventSink | null
+  getEventSinkForSession?: (sessionId: string) => EventSink | null
   getSessionId?: () => string
   getAgentName?: () => ArgusAgentName | undefined
+  getAgentNameForSession?: (sessionId: string) => ArgusAgentName | undefined
   dropPolicy?: DropPolicy
   onChildSessionDetected?: (parentSessionId: string, childSessionId: string) => void
 }
@@ -501,8 +505,11 @@ export function createToolTrackingHook(
       const childSessionId = parseChildSessionId(input.result)
       const correlationId = randomUUID()
       const resolved = resolveStateAndStore()
-      const sink = options?.getEventSink?.()
-      const sessionId = options?.getSessionId?.() ?? ""
+      const sessionId = input.sessionID ?? options?.getSessionId?.() ?? ""
+      const sink =
+        (sessionId ? options?.getEventSinkForSession?.(sessionId) : null) ??
+        options?.getEventSink?.() ??
+        null
       const toolCallId = randomUUID()
 
       if (childSessionId) {
@@ -574,10 +581,16 @@ export function createToolTrackingHook(
     }
 
     const { state: auditState, store } = resolved
-    const sink = options?.getEventSink?.()
     const runId = auditState.sessionId
-    const sessionId = options?.getSessionId?.() ?? ""
-    const reportedByAgent = options?.getAgentName?.() ?? "unknown"
+    const sessionId = input.sessionID ?? options?.getSessionId?.() ?? ""
+    const sink =
+      (sessionId ? options?.getEventSinkForSession?.(sessionId) : null) ??
+      options?.getEventSink?.() ??
+      null
+    const reportedByAgent =
+      (input.sessionID ? options?.getAgentNameForSession?.(input.sessionID) : undefined) ??
+      options?.getAgentName?.() ??
+      "unknown"
     const findingMetadata = {
       reportedByAgent,
       reportedBySessionId: sessionId,
@@ -598,179 +611,177 @@ export function createToolTrackingHook(
     }
 
     const findingsCountBefore = auditState.findings.length
+    let findingsCount = 0
+    let completedSuccess = false
+    let completionError: string | undefined
 
-    if (input.tool === "argus_skill_load") {
-      const nameMatch = input.result.match(/^##\s+Argus Skill:\s+(.+?)(?:\s+\[|$)/m)
-      const skillName = nameMatch?.[1]?.trim()
-      if (skillName) {
-        auditState.skillsLoaded ??= []
-        if (!auditState.skillsLoaded.includes(skillName)) {
-          auditState.skillsLoaded.push(skillName)
+    try {
+      if (input.tool === "argus_skill_load") {
+        const nameMatch = input.result.match(/^##\s+Argus Skill:\s+(.+?)(?:\s+\[|$)/m)
+        const skillName = nameMatch?.[1]?.trim()
+        if (skillName) {
+          auditState.skillsLoaded ??= []
+          if (!auditState.skillsLoaded.includes(skillName)) {
+            auditState.skillsLoaded.push(skillName)
+          }
         }
-      }
-      recordToolExecution(auditState, input.tool, 0)
-      onStateChanged?.({ tool: input.tool, findingsCount: 0 })
+        findingsCount = 0
+        completedSuccess = true
+      } else {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(input.result)
+        } catch {
+          diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
+          if (input.tool === "argus_record_finding") {
+            throw new Error("argus_record_finding returned malformed JSON")
+          }
+          diag.throwIfStrict()
+          return
+        }
 
+        const record = toRecord(parsed)
+        if (!record) {
+          if (input.tool === "argus_record_finding") {
+            throw new Error("argus_record_finding response must be a JSON object")
+          }
+          return
+        }
+
+        switch (input.tool) {
+          case "argus_slither_analyze":
+            findingsCount = processSlitherResult(record, store, diag, findingMetadata)
+            break
+          case "argus_check_patterns":
+            findingsCount = processPatternResult(record, store, diag, findingMetadata)
+            break
+          case "argus_record_finding":
+            findingsCount = processRecordedFindingResult(record, store, diag, findingMetadata)
+            break
+          case "argus_analyze_contract":
+            processContractAnalyzerResult(record, auditState)
+            break
+          case "argus_solodit_search":
+            processSoloditResult(record, auditState)
+            break
+          case "argus_forge_test": {
+            const summary = toRecord(record.summary)
+            if (summary && typeof summary.failed === "number") {
+              findingsCount = summary.failed
+            }
+            break
+          }
+          case "argus_forge_fuzz":
+            processFuzzResult(record, auditState)
+            break
+          case "argus_generate_report": {
+            auditState.reportGenerated = true
+            break
+          }
+          case "argus_sync_knowledge": {
+            const success = record.success === true
+            auditState.knowledgeSynced = { success, timestamp: Date.now() }
+            break
+          }
+          case "argus_forge_coverage": {
+            const reportObj = toRecord(record.report)
+            const files = reportObj?.files
+            if (Array.isArray(files)) {
+              auditState.coverageReport = {
+                files: files
+                  .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
+                  .map((f) => ({
+                    path: typeof f.path === "string" ? f.path : "unknown",
+                    linesPct: typeof f.linesPct === "number" ? f.linesPct : 0,
+                    statementsPct: typeof f.statementsPct === "number" ? f.statementsPct : 0,
+                    branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
+                    functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
+                  })),
+              }
+            }
+            break
+          }
+          case "argus_proxy_detection": {
+            if (record.isProxy === true) {
+              auditState.proxyContracts ??= []
+              auditState.proxyContracts.push({
+                file: typeof record.file === "string" ? record.file : "unknown",
+                proxyType: typeof record.proxyType === "string" ? record.proxyType : "unknown",
+                indicators: Array.isArray(record.indicators)
+                  ? record.indicators.filter((i): i is string => typeof i === "string")
+                  : [],
+              })
+            }
+            break
+          }
+          case "argus_gas_analysis": {
+            const hotspots = record.hotspots
+            if (Array.isArray(hotspots)) {
+              auditState.gasHotspots = hotspots
+                .filter((h): h is Record<string, unknown> => !!h && typeof h === "object")
+                .map((h) => ({
+                  contract: typeof h.contract === "string" ? h.contract : "unknown",
+                  function: typeof h.function === "string" ? h.function : "unknown",
+                  avgGas: typeof h.avgGas === "number" ? h.avgGas : 0,
+                }))
+            }
+            break
+          }
+        }
+
+        diag.throwIfStrict()
+
+        if (input.tool === "argus_record_finding" && findingsCount === 0) {
+          throw new Error("argus_record_finding did not persist any findings")
+        }
+
+        if (input.tool === "argus_record_finding" && !sink) {
+          throw new Error(
+            "argus_record_finding requires an active event sink for durable persistence",
+          )
+        }
+
+        if (sink) {
+          const failFast = input.tool === "argus_record_finding"
+          const newFindings = auditState.findings.slice(findingsCountBefore)
+          for (const [index, finding] of newFindings.entries()) {
+            const { data: canonical } = normalizeToCanonicalFinding(finding, runId, 0, {
+              reportedByAgent,
+              reportedBySessionId: sessionId,
+              toolCallId,
+              observationId: `${toolCallId}:${index + 1}`,
+            })
+            await emitToSink(
+              sink,
+              buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
+              { failFast },
+            )
+          }
+        }
+
+        completedSuccess = true
+      }
+
+      recordToolExecution(auditState, input.tool, findingsCount)
+      onStateChanged?.({ tool: input.tool, findingsCount })
+    } catch (error) {
+      completionError = error instanceof Error ? error.message : String(error)
+      throw error
+    } finally {
+      lastDiagnostics = diag.getDiagnostics()
       if (sink) {
+        const failFast = input.tool === "argus_record_finding"
         await emitToSink(
           sink,
           buildEvent("tool.completed", runId, sessionId, toolCallId, {
             tool: input.tool,
-            findingsCount: 0,
-            success: true,
+            findingsCount,
+            success: completedSuccess,
+            ...(completionError ? { error: completionError } : {}),
           }),
-        )
-      }
-
-      lastDiagnostics = diag.getDiagnostics()
-      return
-    }
-
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(input.result)
-    } catch {
-      diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
-      lastDiagnostics = diag.getDiagnostics()
-      if (input.tool === "argus_record_finding") {
-        throw new Error("argus_record_finding returned malformed JSON")
-      }
-      diag.throwIfStrict()
-      return
-    }
-
-    const record = toRecord(parsed)
-    if (!record) {
-      lastDiagnostics = diag.getDiagnostics()
-      if (input.tool === "argus_record_finding") {
-        throw new Error("argus_record_finding response must be a JSON object")
-      }
-      return
-    }
-
-    let findingsCount = 0
-
-    switch (input.tool) {
-      case "argus_slither_analyze":
-        findingsCount = processSlitherResult(record, store, diag, findingMetadata)
-        break
-      case "argus_check_patterns":
-        findingsCount = processPatternResult(record, store, diag, findingMetadata)
-        break
-      case "argus_record_finding":
-        findingsCount = processRecordedFindingResult(record, store, diag, findingMetadata)
-        break
-      case "argus_analyze_contract":
-        processContractAnalyzerResult(record, auditState)
-        break
-      case "argus_solodit_search":
-        processSoloditResult(record, auditState)
-        break
-      case "argus_forge_test": {
-        const summary = toRecord(record.summary)
-        if (summary && typeof summary.failed === "number") {
-          findingsCount = summary.failed
-        }
-        break
-      }
-      case "argus_forge_fuzz":
-        processFuzzResult(record, auditState)
-        break
-      case "argus_generate_report": {
-        auditState.reportGenerated = true
-        break
-      }
-      case "argus_sync_knowledge": {
-        const success = record.success === true
-        auditState.knowledgeSynced = { success, timestamp: Date.now() }
-        break
-      }
-      case "argus_forge_coverage": {
-        const reportObj = toRecord(record.report)
-        const files = reportObj?.files
-        if (Array.isArray(files)) {
-          auditState.coverageReport = {
-            files: files
-              .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
-              .map((f) => ({
-                path: typeof f.path === "string" ? f.path : "unknown",
-                linesPct: typeof f.linesPct === "number" ? f.linesPct : 0,
-                statementsPct: typeof f.statementsPct === "number" ? f.statementsPct : 0,
-                branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
-                functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
-              })),
-          }
-        }
-        break
-      }
-      case "argus_proxy_detection": {
-        if (record.isProxy === true) {
-          auditState.proxyContracts ??= []
-          auditState.proxyContracts.push({
-            file: typeof record.file === "string" ? record.file : "unknown",
-            proxyType: typeof record.proxyType === "string" ? record.proxyType : "unknown",
-            indicators: Array.isArray(record.indicators)
-              ? record.indicators.filter((i): i is string => typeof i === "string")
-              : [],
-          })
-        }
-        break
-      }
-      case "argus_gas_analysis": {
-        const hotspots = record.hotspots
-        if (Array.isArray(hotspots)) {
-          auditState.gasHotspots = hotspots
-            .filter((h): h is Record<string, unknown> => !!h && typeof h === "object")
-            .map((h) => ({
-              contract: typeof h.contract === "string" ? h.contract : "unknown",
-              function: typeof h.function === "string" ? h.function : "unknown",
-              avgGas: typeof h.avgGas === "number" ? h.avgGas : 0,
-            }))
-        }
-        break
-      }
-    }
-
-    lastDiagnostics = diag.getDiagnostics()
-    diag.throwIfStrict()
-
-    if (input.tool === "argus_record_finding" && findingsCount === 0) {
-      throw new Error("argus_record_finding did not persist any findings")
-    }
-
-    recordToolExecution(auditState, input.tool, findingsCount)
-    onStateChanged?.({ tool: input.tool, findingsCount })
-
-    if (input.tool === "argus_record_finding" && !sink) {
-      throw new Error("argus_record_finding requires an active event sink for durable persistence")
-    }
-
-    if (sink) {
-      const failFast = input.tool === "argus_record_finding"
-      const newFindings = auditState.findings.slice(findingsCountBefore)
-      for (const [index, finding] of newFindings.entries()) {
-        const { data: canonical } = normalizeToCanonicalFinding(finding, runId, 0, {
-          reportedByAgent,
-          reportedBySessionId: sessionId,
-          toolCallId,
-          observationId: `${toolCallId}:${index + 1}`,
-        })
-        await emitToSink(
-          sink,
-          buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
           { failFast },
         )
       }
-
-      await emitToSink(
-        sink,
-        buildEvent("tool.completed", runId, sessionId, toolCallId, {
-          tool: input.tool,
-          findingsCount,
-          success: true,
-        }),
-        { failFast },
-      )
     }
   }
 

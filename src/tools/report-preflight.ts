@@ -45,6 +45,10 @@ function hasCompletedTool(events: AuditEvent[], toolName: string): boolean {
   return false
 }
 
+function hasRunFinalized(events: AuditEvent[]): boolean {
+  return events.some((event) => event.type === "run.finalized")
+}
+
 export function checkReportPreflight(
   events: AuditEvent[],
   options: PreflightOptions = {},
@@ -53,7 +57,7 @@ export function checkReportPreflight(
   if (!hasSessionCreated(events)) {
     missingLifecycle.push("session.created")
   }
-  if (!hasSessionDeleted(events)) {
+  if (!hasSessionDeleted(events) && !hasRunFinalized(events)) {
     missingLifecycle.push("session.deleted")
   }
 

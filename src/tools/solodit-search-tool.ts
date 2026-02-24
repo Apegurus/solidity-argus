@@ -13,7 +13,6 @@ const SOLODIT_HTTP_TIMEOUT_MS = 10_000
 
 type SoloditSearchArgs = {
   query: string
-  severity?: string[]
   limit?: number
 }
 
@@ -93,45 +92,19 @@ function hasMcpError(response: unknown): boolean {
   return "error" in obj
 }
 
-function normalizeImpacts(
-  severity?: string[],
-): Array<"HIGH" | "MEDIUM" | "LOW" | "GAS"> | undefined {
-  if (!severity || severity.length === 0) return undefined
-  const allowed = new Set(["HIGH", "MEDIUM", "LOW", "GAS"] as const)
-  const impacts = severity
-    .map((s) => s.toUpperCase())
-    .filter((s): s is "HIGH" | "MEDIUM" | "LOW" | "GAS" =>
-      allowed.has(s as "HIGH" | "MEDIUM" | "LOW" | "GAS"),
-    )
-  return impacts.length > 0 ? impacts : undefined
-}
-
 function buildMcpArgs(
   toolName: (typeof SOLODIT_MCP_TOOLS)[number],
   query: string,
   limit: number,
-  severity?: string[],
 ): Record<string, unknown> {
   if (toolName === "search") {
     return { keywords: query }
   }
 
-  const impact = normalizeImpacts(severity)
   return {
     keywords: query,
-    ...(impact ? { impact } : {}),
     pageSize: limit,
   }
-}
-
-function filterFindingsBySeverity(
-  findings: SoloditFinding[],
-  severities?: string[],
-): SoloditFinding[] {
-  if (!severities || severities.length === 0) return findings
-
-  const allowed = new Set(severities.map((s) => s.toLowerCase()))
-  return findings.filter((finding) => allowed.has(finding.severity.toLowerCase()))
 }
 
 function parseSseData(body: string): unknown {
@@ -188,7 +161,6 @@ function extractFindingsFromMcpResponse(envelope: unknown): SoloditFinding[] {
 async function callSoloditHttp(
   query: string,
   limit: number,
-  severities?: string[],
   port: number = DEFAULT_SOLODIT_PORT,
 ): Promise<SoloditSearchResult> {
   let lastError: string | undefined
@@ -204,7 +176,7 @@ async function callSoloditHttp(
         body: JSON.stringify({
           jsonrpc: "2.0",
           method: "tools/call",
-          params: { name: toolName, arguments: buildMcpArgs(toolName, query, limit, severities) },
+          params: { name: toolName, arguments: buildMcpArgs(toolName, query, limit) },
           id: 1,
         }),
         signal: AbortSignal.timeout(SOLODIT_HTTP_TIMEOUT_MS),
@@ -222,7 +194,7 @@ async function callSoloditHttp(
         continue
       }
 
-      const findings = filterFindingsBySeverity(parseFindingsFromAnyResponse(envelope), severities)
+      const findings = parseFindingsFromAnyResponse(envelope)
 
       return { results: findings.slice(0, limit), totalFound: findings.length, query }
     } catch (error) {
@@ -251,7 +223,7 @@ export async function executeSoloditSearch(
   if (!mcpCaller) {
     const reason = !soloditAvailable ? "MCP unavailable" : "no callMcpTool"
     logger.debug(`[solodit] ${reason} — using HTTP fallback for query: ${query}`)
-    return callSoloditHttp(query, limit, args.severity, port)
+    return callSoloditHttp(query, limit, port)
   }
 
   // MCP path: try each tool name in order, fall back to HTTP on any failure
@@ -264,7 +236,7 @@ export async function executeSoloditSearch(
       const response = await mcpCaller(
         SOLODIT_MCP_SERVER,
         toolName,
-        buildMcpArgs(toolName, query, limit, args.severity),
+        buildMcpArgs(toolName, query, limit),
       )
 
       if (hasMcpError(response)) {
@@ -273,10 +245,7 @@ export async function executeSoloditSearch(
         continue
       }
 
-      const findings = filterFindingsBySeverity(
-        parseFindingsFromAnyResponse(response),
-        args.severity,
-      )
+      const findings = parseFindingsFromAnyResponse(response)
 
       logger.debug(`[solodit] MCP tool '${toolName}' succeeded — found ${findings.length} findings`)
       return {
@@ -294,7 +263,7 @@ export async function executeSoloditSearch(
   logger.debug(
     `[solodit] All MCP tools failed (hadMcpError=${hadMcpError}) — falling back to HTTP for query: ${query}`,
   )
-  return callSoloditHttp(query, limit, args.severity, port)
+  return callSoloditHttp(query, limit, port)
 }
 
 export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): ToolDefinition {
@@ -303,7 +272,6 @@ export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): To
       "Search Solodit audit findings database for known vulnerabilities and past audit results via the Solodit MCP server.",
     args: {
       query: tool.schema.string(),
-      severity: tool.schema.array(tool.schema.string()).optional(),
       limit: tool.schema.number().optional(),
     },
     async execute(args, context) {

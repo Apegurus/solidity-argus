@@ -118,4 +118,14 @@ describe("createAgentTracker", () => {
     expect(tracker.getAgentForSession("s6")).toBe("sentinel")
     expect(tracker.getAgentForSession("s7")).toBe("pythia")
   })
+
+  it("tracks child session relationships", () => {
+    const tracker = createAgentTracker()
+
+    tracker.trackChildSession("parent-1", "child-1")
+    tracker.trackChildSession("parent-1", "child-2")
+
+    expect(tracker.getChildSessions("parent-1").sort()).toEqual(["child-1", "child-2"])
+    expect(tracker.getParentSession("child-1")).toBe("parent-1")
+  })
 })

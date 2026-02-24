@@ -33,33 +33,81 @@ export function createEventHook(
   subHandlers: EventSubHandler[] = [],
 ): {
   hook: EventHookFn
-  getAuditState: () => AuditState | null
-  setAuditState: (state: AuditState | null) => void
-  setEventSink: (sink: EventSink | null) => void
+  getAuditState: (sessionId?: string) => AuditState | null
+  setAuditState: (state: AuditState | null, sessionId?: string) => void
+  setEventSink: (sink: EventSink | null, sessionId?: string) => void
+  getEventSink: (sessionId?: string) => EventSink | null
   getLastFinalizationResult: () => FinalizationResult | null
 } {
   const logger = createLogger()
-  let currentAuditState: AuditState | null = null
-  let eventSink: EventSink | null = null
+  const statesBySessionId = new Map<string, AuditState>()
+  const sinksBySessionId = new Map<string, EventSink>()
+  let fallbackAuditState: AuditState | null = null
+  let fallbackEventSink: EventSink | null = null
+  let activeSessionId = ""
   let lastFinalizationResult: FinalizationResult | null = null
 
-  const getAuditState = (): AuditState | null => currentAuditState
-  const setAuditState = (state: AuditState | null): void => {
-    currentAuditState = state
+  const getAuditState = (sessionId?: string): AuditState | null => {
+    if (sessionId && sessionId.length > 0) {
+      return statesBySessionId.get(sessionId) ?? fallbackAuditState
+    }
+
+    if (activeSessionId.length > 0) {
+      return statesBySessionId.get(activeSessionId) ?? fallbackAuditState
+    }
+
+    return fallbackAuditState
   }
-  const setEventSink = (sink: EventSink | null): void => {
-    eventSink = sink
+
+  const setAuditState = (state: AuditState | null, sessionId?: string): void => {
+    if (sessionId && sessionId.length > 0) {
+      if (state) {
+        statesBySessionId.set(sessionId, state)
+        activeSessionId = sessionId
+      } else {
+        statesBySessionId.delete(sessionId)
+      }
+      return
+    }
+
+    fallbackAuditState = state
+  }
+
+  const getEventSink = (sessionId?: string): EventSink | null => {
+    if (sessionId && sessionId.length > 0) {
+      return sinksBySessionId.get(sessionId) ?? fallbackEventSink
+    }
+
+    if (activeSessionId.length > 0) {
+      return sinksBySessionId.get(activeSessionId) ?? fallbackEventSink
+    }
+
+    return fallbackEventSink
+  }
+
+  const setEventSink = (sink: EventSink | null, sessionId?: string): void => {
+    if (sessionId && sessionId.length > 0) {
+      if (sink) {
+        sinksBySessionId.set(sessionId, sink)
+      } else {
+        sinksBySessionId.delete(sessionId)
+      }
+      return
+    }
+
+    fallbackEventSink = sink
   }
 
   async function emitToSink(
+    sink: EventSink | null,
     type: AuditEvent["type"],
     runId: string,
     sessionId: string | undefined,
     payload: unknown,
   ): Promise<void> {
-    if (!eventSink) return
+    if (!sink) return
     try {
-      await eventSink.append({
+      await sink.append({
         type,
         run_id: runId,
         seq: 0, // auto-assigned by sink
@@ -78,33 +126,42 @@ export function createEventHook(
 
   const hook: EventHookFn = async (input): Promise<void> => {
     const { type, sessionId } = input.event
+    const sessionKey = sessionId && sessionId.length > 0 ? sessionId : activeSessionId
+    let stateForSession = getAuditState(sessionKey)
     let preDeleteState: AuditState | null = null
+    const preDeleteSink = getEventSink(sessionKey)
 
     switch (type) {
       case "session.created": {
         const dir = projectDir ?? process.cwd()
         const { state } = createAuditState(dir)
-        currentAuditState = state
+        if (sessionId && sessionId.length > 0) {
+          statesBySessionId.set(sessionId, state)
+          activeSessionId = sessionId
+        } else {
+          fallbackAuditState = state
+        }
+        stateForSession = state
         break
       }
 
       case "session.idle": {
-        if (currentAuditState) {
+        if (stateForSession) {
           logger.debug(
-            `Session idle — phase: ${currentAuditState.currentPhase}, findings: ${currentAuditState.findings.length}`,
+            `Session idle — phase: ${stateForSession.currentPhase}, findings: ${stateForSession.findings.length}`,
           )
         }
         break
       }
 
       case "session.error": {
-        if (currentAuditState) {
+        if (stateForSession) {
           logger.error(
             `Session error — state snapshot: ${JSON.stringify({
-              sessionId: currentAuditState.sessionId,
-              phase: currentAuditState.currentPhase,
-              findingsCount: currentAuditState.findings.length,
-              contractsReviewed: currentAuditState.contractsReviewed,
+              sessionId: stateForSession.sessionId,
+              phase: stateForSession.currentPhase,
+              findingsCount: stateForSession.findings.length,
+              contractsReviewed: stateForSession.contractsReviewed,
             })}`,
           )
         }
@@ -112,8 +169,7 @@ export function createEventHook(
       }
 
       case "session.deleted": {
-        preDeleteState = currentAuditState
-        currentAuditState = null
+        preDeleteState = stateForSession
         break
       }
 
@@ -123,11 +179,16 @@ export function createEventHook(
 
     for (const handler of subHandlers) {
       try {
+        const setStateForSession = (state: AuditState | null): void => {
+          setAuditState(state, sessionKey)
+          stateForSession = state
+        }
+
         await handler({
           type,
           sessionId,
-          auditState: currentAuditState,
-          setAuditState,
+          auditState: stateForSession,
+          setAuditState: setStateForSession,
         })
       } catch (error) {
         logger.error(`Sub-handler failed for event ${type}:`, error)
@@ -135,24 +196,32 @@ export function createEventHook(
     }
 
     // Emit canonical events to sink (after sub-handlers, so sink may have been set during session.created)
+    const sinkForSession = getEventSink(sessionKey)
+
     switch (type) {
       case "session.created": {
-        if (currentAuditState) {
-          await emitToSink("session.created", currentAuditState.sessionId, sessionId, {
-            projectDir: currentAuditState.projectDir,
-            sessionId: currentAuditState.sessionId,
-            plugin_version: ARGUS_PLUGIN_VERSION,
-          })
+        if (stateForSession) {
+          await emitToSink(
+            sinkForSession,
+            "session.created",
+            stateForSession.sessionId,
+            sessionId,
+            {
+              projectDir: stateForSession.projectDir,
+              sessionId: stateForSession.sessionId,
+              plugin_version: ARGUS_PLUGIN_VERSION,
+            },
+          )
         }
         break
       }
 
       case "session.idle": {
-        if (currentAuditState) {
-          await emitToSink("session.idle", currentAuditState.sessionId, sessionId, {
-            findingsCount: currentAuditState.findings.length,
-            toolsExecutedCount: currentAuditState.toolsExecuted.length,
-            phase: currentAuditState.currentPhase,
+        if (stateForSession) {
+          await emitToSink(sinkForSession, "session.idle", stateForSession.sessionId, sessionId, {
+            findingsCount: stateForSession.findings.length,
+            toolsExecutedCount: stateForSession.toolsExecuted.length,
+            phase: stateForSession.currentPhase,
           })
         }
         break
@@ -160,17 +229,17 @@ export function createEventHook(
 
       case "session.deleted": {
         if (preDeleteState) {
-          await emitToSink("session.deleted", preDeleteState.sessionId, sessionId, {
+          await emitToSink(preDeleteSink, "session.deleted", preDeleteState.sessionId, sessionId, {
             archived: true,
             plugin_version: ARGUS_PLUGIN_VERSION,
           })
 
-          if (eventSink) {
+          if (preDeleteSink) {
             try {
               lastFinalizationResult = await finalizeRun(
                 preDeleteState.sessionId,
                 preDeleteState.projectDir,
-                eventSink,
+                preDeleteSink,
               )
             } catch (error) {
               logger.error(
@@ -179,7 +248,18 @@ export function createEventHook(
             }
           }
         }
-        eventSink = null
+
+        if (sessionKey && sessionKey.length > 0) {
+          statesBySessionId.delete(sessionKey)
+          sinksBySessionId.delete(sessionKey)
+          if (activeSessionId === sessionKey) {
+            const nextSession = statesBySessionId.keys().next().value
+            activeSessionId = typeof nextSession === "string" ? nextSession : ""
+          }
+        } else {
+          fallbackAuditState = null
+          fallbackEventSink = null
+        }
         break
       }
 
@@ -190,5 +270,12 @@ export function createEventHook(
 
   const getLastFinalizationResult = (): FinalizationResult | null => lastFinalizationResult
 
-  return { hook, getAuditState, setAuditState, setEventSink, getLastFinalizationResult }
+  return {
+    hook,
+    getAuditState,
+    setAuditState,
+    setEventSink,
+    getEventSink,
+    getLastFinalizationResult,
+  }
 }

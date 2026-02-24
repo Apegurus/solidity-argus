@@ -1,9 +1,9 @@
-import { mkdir, rename } from "node:fs/promises"
+import { appendFile, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 import type { AuditEvent, AuditEventType } from "../../state/schemas"
 
-export type EventSinkErrorCode = "SEQUENCE_CONFLICT" | "INVALID_EVENT" | "IO_ERROR"
+export type EventSinkErrorCode = "INVALID_EVENT" | "IO_ERROR"
 
 export class EventSinkError extends Error {
   readonly code: EventSinkErrorCode
@@ -79,7 +79,22 @@ function parseJournalLines(content: string): AuditEvent[] {
     }
   }
 
-  events.sort((a, b) => a.seq - b.seq)
+  // Canonical ordering: sort by timestamp (primary), written seq hint (secondary tiebreaker).
+  // This produces a stable, deterministic order even when multiple writers assign
+  // overlapping seq values — the written seq is a best-effort hint, not authoritative.
+  events.sort((a, b) => {
+    const tsDiff = a.timestamp - b.timestamp
+    if (tsDiff !== 0) return tsDiff
+    return a.seq - b.seq
+  })
+
+  // Assign canonical sequential seq numbers starting from 1.
+  // All downstream consumers see clean, gap-free sequences regardless of
+  // how many independent writers appended to the journal.
+  for (let i = 0; i < events.length; i++) {
+    ;(events[i] as AuditEvent).seq = i + 1
+  }
+
   return events
 }
 
@@ -96,15 +111,24 @@ export async function readEvents(
   return parseJournalLines(content)
 }
 
-/**
- * Append-only event sink with monotonic seq allocation, in-process mutex,
- * and atomic temp-file-then-rename writes. Restart-safe via journal replay.
- */
+const sinkRegistry = new Map<string, EventSink>()
+export function releaseEventSink(runId: string): void {
+  sinkRegistry.delete(runId)
+}
+export function resetSinkRegistry(): void {
+  sinkRegistry.clear()
+}
+
 export function createEventSink(
   runId: string,
   projectDir: string,
   resolver: ArgusRootResolver = defaultRootResolver,
 ): EventSink {
+  const existing = sinkRegistry.get(runId)
+  if (existing) {
+    return existing
+  }
+
   const journalPath = buildJournalPath(runId, projectDir, resolver)
   const mutex = createMutex()
   let lastSeq = 0
@@ -127,7 +151,7 @@ export function createEventSink(
     initialized = true
   }
 
-  return {
+  const sink: EventSink = {
     async append(event: AuditEvent): Promise<void> {
       return mutex.run(async () => {
         await ensureInitialized()
@@ -143,27 +167,18 @@ export function createEventSink(
           throw new EventSinkError("INVALID_EVENT", `Invalid event type "${String(event.type)}"`)
         }
 
-        if (event.seq > 0 && event.seq <= lastSeq) {
-          throw new EventSinkError(
-            "SEQUENCE_CONFLICT",
-            `Event seq ${event.seq} conflicts with last assigned seq ${lastSeq}; must be > ${lastSeq}`,
-          )
-        }
-
+        // Best-effort seq hint — may have duplicates across isolated writer instances.
+        // Canonical seq is assigned at read time by parseJournalLines().
         const nextSeq = lastSeq + 1
         const eventToWrite: AuditEvent = { ...event, seq: nextSeq }
 
-        const currentContent = await readRawContent(journalPath)
-        const newContent = `${currentContent}${JSON.stringify(eventToWrite)}\n`
-
         await mkdir(dirname(journalPath), { recursive: true })
 
-        const suffix = `${Date.now()}.${Math.random().toString(36).slice(2)}`
-        const tempPath = `${journalPath}.${suffix}.tmp`
-
+        // O_APPEND atomic write — the OS guarantees that seek-to-end + write is atomic
+        // for regular files opened with O_APPEND, so concurrent appends from isolated
+        // writer instances won't interleave or overwrite each other.
         try {
-          await Bun.write(tempPath, newContent)
-          await rename(tempPath, journalPath)
+          await appendFile(journalPath, JSON.stringify(eventToWrite) + "\n")
         } catch (err) {
           throw new EventSinkError("IO_ERROR", `Failed to write event to journal: ${String(err)}`)
         }
@@ -177,4 +192,7 @@ export function createEventSink(
       return parseJournalLines(content)
     },
   }
+
+  sinkRegistry.set(runId, sink)
+  return sink
 }

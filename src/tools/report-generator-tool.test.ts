@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
+import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import { SCHEMA_VERSION } from "../state/schemas"
 import type {
   AuditState,
@@ -1188,6 +1189,33 @@ test("preflight strict-fail throws when event read fails", async () => {
   ).rejects.toThrow("unable to read event stream")
 })
 
+test("strict-fail rejects report_input run_id that uses ses_ session identifier", async () => {
+  const reportInput = {
+    run_id: "ses_abc123",
+    seq: 1,
+    session_id: "ses_abc123",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  await expect(
+    executeReportGeneration(
+      {
+        project_name: "SessionRunIdMismatch",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+        preflight_policy: "strict-fail",
+      },
+      createContext(),
+    ),
+  ).rejects.toThrow("run_id/session_id conflation")
+})
+
 test("filename date matches body audit date (parity)", async () => {
   // The date in the report body ("Audit date: YYYY-MM-DD") must match the date in the filename
   const result = await executeReportGeneration(
@@ -1286,4 +1314,72 @@ test("malformed execution row never prints undefined in tool summary", async () 
   expect(result.report).toContain("N/A")
   expect(result.report).toContain("(unknown tool)")
   expect(result.report).toContain("### Tool Execution Summary")
+})
+
+test("executeReportGeneration falls back to run_id disk report-input.json", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-run-id-fallback-"))
+  const runId = "run-disk-fallback"
+
+  try {
+    const reportInputFile = createAuditArtifactResolver(runId, tempDir).paths().reportInputFile
+    mkdirSync(path.dirname(reportInputFile), { recursive: true })
+    writeFileSync(
+      reportInputFile,
+      JSON.stringify(
+        {
+          run_id: runId,
+          seq: 2,
+          session_id: "sess-disk-fallback",
+          tool_call_id: "tc-disk-fallback",
+          source: "argus",
+          schema_version: SCHEMA_VERSION,
+          projectDir: tempDir,
+          findings: [
+            {
+              id: "f-disk-fallback-1",
+              check: "disk-fallback-check",
+              severity: "High",
+              confidence: "High",
+              description: "Finding loaded from report-input disk artifact",
+              file: "src/Vault.sol",
+              lines: [12, 19],
+              source: "manual",
+              run_id: runId,
+              seq: 1,
+              schema_version: SCHEMA_VERSION,
+              observation_id: "obs-disk-fallback-1",
+              issue_fingerprint: "issue-disk-fallback-1",
+              observation_fingerprint: "observation-disk-fallback-1",
+              reported_by_agent: "argus",
+            },
+          ],
+          toolsExecuted: [],
+          scope: ["src/Vault.sol"],
+        },
+        null,
+        2,
+      ),
+    )
+
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+    }
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "TestProject",
+        scope: ["Vault.sol"],
+        run_id: runId,
+      },
+      context,
+    )
+
+    expect(result.run_id).toBe(runId)
+    expect(result.findingsCount.high).toBe(1)
+    expect(result.report).toContain("### [HIGH-1] Disk Fallback Check")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })

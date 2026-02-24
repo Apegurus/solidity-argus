@@ -1,7 +1,7 @@
 {
   "name": "solidity-argus",
-  "version": "0.3.6",
-  "description": "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 12 tools (11 core + optional Solodit), and a curated vulnerability knowledge base",
+  "version": "0.3.8",
+  "description": "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 14 tools (13 core + optional Solodit), and a curated vulnerability knowledge base",
   "keywords": [
     "solidity",
     "security",
