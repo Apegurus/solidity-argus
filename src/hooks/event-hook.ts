@@ -18,8 +18,37 @@ export type AuditEventType =
   | "audit.complete"
 
 export type EventHookFn = (input: {
-  event: { type: string; sessionId?: string; properties?: Record<string, unknown> }
+  event: { type: string; properties?: Record<string, unknown> }
 }) => Promise<void>
+
+/**
+ * Extract the OpenCode session ID from an SDK Event object.
+ *
+ * The OpenCode SDK Event union uses different shapes depending on event type:
+ *   - session.created / session.deleted → { properties: { info: { id: string } } }
+ *   - session.idle / session.error      → { properties: { sessionID: string } }
+ *   - Other events may have properties.sessionID or none at all.
+ */
+function extractSessionId(event: { type: string; properties?: Record<string, unknown> }): string | undefined {
+  const props = event.properties
+  if (!props) return undefined
+
+  // session.idle, session.error, and many other events use properties.sessionID
+  if (typeof props.sessionID === "string" && props.sessionID.length > 0) {
+    return props.sessionID
+  }
+
+  // session.created and session.deleted wrap a Session object at properties.info
+  const info = props.info
+  if (info && typeof info === "object" && info !== null) {
+    const infoRecord = info as Record<string, unknown>
+    if (typeof infoRecord.id === "string" && infoRecord.id.length > 0) {
+      return infoRecord.id
+    }
+  }
+
+  return undefined
+}
 
 export type EventSubHandler = (event: {
   type: string
@@ -125,7 +154,8 @@ export function createEventHook(
   }
 
   const hook: EventHookFn = async (input): Promise<void> => {
-    const { type, sessionId } = input.event
+    const type = input.event.type
+    const sessionId = extractSessionId(input.event)
     const sessionKey = sessionId && sessionId.length > 0 ? sessionId : activeSessionId
     let stateForSession = getAuditState(sessionKey)
     let preDeleteState: AuditState | null = null

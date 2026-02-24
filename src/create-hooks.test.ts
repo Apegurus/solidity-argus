@@ -216,7 +216,7 @@ describe("createHooks", () => {
     })
 
     await hooks.event?.({
-      event: { type: "session.created", sessionId: "oc-parent" },
+      event: { type: "session.created", properties: { info: { id: "oc-parent" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     const eventsPath = join(FIXTURE_DIR, ".argus", "runs", runId, "events.jsonl")
@@ -239,7 +239,7 @@ describe("createHooks", () => {
     await Bun.write(eventsPath, `${existing}${JSON.stringify(orphanToolStarted)}\n`)
 
     await hooks.event?.({
-      event: { type: "session.deleted", sessionId: "oc-parent" },
+      event: { type: "session.deleted", properties: { info: { id: "oc-parent" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     expect(archiveCount).toBe(1)
@@ -287,11 +287,11 @@ describe("createHooks", () => {
     })
 
     await hooks.event?.({
-      event: { type: "session.created", sessionId: "oc-materialize" },
+      event: { type: "session.created", properties: { info: { id: "oc-materialize" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     await hooks.event?.({
-      event: { type: "session.deleted", sessionId: "oc-materialize" },
+      event: { type: "session.deleted", properties: { info: { id: "oc-materialize" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
@@ -335,7 +335,7 @@ describe("createHooks", () => {
     })
 
     await hooks.event?.({
-      event: { type: "session.created", sessionId: "oc-live" },
+      event: { type: "session.created", properties: { info: { id: "oc-live" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     await hooks["tool.execute.after"]?.(
@@ -394,7 +394,7 @@ describe("createHooks", () => {
     })
 
     await hooks.event?.({
-      event: { type: "session.created", sessionId: "oc-canonical" },
+      event: { type: "session.created", properties: { info: { id: "oc-canonical" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     await hooks["tool.execute.after"]?.(

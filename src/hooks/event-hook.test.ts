@@ -6,6 +6,17 @@ import { SCHEMA_VERSION } from "../state/schemas"
 import type { EventSubHandler } from "./event-hook"
 import { createEventHook } from "./event-hook"
 
+// Helper to create SDK-shaped events matching @opencode-ai/sdk Event types.
+// session.created/deleted use { properties: { info: { id } } }
+// session.idle/error use { properties: { sessionID } }
+function sdkEvent(type: string, sessionId?: string): { type: string; properties?: Record<string, unknown> } {
+  if (!sessionId) return { type }
+  if (type === "session.created" || type === "session.deleted" || type === "session.updated") {
+    return { type, properties: { info: { id: sessionId } } }
+  }
+  return { type, properties: { sessionID: sessionId } }
+}
+
 function createMockSink(): EventSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
   let seq = 0
@@ -36,7 +47,7 @@ describe("createEventHook", () => {
   it("handles session.created", async () => {
     const { hook, getAuditState } = createEventHook("/tmp/test")
 
-    await hook({ event: { type: "session.created" } })
+    await hook({ event: sdkEvent("session.created") })
 
     expect(getAuditState()).not.toBeNull()
     expect(getAuditState()?.currentPhase).toBe("reconnaissance")
@@ -55,7 +66,7 @@ describe("createEventHook", () => {
       startTime: Date.now(),
     })
 
-    await hook({ event: { type: "session.deleted" } })
+    await hook({ event: sdkEvent("session.deleted") })
 
     expect(getAuditState()).toBeNull()
   })
@@ -73,7 +84,7 @@ describe("createEventHook", () => {
       startTime: Date.now(),
     })
 
-    await expect(hook({ event: { type: "session.idle" } })).resolves.toBeUndefined()
+    await expect(hook({ event: sdkEvent("session.idle") })).resolves.toBeUndefined()
   })
 
   it("handles session.error without throwing", async () => {
@@ -89,12 +100,12 @@ describe("createEventHook", () => {
       startTime: Date.now(),
     })
 
-    await expect(hook({ event: { type: "session.error" } })).resolves.toBeUndefined()
+    await expect(hook({ event: sdkEvent("session.error") })).resolves.toBeUndefined()
   })
 
   it("handles unknown events without error", async () => {
     const { hook } = createEventHook()
-    await expect(hook({ event: { type: "unknown.event" } })).resolves.toBeUndefined()
+    await expect(hook({ event: sdkEvent("unknown.event") })).resolves.toBeUndefined()
   })
 
   it("calls sub-handlers with event and audit state", async () => {
@@ -104,7 +115,7 @@ describe("createEventHook", () => {
     }
 
     const { hook } = createEventHook("/tmp", [subHandler])
-    await hook({ event: { type: "session.created" } })
+    await hook({ event: sdkEvent("session.created") })
 
     expect(calls).toEqual(["session.created"])
   })
@@ -140,7 +151,7 @@ describe("createEventHook", () => {
       startTime: Date.now(),
     })
 
-    await hook({ event: { type: "session.deleted", sessionId: "oc-pre-delete" } })
+    await hook({ event: sdkEvent("session.deleted", "oc-pre-delete") })
 
     expect(observedFindings).toBe(1)
   })
@@ -151,7 +162,7 @@ describe("createEventHook", () => {
     }
 
     const { hook } = createEventHook("/tmp", [failHandler])
-    await expect(hook({ event: { type: "session.created" } })).resolves.toBeUndefined()
+    await expect(hook({ event: sdkEvent("session.created") })).resolves.toBeUndefined()
   })
 
   describe("event sink emission", () => {
@@ -177,7 +188,7 @@ describe("createEventHook", () => {
         },
       ])
 
-      await hook({ event: { type: "session.created", sessionId: "oc-session-1" } })
+      await hook({ event: sdkEvent("session.created", "oc-session-1") })
 
       expect(sink.events).toHaveLength(1)
       expect(sink.events[0]?.type).toBe("session.created")
@@ -217,7 +228,7 @@ describe("createEventHook", () => {
       })
       setEventSink(sink)
 
-      await hook({ event: { type: "session.idle", sessionId: "oc-2" } })
+      await hook({ event: sdkEvent("session.idle", "oc-2") })
 
       expect(sink.events).toHaveLength(1)
       expect(sink.events[0]?.type).toBe("session.idle")
@@ -253,7 +264,7 @@ describe("createEventHook", () => {
       })
       setEventSink(sink)
 
-      await hook({ event: { type: "session.deleted", sessionId: "oc-del" } })
+      await hook({ event: sdkEvent("session.deleted", "oc-del") })
 
       expect(sink.events).toHaveLength(3)
       expect(sink.events[1]?.type).toBe("session.deleted")
@@ -307,7 +318,7 @@ describe("createEventHook", () => {
       })
       setEventSink(sink)
 
-      await hook({ event: { type: "session.deleted", sessionId: "oc-bad" } })
+      await hook({ event: sdkEvent("session.deleted", "oc-bad") })
 
       const finalEvent = sink.events.at(-1)
       expect(finalEvent?.type).toBe("run.finalized")
@@ -336,7 +347,7 @@ describe("createEventHook", () => {
       })
       setEventSink(sink)
 
-      await hook({ event: { type: "session.deleted" } })
+      await hook({ event: sdkEvent("session.deleted") })
       sink.events.length = 0
 
       setAuditState({
@@ -349,14 +360,14 @@ describe("createEventHook", () => {
         scope: [],
         startTime: Date.now(),
       })
-      await hook({ event: { type: "session.idle" } })
+      await hook({ event: sdkEvent("session.idle") })
 
       expect(sink.events).toHaveLength(0)
     })
 
     it("does not emit when no sink is set", async () => {
       const { hook } = createEventHook("/tmp")
-      await hook({ event: { type: "session.created", sessionId: "oc-1" } })
+      await hook({ event: sdkEvent("session.created", "oc-1") })
     })
 
     it("gracefully handles sink failure without crashing", async () => {
@@ -365,7 +376,7 @@ describe("createEventHook", () => {
       setEventSink(failingSink)
 
       await expect(
-        hook({ event: { type: "session.created", sessionId: "oc-1" } }),
+        hook({ event: sdkEvent("session.created", "oc-1") }),
       ).resolves.toBeUndefined()
     })
 
@@ -374,7 +385,7 @@ describe("createEventHook", () => {
       const { hook, setEventSink } = createEventHook()
       setEventSink(sink)
 
-      await hook({ event: { type: "session.idle" } })
+      await hook({ event: sdkEvent("session.idle") })
 
       expect(sink.events).toHaveLength(0)
     })
@@ -384,7 +395,7 @@ describe("createEventHook", () => {
       const { hook, setEventSink } = createEventHook()
       setEventSink(sink)
 
-      await hook({ event: { type: "session.deleted" } })
+      await hook({ event: sdkEvent("session.deleted") })
 
       expect(sink.events).toHaveLength(0)
     })
