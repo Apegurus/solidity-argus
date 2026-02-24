@@ -231,6 +231,11 @@ export function _resetSoloditState(): void {
   }
 }
 
+ /** Set soloditAvailable flag — for testing only. */
+export function _setSoloditAvailable(value: boolean): void {
+  soloditAvailable = value
+}
+
 export async function startSoloditMcp(port: number): Promise<void> {
   const logger = createLogger()
   lifecycleState = "starting"

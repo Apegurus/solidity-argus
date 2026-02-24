@@ -8,8 +8,8 @@ import { forgeTestTool } from "./tools/forge-test-tool"
 import { gasAnalysisTool } from "./tools/gas-analysis-tool"
 import { patternCheckerTool } from "./tools/pattern-checker-tool"
 import { proxyDetectionTool } from "./tools/proxy-detection-tool"
-import { recordFindingTool } from "./tools/record-finding-tool"
 import { readFindingsTool } from "./tools/read-findings-tool"
+import { recordFindingTool } from "./tools/record-finding-tool"
 import { reportGeneratorTool } from "./tools/report-generator-tool"
 import { slitherTool } from "./tools/slither-tool"
 import { createSoloditSearchTool } from "./tools/solodit-search-tool"
@@ -33,7 +33,7 @@ export function createTools(config: ArgusConfig): Record<string, ToolDefinition>
   }
 
   if (config.solodit?.enabled !== false) {
-    tools.argus_solodit_search = createSoloditSearchTool(config.solodit?.port ?? 3000)
+    tools.argus_solodit_search = createSoloditSearchTool()
   }
 
   return tools

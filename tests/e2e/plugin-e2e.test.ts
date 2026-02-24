@@ -288,13 +288,13 @@ describe("E2E C: Config Merge", () => {
     expect(merged.disabled_hooks).toEqual(["system-prompt", "compaction"])
   })
 
-  test("solodit port is configurable", () => {
+  test("solodit enabled flag is configurable", () => {
     const projectConfig = {
-      solodit: { enabled: true, port: 4567 },
+      solodit: { enabled: false },
     }
 
     const merged = _mergeConfigs(null, projectConfig)
-    expect(merged.solodit.port).toBe(4567)
+    expect(merged.solodit.enabled).toBe(false)
   })
 
   test("background max_concurrent is configurable", () => {

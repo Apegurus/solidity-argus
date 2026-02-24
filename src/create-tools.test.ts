@@ -26,7 +26,7 @@ const baseConfig: ArgusConfig = {
   },
   solodit: {
     enabled: true,
-    port: 3000,
+    port: 54173,
   },
   disabled_hooks: [],
   hooks: {},
@@ -40,7 +40,7 @@ describe("createTools", () => {
   it("registers exactly 14 tools when solodit is enabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
-      solodit: { enabled: true, port: 3000 },
+      solodit: { enabled: true, port: 54173 },
     }
     const tools = createTools(config)
     const toolNames = Object.keys(tools).sort()
@@ -67,7 +67,7 @@ describe("createTools", () => {
   it("registers 13 tools when solodit is disabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
-      solodit: { enabled: false, port: 3000 },
+      solodit: { enabled: false, port: 54173 },
     }
     const tools = createTools(config)
 

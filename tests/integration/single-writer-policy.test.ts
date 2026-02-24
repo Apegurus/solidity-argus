@@ -43,7 +43,7 @@ function createTestConfig(outputDir: string): ArgusConfig {
       gasAnalysis: false,
       output_dir: outputDir,
     },
-    solodit: { enabled: true, port: 3000 },
+    solodit: { enabled: true, port: 54173 },
     disabled_hooks: [],
     hooks: {},
     cli: {},

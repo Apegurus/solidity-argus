@@ -44,7 +44,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
       gasAnalysis: false,
       output_dir: ".opencode/reports/",
     },
-    solodit: { enabled: true, port: 3000 },
+    solodit: { enabled: true, port: 54173 },
     disabled_hooks: [],
     hooks: {},
     cli: {},

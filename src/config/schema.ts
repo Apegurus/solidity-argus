@@ -36,7 +36,7 @@ const ReportingConfigSchema = z.object({
 
 const SoloditConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  port: z.number().default(3000),
+  port: z.number().default(54173),
 })
 
 const BackgroundConfigSchema = z.object({
@@ -78,7 +78,7 @@ export const ArgusConfigSchema = z.object({
   }),
   solodit: SoloditConfigSchema.default({
     enabled: true,
-    port: 3000,
+    port: 54173,
   }),
   disabled_hooks: z.array(z.string()).default([]),
   hooks: z.record(z.string(), z.any()).default({}),

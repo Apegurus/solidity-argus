@@ -43,7 +43,7 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
     },
     solodit: {
       enabled: true,
-      port: 3000,
+      port: 54173,
       ...overrides?.solodit,
     },
     disabled_hooks: overrides?.disabled_hooks ?? [],
@@ -209,7 +209,7 @@ describe("createConfigHandler", () => {
       | undefined
     expect(solodit).toBeDefined()
     expect(solodit?.type).toBe("remote")
-    expect(solodit?.url).toBe("http://localhost:3000/mcp")
+    expect(solodit?.url).toBe("http://localhost:54173/mcp")
     expect(solodit?.enabled).toBe(true)
   })
 
@@ -218,7 +218,7 @@ describe("createConfigHandler", () => {
       createArgusConfig({
         solodit: {
           enabled: false,
-          port: 3000,
+          port: 54173,
         },
       }),
     )

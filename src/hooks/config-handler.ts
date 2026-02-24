@@ -140,7 +140,7 @@ export function createConfigHandler(
     }
 
     if (argusConfig.solodit?.enabled !== false) {
-      const port = argusConfig.solodit?.port ?? 3000
+      const port = argusConfig.solodit?.port ?? 54173
       config.mcp = {
         ...(config.mcp ?? {}),
         "solodit-mcp": {

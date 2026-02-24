@@ -31,7 +31,7 @@ describe("loadArgusConfig", () => {
     expect(config.reporting.severityThreshold).toBe("low")
     expect(config.reporting.gasAnalysis).toBe(false)
     expect(config.solodit.enabled).toBe(true)
-    expect(config.solodit.port).toBe(3000)
+    expect(config.solodit.enabled).toBe(true)
     expect(config.disabled_hooks).toEqual([])
     expect(config.hooks).toEqual({})
     expect(config.cli).toEqual({})
@@ -73,7 +73,7 @@ describe("loadArgusConfig", () => {
     "sentinel": { "model": "fast-model" }
   },
   "solodit": {
-    "port": 4000,
+    "enabled": false,
   }
 }`,
     )
@@ -82,8 +82,7 @@ describe("loadArgusConfig", () => {
     const config = loadArgusConfig(tempDir)
 
     expect(config.agents.sentinel.model).toBe("fast-model")
-    expect(config.solodit.port).toBe(4000)
-    expect(config.solodit.enabled).toBe(true)
+    expect(config.solodit.enabled).toBe(false)
   })
 
   it("project config overrides user config via deep merge", async () => {

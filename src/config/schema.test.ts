@@ -29,7 +29,7 @@ describe("ArgusConfigSchema", () => {
       },
       solodit: {
         enabled: true,
-        port: 3000,
+        port: 54173,
       },
       disabled_hooks: ["hook1", "hook2"],
       hooks: { custom: { enabled: true } },
@@ -41,7 +41,7 @@ describe("ArgusConfigSchema", () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.agents.argus.model).toBe("anthropic/claude-opus-4-6")
-      expect(result.data.solodit.port).toBe(3000)
+      expect(result.data.solodit.enabled).toBe(true)
     }
   })
 
@@ -59,7 +59,7 @@ describe("ArgusConfigSchema", () => {
       })
       expect(result.data.tools).toEqual({})
       expect(result.data.disabled_hooks).toEqual([])
-      expect(result.data.solodit.port).toBe(3000)
+      expect(result.data.solodit.enabled).toBe(true)
       expect(result.data.background.max_concurrent).toBe(3)
     }
   })
@@ -80,7 +80,7 @@ describe("ArgusConfigSchema", () => {
       expect(result.data.agents.argus.model).toBe("custom-model")
       expect(result.data.agents.sentinel).toEqual({})
       expect(result.data.solodit.enabled).toBe(false)
-      expect(result.data.solodit.port).toBe(3000)
+      expect(result.data.solodit.enabled).toBe(false)
     }
   })
 
@@ -245,18 +245,17 @@ describe("ArgusConfigSchema", () => {
     expect(result.success).toBe(false)
   })
 
-  it("validates solodit port configuration", () => {
+  it("validates solodit enabled configuration", () => {
     const config = {
       solodit: {
-        enabled: true,
-        port: 8080,
+        enabled: false,
       },
     }
 
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.solodit.port).toBe(8080)
+      expect(result.data.solodit.enabled).toBe(false)
     }
   })
 

@@ -12,7 +12,6 @@ import {
 } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
 import { detectViaIr } from "../../tools/slither-tool"
-import { checkSoloditHealth } from "../../utils/solodit-health"
 import { cliOutput } from "../cli-output"
 import type { CliCommand } from "../types"
 
@@ -295,22 +294,26 @@ export const doctorCommand: CliCommand = {
       cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: unreachable`)
     }
 
-    // Solodit MCP check
-    const soloditConfig = config?.solodit ?? { enabled: true, port: 3000 }
-    const soloditEnabled = soloditConfig.enabled !== false
-    const soloditPort = soloditConfig.port ?? 3000
-
+    const soloditEnabled = config?.solodit?.enabled !== false
     if (soloditEnabled) {
-      const health = await checkSoloditHealth(soloditPort, true)
-      if (health.reachable) {
-        cliOutput.log(`${GREEN}✓${RESET} Solodit MCP: reachable on port ${soloditPort}`)
-      } else {
-        cliOutput.log(
-          `${YELLOW}⚠${RESET} Solodit MCP: unreachable on port ${soloditPort} (start with: npx @lyuboslavlyubenov/solodit-mcp)`,
+      try {
+        const response = await fetch(
+          "https://solodit.cyfrin.io/api/trpc/findings.get?batch=1&input=" +
+            encodeURIComponent(JSON.stringify({ 0: "[]" })),
+          {
+            signal: AbortSignal.timeout(5000),
+          },
         )
+        if (response.ok) {
+          cliOutput.log(`${GREEN}✓${RESET} Solodit API: reachable`)
+        } else {
+          cliOutput.log(`${YELLOW}⚠${RESET} Solodit API: returned ${response.status}`)
+        }
+      } catch {
+        cliOutput.log(`${YELLOW}⚠${RESET} Solodit API: unreachable`)
       }
     } else {
-      cliOutput.log(`${YELLOW}⚠${RESET} Solodit MCP: disabled in config`)
+      cliOutput.log(`${YELLOW}⚠${RESET} Solodit: disabled in config`)
     }
 
     cliOutput.log("\nSkill Health")

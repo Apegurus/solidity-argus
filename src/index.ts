@@ -7,13 +7,14 @@ import type { Dispatcher } from "./features/background-agent/background-manager"
 import { createHookGuard } from "./hooks/hook-system"
 import { createPluginInterface } from "./plugin-interface"
 import { startSoloditMcp } from "./solodit-lifecycle"
+import { DEFAULT_SOLODIT_PORT } from "./tools/solodit-search-tool"
 
 const ArgusPlugin: Plugin = async (ctx) => {
   const projectDir = ctx.directory ?? process.cwd()
   const config = loadArgusConfig(projectDir)
 
   if (config.solodit?.enabled !== false) {
-    await startSoloditMcp(config.solodit?.port ?? 3000)
+    await startSoloditMcp(config.solodit?.port ?? DEFAULT_SOLODIT_PORT)
   }
 
   const isHookEnabled = createHookGuard(config.disabled_hooks)

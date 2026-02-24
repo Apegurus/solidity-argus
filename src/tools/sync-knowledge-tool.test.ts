@@ -57,7 +57,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
     },
     solodit: {
       enabled: true,
-      port: 3000,
+      port: 54173,
     },
     disabled_hooks: [],
     hooks: {},
