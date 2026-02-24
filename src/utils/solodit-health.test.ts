@@ -9,12 +9,12 @@ describe("checkSoloditHealth", () => {
   })
 
   it("returns disabled status when enabled is false", async () => {
-    const result = await checkSoloditHealth(3000, false)
+    const result = await checkSoloditHealth(54173, false)
 
     expect(result).toEqual({
       reachable: false,
       enabled: false,
-      port: 3000,
+      port: 54173,
     })
   })
 
@@ -23,11 +23,11 @@ describe("checkSoloditHealth", () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
 
-    const result = await checkSoloditHealth(3000, true)
+    const result = await checkSoloditHealth(54173, true)
 
     expect(result.reachable).toBe(false)
     expect(result.enabled).toBe(true)
-    expect(result.port).toBe(3000)
+    expect(result.port).toBe(54173)
     expect(result.error).toBe("Connection refused")
   })
 
@@ -37,12 +37,12 @@ describe("checkSoloditHealth", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    const result = await checkSoloditHealth(3000, true)
+    const result = await checkSoloditHealth(54173, true)
 
     expect(result).toEqual({
       reachable: true,
       enabled: true,
-      port: 3000,
+      port: 54173,
     })
   })
 
@@ -52,7 +52,7 @@ describe("checkSoloditHealth", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    const result = await checkSoloditHealth(3000, true)
+    const result = await checkSoloditHealth(54173, true)
 
     expect(result.reachable).toBe(true)
     expect(result.enabled).toBe(true)
@@ -64,12 +64,12 @@ describe("checkSoloditHealth", () => {
       status: 405,
     })) as unknown as typeof fetch
 
-    const result = await checkSoloditHealth(3000, true)
+    const result = await checkSoloditHealth(54173, true)
 
     expect(result).toEqual({
       reachable: false,
       enabled: true,
-      port: 3000,
+      port: 54173,
       error: undefined,
     })
   })
@@ -80,12 +80,12 @@ describe("checkSoloditHealth", () => {
       status: 500,
     })) as unknown as typeof fetch
 
-    const result = await checkSoloditHealth(3000, true)
+    const result = await checkSoloditHealth(54173, true)
 
     expect(result).toEqual({
       reachable: false,
       enabled: true,
-      port: 3000,
+      port: 54173,
       error: undefined,
     })
   })
@@ -95,11 +95,11 @@ describe("checkSoloditHealth", () => {
       throw new DOMException("The operation was aborted", "AbortError")
     }) as unknown as typeof fetch
 
-    const result = await checkSoloditHealth(3000, true)
+    const result = await checkSoloditHealth(54173, true)
 
     expect(result.reachable).toBe(false)
     expect(result.enabled).toBe(true)
-    expect(result.port).toBe(3000)
+    expect(result.port).toBe(54173)
     expect(result.error).toContain("aborted")
   })
 
@@ -133,7 +133,7 @@ describe("checkSoloditHealth", () => {
       return { ok: true, status: 200 }
     }) as unknown as typeof fetch
 
-    await checkSoloditHealth(3000, true)
+    await checkSoloditHealth(54173, true)
 
     expect(capturedMethod).toBe("POST")
     expect(capturedHeaders["Content-Type"]).toBe("application/json")
@@ -155,7 +155,7 @@ describe("checkSoloditHealth", () => {
       return { ok: !isGetRequest, status: isGetRequest ? 405 : 200 }
     }) as unknown as typeof fetch
 
-    await checkSoloditHealth(3000, true)
+    await checkSoloditHealth(54173, true)
 
     expect(capturedInit?.method).toBe("POST")
   })
