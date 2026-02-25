@@ -40,7 +40,7 @@ test("executeRecordFinding normalizes one finding", async () => {
     success: boolean
     count: number
     schema_version: string
-    findings: Array<{ id: string; check: string; severity: string; file: string }>
+    findings: Array<{ id: string; check: string; severity: string; file: string; description: string; lines: [number, number]; source: string }>
     note: string
   }
 
@@ -50,6 +50,9 @@ test("executeRecordFinding normalizes one finding", async () => {
   expect(parsed.findings[0]?.check).toBe("manual-auth-bypass")
   expect(parsed.findings[0]?.severity).toBe("High")
   expect(parsed.findings[0]?.file).toBe("src/Vault.sol")
+  expect(parsed.findings[0]?.description).toBe("Manual access-control bypass finding")
+  expect(parsed.findings[0]?.lines).toEqual([20, 24])
+  expect(parsed.findings[0]?.source).toBe("manual")
   expect(typeof parsed.findings[0]?.id).toBe("string")
   expect(parsed.note).toContain("run_id")
 })
@@ -83,7 +86,7 @@ test("executeRecordFinding accepts findings array", async () => {
 
   const parsed = JSON.parse(payload) as {
     count: number
-    findings: Array<{ id: string; check: string; severity: string; file: string }>
+    findings: Array<{ id: string; check: string; severity: string; file: string; description: string; lines: [number, number]; source: string }>
   }
   expect(parsed.count).toBe(2)
   expect(parsed.findings[0]?.check).toBe("issue-a")

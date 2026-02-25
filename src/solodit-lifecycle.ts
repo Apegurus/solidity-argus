@@ -78,7 +78,9 @@ function classifySpawnError(err: unknown, port: number): string {
 function spawnSoloditChild(port: number): SoloditChildProcess {
   try {
     const child = spawnFn(port)
-    child.unref()
+    // Do NOT unref() — child must die with the parent process.
+    // unref() lets the parent exit without waiting for the child,
+    // creating orphaned solodit-mcp processes that hoard ports.
     return child
   } catch (err) {
     const message = classifySpawnError(err, port)
@@ -98,6 +100,28 @@ function trackChildExit(child: SoloditChildProcess): void {
       soloditChild = null
     }
   })
+}
+
+/** Kill the solodit-mcp child process. Called on parent exit to prevent orphans. */
+function killSoloditChild(): void {
+  if (soloditChild) {
+    try {
+      soloditChild.kill()
+    } catch {
+      // Process already dead — ignore.
+    }
+    soloditChild = null
+  }
+}
+
+// Register once: kill child on parent exit to prevent orphaned processes.
+let exitHandlerRegistered = false
+function ensureExitHandler(): void {
+  if (exitHandlerRegistered) return
+  exitHandlerRegistered = true
+  process.on("exit", killSoloditChild)
+  process.on("SIGINT", () => { killSoloditChild(); process.exit(130) })
+  process.on("SIGTERM", () => { killSoloditChild(); process.exit(143) })
 }
 
 async function restartSoloditMcp(port: number): Promise<boolean> {
@@ -229,6 +253,8 @@ export function _resetSoloditState(): void {
     }
     soloditChild = null
   }
+  // Reset exit handler so tests can re-register cleanly
+  exitHandlerRegistered = false
 }
 
  /** Set soloditAvailable flag — for testing only. */
@@ -240,6 +266,7 @@ export async function startSoloditMcp(port: number): Promise<void> {
   const logger = createLogger()
   lifecycleState = "starting"
   lifecycleError = undefined
+  ensureExitHandler()
 
   const health = await checkSoloditHealth(port, true)
   if (health.reachable) {

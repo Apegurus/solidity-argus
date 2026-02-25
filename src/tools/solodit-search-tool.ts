@@ -41,6 +41,24 @@ export type SoloditFetch = (input: string | URL | Request, init?: RequestInit) =
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+/** Extract severity from common audit title prefixes like [H-01], [M-17], H-1:, M-2: */
+function extractSeverityFromTitle(title: string): string {
+  const match = title.match(/^\[?([HMhm])[-\s]?\d+\]?[:\s]/)
+  if (match) {
+    const letter = match[1]!.toUpperCase()
+    if (letter === "H") return "High"
+    if (letter === "M") return "Medium"
+  }
+  const prefixMatch = title.match(/^\[?(Critical|High|Medium|Low|Informational)\]?[:\s-]/i)
+  if (prefixMatch) {
+    const s = prefixMatch[1]!.toLowerCase()
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  }
+  return ""
+}
+
+const SOLODIT_BASE_URL = "https://solodit.cyfrin.io/issues"
+
 function parseFinding(raw: unknown): SoloditFinding {
   if (typeof raw !== "object" || raw === null) {
     return {
@@ -55,13 +73,24 @@ function parseFinding(raw: unknown): SoloditFinding {
   }
 
   const obj = raw as Record<string, unknown>
+  const title = typeof obj.title === "string" ? obj.title : ""
+  const slug = typeof obj.slug === "string" ? obj.slug : ""
+  const severity = typeof obj.severity === "string" && obj.severity.length > 0
+    ? obj.severity
+    : extractSeverityFromTitle(title)
+  const url = typeof obj.url === "string" && obj.url.length > 0
+    ? obj.url
+    : slug.length > 0
+      ? `${SOLODIT_BASE_URL}/${slug}`
+      : ""
+
   return {
-    title: typeof obj.title === "string" ? obj.title : "",
-    slug: typeof obj.slug === "string" ? obj.slug : "",
-    severity: typeof obj.severity === "string" ? obj.severity : "",
-    description: typeof obj.description === "string" ? obj.description : "",
+    title,
+    slug,
+    severity,
+    description: typeof obj.description === "string" ? obj.description : title,
     protocol: typeof obj.protocol === "string" ? obj.protocol : "",
-    url: typeof obj.url === "string" ? obj.url : "",
+    url,
     remediation: typeof obj.remediation === "string" ? obj.remediation : "",
   }
 }

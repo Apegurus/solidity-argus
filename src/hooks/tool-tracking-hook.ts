@@ -632,9 +632,23 @@ export function createToolTrackingHook(
         try {
           parsed = JSON.parse(input.result)
         } catch {
-          diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
-          if (input.tool === "argus_record_finding") {
-            throw new Error("argus_record_finding returned malformed JSON")
+          // For large tool outputs (e.g. argus_check_patterns can produce 3MB+),
+          // OpenCode may truncate the result before it reaches this hook.
+          // Extract what we can from the partial JSON rather than failing entirely.
+          const successMatch = input.result.match(/"success"\s*:\s*(true|false)/)
+          const truncatedSuccess = successMatch?.[1] === "true"
+          if (truncatedSuccess) {
+            diag.error(
+              "TRUNCATED_OUTPUT",
+              `${input.tool} output was truncated (${input.result.length} chars) but tool reported success`,
+            )
+            completedSuccess = true
+            findingsCount = -1 // unknown due to truncation
+          } else {
+            diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
+            if (input.tool === "argus_record_finding") {
+              throw new Error("argus_record_finding returned malformed JSON")
+            }
           }
           diag.throwIfStrict()
           return

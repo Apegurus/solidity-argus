@@ -11,7 +11,15 @@ type RecordFindingArgs = {
 type RecordFindingResponse = {
   success: boolean
   count: number
-  findings: Array<{ id: string; check: string; severity: string; file: string }>
+  findings: Array<{
+    id: string
+    check: string
+    severity: string
+    file: string
+    description: string
+    lines: [number, number]
+    source: string
+  }>
   schema_version: string
   note: string
 }
@@ -105,6 +113,9 @@ export async function executeRecordFinding(
       check: f.check,
       severity: f.severity,
       file: f.file,
+      description: f.description,
+      lines: f.lines,
+      source: f.source,
     })),
     schema_version: SCHEMA_VERSION,
     note: "Findings recorded to event journal. The system assigns the canonical run_id automatically — use the run_id from <argus-context> for Scribe dispatch.",

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import ArgusPlugin from "./index"
 import * as lifecycleModule from "./solodit-lifecycle"
+import { DEFAULT_SOLODIT_PORT } from "./tools/solodit-search-tool"
 
 const {
   _runMonitoringCycle,
@@ -46,7 +47,7 @@ describe("Solodit monitoring", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(true)
   })
@@ -57,8 +58,8 @@ describe("Solodit monitoring", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    await _runMonitoringCycle(3000)
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(true)
   })
@@ -68,13 +69,13 @@ describe("Solodit monitoring", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(lifecycleModule.soloditAvailable).toBe(true)
 
     globalThis.fetch = (async () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
   })
@@ -84,7 +85,7 @@ describe("Solodit monitoring", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(lifecycleModule.soloditAvailable).toBe(true)
 
     let callCount = 0
@@ -96,7 +97,7 @@ describe("Solodit monitoring", () => {
       return { ok: true, status: 200 }
     }) as unknown as typeof fetch
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(true)
   })
@@ -106,19 +107,19 @@ describe("Solodit monitoring", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     globalThis.fetch = (async () => {
       throw new Error("Dead")
     }) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(lifecycleModule.soloditAvailable).toBe(false)
 
     globalThis.fetch = (async () => ({
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(true)
   })
@@ -128,7 +129,7 @@ describe("Solodit monitoring", () => {
       throw new Error("Dead")
     }) as unknown as typeof fetch
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
   })
@@ -138,7 +139,7 @@ describe("Solodit monitoring", () => {
       throw new TypeError("NetworkError")
     }) as unknown as typeof fetch
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
   })
@@ -183,12 +184,12 @@ describe("Solodit monitoring", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     globalThis.fetch = (async () => {
       throw new Error("Dead")
     }) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(spawnCalled).toBe(true)
   })
@@ -221,7 +222,7 @@ describe("Solodit lifecycle status", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     const status = getLifecycleStatus()
     expect(status.state).toBe("running")
@@ -233,12 +234,12 @@ describe("Solodit lifecycle status", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     globalThis.fetch = (async () => {
       throw new Error("Dead")
     }) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     const status = getLifecycleStatus()
     expect(status.state).toBe("failed")
@@ -277,7 +278,7 @@ describe("Solodit healthy instance reuse", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    await startSoloditMcp(3000)
+    await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(spawnCalled).toBe(false)
     expect(lifecycleModule.soloditAvailable).toBe(true)
@@ -289,7 +290,7 @@ describe("Solodit healthy instance reuse", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(lifecycleModule.soloditAvailable).toBe(true)
 
     let fetchCallCount = 0
@@ -311,7 +312,7 @@ describe("Solodit healthy instance reuse", () => {
       },
     })
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(spawnCalled).toBe(false)
     expect(lifecycleModule.soloditAvailable).toBe(true)
@@ -337,7 +338,7 @@ describe("Solodit spawn error handling", () => {
   })
 
   it("EADDRINUSE sets failed state with port conflict diagnostic", async () => {
-    const eaddrinuse = new Error("listen EADDRINUSE: address already in use :::3000")
+    const eaddrinuse = new Error(`listen EADDRINUSE: address already in use :::${DEFAULT_SOLODIT_PORT}`)
     Object.assign(eaddrinuse, { code: "EADDRINUSE" })
 
     _setTestConfig({
@@ -350,13 +351,13 @@ describe("Solodit spawn error handling", () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
 
-    await startSoloditMcp(3000)
+    await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
     const status = getLifecycleStatus()
     expect(status.state).toBe("failed")
     expect(status.error).toContain("EADDRINUSE")
-    expect(status.error).toContain("Port 3000")
+    expect(status.error).toContain(`Port ${DEFAULT_SOLODIT_PORT}`)
   })
 
   it("ENOENT sets failed state with binary-not-found diagnostic", async () => {
@@ -373,7 +374,7 @@ describe("Solodit spawn error handling", () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
 
-    await startSoloditMcp(3000)
+    await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
     const status = getLifecycleStatus()
@@ -392,7 +393,7 @@ describe("Solodit spawn error handling", () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
 
-    await startSoloditMcp(3000)
+    await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
     const status = getLifecycleStatus()
@@ -405,7 +406,7 @@ describe("Solodit spawn error handling", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(lifecycleModule.soloditAvailable).toBe(true)
 
     globalThis.fetch = (async () => {
@@ -422,7 +423,7 @@ describe("Solodit spawn error handling", () => {
       },
     })
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(false)
     const status = getLifecycleStatus()
@@ -453,7 +454,7 @@ describe("Solodit deterministic restart", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(lifecycleModule.soloditAvailable).toBe(true)
 
     let fetchCallCount = 0
@@ -471,7 +472,7 @@ describe("Solodit deterministic restart", () => {
       spawnFn: () => createFakeChild(),
     })
 
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(lifecycleModule.soloditAvailable).toBe(true)
     expect(getLifecycleStatus().state).toBe("running")
@@ -485,7 +486,7 @@ describe("Solodit deterministic restart", () => {
       status: 200,
     })) as unknown as typeof fetch
 
-    await startSoloditMcp(3000)
+    await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(getLifecycleStatus().state).toBe("running")
   })
@@ -503,7 +504,7 @@ describe("Solodit deterministic restart", () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
 
-    await startSoloditMcp(3000)
+    await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(getLifecycleStatus().state).toBe("failed")
     expect(getLifecycleStatus().error).toContain("boom")
@@ -514,7 +515,7 @@ describe("Solodit deterministic restart", () => {
       ok: true,
       status: 200,
     })) as unknown as typeof fetch
-    await _runMonitoringCycle(3000)
+    await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     expect(getLifecycleStatus().state).toBe("running")
 
     _resetSoloditState()
