@@ -159,7 +159,7 @@ export function createHooks(args: {
           timestamp: Date.now(),
         })
 
-        const effectiveState = recoveredState ?? auditStateManager.get()
+        const effectiveState = recoveredState ?? auditState
         if (effectiveState) {
           const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
           try {
@@ -167,6 +167,10 @@ export function createHooks(args: {
             // createEventSink builds the same path internally; the resolver makes it explicit.
             const sink = createEventSink(effectiveState.sessionId, projectDir)
             setEventSink(sink, sessionId)
+            // Also set as fallback so tools without a sessionID can still find it.
+            // setEventSink(sink, id) stores by key and returns early without
+            // setting fallbackEventSink — so tools with no/mismatched sessionID fail.
+            setEventSink(sink)
             if (sessionId) {
               eventSinksByOpencodeSession.set(sessionId, sink)
             }

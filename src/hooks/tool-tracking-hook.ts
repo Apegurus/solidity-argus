@@ -634,13 +634,16 @@ export function createToolTrackingHook(
         } catch {
           // For large tool outputs (e.g. argus_check_patterns can produce 3MB+),
           // OpenCode may truncate the result before it reaches this hook.
-          // Extract what we can from the partial JSON rather than failing entirely.
-          const successMatch = input.result.match(/"success"\s*:\s*(true|false)/)
-          const truncatedSuccess = successMatch?.[1] === "true"
+          // Two truncation modes:
+          //   1. Partial JSON — first N bytes of valid JSON (check for "success": true)
+          //   2. OpenCode replacement — full output replaced with "...N bytes truncated..."
+          const successInPartialJson = input.result.match(/"success"\s*:\s*(true|false)/)
+          const opencodeTruncation = input.result.match(/bytes truncated|output was truncated|tool call succeeded/i)
+          const truncatedSuccess = successInPartialJson?.[1] === "true" || !!opencodeTruncation
           if (truncatedSuccess) {
             diag.error(
               "TRUNCATED_OUTPUT",
-              `${input.tool} output was truncated (${input.result.length} chars) but tool reported success`,
+              `${input.tool} output was truncated (${input.result.length} chars) — tool likely succeeded`,
             )
             completedSuccess = true
             findingsCount = -1 // unknown due to truncation
@@ -750,8 +753,12 @@ export function createToolTrackingHook(
         }
 
         if (input.tool === "argus_record_finding" && !sink) {
-          throw new Error(
-            "argus_record_finding requires an active event sink for durable persistence",
+          // Findings are already in auditState (in-memory) and will be persisted
+          // via debouncedSave on state change. The sink provides durable event
+          // streaming but is not required for finding persistence.
+          diag.error(
+            "NO_EVENT_SINK",
+            "argus_record_finding: no active event sink — findings saved to audit state only",
           )
         }
 
