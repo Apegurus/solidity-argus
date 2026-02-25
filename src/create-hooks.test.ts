@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import { readdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
 import { createHooks } from "./create-hooks"
@@ -10,6 +11,35 @@ import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 
 const FIXTURE_DIR = resolve(import.meta.dir, "../tests/fixtures/vulnerable-vault")
+const RUNS_DIR = join(FIXTURE_DIR, ".argus", "runs")
+
+/**
+ * After session.created, the event-hook creates a fresh state with a randomUUID
+ * as sessionId. When recovered state is merged, the fresh sessionId is preserved
+ * (multi-instance isolation). This helper discovers the fresh runId by scanning
+ * for new run directories that appeared after the test started.
+ */
+async function discoverFreshRunId(knownRunsBefore: Set<string>): Promise<string> {
+  const entries = await readdir(RUNS_DIR)
+  const newEntries = entries.filter((e) => !knownRunsBefore.has(e))
+  // Filter to UUID-shaped entries (the fresh state uses randomUUID)
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  const freshRuns = newEntries.filter((e) => uuidPattern.test(e))
+  if (freshRuns.length !== 1) {
+    throw new Error(
+      `Expected exactly 1 new UUID run directory, found ${freshRuns.length}: ${freshRuns.join(", ")}`,
+    )
+  }
+  return freshRuns[0]!
+}
+
+async function getExistingRuns(): Promise<Set<string>> {
+  try {
+    return new Set(await readdir(RUNS_DIR))
+  } catch {
+    return new Set()
+  }
+}
 
 function makeAuditState(overrides?: Partial<AuditState>): AuditState {
   return {
@@ -184,8 +214,8 @@ describe("createHooks", () => {
 
   it("archives even when finalization invariants fail", async () => {
     const config = ArgusConfigSchema.parse({})
-    const runId = `run-fail-${Date.now()}`
-    const activeState = makeAuditState({ sessionId: runId })
+    const recoveredRunId = `run-fail-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
     let archiveCount = 0
 
     const managers: Managers = {
@@ -215,15 +245,21 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
+    const runsBefore = await getExistingRuns()
+
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-parent" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
-    const eventsPath = join(FIXTURE_DIR, ".argus", "runs", runId, "events.jsonl")
+    // The fresh state gets a new randomUUID sessionId (multi-instance isolation).
+    // Recovered state's findings/tools are merged but the fresh sessionId is used.
+    const freshRunId = await discoverFreshRunId(runsBefore)
+
+    const eventsPath = join(FIXTURE_DIR, ".argus", "runs", freshRunId, "events.jsonl")
     const existing = await Bun.file(eventsPath).text()
     const orphanToolStarted = {
       type: "tool.started",
-      run_id: runId,
+      run_id: freshRunId,
       seq: 2,
       session_id: "oc-parent",
       tool_call_id: "tool-orphan",
@@ -258,8 +294,8 @@ describe("createHooks", () => {
 
   it("materializes findings artifact after successful session finalization", async () => {
     const config = ArgusConfigSchema.parse({})
-    const runId = `run-materialize-${Date.now()}`
-    const activeState = makeAuditState({ sessionId: runId })
+    const recoveredRunId = `run-materialize-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
 
     const managers: Managers = {
       backgroundManager: {
@@ -285,29 +321,33 @@ describe("createHooks", () => {
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
+
+    const runsBefore = await getExistingRuns()
 
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-materialize" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
+    const freshRunId = await discoverFreshRunId(runsBefore)
+
     await hooks.event?.({
       event: { type: "session.deleted", properties: { info: { id: "oc-materialize" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
-    const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
+    const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     expect(await Bun.file(findingsPath).exists()).toBe(true)
     const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
       run_id: string
       event_count: number
     }
-    expect(findingsArtifact.run_id).toBe(runId)
+    expect(findingsArtifact.run_id).toBe(freshRunId)
     expect(findingsArtifact.event_count).toBe(3)
   })
 
   it("materializes findings artifact when report generation completes before session deletion", async () => {
     const config = ArgusConfigSchema.parse({})
-    const runId = `run-live-${Date.now()}`
-    const activeState = makeAuditState({ sessionId: runId })
+    const recoveredRunId = `run-live-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
 
     const managers: Managers = {
       backgroundManager: {
@@ -334,9 +374,13 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
+    const runsBefore = await getExistingRuns()
+
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-live" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const freshRunId = await discoverFreshRunId(runsBefore)
 
     await hooks["tool.execute.after"]?.(
       {
@@ -353,20 +397,20 @@ describe("createHooks", () => {
       } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
     )
 
-    const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
+    const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     expect(await Bun.file(findingsPath).exists()).toBe(true)
     const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
       run_id: string
       event_count: number
     }
-    expect(findingsArtifact.run_id).toBe(runId)
+    expect(findingsArtifact.run_id).toBe(freshRunId)
     expect(findingsArtifact.event_count).toBeGreaterThan(0)
   })
 
   it("uses canonical state run_id for report materialization when tool output run_id mismatches", async () => {
     const config = ArgusConfigSchema.parse({})
-    const runId = `run-canonical-${Date.now()}`
-    const activeState = makeAuditState({ sessionId: runId })
+    const recoveredRunId = `run-canonical-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
 
     const managers: Managers = {
       backgroundManager: {
@@ -393,9 +437,13 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
+    const runsBefore = await getExistingRuns()
+
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-canonical" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const freshRunId = await discoverFreshRunId(runsBefore)
 
     await hooks["tool.execute.after"]?.(
       {
@@ -413,7 +461,7 @@ describe("createHooks", () => {
       } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
     )
 
-    const findingsPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().findingsFile
+    const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     expect(await Bun.file(findingsPath).exists()).toBe(true)
   })
 })

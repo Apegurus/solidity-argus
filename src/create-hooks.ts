@@ -150,16 +150,25 @@ export function createHooks(args: {
         }
 
         if (recoveredState) {
-          setState(recoveredState)
+          // Merge recovered findings/tools/phase into this session's fresh state.
+          // CRITICAL: We MUST preserve the fresh auditState.sessionId as the run identity.
+          // If we use recoveredState.sessionId, the EventSink (keyed on fresh sessionId)
+          // will reject every event emission due to run_id mismatch — this is the
+          // multi-instance contamination bug where instance A's persisted state
+          // pollutes instance B's event pipeline.
+          if (auditState) {
+            setState({
+              ...recoveredState,
+              sessionId: auditState.sessionId,
+              projectDir: auditState.projectDir,
+              startTime: auditState.startTime,
+            })
+          } else {
+            setState(recoveredState)
+          }
         }
 
-        runJournal.log({
-          type: "session.created",
-          sessionId,
-          timestamp: Date.now(),
-        })
-
-        const effectiveState = recoveredState ?? auditState
+        const effectiveState = auditState ?? recoveredState
         if (effectiveState) {
           const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
           try {
