@@ -225,6 +225,10 @@ export function createAuditStateManager(
   }
 
   function bindSession(sessionId: string): void {
+    if (boundSessionId) {
+      logger.debug(`Already bound to session ${boundSessionId}, ignoring bind for ${sessionId}`)
+      return
+    }
     boundSessionId = sessionId
     stateFilePath = join(sessionsDirPath, `state-${sessionId}.json`)
     logger.debug(`Bound state manager to session ${sessionId}: ${stateFilePath}`)

@@ -139,10 +139,33 @@ export function createHooks(args: {
         let recoveredState: AuditState | null = null
 
         // Bind state manager to this OpenCode session BEFORE loading.
-        // This scopes all save/load to .argus/sessions/state-{sessionId}.json
-        // preventing multi-instance contamination.
+        // bindSession is idempotent — only the first call (primary Argus session)
+        // takes effect. Sub-agent sessions (Sentinel, Pythia) are no-ops.
         if (sessionId) {
           auditStateManager.bindSession(sessionId)
+        }
+
+        // If an EventSink already exists (from a prior session.created in this instance),
+        // this is a sub-agent session. Reuse the existing sink and state — all
+        // Argus-family agents share one run_id within a single audit.
+        const existingSink = getEventSink()
+        if (existingSink) {
+          if (sessionId) {
+            setEventSink(existingSink, sessionId)
+            eventSinksByOpencodeSession.set(sessionId, existingSink)
+          }
+          // Inherit the primary session's audit state so sub-agents see findings/tools.
+          const primaryState = getAuditState()
+          if (primaryState) {
+            setState(primaryState)
+          }
+          runJournal.log({
+            type: "state.loaded",
+            timestamp,
+            success: true,
+            findingsCount: primaryState?.findings.length ?? 0,
+          })
+          return
         }
 
         try {
@@ -159,7 +182,7 @@ export function createHooks(args: {
         if (recoveredState && auditState) {
           // Merge recovered audit data (findings, tools, phase) into this session's
           // fresh state. We preserve the fresh auditState.sessionId as the run identity
-          // because each OpenCode session needs its own EventSink journal (run directory).
+          // because each audit run needs its own EventSink journal (run directory).
           // The session-scoped state file prevents cross-instance contamination,
           // while the fresh sessionId ensures EventSink run_id consistency.
           setState({
