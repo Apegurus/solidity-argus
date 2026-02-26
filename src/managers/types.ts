@@ -46,13 +46,25 @@ export interface BackgroundManager {
  */
 export interface AuditStateManager {
   /**
-   * Load audit state from persistent storage
+   * Bind this manager to a specific OpenCode session.
+   * After binding, save/load operate on a session-scoped state file
+   * (.argus/sessions/state-{sessionId}.json) instead of the shared file.
+   * This prevents multi-instance contamination.
+   * @param sessionId - The OpenCode session ID (e.g., "ses_abc123")
+   */
+  bindSession(sessionId: string): void
+
+  /**
+   * Load audit state from persistent storage.
+   * If bound to a session, tries the session-scoped file first,
+   * then falls back to the most recent state file from any session.
    * @returns Promise resolving to AuditState or null if not found
    */
   load(): Promise<AuditState | null>
 
   /**
-   * Save audit state to persistent storage
+   * Save audit state to persistent storage.
+   * Writes to the session-scoped file if bound, otherwise the shared file.
    * @param state - The AuditState to persist
    */
   save(state: AuditState): Promise<void>

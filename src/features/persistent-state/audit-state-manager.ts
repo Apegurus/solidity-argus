@@ -1,4 +1,4 @@
-import { mkdir, rename } from "node:fs/promises"
+import { mkdir, readdir, rename, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { AuditStateManager } from "../../managers/types"
 import { createLogger } from "../../shared/logger"
@@ -9,6 +9,7 @@ import type { AuditState, PersistentAuditState } from "../../state/types"
 import { readEvents } from "./event-sink"
 
 const STATE_FILE_NAME = "argus-state.json"
+const SESSIONS_DIR = "sessions"
 const STATE_VERSION = "2"
 
 type ProjectedAuditCore = Pick<
@@ -164,7 +165,11 @@ export function createAuditStateManager(
 ): AuditStateManager {
   const logger = createLogger()
 
-  const stateFilePath = join(resolver.writeRoot(projectDir), STATE_FILE_NAME)
+  const argusRoot = resolver.writeRoot(projectDir)
+  const sharedStateFilePath = join(argusRoot, STATE_FILE_NAME)
+  const sessionsDirPath = join(argusRoot, SESSIONS_DIR)
+  let stateFilePath = sharedStateFilePath
+  let boundSessionId: string | undefined
   let currentState: AuditState = createAuditState(projectDir).state
 
   async function deriveConsistentState(state: AuditState): Promise<ConsistentStateResult> {
@@ -219,16 +224,70 @@ export function createAuditStateManager(
     }
   }
 
+  function bindSession(sessionId: string): void {
+    boundSessionId = sessionId
+    stateFilePath = join(sessionsDirPath, `state-${sessionId}.json`)
+    logger.debug(`Bound state manager to session ${sessionId}: ${stateFilePath}`)
+  }
+
   async function load(): Promise<AuditState | null> {
     try {
-      const resolvedPath = resolver.resolveReadPath(projectDir, STATE_FILE_NAME)
-      const readPath = resolvedPath ?? stateFilePath
+      // 1. If bound to a session, try the session-scoped file first
+      let readPath: string | null = null
 
-      const file = Bun.file(readPath)
-      if (!(await file.exists())) {
+      if (boundSessionId) {
+        const sessionFile = Bun.file(stateFilePath)
+        if (await sessionFile.exists()) {
+          readPath = stateFilePath
+        }
+      }
+
+      // 2. If no session file found, scan sessions dir for most recent
+      if (!readPath) {
+        try {
+          const entries = await readdir(sessionsDirPath)
+          const jsonFiles = entries.filter((e) => e.startsWith("state-") && e.endsWith(".json"))
+
+          if (jsonFiles.length > 0) {
+            let newest: { name: string; mtime: number } | null = null
+            for (const name of jsonFiles) {
+              const filePath = join(sessionsDirPath, name)
+              try {
+                const s = await stat(filePath)
+                const mtime = s.mtimeMs
+                if (!newest || mtime > newest.mtime) {
+                  newest = { name, mtime }
+                }
+              } catch {
+                // Skip unreadable files
+              }
+            }
+            if (newest) {
+              readPath = join(sessionsDirPath, newest.name)
+              logger.debug(`No session-scoped file for ${boundSessionId ?? "(unbound)"}, falling back to newest: ${newest.name}`)
+            }
+          }
+        } catch {
+          // sessions dir doesn't exist yet — that's fine
+        }
+      }
+
+      // 3. If no sessions dir, try legacy shared file
+      if (!readPath) {
+        const resolvedPath = resolver.resolveReadPath(projectDir, STATE_FILE_NAME)
+        const legacyPath = resolvedPath ?? sharedStateFilePath
+        const legacyFile = Bun.file(legacyPath)
+        if (await legacyFile.exists()) {
+          readPath = legacyPath
+          logger.debug(`Falling back to legacy shared state file: ${legacyPath}`)
+        }
+      }
+
+      if (!readPath) {
         return null
       }
 
+      const file = Bun.file(readPath)
       const content = await file.text()
       if (!content.trim()) {
         return null
@@ -387,6 +446,7 @@ export function createAuditStateManager(
   }
 
   return {
+    bindSession,
     load,
     save,
     get,

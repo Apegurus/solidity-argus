@@ -65,6 +65,7 @@ function makeManagers(): Managers {
       getActiveCount: () => 0,
     },
     auditStateManager: {
+      bindSession: () => {},
       load: async () => null,
       save: async () => {},
       get: () => null,
@@ -186,6 +187,7 @@ describe("createHooks", () => {
         getActiveCount: () => 0,
       },
       auditStateManager: {
+        bindSession: () => {},
         load: async () => activeState,
         save: async (state) => {
           savedStates.push(state)
@@ -227,6 +229,7 @@ describe("createHooks", () => {
         getActiveCount: () => 0,
       },
       auditStateManager: {
+        bindSession: () => {},
         load: async () => activeState,
         save: async () => {},
         get: () => activeState,
@@ -306,6 +309,7 @@ describe("createHooks", () => {
         getActiveCount: () => 0,
       },
       auditStateManager: {
+        bindSession: () => {},
         load: async () => activeState,
         save: async () => {},
         get: () => activeState,
@@ -358,6 +362,7 @@ describe("createHooks", () => {
         getActiveCount: () => 0,
       },
       auditStateManager: {
+        bindSession: () => {},
         load: async () => activeState,
         save: async () => {},
         get: () => activeState,
@@ -421,6 +426,7 @@ describe("createHooks", () => {
         getActiveCount: () => 0,
       },
       auditStateManager: {
+        bindSession: () => {},
         load: async () => activeState,
         save: async () => {},
         get: () => activeState,

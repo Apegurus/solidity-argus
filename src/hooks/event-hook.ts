@@ -227,7 +227,6 @@ export function createEventHook(
 
     // Emit canonical events to sink (after sub-handlers, so sink may have been set during session.created)
     const sinkForSession = getEventSink(sessionKey)
-
     switch (type) {
       case "session.created": {
         if (stateForSession) {

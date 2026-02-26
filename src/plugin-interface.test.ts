@@ -16,6 +16,7 @@ function makeManagers(): Managers {
       getActiveCount: () => 0,
     },
     auditStateManager: {
+      bindSession: () => {},
       load: async () => null,
       save: async () => {},
       get: () => null,

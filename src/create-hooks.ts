@@ -138,6 +138,13 @@ export function createHooks(args: {
         const timestamp = Date.now()
         let recoveredState: AuditState | null = null
 
+        // Bind state manager to this OpenCode session BEFORE loading.
+        // This scopes all save/load to .argus/sessions/state-{sessionId}.json
+        // preventing multi-instance contamination.
+        if (sessionId) {
+          auditStateManager.bindSession(sessionId)
+        }
+
         try {
           recoveredState = await auditStateManager.load()
         } finally {
@@ -149,45 +156,35 @@ export function createHooks(args: {
           })
         }
 
-        if (recoveredState) {
-          // Merge recovered findings/tools/phase into this session's fresh state.
-          // CRITICAL: We MUST preserve the fresh auditState.sessionId as the run identity.
-          // If we use recoveredState.sessionId, the EventSink (keyed on fresh sessionId)
-          // will reject every event emission due to run_id mismatch — this is the
-          // multi-instance contamination bug where instance A's persisted state
-          // pollutes instance B's event pipeline.
-          if (auditState) {
-            setState({
-              ...recoveredState,
-              sessionId: auditState.sessionId,
-              projectDir: auditState.projectDir,
-              startTime: auditState.startTime,
-            })
-          } else {
-            setState(recoveredState)
-          }
+        if (recoveredState && auditState) {
+          // Merge recovered audit data (findings, tools, phase) into this session's
+          // fresh state. We preserve the fresh auditState.sessionId as the run identity
+          // because each OpenCode session needs its own EventSink journal (run directory).
+          // The session-scoped state file prevents cross-instance contamination,
+          // while the fresh sessionId ensures EventSink run_id consistency.
+          setState({
+            ...recoveredState,
+            sessionId: auditState.sessionId,
+            projectDir: auditState.projectDir,
+            startTime: auditState.startTime,
+          })
+        } else if (recoveredState) {
+          setState(recoveredState)
         }
 
         const effectiveState = auditState ?? recoveredState
         if (effectiveState) {
           const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
           try {
-            const journalFile = resolver.paths().journalFile
-            // createEventSink builds the same path internally; the resolver makes it explicit.
             const sink = createEventSink(effectiveState.sessionId, projectDir)
             setEventSink(sink, sessionId)
             // Also set as fallback so tools without a sessionID can still find it.
-            // setEventSink(sink, id) stores by key and returns early without
-            // setting fallbackEventSink — so tools with no/mismatched sessionID fail.
             setEventSink(sink)
             if (sessionId) {
               eventSinksByOpencodeSession.set(sessionId, sink)
             }
-            logger.debug(`Event sink journal path: ${journalFile}`)
           } catch (error) {
-            logger.error(
-              `Failed to create event sink: ${error instanceof Error ? error.message : String(error)}`,
-            )
+            logger.warn(`EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`)
           }
           void recordRun({
             runId: effectiveState.sessionId,

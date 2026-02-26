@@ -627,4 +627,140 @@ describe("createAuditStateManager", () => {
 
     expect(loaded).not.toBeNull()
   })
+
+  test("bindSession scopes save/load to session-specific file", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+
+    manager.bindSession("ses_abc123")
+
+    const state: AuditState = {
+      sessionId: "run-1",
+      projectDir,
+      contractsReviewed: [],
+      findings: [
+        {
+          id: "f-1",
+          check: "test-check",
+          severity: "High",
+          confidence: "High",
+          description: "test finding",
+          impact: "test impact",
+          recommendation: "test recommendation",
+          contract: "Test.sol",
+          references: [],
+        },
+      ],
+      toolsExecuted: [],
+      currentPhase: "reconnaissance",
+      scope: [],
+      startTime: Date.now(),
+    }
+
+    await manager.save(state)
+
+    // Verify session-scoped file was written
+    const sessionFilePath = join(projectDir, WRITE_DIR, "sessions", "state-ses_abc123.json")
+    expect(existsSync(sessionFilePath)).toBe(true)
+
+    // Verify shared file was NOT written
+    const sharedFilePath = join(projectDir, WRITE_DIR, STATE_FILE)
+    expect(existsSync(sharedFilePath)).toBe(false)
+
+    // Load should read from session-scoped file
+    const loaded = await manager.load()
+    expect(loaded).not.toBeNull()
+    expect(loaded?.findings).toHaveLength(1)
+    expect(loaded?.findings[0]?.id).toBe("f-1")
+  })
+
+  test("load falls back to most recent session file when bound session has no file", async () => {
+    const projectDir = makeTempDir()
+
+    // Write a session file for a different session
+    const sessionsDir = join(projectDir, WRITE_DIR, "sessions")
+    mkdirSync(sessionsDir, { recursive: true })
+    const otherState = buildPersistentState(projectDir, "2", {
+      sessionId: "other-run",
+      currentPhase: "automated-scanning",
+    })
+    // Set filePath to the sessions dir path
+    otherState.filePath = join(sessionsDir, "state-ses_other.json")
+    writeFileSync(
+      join(sessionsDir, "state-ses_other.json"),
+      `${JSON.stringify(otherState)}\n`,
+    )
+
+    const manager = createAuditStateManager(projectDir)
+    manager.bindSession("ses_new_session")
+
+    // No file for ses_new_session, should fall back to the most recent session file
+    const loaded = await manager.load()
+    expect(loaded).not.toBeNull()
+    expect(loaded?.currentPhase).toBe("automated-scanning")
+  })
+
+  test("load falls back to legacy shared file when no sessions dir exists", async () => {
+    const projectDir = makeTempDir()
+    const stateDir = join(projectDir, WRITE_DIR)
+    mkdirSync(stateDir, { recursive: true })
+
+    const legacyState = buildPersistentState(projectDir, "2", {
+      sessionId: "legacy-run",
+      currentPhase: "manual-review",
+    })
+    writeFileSync(join(stateDir, STATE_FILE), `${JSON.stringify(legacyState)}\n`)
+
+    const manager = createAuditStateManager(projectDir)
+    manager.bindSession("ses_brand_new")
+
+    // No sessions dir at all, should fall back to legacy shared file
+    const loaded = await manager.load()
+    expect(loaded).not.toBeNull()
+    expect(loaded?.currentPhase).toBe("manual-review")
+  })
+
+  test("two managers bound to different sessions don't contaminate each other", async () => {
+    const projectDir = makeTempDir()
+
+    const managerA = createAuditStateManager(projectDir)
+    managerA.bindSession("ses_A")
+
+    const managerB = createAuditStateManager(projectDir)
+    managerB.bindSession("ses_B")
+
+    const stateA: AuditState = {
+      sessionId: "run-A",
+      projectDir,
+      contractsReviewed: ["ContractA.sol"],
+      findings: [],
+      toolsExecuted: ["slither"],
+      currentPhase: "automated-scanning",
+      scope: [],
+      startTime: Date.now(),
+    }
+
+    const stateB: AuditState = {
+      sessionId: "run-B",
+      projectDir,
+      contractsReviewed: ["ContractB.sol"],
+      findings: [],
+      toolsExecuted: ["forge"],
+      currentPhase: "manual-review",
+      scope: [],
+      startTime: Date.now(),
+    }
+
+    await managerA.save(stateA)
+    await managerB.save(stateB)
+
+    // Each manager loads its own state
+    const loadedA = await managerA.load()
+    const loadedB = await managerB.load()
+
+    expect(loadedA?.contractsReviewed).toEqual(["ContractA.sol"])
+    expect(loadedA?.currentPhase).toBe("automated-scanning")
+    expect(loadedB?.contractsReviewed).toEqual(["ContractB.sol"])
+    expect(loadedB?.currentPhase).toBe("manual-review")
+  })
 })
