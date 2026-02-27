@@ -12,6 +12,7 @@ function createMockEventSink(): { sink: EventSink; events: AuditEvent[] } {
   let seq = 0
 
   const sink: EventSink = {
+    runId: "run-123",
     async append(event: AuditEvent): Promise<void> {
       seq++
       events.push({ ...event, seq })

@@ -154,16 +154,17 @@ export function createHooks(args: {
             setEventSink(existingSink, sessionId)
             eventSinksByOpencodeSession.set(sessionId, existingSink)
           }
-          // Inherit the primary session's audit state so sub-agents see findings/tools.
-          const primaryState = getAuditState()
-          if (primaryState) {
-            setState(primaryState)
+          // Set this session's state sessionId to match the primary run_id.
+          // The event-hook will emit session.created with stateForSession.sessionId,
+          // which must match the sink's runId to avoid rejection.
+          if (auditState) {
+            setState({ ...auditState, sessionId: existingSink.runId })
           }
           runJournal.log({
             type: "state.loaded",
             timestamp,
             success: true,
-            findingsCount: primaryState?.findings.length ?? 0,
+            findingsCount: 0,
           })
           return
         }

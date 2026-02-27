@@ -21,6 +21,7 @@ function createMockSink(): EventSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
   let seq = 0
   return {
+    runId: "test-run",
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -34,6 +35,7 @@ function createMockSink(): EventSink & { events: AuditEvent[] } {
 
 function createFailingSink(): EventSink {
   return {
+    runId: "test-run",
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },

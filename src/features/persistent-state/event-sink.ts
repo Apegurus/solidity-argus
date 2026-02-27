@@ -16,6 +16,7 @@ export class EventSinkError extends Error {
 }
 
 export interface EventSink {
+  readonly runId: string
   append(event: AuditEvent): Promise<void>
   readAll(): Promise<AuditEvent[]>
 }
@@ -152,6 +153,8 @@ export function createEventSink(
   }
 
   const sink: EventSink = {
+    runId,
+
     async append(event: AuditEvent): Promise<void> {
       return mutex.run(async () => {
         await ensureInitialized()
