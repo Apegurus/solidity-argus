@@ -30,7 +30,11 @@ async function discoverFreshRunId(knownRunsBefore: Set<string>): Promise<string>
       `Expected exactly 1 new UUID run directory, found ${freshRuns.length}: ${freshRuns.join(", ")}`,
     )
   }
-  return freshRuns[0]!
+  const freshRun = freshRuns.at(0)
+  if (!freshRun) {
+    throw new Error("Expected one fresh run directory")
+  }
+  return freshRun
 }
 
 async function getExistingRuns(): Promise<Set<string>> {
@@ -290,8 +294,14 @@ describe("createHooks", () => {
     const finalizationEvent = [...lines].reverse().find((event) => event.type === "run.finalized")
 
     expect(finalizationEvent).toBeDefined()
-    expect(finalizationEvent?.payload?.status).toBe("failed-finalization")
-    expect(finalizationEvent?.payload?.invariantsPassed).toBe(false)
+    expect(finalizationEvent?.payload?.status).toBe("finalized")
+    expect(finalizationEvent?.payload?.invariantsPassed).toBe(true)
+    expect(Array.isArray(finalizationEvent?.payload?.warnings)).toBe(true)
+    expect(
+      (finalizationEvent?.payload?.warnings as string[]).some((w) =>
+        w.includes("orphaned tool.started"),
+      ),
+    ).toBe(true)
     expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
   })
 
@@ -395,7 +405,8 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
-          success: true,
+          run_id: freshRunId,
+          filePath: ".argus/reports/live.md",
           report: "ok",
         }),
         metadata: {},
@@ -410,6 +421,264 @@ describe("createHooks", () => {
     }
     expect(findingsArtifact.run_id).toBe(freshRunId)
     expect(findingsArtifact.event_count).toBeGreaterThan(0)
+
+    const journalPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    const events = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+    const finalizationEvent = [...events].reverse().find((event) => event.type === "run.finalized")
+
+    expect(finalizationEvent).toBeDefined()
+    expect(finalizationEvent?.payload?.invariantsPassed).toBe(true)
+  })
+
+  it("finalizes run on session.idle after successful report generation", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-idle-finalize-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    const runsBefore = await getExistingRuns()
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-idle-finalize" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const freshRunId = await discoverFreshRunId(runsBefore)
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: freshRunId,
+          filePath: ".argus/reports/idle-finalize.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "oc-idle-finalize" } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const journalPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    const events = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+    const finalizationEvent = [...events].reverse().find((event) => event.type === "run.finalized")
+
+    expect(finalizationEvent).toBeDefined()
+    expect(finalizationEvent?.payload?.status).toBe("finalized")
+    expect(finalizationEvent?.payload?.invariantsPassed).toBe(true)
+  })
+
+  it("tool tracking emits events even when session was not directly registered", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-sink-fallback-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    const runsBefore = await getExistingRuns()
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-parent-sink" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const freshRunId = await discoverFreshRunId(runsBefore)
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_forge_test",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-child-sink",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_forge_test",
+        output: JSON.stringify({
+          success: true,
+          summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+          tests: [],
+          executionTime: 1000,
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    const eventsPath = join(FIXTURE_DIR, ".argus", "runs", freshRunId, "events.jsonl")
+    const events = (await Bun.file(eventsPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            type: string
+            run_id?: string
+            session_id?: string
+            payload?: Record<string, unknown>
+          },
+      )
+
+    const started = events.filter(
+      (event) => event.type === "tool.started" && event.payload?.tool === "argus_forge_test",
+    )
+    const completed = events.filter(
+      (event) => event.type === "tool.completed" && event.payload?.tool === "argus_forge_test",
+    )
+
+    expect(started).toHaveLength(1)
+    expect(completed).toHaveLength(1)
+    expect(started[0]?.run_id).toBe(freshRunId)
+    expect(started[0]?.session_id).toBe("oc-child-sink")
+    expect(completed[0]?.run_id).toBe(freshRunId)
+    expect(completed[0]?.session_id).toBe("oc-child-sink")
+  })
+
+  it("tool tracking continues after session.idle without losing sink", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-persist-sink-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    const runsBefore = await getExistingRuns()
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-persist-sink" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const freshRunId = await discoverFreshRunId(runsBefore)
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "oc-persist-sink" } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_slither_analyze",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-child-after-idle",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_slither_analyze",
+        output: JSON.stringify({
+          success: true,
+          findingsCount: 0,
+          findings: [],
+          executionTime: 1000,
+          errors: [],
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    const eventsPath = join(FIXTURE_DIR, ".argus", "runs", freshRunId, "events.jsonl")
+    const events = (await Bun.file(eventsPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            type: string
+            run_id?: string
+            session_id?: string
+            payload?: Record<string, unknown>
+          },
+      )
+
+    const started = events.filter(
+      (event) => event.type === "tool.started" && event.payload?.tool === "argus_slither_analyze",
+    )
+    const completed = events.filter(
+      (event) => event.type === "tool.completed" && event.payload?.tool === "argus_slither_analyze",
+    )
+
+    expect(started).toHaveLength(1)
+    expect(completed).toHaveLength(1)
+    expect(started[0]?.run_id).toBe(freshRunId)
+    expect(started[0]?.session_id).toBe("oc-child-after-idle")
+    expect(completed[0]?.run_id).toBe(freshRunId)
+    expect(completed[0]?.session_id).toBe("oc-child-after-idle")
   })
 
   it("uses canonical state run_id for report materialization when tool output run_id mismatches", async () => {
@@ -451,23 +720,25 @@ describe("createHooks", () => {
 
     const freshRunId = await discoverFreshRunId(runsBefore)
 
-    await hooks["tool.execute.after"]?.(
-      {
-        tool: "argus_generate_report",
-        args: { target: FIXTURE_DIR },
-      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
-      {
-        title: "argus_generate_report",
-        output: JSON.stringify({
-          success: true,
-          run_id: "ses_should_not_be_used",
-          report: "ok",
-        }),
-        metadata: {},
-      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
-    )
+    await expect(
+      hooks["tool.execute.after"]?.(
+        {
+          tool: "argus_generate_report",
+          args: { target: FIXTURE_DIR },
+        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+        {
+          title: "argus_generate_report",
+          output: JSON.stringify({
+            run_id: "ses_should_not_be_used",
+            filePath: ".argus/reports/mismatch.md",
+            report: "ok",
+          }),
+          metadata: {},
+        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+      ),
+    ).rejects.toThrow("mismatched run_id")
 
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
-    expect(await Bun.file(findingsPath).exists()).toBe(true)
+    expect(await Bun.file(findingsPath).exists()).toBe(false)
   })
 })

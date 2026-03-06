@@ -10,10 +10,19 @@ import { getMigrationMode } from "./features/migration"
 import { adaptLegacyFindings } from "./features/migration/migration-adapter"
 import { computeParityMetrics, formatParityReport } from "./features/migration/parity-telemetry"
 import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
-import { createEventSink, type EventSink, releaseEventSink } from "./features/persistent-state/event-sink"
-import { materializeFindings, materializeReportInput } from "./features/persistent-state/findings-materializer"
-import { recordRun } from "./features/persistent-state/global-run-index"
+import {
+  createEventSink,
+  type EventSink,
+  releaseEventSink,
+} from "./features/persistent-state/event-sink"
+import {
+  materializeFindings,
+  materializeReportInput,
+} from "./features/persistent-state/findings-materializer"
+import { recordRun, updateRunStatus } from "./features/persistent-state/global-run-index"
+import { finalizeRun } from "./features/persistent-state/run-finalizer"
 import { createRunJournal } from "./features/persistent-state/run-journal"
+import { pruneStaleRuns } from "./features/persistent-state/run-pruner"
 import { createAgentTracker } from "./hooks/agent-tracker"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createConfigHandler } from "./hooks/config-handler"
@@ -43,6 +52,29 @@ let _agentTrackerRef: AgentTrackerRef | undefined
 
 const REPORT_METADATA_REGEX = /<!-- argus:report_metadata (.+?) -->/
 
+function resolveOpencodeEventSessionId(event: {
+  properties?: Record<string, unknown>
+}): string | undefined {
+  if (!event.properties || typeof event.properties !== "object") {
+    return undefined
+  }
+
+  const info = event.properties.info
+  if (typeof info === "object" && info !== null && !Array.isArray(info)) {
+    const infoId = (info as Record<string, unknown>).id
+    if (typeof infoId === "string" && infoId.length > 0) {
+      return infoId
+    }
+  }
+
+  const sessionId = event.properties.sessionID
+  if (typeof sessionId === "string" && sessionId.length > 0) {
+    return sessionId
+  }
+
+  return undefined
+}
+
 function extractRunIdFromReportToolOutput(result: string): string | undefined {
   try {
     const parsed = JSON.parse(result) as Record<string, unknown>
@@ -61,6 +93,37 @@ function extractRunIdFromReportToolOutput(result: string): string | undefined {
     }
   } catch {
     return undefined
+  }
+
+  return undefined
+}
+
+function extractReportFilePathFromToolOutput(result: string): string | undefined {
+  try {
+    const parsed = JSON.parse(result) as Record<string, unknown>
+    if (typeof parsed.filePath === "string" && parsed.filePath.length > 0) {
+      return parsed.filePath
+    }
+  } catch {
+    return undefined
+  }
+
+  return undefined
+}
+
+function extractReportErrorFromToolOutput(result: string): string | undefined {
+  try {
+    const parsed = JSON.parse(result) as Record<string, unknown>
+    const error = parsed.error
+    if (typeof error === "object" && error !== null && !Array.isArray(error)) {
+      const message = (error as Record<string, unknown>).message
+      if (typeof message === "string" && message.length > 0) {
+        return message
+      }
+      return "argus_generate_report returned an unknown error"
+    }
+  } catch {
+    return "argus_generate_report output was not valid JSON"
   }
 
   return undefined
@@ -122,6 +185,7 @@ export function createHooks(args: {
   const outputTruncator = createToolOutputTruncator()
 
   const eventSinksByOpencodeSession = new Map<string, EventSink>()
+  const eventSinksByRunId = new Map<string, EventSink>()
 
   // Sub-handlers run sequentially. The state persistence handler MUST be first:
   // it loads persisted state on session.created, overriding the fresh default.
@@ -130,7 +194,6 @@ export function createHooks(args: {
     getAuditState,
     setAuditState,
     setEventSink,
-    getEventSink,
     getLastFinalizationResult,
   } = createEventHook(projectDir, [
     async ({ type, sessionId, auditState, setAuditState: setState }) => {
@@ -145,15 +208,43 @@ export function createHooks(args: {
           auditStateManager.bindSession(sessionId)
         }
 
-        // If an EventSink already exists (from a prior session.created in this instance),
-        // this is a sub-agent session. Reuse the existing sink and state — all
-        // Argus-family agents share one run_id within a single audit.
-        const existingSink = getEventSink()
+        const existingSink = (() => {
+          if (!sessionId) {
+            return null
+          }
+
+          const directSink = eventSinksByOpencodeSession.get(sessionId)
+          if (directSink) {
+            return directSink
+          }
+
+          const parentSessionId = agentTracker.getParentSession(sessionId)
+          if (!parentSessionId) {
+            return null
+          }
+
+          return eventSinksByOpencodeSession.get(parentSessionId) ?? null
+        })()
         if (existingSink) {
           if (sessionId) {
             setEventSink(existingSink, sessionId)
             eventSinksByOpencodeSession.set(sessionId, existingSink)
           }
+          eventSinksByRunId.set(existingSink.runId, existingSink)
+
+          const existingRunId = existingSink.runId
+          const existingResolver = createAuditArtifactResolver(existingRunId, projectDir)
+          void recordRun({
+            runId: existingRunId,
+            opencodeSessionId: sessionId,
+            projectDir: auditState?.projectDir ?? projectDir,
+            statePath: existingResolver.paths().stateFile,
+            journalPath: existingResolver.paths().journalFile,
+            startedAt: auditState?.startTime ?? timestamp,
+            phase: auditState?.currentPhase ?? "reconnaissance",
+            findingsCount: auditState?.findings.length ?? 0,
+          })
+
           // Set this session's state sessionId to match the primary run_id.
           // The event-hook will emit session.created with stateForSession.sessionId,
           // which must match the sink's runId to avoid rejection.
@@ -180,6 +271,24 @@ export function createHooks(args: {
           })
         }
 
+        // Discard recovered state if it belongs to a completed or stale run.
+        // This prevents findings/tools from a prior audit accumulating into
+        // the new session's state (Fix #4: state accumulation across sessions).
+        const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
+        if (recoveredState) {
+          const isStale =
+            typeof recoveredState.startTime === "number" &&
+            timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
+          const isCompleted = recoveredState.reportGenerated === true
+
+          if (isStale || isCompleted) {
+            logger.debug(
+              `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
+            )
+            recoveredState = null
+          }
+        }
+
         if (recoveredState && auditState) {
           // Merge recovered audit data (findings, tools, phase) into this session's
           // fresh state. We preserve the fresh auditState.sessionId as the run identity
@@ -202,13 +311,14 @@ export function createHooks(args: {
           try {
             const sink = createEventSink(effectiveState.sessionId, projectDir)
             setEventSink(sink, sessionId)
-            // Also set as fallback so tools without a sessionID can still find it.
-            setEventSink(sink)
             if (sessionId) {
               eventSinksByOpencodeSession.set(sessionId, sink)
             }
+            eventSinksByRunId.set(effectiveState.sessionId, sink)
           } catch (error) {
-            logger.warn(`EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`)
+            logger.warn(
+              `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
           }
           void recordRun({
             runId: effectiveState.sessionId,
@@ -219,7 +329,10 @@ export function createHooks(args: {
             startedAt: effectiveState.startTime,
             phase: effectiveState.currentPhase,
             findingsCount: effectiveState.findings.length,
+            status: "active",
           })
+
+          void pruneStaleRuns(effectiveState.projectDir)
         }
 
         return
@@ -263,19 +376,43 @@ export function createHooks(args: {
           findingsCount: auditState.findings.length,
         })
 
-
         // Materialize report-input.json on idle so Scribe can read it
         // via argus_read_findings before generating the report.
         try {
-          await materializeReportInput(
-            auditState.sessionId,
-            auditState.projectDir,
-            sessionId,
-          )
+          await materializeReportInput(auditState.sessionId, auditState.projectDir, sessionId)
         } catch (error) {
           logger.warn(
             `Failed to materialize report-input artifact on session.idle for run ${auditState.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
           )
+        }
+
+        if (auditState.reportGenerated) {
+          const runSink =
+            eventSinksByRunId.get(auditState.sessionId) ??
+            (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
+
+          if (runSink) {
+            try {
+              const idleFinalization = await finalizeRun(
+                auditState.sessionId,
+                auditState.projectDir,
+                runSink,
+              )
+              void updateRunStatus(
+                auditState.sessionId,
+                idleFinalization.invariantsPassed ? "finalized" : "failed",
+              )
+              if (!idleFinalization.invariantsPassed) {
+                logger.warn(
+                  `Idle finalization for run ${auditState.sessionId} has invariant errors: ${idleFinalization.errors.join("; ")}`,
+                )
+              }
+            } catch (error) {
+              logger.warn(
+                `Failed to finalize run ${auditState.sessionId} on session.idle: ${error instanceof Error ? error.message : String(error)}`,
+              )
+            }
+          }
         }
 
         if (migrationMode !== "legacy") {
@@ -387,9 +524,35 @@ export function createHooks(args: {
               })
             },
             {
-              getEventSink: () => getEventSink(),
+              getEventSink: () => {
+                const state = getAuditState()
+                if (!state || state.sessionId.length === 0) {
+                  return null
+                }
+                return eventSinksByRunId.get(state.sessionId) ?? null
+              },
               getEventSinkForSession: (sessionId: string) =>
-                eventSinksByOpencodeSession.get(sessionId) ?? getEventSink(sessionId),
+                eventSinksByOpencodeSession.get(sessionId) ??
+                (() => {
+                  const parentSessionId = agentTracker.getParentSession(sessionId)
+                  if (parentSessionId) {
+                    const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+                    if (parentSink) {
+                      eventSinksByOpencodeSession.set(sessionId, parentSink)
+                      return parentSink
+                    }
+                  }
+                  const state = getAuditState()
+                  if (state && state.sessionId.length > 0) {
+                    const runSink = eventSinksByRunId.get(state.sessionId)
+                    if (runSink) {
+                      eventSinksByOpencodeSession.set(sessionId, runSink)
+                      return runSink
+                    }
+                  }
+                  return null
+                })(),
+              getEventSinkForRun: (runId: string) => eventSinksByRunId.get(runId) ?? null,
               getAgentNameForSession: (sessionId: string) => {
                 const directAgent = agentTracker.getAgentForSession(sessionId)
                 const parentSessionId = agentTracker.getParentSession(sessionId)
@@ -454,6 +617,7 @@ export function createHooks(args: {
     ? safeCreateHook(
         () => async (input: Parameters<typeof eventHook>[0]) => {
           const isSessionDeleted = input.event.type === "session.deleted"
+          const eventSessionId = resolveOpencodeEventSessionId(input.event)
           const finalizationBeforeDelete = isSessionDeleted ? getLastFinalizationResult() : null
 
           try {
@@ -469,7 +633,7 @@ export function createHooks(args: {
                   await materializeFindingsForRun(
                     finalizationResult.runId,
                     projectDir,
-                    input.event.sessionId,
+                    eventSessionId,
                     "session.deleted",
                     true,
                   )
@@ -479,11 +643,7 @@ export function createHooks(args: {
                   )
                 }
                 try {
-                  await materializeReportInput(
-                    finalizationResult.runId,
-                    projectDir,
-                    input.event.sessionId,
-                  )
+                  await materializeReportInput(finalizationResult.runId, projectDir, eventSessionId)
                 } catch (error) {
                   logger.warn(
                     `Failed to materialize report-input artifact for run ${finalizationResult.runId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -493,11 +653,21 @@ export function createHooks(args: {
 
               await auditStateManager.archive()
 
-              const deletedSessionId = input.event.sessionId
+              const deletedSessionId = eventSessionId
               if (deletedSessionId) {
                 agentTracker.clearSession(deletedSessionId)
                 eventSinksByOpencodeSession.delete(deletedSessionId)
               }
+
+              const activeRunIds = new Set(
+                Array.from(eventSinksByOpencodeSession.values()).map((sink) => sink.runId),
+              )
+              for (const trackedRunId of Array.from(eventSinksByRunId.keys())) {
+                if (!activeRunIds.has(trackedRunId)) {
+                  eventSinksByRunId.delete(trackedRunId)
+                }
+              }
+
               if (finalizationResult && finalizationResult.runId.length > 0) {
                 releaseEventSink(finalizationResult.runId)
               }
@@ -534,6 +704,12 @@ export function createHooks(args: {
       : undefined,
     "tool.execute.after": toolTrackingHook
       ? async (input, output) => {
+          // Only intercept argus tools and the task tool (for child session tracking).
+          // Non-argus tools (read, grep, MCP calls, etc.) must pass through untouched.
+          if (!input.tool.startsWith("argus_") && input.tool !== "task") {
+            return
+          }
+
           const recoveryHint = toolErrorRecoveryHandler({
             tool: input.tool,
             result: output.output,
@@ -553,9 +729,22 @@ export function createHooks(args: {
               throw new Error("argus_generate_report completed without active audit state")
             }
 
+            const reportedError = extractReportErrorFromToolOutput(output.output)
+            if (reportedError) {
+              throw new Error(`argus_generate_report failed: ${reportedError}`)
+            }
+
+            const reportFilePath = extractReportFilePathFromToolOutput(output.output)
+            if (!reportFilePath) {
+              throw new Error("argus_generate_report completed without report filePath")
+            }
+
             const extractedRunId = extractRunIdFromReportToolOutput(output.output)
-            if (extractedRunId && extractedRunId !== state.sessionId) {
-              logger.warn(
+            if (!extractedRunId) {
+              throw new Error("argus_generate_report completed without run_id")
+            }
+            if (extractedRunId !== state.sessionId) {
+              throw new Error(
                 `argus_generate_report returned mismatched run_id ${extractedRunId}; canonical run is ${state.sessionId}`,
               )
             }
@@ -569,15 +758,46 @@ export function createHooks(args: {
             )
 
             try {
-              await materializeReportInput(
-                state.sessionId,
-                state.projectDir,
-                input.sessionID,
-              )
+              await materializeReportInput(state.sessionId, state.projectDir, input.sessionID)
             } catch (error) {
               logger.warn(
                 `Failed to materialize report-input artifact for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
               )
+            }
+
+            // Trigger finalization immediately after report generation.
+            // The session.idle handler also checks reportGenerated, but in
+            // `opencode run` mode the process may exit before another idle
+            // event fires.  Finalizing here guarantees the run is closed.
+            if (state.reportGenerated) {
+              const runSink =
+                eventSinksByRunId.get(state.sessionId) ??
+                (input.sessionID
+                  ? (eventSinksByOpencodeSession.get(input.sessionID) ?? null)
+                  : null)
+
+              if (runSink) {
+                try {
+                  const reportFinalization = await finalizeRun(
+                    state.sessionId,
+                    state.projectDir,
+                    runSink,
+                  )
+                  void updateRunStatus(
+                    state.sessionId,
+                    reportFinalization.invariantsPassed ? "finalized" : "failed",
+                  )
+                  if (!reportFinalization.invariantsPassed) {
+                    logger.warn(
+                      `Report-triggered finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                    )
+                  }
+                } catch (error) {
+                  logger.warn(
+                    `Report-triggered finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+                  )
+                }
+              }
             }
           }
 
