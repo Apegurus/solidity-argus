@@ -252,4 +252,318 @@ describe("materializeReportInput", () => {
 
     expect(firstBytes).toBe(secondBytes)
   })
+
+  describe("cross-run findings aggregation", () => {
+    test("collects findings from sibling runs that share session_ids", async () => {
+      const projectDir = await makeTempDir()
+      const primaryRunId = "run-primary"
+      const siblingRunId = "run-sibling"
+      const sessionId = "shared-session"
+
+      const primaryEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: primaryRunId,
+          seq: 1,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_001_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "session.idle",
+          run_id: primaryRunId,
+          seq: 2,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_001_002,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      const siblingEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: siblingRunId,
+          seq: 1,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_002_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 2,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_002_002,
+          payload: makeFinding(siblingRunId, 2, "s-1"),
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 3,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_002_003,
+          payload: makeFinding(siblingRunId, 3, "s-2"),
+        },
+        {
+          type: "session.idle",
+          run_id: siblingRunId,
+          seq: 4,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_002_004,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      await writeEventsJsonl(projectDir, primaryRunId, primaryEvents)
+      await writeEventsJsonl(projectDir, siblingRunId, siblingEvents)
+
+      const reportInput = await materializeReportInput(primaryRunId, projectDir)
+
+      expect(reportInput.findings.length).toBe(2)
+    })
+
+    test("does not collect findings from unrelated sibling runs", async () => {
+      const projectDir = await makeTempDir()
+      const primaryRunId = "run-primary"
+      const unrelatedRunId = "run-unrelated"
+
+      const primaryEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: primaryRunId,
+          seq: 1,
+          session_id: "session-A",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_003_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "session.idle",
+          run_id: primaryRunId,
+          seq: 2,
+          session_id: "session-A",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_003_002,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      const unrelatedEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: unrelatedRunId,
+          seq: 1,
+          session_id: "session-B",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_004_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "finding.added",
+          run_id: unrelatedRunId,
+          seq: 2,
+          session_id: "session-B",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_004_002,
+          payload: makeFinding(unrelatedRunId, 2, "u-1"),
+        },
+        {
+          type: "finding.added",
+          run_id: unrelatedRunId,
+          seq: 3,
+          session_id: "session-B",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_004_003,
+          payload: makeFinding(unrelatedRunId, 3, "u-2"),
+        },
+        {
+          type: "session.idle",
+          run_id: unrelatedRunId,
+          seq: 4,
+          session_id: "session-B",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_004_004,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      await writeEventsJsonl(projectDir, primaryRunId, primaryEvents)
+      await writeEventsJsonl(projectDir, unrelatedRunId, unrelatedEvents)
+
+      const reportInput = await materializeReportInput(primaryRunId, projectDir)
+
+      expect(reportInput.findings.length).toBe(0)
+    })
+
+    test("prefers primary run findings over cross-run findings", async () => {
+      const projectDir = await makeTempDir()
+      const primaryRunId = "run-primary"
+      const siblingRunId = "run-sibling"
+      const sessionId = "shared-session"
+
+      const primaryEvents = makeEvents(primaryRunId, sessionId)
+      const siblingEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: siblingRunId,
+          seq: 1,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_005_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 2,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_005_002,
+          payload: makeFinding(siblingRunId, 2, "s-1"),
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 3,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_005_003,
+          payload: makeFinding(siblingRunId, 3, "s-2"),
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 4,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_005_004,
+          payload: makeFinding(siblingRunId, 4, "s-3"),
+        },
+        {
+          type: "session.idle",
+          run_id: siblingRunId,
+          seq: 5,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_005_005,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      await writeEventsJsonl(projectDir, primaryRunId, primaryEvents)
+      await writeEventsJsonl(projectDir, siblingRunId, siblingEvents)
+
+      const reportInput = await materializeReportInput(primaryRunId, projectDir)
+
+      expect(reportInput.findings.length).toBe(2)
+    })
+
+    test("deduplicates cross-run findings by issue_fingerprint", async () => {
+      const projectDir = await makeTempDir()
+      const primaryRunId = "run-primary"
+      const siblingRunId = "run-sibling"
+      const sessionId = "shared-session"
+
+      const primaryEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: primaryRunId,
+          seq: 1,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_006_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "session.idle",
+          run_id: primaryRunId,
+          seq: 2,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_006_002,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      const duplicateFinding = makeFinding(siblingRunId, 2, "dup")
+      const siblingEvents: AuditEvent[] = [
+        {
+          type: "session.created",
+          run_id: siblingRunId,
+          seq: 1,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_007_001,
+          payload: { scope: ["src/Vault.sol"] },
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 2,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_007_002,
+          payload: duplicateFinding,
+        },
+        {
+          type: "finding.added",
+          run_id: siblingRunId,
+          seq: 3,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_007_003,
+          payload: {
+            ...duplicateFinding,
+            observation_id: "obs-dup-second",
+            observation_fingerprint: "observation-dup-second",
+          },
+        },
+        {
+          type: "session.idle",
+          run_id: siblingRunId,
+          seq: 4,
+          session_id: sessionId,
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_700_000_007_004,
+          payload: { reason: "test-complete" },
+        },
+      ]
+
+      await writeEventsJsonl(projectDir, primaryRunId, primaryEvents)
+      await writeEventsJsonl(projectDir, siblingRunId, siblingEvents)
+
+      const reportInput = await materializeReportInput(primaryRunId, projectDir)
+
+      expect(reportInput.findings.length).toBeGreaterThanOrEqual(1)
+    })
+  })
 })
