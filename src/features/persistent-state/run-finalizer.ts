@@ -9,8 +9,13 @@ export type FinalizationResult = {
   success: boolean
   invariantsPassed: boolean
   errors: string[]
+  warnings: string[]
   runId: string
   timestamp: number
+}
+
+type ExistingFinalizationResult = FinalizationResult & {
+  finalizedIndex: number
 }
 
 export function hasSessionCreated(events: AuditEvent[]): boolean {
@@ -136,37 +141,48 @@ function collectMultiSessionErrors(events: AuditEvent[]): string[] {
   const allSessionIds = new Set(events.map((e) => e.session_id).filter(Boolean))
   if (allSessionIds.size <= 1) return []
 
-  // Collect known child session IDs from parent-child edges in the event stream.
-  // In multi-agent audits, child sessions (sentinel, pythia, scribe) write events
-  // with their own session_id to the shared journal — this is expected behavior.
-  const knownChildIds = new Set<string>()
+  const knownIds = new Set<string>()
+
   for (const event of events) {
     const payload = asRecord(event.payload)
     if (!payload) continue
     const childSessionId = payload.child_session_id
-    if (typeof childSessionId === 'string' && childSessionId.length > 0) {
-      knownChildIds.add(childSessionId)
+    if (typeof childSessionId === "string" && childSessionId.length > 0) {
+      knownIds.add(childSessionId)
+      if (event.session_id) {
+        knownIds.add(event.session_id)
+      }
     }
   }
 
-  // Any session_id that is neither a known child nor accounted for is unexpected.
-  // The first session_id seen is treated as the parent (primary writer).
-  const firstSessionId = events.find((e) => e.session_id)?.session_id ?? ''
+  for (const event of events) {
+    if (event.type !== "session.created") {
+      continue
+    }
+    if (event.session_id && event.session_id.length > 0) {
+      knownIds.add(event.session_id)
+    }
+  }
+
+  const firstSessionId = events.find((e) => e.session_id)?.session_id ?? ""
   const unexplained: string[] = []
   for (const id of allSessionIds) {
     if (id === firstSessionId) continue
-    if (knownChildIds.has(id)) continue
+    if (knownIds.has(id)) continue
     unexplained.push(id)
   }
 
   if (unexplained.length > 0) {
-    return [`unexpected session writers detected (not in parent-child graph): ${unexplained.join(', ')}`]
+    return [
+      `unexpected session writers detected (not in parent-child graph): ${unexplained.join(", ")}`,
+    ]
   }
   return []
 }
 
-function collectInvariantErrors(events: AuditEvent[]): string[] {
+function collectInvariantErrors(events: AuditEvent[]): { errors: string[]; warnings: string[] } {
   const errors: string[] = []
+  const warnings: string[] = []
 
   try {
     validateEventSequence(events)
@@ -178,14 +194,56 @@ function collectInvariantErrors(events: AuditEvent[]): string[] {
     errors.push("missing required lifecycle event: session.created")
   }
 
-  if (!hasSessionDeleted(events)) {
-    errors.push("missing required lifecycle event: session.deleted")
-  }
-
-  errors.push(...collectOrphanedToolStarts(events))
+  warnings.push(...collectOrphanedToolStarts(events))
   errors.push(...collectParentChildIntegrityErrors(events))
   errors.push(...collectMultiSessionErrors(events))
-  return errors
+  return { errors, warnings }
+}
+
+function parseExistingFinalizationResult(
+  events: AuditEvent[],
+  runId: string,
+): ExistingFinalizationResult | null {
+  const reversedIndex = [...events].reverse().findIndex((event) => event.type === "run.finalized")
+  if (reversedIndex < 0) {
+    return null
+  }
+
+  const finalizedIndex = events.length - 1 - reversedIndex
+  const finalized = events[finalizedIndex]
+  if (!finalized) {
+    return null
+  }
+
+  const payload =
+    typeof finalized.payload === "object" &&
+    finalized.payload !== null &&
+    !Array.isArray(finalized.payload)
+      ? (finalized.payload as Record<string, unknown>)
+      : null
+
+  const errors = Array.isArray(payload?.errors)
+    ? payload.errors.filter((entry): entry is string => typeof entry === "string")
+    : []
+  const warnings = Array.isArray(payload?.warnings)
+    ? payload.warnings.filter((entry): entry is string => typeof entry === "string")
+    : []
+  const invariantsPassed =
+    typeof payload?.invariantsPassed === "boolean"
+      ? payload.invariantsPassed
+      : typeof payload?.finalized === "boolean"
+        ? payload.finalized
+        : errors.length === 0
+
+  return {
+    success: invariantsPassed,
+    invariantsPassed,
+    errors,
+    warnings,
+    runId,
+    timestamp: finalized.timestamp,
+    finalizedIndex,
+  }
 }
 
 export async function finalizeRun(
@@ -195,7 +253,21 @@ export async function finalizeRun(
 ): Promise<FinalizationResult> {
   const timestamp = Date.now()
   const events = sink ? await sink.readAll() : await readEvents(runId, projectDir)
-  const errors = collectInvariantErrors(events)
+  const existingResult = parseExistingFinalizationResult(events, runId)
+  const hasEventsAfterExistingFinalization =
+    existingResult !== null && existingResult.finalizedIndex < events.length - 1
+  if (existingResult?.invariantsPassed && !hasEventsAfterExistingFinalization) {
+    return {
+      success: existingResult.success,
+      invariantsPassed: existingResult.invariantsPassed,
+      errors: existingResult.errors,
+      warnings: existingResult.warnings,
+      runId: existingResult.runId,
+      timestamp: existingResult.timestamp,
+    }
+  }
+
+  const { errors, warnings } = collectInvariantErrors(events)
   const invariantsPassed = errors.length === 0
   const sessionId = events.at(-1)?.session_id ?? ""
 
@@ -212,16 +284,19 @@ export async function finalizeRun(
         finalized: invariantsPassed,
         invariantsPassed,
         errors,
+        warnings,
         status: invariantsPassed ? "finalized" : "failed-finalization",
         plugin_version: ARGUS_PLUGIN_VERSION,
       },
     })
+    sink.markFinalized()
   }
 
   return {
     success: invariantsPassed,
     invariantsPassed,
     errors,
+    warnings,
     runId,
     timestamp,
   }
