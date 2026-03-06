@@ -254,9 +254,10 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
     createContext(),
   )
 
-  const parsed = JSON.parse(payload) as ReportGenerationResult
-  expect(typeof parsed.report).toBe("string")
-  expect(parsed.report).toContain("# Security Audit Report — ToolExecuteProject")
+  const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
+    reportSummary: string
+  }
+  expect(parsed.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
   expect(parsed.findingsCount.high).toBe(1)
 })
 
@@ -595,6 +596,87 @@ test("parseAuditState accepts findings with location string instead of file+line
   expect(state.findings[0]?.severity).toBe("High")
 })
 
+test("normalizeRawFinding extracts lines from location even when file is already set", () => {
+  const result = normalizeRawFinding({
+    title: "Missing Access Control",
+    file: "src/VulnerableVault.sol",
+    location: "VulnerableVault.sol:18-23",
+    severity: "Critical",
+  })
+  expect(result.file).toBe("src/VulnerableVault.sol")
+  expect(result.lines).toEqual([18, 23])
+})
+
+test("normalizeRawFinding defaults lines to [0,0] when no line info available", () => {
+  const result = normalizeRawFinding({
+    title: "Floating Pragma",
+    file: "src/Token.sol",
+    severity: "Informational",
+  })
+  expect(result.lines).toEqual([0, 0])
+})
+
+test("parseAuditState preserves findings that have file+location but no explicit lines", () => {
+  const findings = [
+    {
+      title: "Missing Access Control on withdraw()",
+      severity: "Critical",
+      description: "Any user can force-withdraw",
+      file: "src/VulnerableVault.sol",
+      location: "VulnerableVault.sol:18-23",
+      check: "access-control-missing",
+      source: "manual",
+    },
+    {
+      title: "Floating Pragma",
+      severity: "Informational",
+      description: "Use locked pragma",
+      file: "src/VulnerableVault.sol",
+      check: "floating-pragma",
+      source: "manual",
+    },
+  ]
+  const state = parseAuditState(JSON.stringify(findings))
+  expect(state.findings).toHaveLength(2)
+  expect(state.findings[0]?.lines).toEqual([18, 23])
+  expect(state.findings[1]?.lines).toEqual([0, 0])
+})
+
+test("parseAuditState with audit_state object preserves findings without lines", () => {
+  const auditState = {
+    findings: [
+      {
+        title: "Reentrancy",
+        severity: "High",
+        description: "CEI violation",
+        file: "src/Vault.sol",
+        check: "reentrancy-eth",
+        source: "manual",
+      },
+    ],
+    tools_used: [],
+  }
+  const state = parseAuditState(JSON.stringify(auditState))
+  expect(state.findings).toHaveLength(1)
+  expect(state.findings[0]?.check).toBe("reentrancy-eth")
+  expect(state.findings[0]?.lines).toEqual([0, 0])
+})
+
+test("parseAuditState accepts findings with only check (no file, no lines)", () => {
+  const findings = [
+    {
+      check: "generic-issue",
+      severity: "Low",
+      description: "General observation",
+      source: "manual",
+    },
+  ]
+  const state = parseAuditState(JSON.stringify(findings))
+  expect(state.findings).toHaveLength(1)
+  expect(state.findings[0]?.file).toBe("")
+  expect(state.findings[0]?.lines).toEqual([0, 0])
+})
+
 test("parseAuditState accepts findings with lowercase severity", () => {
   const findings = {
     findings: [
@@ -797,7 +879,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
   }
 })
 
-test("executeReportGeneration returns result without filePath when write fails", async () => {
+test("executeReportGeneration returns write error when disk write fails", async () => {
   const findings: Finding[] = [
     makeFinding({ id: "f-fail", check: "write-fail-test", severity: "Low" }),
   ]
@@ -817,6 +899,7 @@ test("executeReportGeneration returns result without filePath when write fails",
   )
 
   expect(result.filePath).toBeUndefined()
+  expect(result.error?.code).toBe("WRITE_FAILED")
   expect(result.report).toContain("# Security Audit Report — WriteFailTest")
   expect(result.findingsCount.low).toBe(1)
 })
@@ -1214,6 +1297,124 @@ test("strict-fail rejects report_input run_id that uses ses_ session identifier"
       createContext(),
     ),
   ).rejects.toThrow("run_id/session_id conflation")
+})
+
+test("normalizes legacy audit_state sessionId to canonical run_id from context", async () => {
+  const legacyState = {
+    ...makeAuditState({
+      findings: [makeFinding({ id: "legacy-finding-1" })],
+    }),
+    sessionId: "ses_legacy_writer",
+  }
+  const context: ToolContext = {
+    ...createContext(),
+    sessionID: "ses_parent_writer",
+  }
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "LegacyRunNormalization",
+      scope: ["Vault.sol"],
+      audit_state: JSON.stringify(legacyState),
+    },
+    context,
+    {
+      resolveCanonicalRunId: () => "run-canonical-legacy",
+    },
+  )
+
+  expect(result.run_id).toBe("run-canonical-legacy")
+  expect(result.report).toContain(
+    '<!-- argus:report_metadata {"run_id":"run-canonical-legacy","policy_version":"1.0.0"} -->',
+  )
+})
+
+test("rejects legacy audit_state when only ses_* identity is available", async () => {
+  const legacyState = {
+    ...makeAuditState({
+      findings: [makeFinding({ id: "legacy-finding-2" })],
+    }),
+    sessionId: "ses_legacy_writer",
+  }
+  const context: ToolContext = {
+    ...createContext(),
+    sessionID: "ses_parent_writer",
+  }
+
+  await expect(
+    executeReportGeneration(
+      {
+        project_name: "LegacyRunRejection",
+        scope: ["Vault.sol"],
+        audit_state: JSON.stringify(legacyState),
+      },
+      context,
+      {
+        resolveCanonicalRunId: () => undefined,
+      },
+    ),
+  ).rejects.toThrow("run_id/session_id conflation")
+})
+
+test("rejects report_input when explicit run_id mismatches report_input run_id", async () => {
+  const reportInput = {
+    run_id: "run-from-report-input",
+    seq: 1,
+    session_id: "ses_report_writer",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  await expect(
+    executeReportGeneration(
+      {
+        project_name: "RunIdMismatch",
+        scope: ["Vault.sol"],
+        run_id: "run-canonical",
+        report_input: JSON.stringify(reportInput),
+      },
+      createContext(),
+    ),
+  ).rejects.toThrow("canonical run_id")
+})
+
+test("rejects report_input when canonical run inferred from session mismatches", async () => {
+  const reportInput = {
+    run_id: "run-from-report-input",
+    seq: 1,
+    session_id: "ses_report_writer",
+    tool_call_id: "tc-report",
+    source: "argus",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp/project",
+    findings: [],
+    toolsExecuted: [],
+    scope: ["Vault.sol"],
+  }
+
+  const context: ToolContext = {
+    ...createContext(),
+    sessionID: "ses_subagent_writer",
+  }
+
+  await expect(
+    executeReportGeneration(
+      {
+        project_name: "InferredRunIdMismatch",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+      },
+      context,
+      {
+        resolveCanonicalRunId: () => "run-canonical",
+      },
+    ),
+  ).rejects.toThrow("canonical run_id")
 })
 
 test("filename date matches body audit date (parity)", async () => {

@@ -3,8 +3,9 @@ import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
-import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import { readEvents } from "../features/persistent-state/event-sink"
+import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/global-run-index"
+import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
@@ -75,6 +76,7 @@ export type ReportGenerationDependencies = {
     runId: string,
     projectDir: string,
   ) => Promise<import("../state/schemas").AuditEvent[]>
+  resolveCanonicalRunId?: (sessionId: string, projectDir: string) => string | null | undefined
 }
 
 export const SINGLE_WRITER_POLICY_VERSION = "1.0.0"
@@ -239,11 +241,15 @@ export function normalizeRawFinding(raw: Record<string, unknown>): Record<string
     }
   }
 
-  // file + lines: accept location string as alias
-  if (typeof result.file !== "string" && typeof result.location === "string") {
+  // file + lines: accept location string as alias.
+  // Always attempt to extract lines from location, even when file is already set.
+  // LLMs commonly provide both file and location (e.g. file="src/Vault.sol", location="Vault.sol:18-23").
+  if (typeof result.location === "string") {
     const parsed = parseLocationString(result.location as string)
     if (parsed) {
-      result.file = parsed.file
+      if (typeof result.file !== "string" || (result.file as string).length === 0) {
+        result.file = parsed.file
+      }
       if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
         result.lines = parsed.lines
       }
@@ -300,6 +306,10 @@ export function normalizeRawFinding(raw: Record<string, unknown>): Record<string
     result.description = result.check
   }
 
+  if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
+    result.lines = [0, 0]
+  }
+
   return result
 }
 
@@ -308,13 +318,15 @@ function hasMinimumFindingFields(
 ): f is { check: string; file: string; lines: [number, number] } {
   if (typeof f !== "object" || f === null) return false
   const obj = f as Record<string, unknown>
-  return (
-    typeof obj.check === "string" &&
-    obj.check.length > 0 &&
-    typeof obj.file === "string" &&
-    Array.isArray(obj.lines) &&
-    obj.lines.length === 2
-  )
+  const hasCheck = typeof obj.check === "string" && obj.check.length > 0
+  if (!hasCheck) return false
+  if (typeof obj.file !== "string") {
+    obj.file = ""
+  }
+  if (!Array.isArray(obj.lines) || obj.lines.length !== 2) {
+    obj.lines = [0, 0]
+  }
+  return true
 }
 
 const VALID_SEVERITIES: ReadonlySet<string> = new Set([
@@ -416,6 +428,7 @@ function buildLegacyCompatibleReportInput(
   state: AuditState,
   context: ToolContext,
   diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
+  expectedRunId?: string,
 ): ReportInput {
   diagnostics.warn(
     "REPORT_INPUT_DEPRECATED_LEGACY_PAYLOAD",
@@ -423,8 +436,16 @@ function buildLegacyCompatibleReportInput(
     "audit_state",
   )
 
-  const runId = state.sessionId || context.sessionID || "legacy-run"
+  const runId = expectedRunId || state.sessionId || context.sessionID || "legacy-run"
   const sessionId = state.sessionId || context.sessionID || runId
+
+  if (expectedRunId && state.sessionId.startsWith("ses_")) {
+    diagnostics.warn(
+      "REPORT_INPUT_LEGACY_SESSION_NORMALIZED",
+      "Legacy audit_state sessionId resembled an OpenCode session id; normalized run_id from canonical context.",
+      "run_id",
+    )
+  }
 
   if (!state.sessionId) {
     diagnostics.warn(
@@ -480,9 +501,66 @@ function buildLegacyCompatibleReportInput(
   }
 }
 
+function resolveExpectedRunId(
+  args: ReportGeneratorArgs,
+  context: ToolContext,
+  deps: ReportGenerationDependencies,
+): string | undefined {
+  if (typeof args.run_id === "string" && args.run_id.trim().length > 0) {
+    return args.run_id.trim()
+  }
+
+  const sessionId = context.sessionID
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+    return undefined
+  }
+
+  const projectDir = resolveProjectDir(context)
+  const resolveCanonicalRunId = deps.resolveCanonicalRunId ?? resolveRunIdFromOpencodeSession
+  const resolved = resolveCanonicalRunId(sessionId, projectDir)
+  if (typeof resolved === "string" && resolved.trim().length > 0) {
+    return resolved
+  }
+
+  return undefined
+}
+
+function finalizeReportInputSelection(
+  reportInput: ReportInput,
+  diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
+  expectedRunId?: string,
+): ParseReportInputResult {
+  if (reportInput.run_id.startsWith("ses_")) {
+    diagnostics.error(
+      "REPORT_INPUT_RUN_ID_MISMATCH",
+      "ReportInput run_id must be a canonical run identifier, not an OpenCode session id (ses_*).",
+      "run_id",
+    )
+    throwContractMismatch(
+      "ReportInput contract mismatch: run_id/session_id conflation detected",
+      diagnostics.getDiagnostics(),
+    )
+  }
+
+  if (expectedRunId && reportInput.run_id !== expectedRunId) {
+    diagnostics.error(
+      "REPORT_INPUT_CANONICAL_RUN_MISMATCH",
+      `ReportInput run_id ${reportInput.run_id} does not match canonical run_id ${expectedRunId}.`,
+      "run_id",
+    )
+    throwContractMismatch(
+      "ReportInput contract mismatch: report_input run_id diverges from canonical run_id",
+      diagnostics.getDiagnostics(),
+    )
+  }
+
+  return { reportInput, diagnostics: diagnostics.getDiagnostics() }
+}
+
 function parseReportInputPayload(
   args: ReportGeneratorArgs,
   context: ToolContext,
+  expectedRunId: string | undefined,
 ): ParseReportInputResult {
   const diagnostics = createDropDiagnosticsCollector(
     "warn",
@@ -529,20 +607,7 @@ function parseReportInputPayload(
       )
     }
 
-    if (validation.data.run_id.startsWith("ses_")) {
-      const message =
-        "ReportInput run_id must be a canonical run identifier, not an OpenCode session id (ses_*)."
-      if ((args.preflight_policy ?? "warn") === "strict-fail") {
-        diagnostics.error("REPORT_INPUT_RUN_ID_MISMATCH", message, "run_id")
-        throwContractMismatch(
-          "ReportInput contract mismatch: run_id/session_id conflation detected",
-          diagnostics.getDiagnostics(),
-        )
-      }
-      diagnostics.warn("REPORT_INPUT_RUN_ID_MISMATCH", message, "run_id")
-    }
-
-    return { reportInput: validation.data, diagnostics: diagnostics.getDiagnostics() }
+    return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
   }
 
   if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
@@ -550,8 +615,13 @@ function parseReportInputPayload(
     for (const diagnostic of legacy.diagnostics) {
       diagnostics.warn(diagnostic.reason.code, diagnostic.reason.message, diagnostic.reason.field)
     }
-    const reportInput = buildLegacyCompatibleReportInput(legacy.state, context, diagnostics)
-    return { reportInput, diagnostics: diagnostics.getDiagnostics() }
+    const reportInput = buildLegacyCompatibleReportInput(
+      legacy.state,
+      context,
+      diagnostics,
+      expectedRunId,
+    )
+    return finalizeReportInputSelection(reportInput, diagnostics, expectedRunId)
   }
 
   if (typeof args.run_id === "string" && args.run_id.trim().length > 0) {
@@ -592,7 +662,7 @@ function parseReportInputPayload(
           diagnostics.getDiagnostics(),
         )
       }
-      return { reportInput: validation.data, diagnostics: diagnostics.getDiagnostics() }
+      return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
     }
   }
   diagnostics.error(
@@ -1155,7 +1225,8 @@ export async function executeReportGeneration(
   const includeExecutiveSummary = args.include_executive_summary ?? true
   const threshold = args.severity_threshold ?? "low"
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
-  const { reportInput, diagnostics } = parseReportInputPayload(args, context)
+  const expectedRunId = resolveExpectedRunId(args, context, deps)
+  const { reportInput, diagnostics } = parseReportInputPayload(args, context, expectedRunId)
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
   const warningBullets: string[] = []
@@ -1297,7 +1368,10 @@ export async function executeReportGeneration(
   sections.push(buildProvenanceAppendix(state, threshold, findings.length))
 
   // Embed report metadata for single-writer policy enforcement
-  const runId = reportInput.run_id || state.sessionId || ""
+  const runId = expectedRunId ?? reportInput.run_id
+  if (runId.startsWith("ses_")) {
+    throw new Error("Report generation requires canonical run_id; received OpenCode session id")
+  }
   if (runId) {
     sections.push(buildReportMetadataComment(runId))
   }
@@ -1343,6 +1417,10 @@ export async function executeReportGeneration(
     const logger = createLogger()
     const message = err instanceof Error ? err.message : String(err)
     logger.warn(`Failed to write report to disk: ${message}`)
+    result.error = {
+      code: "WRITE_FAILED",
+      message,
+    }
   }
 
   return result
@@ -1361,10 +1439,23 @@ export const reportGeneratorTool = tool({
     report_input: tool.schema.string().optional(),
     audit_state: tool.schema.string().optional(),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
-    run_id: tool.schema.string().optional().describe("Run ID for disk fallback. When report_input is omitted, reads materialized report-input.json from disk."),
+    run_id: tool.schema
+      .string()
+      .optional()
+      .describe(
+        "Run ID for disk fallback. When report_input is omitted, reads materialized report-input.json from disk.",
+      ),
   },
   async execute(args, context) {
     const result = await executeReportGeneration(args, context)
-    return JSON.stringify(result)
+    // Return a slim payload to avoid OpenCode truncating large tool results.
+    // The full markdown is already written to disk at result.filePath.
+    // Truncated JSON breaks tool-tracking-hook parsing, which prevents
+    // reportGenerated from being set and blocks run finalization.
+    const { report, ...slimResult } = result
+    return JSON.stringify({
+      ...slimResult,
+      reportSummary: `Report written to disk (${report.length} bytes, ${report.split("\n").length} lines). See filePath.`,
+    })
   },
 })
