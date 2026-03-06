@@ -1,4 +1,5 @@
 import type { EventSink } from "../features/persistent-state/event-sink"
+import { updateRunStatus } from "../features/persistent-state/global-run-index"
 import type { FinalizationResult } from "../features/persistent-state/run-finalizer"
 import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
@@ -29,7 +30,10 @@ export type EventHookFn = (input: {
  *   - session.idle / session.error      → { properties: { sessionID: string } }
  *   - Other events may have properties.sessionID or none at all.
  */
-function extractSessionId(event: { type: string; properties?: Record<string, unknown> }): string | undefined {
+function extractSessionId(event: {
+  type: string
+  properties?: Record<string, unknown>
+}): string | undefined {
   const props = event.properties
   if (!props) return undefined
 
@@ -78,7 +82,11 @@ export function createEventHook(
 
   const getAuditState = (sessionId?: string): AuditState | null => {
     if (sessionId && sessionId.length > 0) {
-      return statesBySessionId.get(sessionId) ?? fallbackAuditState
+      const sessionState = statesBySessionId.get(sessionId)
+      if (sessionState) {
+        return sessionState
+      }
+      return statesBySessionId.size === 0 ? fallbackAuditState : null
     }
 
     if (activeSessionId.length > 0) {
@@ -104,7 +112,11 @@ export function createEventHook(
 
   const getEventSink = (sessionId?: string): EventSink | null => {
     if (sessionId && sessionId.length > 0) {
-      return sinksBySessionId.get(sessionId) ?? fallbackEventSink
+      const sessionSink = sinksBySessionId.get(sessionId)
+      if (sessionSink) {
+        return sessionSink
+      }
+      return sinksBySessionId.size === 0 ? fallbackEventSink : null
     }
 
     if (activeSessionId.length > 0) {
@@ -263,12 +275,24 @@ export function createEventHook(
             plugin_version: ARGUS_PLUGIN_VERSION,
           })
 
-          if (preDeleteSink) {
+          const hasSiblingSessionForRun =
+            typeof sessionKey === "string" && sessionKey.length > 0
+              ? Array.from(sinksBySessionId.entries()).some(
+                  ([mappedSessionId, mappedSink]) =>
+                    mappedSessionId !== sessionKey && mappedSink.runId === preDeleteState.sessionId,
+                )
+              : false
+
+          if (preDeleteSink && !hasSiblingSessionForRun) {
             try {
               lastFinalizationResult = await finalizeRun(
                 preDeleteState.sessionId,
                 preDeleteState.projectDir,
                 preDeleteSink,
+              )
+              void updateRunStatus(
+                preDeleteState.sessionId,
+                lastFinalizationResult.invariantsPassed ? "finalized" : "failed",
               )
             } catch (error) {
               logger.error(

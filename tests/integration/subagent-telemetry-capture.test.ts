@@ -7,12 +7,19 @@ import type { AuditEvent } from "../../src/state/schemas"
 import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { AuditState } from "../../src/state/types"
 
-function createMockEventSink(): { sink: EventSink; events: AuditEvent[] } {
+function createMockEventSink(runId = "run-123"): { sink: EventSink; events: AuditEvent[] } {
   const events: AuditEvent[] = []
   let seq = 0
+  const state = { finalized: false }
 
   const sink: EventSink = {
-    runId: "run-123",
+    runId,
+    get isFinalized() {
+      return state.finalized
+    },
+    markFinalized() {
+      state.finalized = true
+    },
     async append(event: AuditEvent): Promise<void> {
       seq++
       events.push({ ...event, seq })
@@ -227,7 +234,7 @@ describe("Subagent telemetry capture", () => {
 
   describe("correlated parent and child events", () => {
     it("produces correlated canonical events from parent task and child tool execution", async () => {
-      const { sink: parentSink, events: parentEvents } = createMockEventSink()
+      const { sink: parentSink, events: parentEvents } = createMockEventSink("run-parent")
       const parentState = createMockAuditState({ sessionId: "run-parent" })
 
       const parentHook = createToolTrackingHook(() => parentState, undefined, {
@@ -241,7 +248,7 @@ describe("Subagent telemetry capture", () => {
         result: JSON.stringify({ session_id: "child-session-42", output: "Done" }),
       })
 
-      const { sink: childSink, events: childEvents } = createMockEventSink()
+      const { sink: childSink, events: childEvents } = createMockEventSink("run-parent")
       const childState = createMockAuditState({ sessionId: "run-parent" })
 
       const childHook = createToolTrackingHook(() => childState, undefined, {

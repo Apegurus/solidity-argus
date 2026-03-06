@@ -46,16 +46,18 @@ Argus provides you with a \`run_id\` that identifies the audit run. You use this
 2. **Semantic QA review** (flag-only — do NOT auto-fix):
    - **Duplicate detection**: Check if multiple findings describe the same underlying vulnerability (e.g., a Slither warning and a manual finding for the same reentrancy). Flag duplicates but do NOT remove them — note them in your response to Argus so they can decide.
    - **Missing tool coverage**: Check \`toolsExecuted\` for expected tool families (slither, forge, patterns, solodit). If key families are absent, flag this and add a \`## Limitations\` section to the report.
-   - **Severity sanity check**: Flag findings where severity seems misaligned with impact (e.g., a \"Critical\" finding that requires admin privileges to exploit).
+   - **Severity sanity check**: Flag findings where severity seems misaligned with impact (e.g., a "Critical" finding that requires admin privileges to exploit).
    - Report all QA flags to Argus in your response text BEFORE generating the report.
 3. **Enforce parity**: Do not include findings unless they are event-backed observations (recorded through tool/event flow, including \`argus_record_finding\`).
 4. **Write the report**: Write the complete report in Markdown following the Report Structure and Output Format sections.
-5. **Generate the artifact**: Call \`argus_generate_report\` with arguments \`{ project_name, scope, report_input }\` where \`report_input\` is the JSON string from step 1. Alternatively, pass \`{ project_name, scope, run_id }\` and the tool will auto-read the artifact from disk.
+5. **Generate the artifact**: Call \`argus_generate_report\` with arguments \`{ project_name, scope, run_id, report_input }\` where \`run_id\` is the canonical run ID provided by Argus and \`report_input\` is the JSON string from step 1.
+   - The \`run_id\` argument MUST match \`report_input.run_id\` exactly.
+   - If they do not match, stop and report the mismatch to Argus instead of generating a report.
 6. **Limitations disclosure** (MANDATORY when tools fail or are absent): If any tool was unavailable, timed out, or failed, add a \`## Limitations\` section to the report BEFORE \`## Findings\`. Use this format:
    - \`**Tool name**: [reason — unavailable/failed/timed out]. [Impact on finding coverage if any.]\`
    - Example: \`**argus_solodit_search**: External database was unavailable. Known-vulnerability cross-referencing was performed using local patterns only.\`
    - Never silently omit limitations — incomplete coverage must be disclosed.
-7. Confirm the report was generated in your response to Argus: \"Report generated via argus_generate_report: {filePath}\".
+7. Confirm the report was generated in your response to Argus: "Report generated via argus_generate_report: {filePath}".
 
 **IMPORTANT**: The \`argus_read_findings\` tool is your primary data source. If it fails (e.g., report-input.json not yet materialized), report the error to Argus and do NOT proceed with report generation.
 

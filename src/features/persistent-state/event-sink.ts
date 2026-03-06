@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import { createLogger } from "../../shared/logger"
 import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 import type { AuditEvent, AuditEventType } from "../../state/schemas"
 
@@ -17,8 +18,12 @@ export class EventSinkError extends Error {
 
 export interface EventSink {
   readonly runId: string
+  /** Whether this sink has been marked as finalized. Post-finalization appends are silently dropped. */
+  readonly isFinalized: boolean
   append(event: AuditEvent): Promise<void>
   readAll(): Promise<AuditEvent[]>
+  /** Mark this sink as finalized. Subsequent appends (except run.finalized) are silently dropped. */
+  markFinalized(): void
 }
 
 const VALID_EVENT_TYPES: ReadonlySet<string> = new Set<AuditEventType>([
@@ -130,10 +135,12 @@ export function createEventSink(
     return existing
   }
 
+  const logger = createLogger()
   const journalPath = buildJournalPath(runId, projectDir, resolver)
   const mutex = createMutex()
   let lastSeq = 0
   let initialized = false
+  const sinkState = { finalized: false }
 
   async function ensureInitialized(): Promise<void> {
     if (initialized) return
@@ -155,9 +162,22 @@ export function createEventSink(
   const sink: EventSink = {
     runId,
 
+    get isFinalized() {
+      return sinkState.finalized
+    },
+
+    markFinalized() {
+      sinkState.finalized = true
+    },
+
     async append(event: AuditEvent): Promise<void> {
       return mutex.run(async () => {
         await ensureInitialized()
+
+        if (sinkState.finalized && event.type !== "run.finalized") {
+          logger.debug(`Dropping ${event.type} for finalized run ${runId}`)
+          return
+        }
 
         if (event.run_id !== runId) {
           throw new EventSinkError(
@@ -181,7 +201,7 @@ export function createEventSink(
         // for regular files opened with O_APPEND, so concurrent appends from isolated
         // writer instances won't interleave or overwrite each other.
         try {
-          await appendFile(journalPath, JSON.stringify(eventToWrite) + "\n")
+          await appendFile(journalPath, `${JSON.stringify(eventToWrite)}\n`)
         } catch (err) {
           throw new EventSinkError("IO_ERROR", `Failed to write event to journal: ${String(err)}`)
         }

@@ -6,6 +6,7 @@ import { createSessionRecoveryHandler } from "./session-recovery"
 
 function makeMockManager(state: AuditState | null = null): AuditStateManager {
   return {
+    bindSession: () => {},
     load: async () => state,
     save: async () => {},
     get: () => state,

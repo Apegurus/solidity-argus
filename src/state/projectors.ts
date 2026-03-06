@@ -86,7 +86,8 @@ function resolveToolName(event: AuditEvent, payload: Record<string, unknown>): s
 }
 
 function resolveFindingsCount(payload: Record<string, unknown>): number {
-  return typeof payload.findingsCount === "number" ? payload.findingsCount : 0
+  const count = typeof payload.findingsCount === "number" ? payload.findingsCount : 0
+  return Number.isFinite(count) ? Math.max(0, count) : 0
 }
 
 function resolveToolSuccess(payload: Record<string, unknown>): boolean {

@@ -57,7 +57,7 @@ test("buildTrpcInput returns valid JSON with query embedded", () => {
   const input = buildTrpcInput("reentrancy")
   const parsed = JSON.parse(input) as Record<string, string>
   expect(typeof parsed["0"]).toBe("string")
-  const inner = JSON.parse(parsed["0"])
+  const inner = JSON.parse(parsed["0"] ?? "")
   expect(Array.isArray(inner)).toBe(true)
   expect(inner[2]).toBe("reentrancy")
 })

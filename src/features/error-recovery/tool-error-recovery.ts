@@ -60,6 +60,7 @@ export function createToolErrorRecoveryHandler(
 
   return (toolResult: { tool: string; result: string }): string | null => {
     const { tool, result } = toolResult
+    if (!result || typeof result !== "string") return null
     const lowerResult = result.toLowerCase()
 
     const isViaIr =

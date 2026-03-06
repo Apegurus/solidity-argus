@@ -268,7 +268,9 @@ export function createAuditStateManager(
             }
             if (newest) {
               readPath = join(sessionsDirPath, newest.name)
-              logger.debug(`No session-scoped file for ${boundSessionId ?? "(unbound)"}, falling back to newest: ${newest.name}`)
+              logger.debug(
+                `No session-scoped file for ${boundSessionId ?? "(unbound)"}, falling back to newest: ${newest.name}`,
+              )
             }
           }
         } catch {
@@ -369,7 +371,7 @@ export function createAuditStateManager(
         const consistent = await deriveConsistentState(stateToSave)
 
         if (consistent.repaired) {
-          logger.warn(
+          logger.debug(
             `State/core divergence detected for run ${stateToSave.sessionId}; auto-repairing`,
           )
           currentState = consistent.state

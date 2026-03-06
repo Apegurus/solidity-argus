@@ -9,7 +9,10 @@ import { createEventHook } from "./event-hook"
 // Helper to create SDK-shaped events matching @opencode-ai/sdk Event types.
 // session.created/deleted use { properties: { info: { id } } }
 // session.idle/error use { properties: { sessionID } }
-function sdkEvent(type: string, sessionId?: string): { type: string; properties?: Record<string, unknown> } {
+function sdkEvent(
+  type: string,
+  sessionId?: string,
+): { type: string; properties?: Record<string, unknown> } {
   if (!sessionId) return { type }
   if (type === "session.created" || type === "session.deleted" || type === "session.updated") {
     return { type, properties: { info: { id: sessionId } } }
@@ -20,8 +23,15 @@ function sdkEvent(type: string, sessionId?: string): { type: string; properties?
 function createMockSink(): EventSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
   let seq = 0
+  const state = { finalized: false }
   return {
     runId: "test-run",
+    get isFinalized() {
+      return state.finalized
+    },
+    markFinalized() {
+      state.finalized = true
+    },
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -34,8 +44,15 @@ function createMockSink(): EventSink & { events: AuditEvent[] } {
 }
 
 function createFailingSink(): EventSink {
+  const state = { finalized: false }
   return {
     runId: "test-run",
+    get isFinalized() {
+      return state.finalized
+    },
+    markFinalized() {
+      state.finalized = true
+    },
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },
@@ -283,6 +300,64 @@ describe("createEventHook", () => {
       expect(finalizationPayload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
     })
 
+    it("does not finalize when sibling sessions for same run remain active", async () => {
+      const events: AuditEvent[] = []
+      let seq = 0
+      const sinkState = { finalized: false }
+      const sink: EventSink & { events: AuditEvent[] } = {
+        runId: "run-shared",
+        get isFinalized() {
+          return sinkState.finalized
+        },
+        markFinalized() {
+          sinkState.finalized = true
+        },
+        events,
+        async append(event: AuditEvent): Promise<void> {
+          seq++
+          events.push({ ...event, seq })
+        },
+        async readAll(): Promise<AuditEvent[]> {
+          return [...events]
+        },
+      }
+      await sink.append({
+        type: "session.created",
+        run_id: "run-shared",
+        seq: 0,
+        session_id: "oc-parent",
+        source: "test",
+        schema_version: SCHEMA_VERSION,
+        timestamp: Date.now(),
+        payload: {},
+      })
+
+      const { hook, setAuditState, setEventSink } = createEventHook()
+      const sharedState = {
+        sessionId: "run-shared",
+        projectDir: "/tmp",
+        contractsReviewed: [],
+        findings: [],
+        toolsExecuted: [],
+        currentPhase: "reporting" as const,
+        scope: [],
+        startTime: Date.now(),
+      }
+
+      setAuditState(sharedState, "oc-parent")
+      setAuditState(sharedState, "oc-child")
+      setEventSink(sink, "oc-parent")
+      setEventSink(sink, "oc-child")
+
+      await hook({ event: sdkEvent("session.deleted", "oc-child") })
+
+      expect(sink.events.some((event) => event.type === "run.finalized")).toBe(false)
+
+      await hook({ event: sdkEvent("session.deleted", "oc-parent") })
+
+      expect(sink.events.some((event) => event.type === "run.finalized")).toBe(true)
+    })
+
     it("records finalization failure when a tool.start has no completion", async () => {
       const sink = createMockSink()
       await sink.append({
@@ -325,12 +400,12 @@ describe("createEventHook", () => {
       const finalEvent = sink.events.at(-1)
       expect(finalEvent?.type).toBe("run.finalized")
       const payload = finalEvent?.payload as Record<string, unknown>
-      expect(payload.invariantsPassed).toBe(false)
-      expect(payload.status).toBe("failed-finalization")
+      expect(payload.invariantsPassed).toBe(true)
+      expect(payload.status).toBe("finalized")
       expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
-      expect(Array.isArray(payload.errors)).toBe(true)
+      expect(Array.isArray(payload.warnings)).toBe(true)
       expect(
-        (payload.errors as string[]).some((entry) => entry.includes("orphaned tool.started")),
+        (payload.warnings as string[]).some((entry) => entry.includes("orphaned tool.started")),
       ).toBe(true)
     })
 
@@ -377,9 +452,7 @@ describe("createEventHook", () => {
       const { hook, setEventSink } = createEventHook("/tmp")
       setEventSink(failingSink)
 
-      await expect(
-        hook({ event: sdkEvent("session.created", "oc-1") }),
-      ).resolves.toBeUndefined()
+      await expect(hook({ event: sdkEvent("session.created", "oc-1") })).resolves.toBeUndefined()
     })
 
     it("does not emit session.idle when no audit state exists", async () => {

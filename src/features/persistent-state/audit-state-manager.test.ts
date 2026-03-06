@@ -645,10 +645,9 @@ describe("createAuditStateManager", () => {
           severity: "High",
           confidence: "High",
           description: "test finding",
-          impact: "test impact",
-          recommendation: "test recommendation",
-          contract: "Test.sol",
-          references: [],
+          file: "Test.sol",
+          lines: [1, 10] as [number, number],
+          source: "manual",
         },
       ],
       toolsExecuted: [],
@@ -682,14 +681,11 @@ describe("createAuditStateManager", () => {
     mkdirSync(sessionsDir, { recursive: true })
     const otherState = buildPersistentState(projectDir, "2", {
       sessionId: "other-run",
-      currentPhase: "automated-scanning",
+      currentPhase: "scanning",
     })
     // Set filePath to the sessions dir path
     otherState.filePath = join(sessionsDir, "state-ses_other.json")
-    writeFileSync(
-      join(sessionsDir, "state-ses_other.json"),
-      `${JSON.stringify(otherState)}\n`,
-    )
+    writeFileSync(join(sessionsDir, "state-ses_other.json"), `${JSON.stringify(otherState)}\n`)
 
     const manager = createAuditStateManager(projectDir)
     manager.bindSession("ses_new_session")
@@ -697,7 +693,7 @@ describe("createAuditStateManager", () => {
     // No file for ses_new_session, should fall back to the most recent session file
     const loaded = await manager.load()
     expect(loaded).not.toBeNull()
-    expect(loaded?.currentPhase).toBe("automated-scanning")
+    expect(loaded?.currentPhase).toBe("scanning")
   })
 
   test("load falls back to legacy shared file when no sessions dir exists", async () => {
@@ -734,8 +730,8 @@ describe("createAuditStateManager", () => {
       projectDir,
       contractsReviewed: ["ContractA.sol"],
       findings: [],
-      toolsExecuted: ["slither"],
-      currentPhase: "automated-scanning",
+      toolsExecuted: [{ tool: "slither", startTime: Date.now(), success: true, findingsCount: 0 }],
+      currentPhase: "scanning",
       scope: [],
       startTime: Date.now(),
     }
@@ -745,7 +741,7 @@ describe("createAuditStateManager", () => {
       projectDir,
       contractsReviewed: ["ContractB.sol"],
       findings: [],
-      toolsExecuted: ["forge"],
+      toolsExecuted: [{ tool: "forge", startTime: Date.now(), success: true, findingsCount: 0 }],
       currentPhase: "manual-review",
       scope: [],
       startTime: Date.now(),
@@ -759,7 +755,7 @@ describe("createAuditStateManager", () => {
     const loadedB = await managerB.load()
 
     expect(loadedA?.contractsReviewed).toEqual(["ContractA.sol"])
-    expect(loadedA?.currentPhase).toBe("automated-scanning")
+    expect(loadedA?.currentPhase).toBe("scanning")
     expect(loadedB?.contractsReviewed).toEqual(["ContractB.sol"])
     expect(loadedB?.currentPhase).toBe("manual-review")
   })

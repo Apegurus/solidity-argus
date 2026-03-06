@@ -208,15 +208,14 @@ describe("full audit integration", () => {
     )
 
     const result = JSON.parse(payload) as {
-      report: string
+      reportSummary: string
       findingsCount: {
         critical: number
         high: number
       }
     }
 
-    expect(result.report).toContain("# ")
-    expect(result.report.includes("Critical") || result.report.includes("High")).toBe(true)
+    expect(result.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
     expect(result.findingsCount.critical).toBeGreaterThanOrEqual(1)
   })
 

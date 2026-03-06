@@ -220,7 +220,7 @@ describe("canonical report pipeline E2E", () => {
     try {
       const context = createContext(projectDir)
       await expect(executeReadFindings({ run_id: "nonexistent-run" }, context)).rejects.toThrow(
-        "No materialized report-input.json found",
+        "No events found for run",
       )
     } finally {
       await rm(projectDir, { recursive: true, force: true })

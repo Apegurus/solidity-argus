@@ -212,7 +212,7 @@ Task(subagent_type="scribe", prompt="Generate the final audit report for Project
 - **Tools**: \`argus_read_findings\`, \`argus_generate_report\`
 - **Delegation Examples**:
   \`\`\`
-  Task(subagent_type=\"scribe\", prompt=\"Generate the final audit report for ProjectName. Run ID: {run-id}. Scope: [files]. Call argus_read_findings to load findings, then argus_generate_report.\")
+  Task(subagent_type="scribe", prompt="Generate the final audit report for ProjectName. Run ID: {run-id}. Scope: [files]. Call argus_read_findings to load findings, then argus_generate_report.")
   \`\`\`
   - **Constraint**: Only invoke Scribe after all analysis and testing are complete.
 
@@ -483,7 +483,7 @@ After you have synthesized your findings, delegate to Scribe with the \`run_id\`
 **State-first requirement**: Before invoking Scribe, ensure all findings have been recorded via \`argus_record_finding\` and all tools have been executed. The system automatically materializes a \`report-input.json\` artifact containing event-backed findings, tools executed, scope, and all enrichment data. Do NOT manually construct a ReportInput JSON payload — Scribe reads it from disk via \`argus_read_findings\`.
 
 \`\`\`
-Task(subagent_type=\"scribe\", prompt=\"Generate the final security audit report.
+Task(subagent_type="scribe", prompt="Generate the final security audit report.
 Project: {name}
 Run ID: {run-id}
 Scope: {list of audited files}
@@ -493,14 +493,14 @@ Additional context:
 - Any tool limitations encountered
 - Overall risk assessment: {your assessment}
 - preflight_policy: strict-fail (non-negotiable for final report)
-\")
+")
 \`\`\`
 
 Scribe will:
 1. Call \`argus_read_findings\` with the \`run_id\` to load the materialized artifact
 2. Perform semantic QA review (flag duplicates, missing tool coverage, severity mismatches)
 3. Report QA flags back to you
-4. Call \`argus_generate_report\` with \`{ project_name, scope, run_id }\` (or pass \`report_input\` directly)
+4. Call \`argus_generate_report\` with \`{ project_name, scope, run_id, report_input }\` and ensure \`run_id === report_input.run_id\`
 
 **Do NOT pass inline ReportInput JSON to Scribe.** The canonical artifact on disk is the single source of truth. Passing inline JSON risks stale/drifted data.
 

@@ -3,8 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
-import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
-import { type ReportInput, SCHEMA_VERSION } from "../state/schemas"
+import { SCHEMA_VERSION } from "../state/schemas"
 import { executeReadFindings } from "./read-findings-tool"
 
 const tempDirs: string[] = []
@@ -37,31 +36,45 @@ function createContext(dir: string): ToolContext {
   }
 }
 
-test("reads materialized report-input.json and returns it", async () => {
+async function writeEventsJournal(
+  dir: string,
+  runId: string,
+  events: Record<string, unknown>[],
+): Promise<void> {
+  const journalDir = join(dir, ".argus", "runs", runId)
+  await mkdir(journalDir, { recursive: true })
+  const lines = `${events.map((e) => JSON.stringify(e)).join("\n")}\n`
+  await writeFile(join(journalDir, "events.jsonl"), lines)
+}
+
+test("reads findings via on-demand materialization and returns them", async () => {
   const dir = await makeTempDir()
   const runId = "run-read-findings-ok"
-  const reportInputPath = createAuditArtifactResolver(runId, dir).paths().reportInputFile
-  await mkdir(join(dir, ".argus", "runs", runId), { recursive: true })
 
-  const reportInput: ReportInput = {
-    run_id: runId,
-    seq: 1,
-    session_id: "ses-test",
-    tool_call_id: "tc-1",
-    source: "argus",
-    schema_version: SCHEMA_VERSION,
-    projectDir: dir,
-    findings: [],
-    toolsExecuted: [],
-    scope: ["src/Vault.sol"],
-  }
-  await writeFile(reportInputPath, JSON.stringify(reportInput, null, 2))
+  await writeEventsJournal(dir, runId, [
+    {
+      type: "session.created",
+      run_id: runId,
+      seq: 1,
+      session_id: "ses-test",
+      source: "test",
+      schema_version: SCHEMA_VERSION,
+      timestamp: Date.now(),
+      payload: { scope: ["src/Vault.sol"] },
+    },
+  ])
 
   const payload = await executeReadFindings({ run_id: runId }, createContext(dir))
   const parsed = JSON.parse(payload) as {
     success: boolean
     source: string
-    reportInput: ReportInput
+    reportInput: {
+      run_id: string
+      schema_version: string
+      findings: unknown[]
+      toolsExecuted: unknown[]
+      scope: unknown[]
+    }
   }
 
   expect(parsed.success).toBe(true)
@@ -71,15 +84,14 @@ test("reads materialized report-input.json and returns it", async () => {
   expect(Array.isArray(parsed.reportInput.findings)).toBe(true)
   expect(Array.isArray(parsed.reportInput.toolsExecuted)).toBe(true)
   expect(Array.isArray(parsed.reportInput.scope)).toBe(true)
-  expect(parsed.reportInput.projectDir).toBe(dir)
 })
 
-test("throws when report-input.json does not exist", async () => {
+test("throws when no events exist for run", async () => {
   const dir = await makeTempDir()
   const runId = "run-read-findings-missing"
 
   await expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
-    "No materialized report-input.json",
+    "No events found for run",
   )
 })
 
@@ -91,14 +103,14 @@ test("throws when run_id is empty", async () => {
   )
 })
 
-test("throws on invalid JSON in report-input.json", async () => {
+test("throws on malformed events.jsonl", async () => {
   const dir = await makeTempDir()
   const runId = "run-read-findings-corrupt"
-  const reportInputPath = createAuditArtifactResolver(runId, dir).paths().reportInputFile
-  await mkdir(join(dir, ".argus", "runs", runId), { recursive: true })
-  await writeFile(reportInputPath, "{this is not json")
+
+  await writeEventsJournal(dir, runId, [])
+  await writeFile(join(dir, ".argus", "runs", runId, "events.jsonl"), "not json\nnope\n")
 
   await expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
-    /Corrupted|invalid JSON/,
+    "No events found",
   )
 })

@@ -4,7 +4,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
-import { createEventSink, EventSinkError, readEvents, releaseEventSink, resetSinkRegistry } from "./event-sink"
+import {
+  createEventSink,
+  EventSinkError,
+  readEvents,
+  releaseEventSink,
+  resetSinkRegistry,
+} from "./event-sink"
 
 const RUN_ID = "test-run-1"
 
@@ -135,8 +141,12 @@ describe("EventSink", () => {
     const sink2 = createEventSink(RUN_ID, projectDir)
     expect(sink1).toBe(sink2)
     const promises = [
-      ...Array.from({ length: 25 }, (_, i) => sink1.append(makeEvent({ payload: { index: i, from: 1 } }))),
-      ...Array.from({ length: 25 }, (_, i) => sink2.append(makeEvent({ payload: { index: i, from: 2 } }))),
+      ...Array.from({ length: 25 }, (_, i) =>
+        sink1.append(makeEvent({ payload: { index: i, from: 1 } })),
+      ),
+      ...Array.from({ length: 25 }, (_, i) =>
+        sink2.append(makeEvent({ payload: { index: i, from: 2 } })),
+      ),
     ]
     await Promise.all(promises)
     const events = await sink1.readAll()
@@ -200,6 +210,53 @@ describe("EventSink", () => {
     expect(events).toHaveLength(3)
     expect(events.map((e) => e.seq)).toEqual([1, 2, 3])
     expect(events.map((e) => e.type)).toEqual(["tool.started", "finding.added", "phase.changed"])
+  })
+
+  test("markFinalized prevents subsequent non-finalization appends", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "session.created" }))
+    expect(sink.isFinalized).toBe(false)
+
+    sink.markFinalized()
+    expect(sink.isFinalized).toBe(true)
+
+    await sink.append(makeEvent({ type: "tool.started" }))
+    await sink.append(makeEvent({ type: "session.idle" }))
+
+    const events = await sink.readAll()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.type).toBe("session.created")
+  })
+
+  test("markFinalized still allows run.finalized event", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "session.created" }))
+    sink.markFinalized()
+
+    await sink.append(makeEvent({ type: "run.finalized" }))
+
+    const events = await sink.readAll()
+    expect(events).toHaveLength(2)
+    expect(events[1]?.type).toBe("run.finalized")
+  })
+
+  test("new sink instance after release is not finalized", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    await sink1.append(makeEvent({ type: "session.created" }))
+    sink1.markFinalized()
+    releaseEventSink(RUN_ID)
+
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    expect(sink2.isFinalized).toBe(false)
+    await sink2.append(makeEvent({ type: "tool.started" }))
+
+    const events = await sink2.readAll()
+    expect(events).toHaveLength(2)
   })
 
   test("event sink writes to .argus root by default", async () => {
