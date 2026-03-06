@@ -6,11 +6,18 @@ import type { AuditEvent } from "../state/schemas"
 import type { AuditState } from "../state/types"
 import { createToolTrackingHook } from "./tool-tracking-hook"
 
-function createMockSink(): EventSink & { events: AuditEvent[] } {
+function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
   let seq = 0
+  const state = { finalized: false }
   return {
-    runId: "test-run",
+    runId,
+    get isFinalized() {
+      return state.finalized
+    },
+    markFinalized() {
+      state.finalized = true
+    },
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -22,9 +29,16 @@ function createMockSink(): EventSink & { events: AuditEvent[] } {
   }
 }
 
-function createFailingSink(): EventSink {
+function createFailingSink(runId = "test-run"): EventSink {
+  const state = { finalized: false }
   return {
-    runId: "test-run",
+    runId,
+    get isFinalized() {
+      return state.finalized
+    },
+    markFinalized() {
+      state.finalized = true
+    },
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },
@@ -41,6 +55,7 @@ describe("createToolTrackingHook", () => {
   beforeEach(() => {
     const created = createAuditState("/test/project")
     auditState = created.state
+    auditState.sessionId = "test-run"
     hook = createToolTrackingHook(() => auditState)
   })
 
@@ -450,6 +465,131 @@ describe("createToolTrackingHook", () => {
     // run_id and session_id are empty strings when state is unavailable
     expect(started[0]?.run_id).toBe("")
     expect(started[0]?.session_id).toBe("")
+  })
+
+  describe("phase advancement", () => {
+    test("argus_slither_analyze advances phase from reconnaissance to scanning", async () => {
+      const slitherResult = {
+        success: true,
+        findingsCount: 0,
+        findings: [],
+        executionTime: 1000,
+        errors: [],
+      }
+
+      await hook({
+        tool: "argus_slither_analyze",
+        args: { target: "." },
+        result: JSON.stringify(slitherResult),
+      })
+
+      expect(auditState.currentPhase).toBe("scanning")
+    })
+
+    test("argus_solodit_search advances phase from scanning to research", async () => {
+      auditState.currentPhase = "scanning"
+
+      const soloditResult = {
+        results: [],
+        totalFound: 0,
+        query: "test",
+      }
+
+      await hook({
+        tool: "argus_solodit_search",
+        args: { query: "test" },
+        result: JSON.stringify(soloditResult),
+      })
+
+      expect(String(auditState.currentPhase)).toBe("research")
+    })
+
+    test("argus_forge_test advances phase to testing", async () => {
+      auditState.currentPhase = "research"
+
+      const forgeResult = {
+        success: true,
+        summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+        tests: [],
+      }
+
+      await hook({
+        tool: "argus_forge_test",
+        args: { target: "." },
+        result: JSON.stringify(forgeResult),
+      })
+
+      expect(String(auditState.currentPhase)).toBe("testing")
+    })
+
+    test("argus_generate_report advances phase to reporting", async () => {
+      auditState.currentPhase = "testing"
+
+      const reportResult = {
+        report: "# Report",
+        format: "markdown",
+        findingsCount: 0,
+        run_id: "test-run",
+        filePath: ".argus/reports/test.md",
+      }
+
+      await hook({
+        tool: "argus_generate_report",
+        args: { project_name: "Vault" },
+        result: JSON.stringify(reportResult),
+      })
+
+      expect(String(auditState.currentPhase)).toBe("reporting")
+    })
+
+    test("does not regress phase when tool maps to earlier phase", async () => {
+      auditState.currentPhase = "testing"
+
+      const slitherResult = {
+        success: true,
+        findingsCount: 0,
+        findings: [],
+        executionTime: 1000,
+        errors: [],
+      }
+
+      await hook({
+        tool: "argus_slither_analyze",
+        args: { target: "." },
+        result: JSON.stringify(slitherResult),
+      })
+
+      expect(auditState.currentPhase).toBe("testing")
+    })
+
+    test("emits phase.changed event to sink when phase advances", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+        getSessionId: () => "oc-session-1",
+      })
+
+      const slitherResult = {
+        success: true,
+        findingsCount: 0,
+        findings: [],
+        executionTime: 1000,
+        errors: [],
+      }
+
+      await hookWithSink({
+        tool: "argus_slither_analyze",
+        args: { target: "." },
+        result: JSON.stringify(slitherResult),
+      })
+
+      const phaseChanged = sink.events.filter((event) => event.type === "phase.changed")
+      expect(phaseChanged).toHaveLength(1)
+
+      const payload = phaseChanged[0]?.payload as Record<string, unknown>
+      expect(payload.phase).toBe("scanning")
+      expect(payload.trigger).toBe("argus_slither_analyze")
+    })
   })
 
   describe("solodit evidence tracking", () => {
@@ -890,6 +1030,8 @@ Content...`
         report: "# Audit Report\n...",
         format: "markdown",
         findingsCount: 5,
+        run_id: "run-test",
+        filePath: ".argus/reports/Vault-security-audit-2026-03-02.md",
       }
 
       await hook({
@@ -1177,6 +1319,35 @@ Content...`
       expect(f2.check).toBe("unchecked-transfer")
     })
 
+    test("prefers run-scoped sink when session sink run mismatches state run", async () => {
+      const mismatchedSink = createMockSink("run-mismatched")
+      const runScopedSink = createMockSink("run-canonical")
+      auditState.sessionId = "run-canonical"
+
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSinkForSession: () => mismatchedSink,
+        getEventSink: () => mismatchedSink,
+        getEventSinkForRun: (runId: string) => (runId === "run-canonical" ? runScopedSink : null),
+        getSessionId: () => "oc-session-1",
+      })
+
+      await hookWithSink({
+        tool: "argus_forge_test",
+        args: { target: "." },
+        result: JSON.stringify({
+          success: true,
+          summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+          tests: [],
+        }),
+      })
+
+      expect(mismatchedSink.events).toHaveLength(0)
+      expect(runScopedSink.events.filter((event) => event.type === "tool.started")).toHaveLength(1)
+      expect(runScopedSink.events.filter((event) => event.type === "tool.completed")).toHaveLength(
+        1,
+      )
+    })
+
     test("emits tool.started and tool.completed for skill_load", async () => {
       const sink = createMockSink()
       const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
@@ -1359,6 +1530,31 @@ Content...`
   })
 
   describe("drop diagnostics", () => {
+    test("truncated output emits completed event with non-negative findingsCount", async () => {
+      const sink = createMockSink()
+      const hookWithDiag = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithDiag({
+        tool: "argus_check_patterns",
+        args: { target: "." },
+        result: "... output was truncated ... 2048 bytes truncated ...",
+      })
+
+      const diags = hookWithDiag.getLastDiagnostics()
+      expect(diags).toHaveLength(1)
+      expect(diags[0]?.reason.code).toBe("TRUNCATED_OUTPUT")
+
+      const completed = sink.events.filter((e) => e.type === "tool.completed")
+      expect(completed).toHaveLength(1)
+
+      const payload = completed[0]?.payload as Record<string, unknown>
+      expect(payload.tool).toBe("argus_check_patterns")
+      expect(payload.success).toBe(true)
+      expect(payload.findingsCount).toBe(0)
+    })
+
     test("malformed JSON emits MALFORMED_JSON diagnostic", async () => {
       const hookWithDiag = createToolTrackingHook(() => auditState)
 

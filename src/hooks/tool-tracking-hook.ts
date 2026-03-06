@@ -39,6 +39,7 @@ type ToolExecutionMetadata = {
 export type ToolTrackingOptions = {
   getEventSink?: () => EventSink | null
   getEventSinkForSession?: (sessionId: string) => EventSink | null
+  getEventSinkForRun?: (runId: string) => EventSink | null
   getSessionId?: () => string
   getAgentName?: () => ArgusAgentName | undefined
   getAgentNameForSession?: (sessionId: string) => ArgusAgentName | undefined
@@ -473,6 +474,44 @@ function recordToolExecution(state: AuditState, toolName: string, findingsCount:
   })
 }
 
+const TOOL_PHASE_MAP: Record<string, AuditState["currentPhase"]> = {
+  argus_slither_analyze: "scanning",
+  argus_check_patterns: "scanning",
+  argus_analyze_contract: "scanning",
+  argus_proxy_detection: "scanning",
+  argus_solodit_search: "research",
+  argus_forge_test: "testing",
+  argus_forge_fuzz: "testing",
+  argus_forge_coverage: "testing",
+  argus_gas_analysis: "testing",
+  argus_generate_report: "reporting",
+}
+
+const PHASE_ORDER: readonly AuditState["currentPhase"][] = [
+  "reconnaissance",
+  "scanning",
+  "manual-review",
+  "attack-surface",
+  "research",
+  "testing",
+  "reporting",
+  "complete",
+]
+
+function inferPhaseAdvancement(
+  state: AuditState,
+  toolName: string,
+): AuditState["currentPhase"] | null {
+  const inferredPhase = TOOL_PHASE_MAP[toolName]
+  if (!inferredPhase) return null
+
+  const currentIdx = PHASE_ORDER.indexOf(state.currentPhase)
+  const inferredIdx = PHASE_ORDER.indexOf(inferredPhase)
+  if (inferredIdx <= currentIdx) return null
+
+  return inferredPhase
+}
+
 export type ToolTrackingHook = {
   (input: ToolHookInput): Promise<void>
   getLastDiagnostics(): DropDiagnostic[]
@@ -506,14 +545,30 @@ export function createToolTrackingHook(
       const correlationId = randomUUID()
       const resolved = resolveStateAndStore()
       const sessionId = input.sessionID ?? options?.getSessionId?.() ?? ""
-      const sink =
-        (sessionId ? options?.getEventSinkForSession?.(sessionId) : null) ??
-        options?.getEventSink?.() ??
-        null
       const toolCallId = randomUUID()
 
       if (childSessionId) {
         options?.onChildSessionDetected?.(sessionId, childSessionId)
+      }
+
+      let sink: EventSink | null =
+        (sessionId ? options?.getEventSinkForSession?.(sessionId) : null) ??
+        options?.getEventSink?.() ??
+        null
+
+      if (sink && resolved) {
+        const runId = resolved.state.sessionId
+        if (sink.runId !== runId) {
+          const runScopedSink = options?.getEventSinkForRun?.(runId) ?? null
+          if (runScopedSink && runScopedSink.runId === runId) {
+            sink = runScopedSink
+          } else {
+            logger.warn(
+              `Skipping task sink emission due to run mismatch: state run ${runId}, sink run ${sink.runId}`,
+            )
+            sink = null
+          }
+        }
       }
 
       if (sink && resolved) {
@@ -583,10 +638,21 @@ export function createToolTrackingHook(
     const { state: auditState, store } = resolved
     const runId = auditState.sessionId
     const sessionId = input.sessionID ?? options?.getSessionId?.() ?? ""
-    const sink =
+    let sink: EventSink | null =
       (sessionId ? options?.getEventSinkForSession?.(sessionId) : null) ??
       options?.getEventSink?.() ??
       null
+    if (sink && sink.runId !== runId) {
+      const runScopedSink = options?.getEventSinkForRun?.(runId) ?? null
+      if (runScopedSink && runScopedSink.runId === runId) {
+        sink = runScopedSink
+      } else {
+        logger.warn(
+          `Skipping sink emission for ${input.tool} due to run mismatch: state run ${runId}, sink run ${sink.runId}`,
+        )
+        sink = null
+      }
+    }
     const reportedByAgent =
       (input.sessionID ? options?.getAgentNameForSession?.(input.sessionID) : undefined) ??
       options?.getAgentName?.() ??
@@ -638,7 +704,9 @@ export function createToolTrackingHook(
           //   1. Partial JSON — first N bytes of valid JSON (check for "success": true)
           //   2. OpenCode replacement — full output replaced with "...N bytes truncated..."
           const successInPartialJson = input.result.match(/"success"\s*:\s*(true|false)/)
-          const opencodeTruncation = input.result.match(/bytes truncated|output was truncated|tool call succeeded/i)
+          const opencodeTruncation = input.result.match(
+            /bytes truncated|output was truncated|tool call succeeded/i,
+          )
           const truncatedSuccess = successInPartialJson?.[1] === "true" || !!opencodeTruncation
           if (truncatedSuccess) {
             diag.error(
@@ -646,7 +714,7 @@ export function createToolTrackingHook(
               `${input.tool} output was truncated (${input.result.length} chars) — tool likely succeeded`,
             )
             completedSuccess = true
-            findingsCount = -1 // unknown due to truncation
+            findingsCount = 0 // unknown due to truncation
           } else {
             diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
             if (input.tool === "argus_record_finding") {
@@ -692,6 +760,18 @@ export function createToolTrackingHook(
             processFuzzResult(record, auditState)
             break
           case "argus_generate_report": {
+            const reportError = toRecord(record.error)
+            const filePath = record.filePath
+            if (reportError) {
+              const errorMessage =
+                typeof reportError.message === "string"
+                  ? reportError.message
+                  : "argus_generate_report reported an unknown error"
+              throw new Error(`argus_generate_report failed: ${errorMessage}`)
+            }
+            if (typeof filePath !== "string" || filePath.length === 0) {
+              throw new Error("argus_generate_report completed without filePath")
+            }
             auditState.reportGenerated = true
             break
           }
@@ -784,6 +864,21 @@ export function createToolTrackingHook(
       }
 
       recordToolExecution(auditState, input.tool, findingsCount)
+
+      const nextPhase = inferPhaseAdvancement(auditState, input.tool)
+      if (nextPhase) {
+        auditState.currentPhase = nextPhase
+        if (sink) {
+          await emitToSink(
+            sink,
+            buildEvent("phase.changed", runId, sessionId, toolCallId, {
+              phase: nextPhase,
+              trigger: input.tool,
+            }),
+          )
+        }
+      }
+
       onStateChanged?.({ tool: input.tool, findingsCount })
     } catch (error) {
       completionError = error instanceof Error ? error.message : String(error)
