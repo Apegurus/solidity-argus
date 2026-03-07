@@ -113,6 +113,7 @@ function makeManagers(overrides?: Partial<Managers>): Managers {
       update: async () => {},
       reset: async () => {},
       archive: async () => {},
+      dispose: async () => {},
     },
     ...overrides,
   }
@@ -281,6 +282,7 @@ describe("Pipeline fixes E2E", () => {
           update: async () => {},
           reset: async () => {},
           archive: async () => {},
+          dispose: async () => {},
         },
       })
 
@@ -343,6 +345,7 @@ describe("Pipeline fixes E2E", () => {
           update: async () => {},
           reset: async () => {},
           archive: async () => {},
+          dispose: async () => {},
         },
       })
 
@@ -398,6 +401,7 @@ describe("Pipeline fixes E2E", () => {
           update: async () => {},
           reset: async () => {},
           archive: async () => {},
+          dispose: async () => {},
         },
       })
 

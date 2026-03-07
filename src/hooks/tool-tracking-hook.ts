@@ -713,8 +713,10 @@ export function createToolTrackingHook(
               "TRUNCATED_OUTPUT",
               `${input.tool} output was truncated (${input.result.length} chars) — tool likely succeeded`,
             )
-            completedSuccess = true
-            findingsCount = 0 // unknown due to truncation
+            logger.warn(
+              `Tool output truncated — findings may be incomplete (${input.tool}, ${input.result.length} chars)`,
+            )
+            completionError = "Tool output truncated — findings may be incomplete"
           } else {
             diag.error("MALFORMED_JSON", `Failed to parse JSON result from ${input.tool}`)
             if (input.tool === "argus_record_finding") {
@@ -739,6 +741,9 @@ export function createToolTrackingHook(
             break
           case "argus_check_patterns":
             findingsCount = processPatternResult(record, store, diag, findingMetadata)
+            if (typeof record.patternVersion === "string") {
+              auditState.patternVersion = record.patternVersion
+            }
             break
           case "argus_record_finding":
             findingsCount = processRecordedFindingResult(record, store, diag, findingMetadata)
@@ -887,6 +892,34 @@ export function createToolTrackingHook(
       lastDiagnostics = diag.getDiagnostics()
       if (sink) {
         const failFast = input.tool === "argus_record_finding"
+        // Enrichment data for event replay — projector extracts these from payloads
+        const enrichment: Record<string, unknown> = {}
+        if (completedSuccess) {
+          switch (input.tool) {
+            case "argus_solodit_search":
+              if (auditState.soloditResults) enrichment.soloditResults = auditState.soloditResults
+              break
+            case "argus_forge_fuzz":
+              if (auditState.fuzzCounterexamples)
+                enrichment.fuzzCounterexamples = auditState.fuzzCounterexamples
+              break
+            case "argus_forge_coverage":
+              if (auditState.coverageReport) enrichment.coverageReport = auditState.coverageReport
+              break
+            case "argus_gas_analysis":
+              if (auditState.gasHotspots) enrichment.gasHotspots = auditState.gasHotspots
+              break
+            case "argus_proxy_detection":
+              if (auditState.proxyContracts) enrichment.proxyContracts = auditState.proxyContracts
+              break
+            case "argus_skill_load":
+              if (auditState.skillsLoaded) enrichment.skillsLoaded = auditState.skillsLoaded
+              break
+            case "argus_check_patterns":
+              if (auditState.patternVersion) enrichment.patternVersion = auditState.patternVersion
+              break
+          }
+        }
         await emitToSink(
           sink,
           buildEvent("tool.completed", runId, sessionId, toolCallId, {
@@ -894,6 +927,7 @@ export function createToolTrackingHook(
             findingsCount,
             success: completedSuccess,
             ...(completionError ? { error: completionError } : {}),
+            ...enrichment,
           }),
           { failFast },
         )

@@ -251,6 +251,7 @@ export function createEventHook(
               projectDir: stateForSession.projectDir,
               sessionId: stateForSession.sessionId,
               plugin_version: ARGUS_PLUGIN_VERSION,
+              scope: stateForSession.scope,
             },
           )
         }

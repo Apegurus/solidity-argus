@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import crypto from "node:crypto"
 import type { AuditState, Finding, FindingSeverity } from "./types"
 
 export interface FindingStore {
@@ -24,12 +24,12 @@ function isValidHydrationFinding(f: unknown): f is Finding {
 }
 
 export function createFindingStore(state: AuditState): FindingStore {
-  let observationCounter = state.findings.length
-
   function generateObservationId(check: string, file: string, lines: [number, number]): string {
-    const key = `${check}:${file}:${lines[0]}-${lines[1]}:${observationCounter}`
-    observationCounter += 1
-    return createHash("sha256").update(key).digest("hex").substring(0, 16)
+    return crypto
+      .createHash("sha256")
+      .update(`${check}:${file}:${lines[0]}-${lines[1]}`)
+      .digest("hex")
+      .substring(0, 16)
   }
 
   const hydratedFindings = state.findings.filter(isValidHydrationFinding)

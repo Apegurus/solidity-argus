@@ -90,6 +90,12 @@ export interface AuditStateManager {
    * Archive current state (if meaningful) then reset
    */
   archive(): Promise<void>
+
+  /**
+   * Dispose the state manager, flushing pending state to disk and releasing resources.
+   * Safe to call multiple times; subsequent calls are no-ops.
+   */
+  dispose(): Promise<void>
 }
 
 /**

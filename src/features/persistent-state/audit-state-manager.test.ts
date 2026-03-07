@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -629,6 +630,62 @@ describe("createAuditStateManager", () => {
     expect(loaded).not.toBeNull()
   })
 
+  test("load migrates legacy obs-N finding IDs to deterministic IDs", async () => {
+    const projectDir = makeTempDir()
+    const stateDir = join(projectDir, WRITE_DIR)
+    const statePath = join(stateDir, STATE_FILE)
+
+    const previousLogMode = process.env.ARGUS_LOG
+    const stderrLines: string[] = []
+    process.env.ARGUS_LOG = "stderr"
+    resetLoggerSink()
+
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(
+      (chunk: string | Uint8Array) => {
+        stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"))
+        return true
+      },
+    )
+
+    try {
+      mkdirSync(stateDir, { recursive: true })
+      writeFileSync(
+        statePath,
+        `${JSON.stringify(
+          buildPersistentState(projectDir, "2", {
+            findings: [
+              {
+                id: "obs-42",
+                check: "reentrancy-eth",
+                severity: "High",
+                confidence: "High",
+                description: "Legacy finding",
+                file: "Vault.sol",
+                lines: [10, 15] as [number, number],
+                source: "manual",
+              },
+            ],
+          }),
+        )}\n`,
+      )
+
+      const manager = createAuditStateManager(projectDir)
+      const loaded = await manager.load()
+
+      const expectedId = createHash("sha256")
+        .update("reentrancy-eth:Vault.sol:10-15")
+        .digest("hex")
+        .substring(0, 16)
+
+      expect(loaded?.findings[0]?.id).toBe(expectedId)
+      expect(stderrLines.join("")).toContain("Migrating 1 finding IDs to deterministic format")
+    } finally {
+      stderrSpy.mockRestore()
+      process.env.ARGUS_LOG = previousLogMode
+      resetLoggerSink()
+    }
+  })
+
   test("bindSession scopes save/load to session-specific file", async () => {
     const projectDir = makeTempDir()
     const manager = createAuditStateManager(projectDir)
@@ -674,30 +731,40 @@ describe("createAuditStateManager", () => {
     expect(loaded?.findings[0]?.id).toBe("f-1")
   })
 
-  test("load falls back to most recent session file when bound session has no file", async () => {
+  test("new bound session returns null instead of inheriting state from different session", async () => {
     const projectDir = makeTempDir()
 
-    // Write a session file for a different session
+    // Write a session file for a different session with findings
     const sessionsDir = join(projectDir, WRITE_DIR, "sessions")
     mkdirSync(sessionsDir, { recursive: true })
     const otherState = buildPersistentState(projectDir, "2", {
       sessionId: "other-run",
       currentPhase: "scanning",
+      findings: [
+        {
+          id: "f-other",
+          check: "reentrancy-eth",
+          severity: "High" as const,
+          confidence: "High" as const,
+          description: "Finding from other session",
+          file: "Vault.sol",
+          lines: [10, 20] as [number, number],
+          source: "slither" as const,
+        },
+      ],
     })
-    // Set filePath to the sessions dir path
     otherState.filePath = join(sessionsDir, "state-ses_other.json")
     writeFileSync(join(sessionsDir, "state-ses_other.json"), `${JSON.stringify(otherState)}\n`)
 
     const manager = createAuditStateManager(projectDir)
     manager.bindSession("ses_new_session")
 
-    // No file for ses_new_session, should fall back to the most recent session file
+    // New session must NOT inherit state from other session — returns null (clean start)
     const loaded = await manager.load()
-    expect(loaded).not.toBeNull()
-    expect(loaded?.currentPhase).toBe("scanning")
+    expect(loaded).toBeNull()
   })
 
-  test("load falls back to legacy shared file when no sessions dir exists", async () => {
+  test("new bound session returns null when only legacy shared file exists", async () => {
     const projectDir = makeTempDir()
     const stateDir = join(projectDir, WRITE_DIR)
     mkdirSync(stateDir, { recursive: true })
@@ -711,10 +778,9 @@ describe("createAuditStateManager", () => {
     const manager = createAuditStateManager(projectDir)
     manager.bindSession("ses_brand_new")
 
-    // No sessions dir at all, should fall back to legacy shared file
+    // Bound session with no matching file returns null — no cross-session contamination
     const loaded = await manager.load()
-    expect(loaded).not.toBeNull()
-    expect(loaded?.currentPhase).toBe("manual-review")
+    expect(loaded).toBeNull()
   })
 
   test("two managers bound to different sessions don't contaminate each other", async () => {

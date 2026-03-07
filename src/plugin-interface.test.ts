@@ -23,6 +23,7 @@ function makeManagers(): Managers {
       update: async () => {},
       reset: async () => {},
       archive: async () => {},
+      dispose: async () => {},
     },
   }
 }

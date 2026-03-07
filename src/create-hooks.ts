@@ -176,6 +176,15 @@ export function createHooks(args: {
   const contextMonitor = createContextMonitor()
   const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
   const debouncedSave = createDebouncedSave(auditStateManager.save)
+
+  process.on("exit", () => {
+    try {
+      debouncedSave.dispose()
+    } catch {
+      /* noop */
+    }
+  })
+
   const runJournal = createRunJournal(projectDir)
   let auditStateGetter: (() => AuditState | null) | undefined
   const toolErrorRecoveryHandler = createToolErrorRecoveryHandler(
@@ -184,8 +193,73 @@ export function createHooks(args: {
   )
   const outputTruncator = createToolOutputTruncator()
 
+  // Memory-leak guard: cap unbounded EventSink maps at 100 entries with 24-hour TTL.
+  const MAX_SINKS = 100
+  const SINK_TTL_MS = 24 * 60 * 60 * 1000
+
   const eventSinksByOpencodeSession = new Map<string, EventSink>()
   const eventSinksByRunId = new Map<string, EventSink>()
+
+  const sinkCreatedAtBySession = new Map<string, number>()
+  const sinkCreatedAtByRunId = new Map<string, number>()
+
+  /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
+  function evictOldestSink(
+    sinkMap: Map<string, EventSink>,
+    timestampMap: Map<string, number>,
+  ): void {
+    const oldestKey = sinkMap.keys().next().value
+    if (oldestKey === undefined) return
+    const sink = sinkMap.get(oldestKey)
+    if (sink && !sink.isFinalized) {
+      try {
+        sink.markFinalized()
+      } catch {
+        /* noop — best-effort finalization */
+      }
+    }
+    sinkMap.delete(oldestKey)
+    timestampMap.delete(oldestKey)
+  }
+
+  /** Evict any entries older than SINK_TTL_MS from a bounded EventSink map. */
+  function evictStaleSinks(
+    sinkMap: Map<string, EventSink>,
+    timestampMap: Map<string, number>,
+  ): void {
+    const now = Date.now()
+    for (const [key, createdAt] of timestampMap) {
+      if (now - createdAt > SINK_TTL_MS) {
+        const sink = sinkMap.get(key)
+        if (sink && !sink.isFinalized) {
+          try {
+            sink.markFinalized()
+          } catch {
+            /* noop */
+          }
+        }
+        sinkMap.delete(key)
+        timestampMap.delete(key)
+      }
+    }
+  }
+
+  /** Add a sink to a bounded map, evicting oldest entries if the limit is reached. */
+  function setBoundedSink(
+    sinkMap: Map<string, EventSink>,
+    timestampMap: Map<string, number>,
+    key: string,
+    sink: EventSink,
+  ): void {
+    evictStaleSinks(sinkMap, timestampMap)
+    if (sinkMap.size >= MAX_SINKS && !sinkMap.has(key)) {
+      evictOldestSink(sinkMap, timestampMap)
+    }
+    sinkMap.set(key, sink)
+    if (!timestampMap.has(key)) {
+      timestampMap.set(key, Date.now())
+    }
+  }
 
   // Sub-handlers run sequentially. The state persistence handler MUST be first:
   // it loads persisted state on session.created, overriding the fresh default.
@@ -228,9 +302,14 @@ export function createHooks(args: {
         if (existingSink) {
           if (sessionId) {
             setEventSink(existingSink, sessionId)
-            eventSinksByOpencodeSession.set(sessionId, existingSink)
+            setBoundedSink(
+              eventSinksByOpencodeSession,
+              sinkCreatedAtBySession,
+              sessionId,
+              existingSink,
+            )
           }
-          eventSinksByRunId.set(existingSink.runId, existingSink)
+          setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
 
           const existingRunId = existingSink.runId
           const existingResolver = createAuditArtifactResolver(existingRunId, projectDir)
@@ -312,9 +391,9 @@ export function createHooks(args: {
             const sink = createEventSink(effectiveState.sessionId, projectDir)
             setEventSink(sink, sessionId)
             if (sessionId) {
-              eventSinksByOpencodeSession.set(sessionId, sink)
+              setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, sink)
             }
-            eventSinksByRunId.set(effectiveState.sessionId, sink)
+            setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, effectiveState.sessionId, sink)
           } catch (error) {
             logger.warn(
               `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -438,6 +517,13 @@ export function createHooks(args: {
         if (auditState) {
           await auditStateManager.save(auditState)
         }
+        try {
+          await auditStateManager.dispose()
+        } catch (error) {
+          logger.warn(
+            `State manager dispose failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
         runJournal.log({
           type: "state.saved",
           timestamp: Date.now(),
@@ -538,7 +624,12 @@ export function createHooks(args: {
                   if (parentSessionId) {
                     const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
                     if (parentSink) {
-                      eventSinksByOpencodeSession.set(sessionId, parentSink)
+                      setBoundedSink(
+                        eventSinksByOpencodeSession,
+                        sinkCreatedAtBySession,
+                        sessionId,
+                        parentSink,
+                      )
                       return parentSink
                     }
                   }
@@ -546,7 +637,12 @@ export function createHooks(args: {
                   if (state && state.sessionId.length > 0) {
                     const runSink = eventSinksByRunId.get(state.sessionId)
                     if (runSink) {
-                      eventSinksByOpencodeSession.set(sessionId, runSink)
+                      setBoundedSink(
+                        eventSinksByOpencodeSession,
+                        sinkCreatedAtBySession,
+                        sessionId,
+                        runSink,
+                      )
                       return runSink
                     }
                   }

@@ -176,3 +176,31 @@ test("formatReportDate UTC midnight end-of-year boundary", () => {
   const utcMidnightNewYear = new Date("2023-12-31T00:00:00Z")
   expect(formatReportDate(utcMidnightNewYear)).toBe("2023-12-31")
 })
+
+test("runId first 8 chars appended to filename when provided", () => {
+  const runId = "abcdef1234567890"
+  const result = resolveReportPath({
+    contractName: "VulnerableVault",
+    date: FIXED_DATE,
+    outputDir: FIXED_OUTPUT_DIR,
+    runId,
+  })
+  expect(result.filename).toBe("VulnerableVault-security-audit-2026-02-21-abcdef12.md")
+})
+
+test("no runId suffix in filename when runId not provided", () => {
+  const result = resolveReportPath({
+    contractName: "VulnerableVault",
+    date: FIXED_DATE,
+    outputDir: FIXED_OUTPUT_DIR,
+  })
+  expect(result.filename).toBe("VulnerableVault-security-audit-2026-02-21.md")
+})
+
+test("sanitizeContractName returns 'unnamed-contract' for empty string", () => {
+  expect(sanitizeContractName("")).toBe("unnamed-contract")
+})
+
+test("sanitizeContractName returns 'unnamed-contract' for special-chars-only string", () => {
+  expect(sanitizeContractName("@@@!!!")).toBe("unnamed-contract")
+})

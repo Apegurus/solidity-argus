@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { AuditStateManager } from "../../managers/types"
@@ -27,6 +28,36 @@ interface ConsistentStateResult {
 
 const SAVE_MUTEX_TIMEOUT_MS = 30_000
 const MAX_SAVE_CAS_RETRIES = 10
+const LEGACY_OBSERVATION_ID_PATTERN = /^obs-\d+$/
+
+function generateDeterministicFindingId(
+  check: string,
+  file: string,
+  lines: [number, number],
+): string {
+  return createHash("sha256")
+    .update(`${check}:${file}:${lines[0]}-${lines[1]}`)
+    .digest("hex")
+    .substring(0, 16)
+}
+
+function migrateLegacyFindingIds(state: AuditState): number {
+  let migratedCount = 0
+
+  state.findings = state.findings.map((finding) => {
+    if (!LEGACY_OBSERVATION_ID_PATTERN.test(finding.id)) {
+      return finding
+    }
+
+    migratedCount += 1
+    return {
+      ...finding,
+      id: generateDeterministicFindingId(finding.check, finding.file, finding.lines),
+    }
+  })
+
+  return migratedCount
+}
 
 export function createAsyncMutex(timeoutMs = SAVE_MUTEX_TIMEOUT_MS) {
   const logger = createLogger()
@@ -157,6 +188,7 @@ export function createDebouncedSave(
 ): {
   save: (state: AuditState) => void
   flush: () => Promise<void>
+  dispose: () => void
 } {
   let timer: ReturnType<typeof setTimeout> | null = null
   const pendingStates: AuditState[] = []
@@ -207,6 +239,13 @@ export function createDebouncedSave(
       }
 
       await enqueuePersist()
+    },
+    dispose(): void {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      pendingStates.length = 0
     },
   }
 }
@@ -325,7 +364,13 @@ export function createAuditStateManager(
         }
       }
 
-      // 2. If no session file found, scan sessions dir for most recent
+      // 2. Bound sessions with no matching file start clean — no cross-session contamination
+      if (!readPath && boundSessionId) {
+        logger.info("Starting new audit session with clean state")
+        return null
+      }
+
+      // 3. Unbound: scan sessions dir for most recent (backward compat)
       if (!readPath) {
         try {
           const entries = await readdir(sessionsDirPath)
@@ -348,16 +393,16 @@ export function createAuditStateManager(
             if (newest) {
               readPath = join(sessionsDirPath, newest.name)
               logger.debug(
-                `No session-scoped file for ${boundSessionId ?? "(unbound)"}, falling back to newest: ${newest.name}`,
+                `No session-scoped file for (unbound), falling back to newest: ${newest.name}`,
               )
             }
           }
         } catch {
-          // sessions dir doesn't exist yet — that's fine
+          // sessions dir doesn't exist yet
         }
       }
 
-      // 3. If no sessions dir, try legacy shared file
+      // 4. Unbound: try legacy shared file
       if (!readPath) {
         const resolvedPath = resolver.resolveReadPath(projectDir, STATE_FILE_NAME)
         const legacyPath = resolvedPath ?? sharedStateFilePath
@@ -401,6 +446,11 @@ export function createAuditStateManager(
         if (!state.fuzzCounterexamples) {
           state.fuzzCounterexamples = []
         }
+      }
+
+      const migratedFindingCount = migrateLegacyFindingIds(state)
+      if (migratedFindingCount > 0) {
+        logger.info(`Migrating ${migratedFindingCount} finding IDs to deterministic format`)
       }
 
       if (snapshotSeq !== undefined) {
@@ -531,6 +581,21 @@ export function createAuditStateManager(
     await save(currentState)
   }
 
+  let disposed = false
+
+  async function dispose(): Promise<void> {
+    if (disposed) {
+      return
+    }
+    disposed = true
+
+    try {
+      await save(currentState)
+    } catch (err) {
+      logger.warn("Failed to flush state during dispose", err)
+    }
+  }
+
   return {
     bindSession,
     load,
@@ -539,5 +604,6 @@ export function createAuditStateManager(
     update,
     reset,
     archive,
+    dispose,
   }
 }

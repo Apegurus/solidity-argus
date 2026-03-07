@@ -153,7 +153,7 @@ test("executeReportGeneration creates complete markdown report with findings by 
   expect(result.report).toContain("| Informational | 1 |")
 
   const today = new Date().toISOString().slice(0, 10)
-  expect(result.filename).toBe(`TestVault-security-audit-${today}.md`)
+  expect(result.filename).toMatch(new RegExp(`^TestVault-security-audit-${today}(-.{1,8})?\\.md$`))
 })
 
 test("executeReportGeneration applies medium severity threshold", async () => {
@@ -947,7 +947,7 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
 
     expect(result.filePath).toBeDefined()
     const filename = path.basename(result.filePath ?? "")
-    expect(filename).toMatch(/^My-Cool-Project-security-audit-\d{4}-\d{2}-\d{2}\.md$/)
+    expect(filename).toMatch(/^My-Cool-Project-security-audit-\d{4}-\d{2}-\d{2}(-.{1,8})?\.md$/)
     expect(filename).not.toMatch(/[!@#$]/)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
@@ -1428,8 +1428,8 @@ test("filename date matches body audit date (parity)", async () => {
     createContext(),
   )
 
-  // Extract date from filename: ParityProject-security-audit-YYYY-MM-DD.md
-  const filenameMatch = result.filename.match(/-(\d{4}-\d{2}-\d{2})\.md$/)
+  // Extract date from filename: ParityProject-security-audit-YYYY-MM-DD[-runId8].md
+  const filenameMatch = result.filename.match(/-(\d{4}-\d{2}-\d{2})(?:-.{1,8})?\.md$/)
   expect(filenameMatch).not.toBeNull()
   if (!filenameMatch) {
     throw new Error("expected filename to contain date suffix")

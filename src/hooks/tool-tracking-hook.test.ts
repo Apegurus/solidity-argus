@@ -1530,7 +1530,7 @@ Content...`
   })
 
   describe("drop diagnostics", () => {
-    test("truncated output emits completed event with non-negative findingsCount", async () => {
+    test("truncated output emits completed event as non-success with error", async () => {
       const sink = createMockSink()
       const hookWithDiag = createToolTrackingHook(() => auditState, undefined, {
         getEventSink: () => sink,
@@ -1551,8 +1551,9 @@ Content...`
 
       const payload = completed[0]?.payload as Record<string, unknown>
       expect(payload.tool).toBe("argus_check_patterns")
-      expect(payload.success).toBe(true)
+      expect(payload.success).toBe(false)
       expect(payload.findingsCount).toBe(0)
+      expect(payload.error).toContain("truncated")
     })
 
     test("malformed JSON emits MALFORMED_JSON diagnostic", async () => {
@@ -1677,6 +1678,260 @@ Content...`
       const diags = hookWarn.getLastDiagnostics()
       expect(diags).toHaveLength(1)
       expect(diags[0]?.reason.code).toBe("MISSING_REQUIRED_FIELD")
+    })
+
+    test("truncated JSON output is NOT treated as success with 0 findings", async () => {
+      const sink = createMockSink()
+      const hookWithDiag = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      const truncatedJson = '{"success": true, "findings": [{"check": "reentrancy"'
+
+      await hookWithDiag({
+        tool: "argus_slither_analyze",
+        args: { target: "." },
+        result: truncatedJson,
+      })
+
+      const diags = hookWithDiag.getLastDiagnostics()
+      expect(diags).toHaveLength(1)
+      expect(diags[0]?.reason.code).toBe("TRUNCATED_OUTPUT")
+
+      const completed = sink.events.filter((e) => e.type === "tool.completed")
+      expect(completed).toHaveLength(1)
+
+      const payload = completed[0]?.payload as Record<string, unknown>
+      expect(payload.success).toBe(false)
+      expect(payload.error).toContain("truncated")
+    })
+
+    test("OpenCode truncation message is NOT treated as success", async () => {
+      const sink = createMockSink()
+      const hookWithDiag = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithDiag({
+        tool: "argus_check_patterns",
+        args: { target: "." },
+        result: "... output was truncated ... 2048 bytes truncated ...",
+      })
+
+      const diags = hookWithDiag.getLastDiagnostics()
+      expect(diags).toHaveLength(1)
+      expect(diags[0]?.reason.code).toBe("TRUNCATED_OUTPUT")
+
+      const completed = sink.events.filter((e) => e.type === "tool.completed")
+      expect(completed).toHaveLength(1)
+
+      const payload = completed[0]?.payload as Record<string, unknown>
+      expect(payload.success).toBe(false)
+      expect(payload.error).toContain("truncated")
+    })
+  })
+
+  describe("event enrichment for replay", () => {
+    test("solodit_search tool.completed carries soloditResults", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_solodit_search",
+        args: { query: "reentrancy" },
+        result: JSON.stringify({
+          results: [
+            {
+              title: "Reentrancy in withdraw",
+              severity: "High",
+              url: "https://solodit.xyz/1",
+              protocol: "Compound",
+            },
+          ],
+          totalFound: 1,
+          query: "reentrancy",
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.soloditResults).toBeDefined()
+      expect(Array.isArray(payload.soloditResults)).toBe(true)
+      const results = payload.soloditResults as Array<Record<string, unknown>>
+      expect(results).toHaveLength(1)
+      expect(results[0]?.query).toBe("reentrancy")
+    })
+
+    test("forge_fuzz tool.completed carries fuzzCounterexamples", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_forge_fuzz",
+        args: { target: "." },
+        result: JSON.stringify({
+          counterexamples: [{ testName: "testFuzz_withdraw(uint256)", inputs: ["999"] }],
+          totalRuns: 128,
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.fuzzCounterexamples).toBeDefined()
+      const ces = payload.fuzzCounterexamples as Array<Record<string, unknown>>
+      expect(ces).toHaveLength(1)
+      expect(ces[0]?.testName).toBe("testFuzz_withdraw(uint256)")
+    })
+
+    test("forge_coverage tool.completed carries coverageReport", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_forge_coverage",
+        args: { target: "." },
+        result: JSON.stringify({
+          report: {
+            files: [
+              {
+                path: "src/Vault.sol",
+                linesPct: 85,
+                statementsPct: 80,
+                branchesPct: 70,
+                functionsPct: 90,
+              },
+            ],
+          },
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.coverageReport).toBeDefined()
+      const report = payload.coverageReport as Record<string, unknown>
+      expect(Array.isArray(report.files)).toBe(true)
+    })
+
+    test("gas_analysis tool.completed carries gasHotspots", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_gas_analysis",
+        args: { target: "." },
+        result: JSON.stringify({
+          hotspots: [{ contract: "Vault", function: "withdraw", avgGas: 150000 }],
+          threshold: 50000,
+          totalContracts: 1,
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.gasHotspots).toBeDefined()
+      const hotspots = payload.gasHotspots as Array<Record<string, unknown>>
+      expect(hotspots).toHaveLength(1)
+      expect(hotspots[0]?.contract).toBe("Vault")
+    })
+
+    test("proxy_detection tool.completed carries proxyContracts", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_proxy_detection",
+        args: { file_path: "src/VaultProxy.sol" },
+        result: JSON.stringify({
+          isProxy: true,
+          file: "src/VaultProxy.sol",
+          proxyType: "UUPS",
+          indicators: ["delegatecall"],
+          confidence: "High",
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.proxyContracts).toBeDefined()
+      const proxies = payload.proxyContracts as Array<Record<string, unknown>>
+      expect(proxies).toHaveLength(1)
+      expect(proxies[0]?.proxyType).toBe("UUPS")
+    })
+
+    test("skill_load tool.completed carries skillsLoaded", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_skill_load",
+        args: { name: "reentrancy" },
+        result: `## Argus Skill: reentrancy [Source: bundled]\n\n**Source**: bundled\n**Path**: skills/reentrancy.md\n\n# Reentrancy`,
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.skillsLoaded).toBeDefined()
+      const skills = payload.skillsLoaded as string[]
+      expect(skills).toContain("reentrancy")
+    })
+
+    test("check_patterns tool.completed carries patternVersion", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_check_patterns",
+        args: { target: "." },
+        result: JSON.stringify({
+          sources: [],
+          patternsChecked: 5,
+          patternVersion: "1.0.0",
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(true)
+      expect(payload.patternVersion).toBe("1.0.0")
+      expect(auditState.patternVersion).toBe("1.0.0")
+    })
+
+    test("failed tool does not include enrichment data", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_solodit_search",
+        args: { query: "test" },
+        result: "not valid json",
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const payload = completed?.payload as Record<string, unknown>
+      expect(payload.success).toBe(false)
+      expect(payload.soloditResults).toBeUndefined()
     })
   })
 })

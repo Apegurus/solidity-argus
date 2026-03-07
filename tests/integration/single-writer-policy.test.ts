@@ -89,7 +89,8 @@ describe("single-writer policy", () => {
 
       const filename = path.basename(result.filePath ?? "")
       const auditDate = new Date().toISOString().slice(0, 10)
-      expect(filename).toBe(`PolicyTest-security-audit-${auditDate}.md`)
+      const runIdPrefix = sessionId.substring(0, 8)
+      expect(filename).toBe(`PolicyTest-security-audit-${auditDate}-${runIdPrefix}.md`)
 
       const content = await Bun.file(result.filePath ?? "").text()
       expect(content).toContain("<!-- argus:report_metadata")

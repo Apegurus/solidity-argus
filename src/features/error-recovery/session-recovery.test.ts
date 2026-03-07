@@ -13,6 +13,7 @@ function makeMockManager(state: AuditState | null = null): AuditStateManager {
     update: async () => {},
     reset: async () => {},
     archive: async () => {},
+    dispose: async () => {},
   }
 }
 

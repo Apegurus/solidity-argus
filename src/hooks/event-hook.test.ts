@@ -217,6 +217,35 @@ describe("createEventHook", () => {
       expect(payload.projectDir).toBe("/tmp/recovered")
       expect(payload.sessionId).toBe("recovered-id")
       expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+      expect(payload.scope).toEqual([])
+    })
+
+    it("session.created payload includes scope when populated", async () => {
+      const sink = createMockSink()
+      const subHandler: EventSubHandler = async ({ setAuditState: setState }) => {
+        setState({
+          sessionId: "run-with-scope",
+          projectDir: "/tmp/scoped",
+          contractsReviewed: [],
+          findings: [],
+          toolsExecuted: [],
+          currentPhase: "reconnaissance",
+          scope: ["src/Vault.sol", "src/Token.sol"],
+          startTime: Date.now(),
+        })
+      }
+
+      const { hook, setEventSink } = createEventHook("/tmp", [
+        async (ev) => {
+          setEventSink(sink)
+          await subHandler(ev)
+        },
+      ])
+
+      await hook({ event: sdkEvent("session.created", "oc-session-2") })
+
+      const payload = sink.events[0]?.payload as Record<string, unknown>
+      expect(payload.scope).toEqual(["src/Vault.sol", "src/Token.sol"])
     })
 
     it("emits session.idle to sink with state summary", async () => {

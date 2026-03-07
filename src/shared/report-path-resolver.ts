@@ -37,11 +37,12 @@ export function formatReportDate(date: Date): string {
 }
 
 export function sanitizeContractName(name: string): string {
-  return name
+  const sanitized = name
     .replace(/\s+/g, "-")
     .replace(/[^a-zA-Z0-9-]/g, "")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
+  return sanitized || "unnamed-contract"
 }
 
 export function resolveReportPath(options: ReportPathOptions): ResolvedReportPath {
@@ -57,7 +58,8 @@ export function resolveReportPath(options: ReportPathOptions): ResolvedReportPat
   const resolvedDate = date ?? new Date()
   const dateStr = formatReportDate(resolvedDate)
   const sanitizedName = sanitizeContractName(contractName)
-  const filename = `${sanitizedName}-security-audit-${dateStr}.md`
+  const runIdSuffix = runId ? `-${runId.substring(0, 8)}` : ""
+  const filename = `${sanitizedName}-security-audit-${dateStr}${runIdSuffix}.md`
   const filePath = join(outputDir, filename)
   const canonicalId = runId ?? filename
 

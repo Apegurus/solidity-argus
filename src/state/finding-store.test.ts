@@ -31,7 +31,7 @@ function createPersistedFinding(check: string, file: string, lines: [number, num
 }
 
 describe("FindingStore", () => {
-  test("appends observations without early deduplication", () => {
+  test("generateObservationId produces same ID for same content", () => {
     const state = createBaseState()
     const store = createFindingStore(state)
 
@@ -56,7 +56,56 @@ describe("FindingStore", () => {
     })
 
     expect(state.findings.length).toBe(2)
+    expect(first.id).toBe(second.id)
+  })
+
+  test("generateObservationId produces different IDs for different content", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+
+    const first = store.addFinding({
+      check: "reentrancy-eth",
+      severity: "High",
+      confidence: "High",
+      description: "First observation",
+      file: "Vault.sol",
+      lines: [10, 15],
+      source: "slither",
+    })
+
+    const second = store.addFinding({
+      check: "unchecked-call",
+      severity: "High",
+      confidence: "High",
+      description: "Same file and lines, different check",
+      file: "Vault.sol",
+      lines: [10, 15],
+      source: "manual",
+    })
+
     expect(first.id).not.toBe(second.id)
+  })
+
+  test("generateObservationId does not use a counter", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+
+    const ids = new Set<string>()
+
+    for (let i = 0; i < 100; i += 1) {
+      const finding = store.addFinding({
+        check: "reentrancy-eth",
+        severity: "High",
+        confidence: "High",
+        description: `Observation ${i}`,
+        file: "Vault.sol",
+        lines: [10, 15],
+        source: "manual",
+      })
+      ids.add(finding.id)
+    }
+
+    expect(ids.size).toBe(1)
   })
 
   test("hydrates persisted findings and supports hasFinding", () => {
