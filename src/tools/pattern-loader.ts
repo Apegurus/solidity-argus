@@ -36,9 +36,15 @@ function listSkillMarkdownFiles(skillsDir: string): string[] {
   return files
 }
 
-export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefinition[] {
+export interface PatternLoaderResult {
+  patterns: PatternDefinition[]
+  errors: string[]
+}
+
+export function extractDetectionRulesFromSkills(skillsDir: string): PatternLoaderResult {
   const skillFiles = listSkillMarkdownFiles(skillsDir)
   const extracted: PatternDefinition[] = []
+  const errors: string[] = []
 
   for (const filePath of skillFiles) {
     try {
@@ -47,7 +53,13 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefin
       if (!frontmatter) continue
 
       const parsed = SkillFrontmatterSchema.safeParse(frontmatter)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        const reason = parsed.error.issues.map((i) => i.message).join("; ")
+        const msg = `Failed to parse ${filePath}: ${reason}`
+        logger.warn(msg)
+        errors.push(msg)
+        continue
+      }
 
       const skillName = parsed.data.name
       const category = parsed.data.pattern_category
@@ -69,9 +81,11 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefin
         })
       }
     } catch (err) {
-      logger.warn(`Skipping ${filePath}: ${err instanceof Error ? err.message : "parse error"}`)
+      const msg = `Failed to parse ${filePath}: ${err instanceof Error ? err.message : "parse error"}`
+      logger.warn(msg)
+      errors.push(msg)
     }
   }
 
-  return extracted
+  return { patterns: extracted, errors }
 }

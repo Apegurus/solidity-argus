@@ -270,4 +270,27 @@ describe("ArgusConfigSchema", () => {
       ArgusConfigSchema.safeParse(config)
     }).not.toThrow()
   })
+
+  it("rejects unknown top-level keys (strict mode)", () => {
+    const config = {
+      disbled_hooks: ["hook1"],
+    }
+
+    const result = ArgusConfigSchema.safeParse(config)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const hasUnrecognizedKey = result.error.issues.some((i) => i.code === "unrecognized_keys")
+      expect(hasUnrecognizedKey).toBe(true)
+    }
+  })
+
+  it("rejects multiple unknown top-level keys", () => {
+    const config = {
+      unknownField: true,
+      anotherBadKey: "value",
+    }
+
+    const result = ArgusConfigSchema.safeParse(config)
+    expect(result.success).toBe(false)
+  })
 })

@@ -22,7 +22,12 @@ let monitorTimer: ReturnType<typeof setInterval> | null = null
 let isRestarting = false
 
 /** Whether the Solodit MCP server is currently available for tool calls. */
-export let soloditAvailable = false
+let _soloditAvailable = false
+
+/** Returns whether the Solodit MCP server is currently available. */
+export function isSoloditAvailable(): boolean {
+  return _soloditAvailable
+}
 
 let lifecycleState: LifecycleState = "stopped"
 let lifecycleError: string | undefined
@@ -136,7 +141,7 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
   // Pre-check: if existing instance recovered, skip restart entirely
   const preCheck = await checkSoloditHealth(port, true)
   if (preCheck.reachable) {
-    soloditAvailable = true
+    _soloditAvailable = true
     lifecycleState = "running"
     lifecycleError = undefined
     logger.info("Solodit MCP already healthy — skipping restart")
@@ -162,7 +167,7 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
     logger.warn(`Solodit MCP spawn failed: ${message}`)
     lifecycleState = "failed"
     lifecycleError = message
-    soloditAvailable = false
+    _soloditAvailable = false
     return false
   }
 
@@ -183,7 +188,7 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
   )
 
   if (result.success) {
-    soloditAvailable = true
+    _soloditAvailable = true
     lifecycleState = "running"
     lifecycleError = undefined
     logger.info("Solodit MCP restarted successfully")
@@ -202,14 +207,14 @@ export async function _runMonitoringCycle(port: number): Promise<void> {
   try {
     const health = await checkSoloditHealth(port, true)
     if (health.reachable) {
-      if (!soloditAvailable) {
-        soloditAvailable = true
+      if (!_soloditAvailable) {
+        _soloditAvailable = true
         lifecycleState = "running"
         lifecycleError = undefined
         logger.info("Solodit MCP recovered — now available")
       }
-    } else if (soloditAvailable) {
-      soloditAvailable = false
+    } else if (_soloditAvailable) {
+      _soloditAvailable = false
       logger.warn("Solodit MCP health check failed, attempting restart...")
       isRestarting = true
       try {
@@ -244,7 +249,7 @@ export function stopSoloditMonitoring(): void {
 /** Reset all Solodit state — for testing only. */
 export function _resetSoloditState(): void {
   stopSoloditMonitoring()
-  soloditAvailable = false
+  _soloditAvailable = false
   isRestarting = false
   lifecycleState = "stopped"
   lifecycleError = undefined
@@ -263,9 +268,9 @@ export function _resetSoloditState(): void {
   exitHandlerRegistered = false
 }
 
-/** Set soloditAvailable flag — for testing only. */
+/** Set _soloditAvailable flag — for testing only. */
 export function _setSoloditAvailable(value: boolean): void {
-  soloditAvailable = value
+  _soloditAvailable = value
 }
 
 export async function startSoloditMcp(port: number): Promise<void> {
@@ -277,7 +282,7 @@ export async function startSoloditMcp(port: number): Promise<void> {
   const health = await checkSoloditHealth(port, true)
   if (health.reachable) {
     logger.debug(`Solodit MCP already running on port ${port} — skipping spawn`)
-    soloditAvailable = true
+    _soloditAvailable = true
     lifecycleState = "running"
     startMonitoring(port)
     return
@@ -291,7 +296,7 @@ export async function startSoloditMcp(port: number): Promise<void> {
     logger.warn(`Solodit MCP startup failed: ${message}`)
     lifecycleState = "failed"
     lifecycleError = message
-    soloditAvailable = false
+    _soloditAvailable = false
     startMonitoring(port)
     return
   }
@@ -304,13 +309,13 @@ export async function startSoloditMcp(port: number): Promise<void> {
     if (deadline.aborted) break
     const healthResult = await checkSoloditHealth(port, true)
     if (healthResult.reachable) {
-      soloditAvailable = true
+      _soloditAvailable = true
       lifecycleState = "running"
       logger.debug(`Solodit MCP healthy on port ${port}`)
       break
     }
   }
-  if (!soloditAvailable) {
+  if (!_soloditAvailable) {
     lifecycleState = "failed"
     lifecycleError = "Solodit MCP not reachable after startup — monitoring will retry"
     logger.warn(lifecycleError)

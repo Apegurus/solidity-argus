@@ -16,8 +16,10 @@ export function createManagers(args: {
   const backgroundManager = createBackgroundManager(
     backgroundDispatcher ??
       (async (agentName: string, prompt: string) => {
-        logger.warn(`Background dispatch not wired: ${agentName} (${prompt.slice(0, 50)}...)`)
-        return `noop-${Date.now()}`
+        logger.warn(
+          `Background dispatcher not configured — task will not be executed: ${agentName} (${prompt.slice(0, 50)}...)`,
+        )
+        return ""
       }),
     { maxConcurrent: config.background?.max_concurrent ?? 3 },
   )

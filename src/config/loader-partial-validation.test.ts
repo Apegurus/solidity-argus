@@ -91,4 +91,31 @@ describe("_mergeConfigs partial field validation", () => {
     expect(newLogs).toContain("solodit")
     expect(newLogs).not.toContain("'reporting'")
   })
+
+  test("warns about unknown top-level keys (typos like disbled_hooks)", () => {
+    const config = _mergeConfigs(
+      {
+        disbled_hooks: ["hook1"],
+        disabled_hooks: ["hook2"],
+      },
+      null,
+    )
+
+    expect(config.disabled_hooks).toEqual(["hook2"])
+
+    const newLogs = getLogContent().slice(logBefore.length)
+    expect(newLogs).toContain("[WARN]")
+    expect(newLogs).toContain("disbled_hooks")
+  })
+
+  test("warns about unknown top-level keys from project config", () => {
+    _mergeConfigs(null, {
+      unknownKey: "some-value",
+      reporting: { severityThreshold: "high" },
+    })
+
+    const newLogs = getLogContent().slice(logBefore.length)
+    expect(newLogs).toContain("[WARN]")
+    expect(newLogs).toContain("unknownKey")
+  })
 })

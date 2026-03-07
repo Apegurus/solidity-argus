@@ -14,7 +14,7 @@ import { PATTERN_CATEGORIES, type PatternCategory } from "./pattern-schema"
 const SKILLS_DIR = join(dirname(dirname(__dirname)), "skills")
 
 function expectedPatternsChecked(categories?: string[]): number {
-  const skillPatterns = extractDetectionRulesFromSkills(SKILLS_DIR)
+  const { patterns: skillPatterns } = extractDetectionRulesFromSkills(SKILLS_DIR)
 
   if (!categories || categories.length === 0) {
     return skillPatterns.length

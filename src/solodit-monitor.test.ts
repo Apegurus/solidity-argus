@@ -38,7 +38,7 @@ describe("Solodit monitoring", () => {
   })
 
   it("soloditAvailable defaults to false", () => {
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
   })
 
   it("monitoring cycle sets flag to true when health check passes", async () => {
@@ -49,7 +49,7 @@ describe("Solodit monitoring", () => {
 
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
   })
 
   it("monitoring cycle keeps flag true on consecutive healthy checks", async () => {
@@ -61,7 +61,7 @@ describe("Solodit monitoring", () => {
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
   })
 
   it("monitoring cycle sets flag to false when previously available server fails", async () => {
@@ -70,14 +70,14 @@ describe("Solodit monitoring", () => {
       status: 200,
     })) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
 
     globalThis.fetch = (async () => {
       throw new Error("Connection refused")
     }) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
   })
 
   it("auto-restart triggered on failure restores availability when health recovers", async () => {
@@ -86,7 +86,7 @@ describe("Solodit monitoring", () => {
       status: 200,
     })) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
 
     let callCount = 0
     globalThis.fetch = (async () => {
@@ -99,7 +99,7 @@ describe("Solodit monitoring", () => {
 
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
   })
 
   it("monitoring cycle detects recovery after full failure", async () => {
@@ -113,7 +113,7 @@ describe("Solodit monitoring", () => {
       throw new Error("Dead")
     }) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
 
     globalThis.fetch = (async () => ({
       ok: true,
@@ -121,7 +121,7 @@ describe("Solodit monitoring", () => {
     })) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
   })
 
   it("monitoring cycle does not attempt restart when never available", async () => {
@@ -131,7 +131,7 @@ describe("Solodit monitoring", () => {
 
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
   })
 
   it("monitoring cycle survives health check throwing synchronously", async () => {
@@ -141,7 +141,7 @@ describe("Solodit monitoring", () => {
 
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
   })
 
   it("stopSoloditMonitoring is idempotent", () => {
@@ -151,9 +151,9 @@ describe("Solodit monitoring", () => {
 
   it("_resetSoloditState clears flag and is re-entrant", () => {
     _resetSoloditState()
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
     _resetSoloditState()
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
   })
 
   it("plugin initializes gracefully when Solodit never starts", async () => {
@@ -168,7 +168,7 @@ describe("Solodit monitoring", () => {
 
     expect(result.tool).toBeDefined()
     expect(Object.keys(result.tool ?? {}).length).toBeGreaterThan(0)
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
   })
 
   it("restart uses mock spawn function instead of real Bun.spawn", async () => {
@@ -281,7 +281,7 @@ describe("Solodit healthy instance reuse", () => {
     await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
     expect(spawnCalled).toBe(false)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
     expect(getLifecycleStatus().state).toBe("running")
   })
 
@@ -291,7 +291,7 @@ describe("Solodit healthy instance reuse", () => {
       status: 200,
     })) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
 
     let fetchCallCount = 0
     globalThis.fetch = (async () => {
@@ -315,7 +315,7 @@ describe("Solodit healthy instance reuse", () => {
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
     expect(spawnCalled).toBe(false)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
     expect(getLifecycleStatus().state).toBe("running")
   })
 })
@@ -355,7 +355,7 @@ describe("Solodit spawn error handling", () => {
 
     await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
     const status = getLifecycleStatus()
     expect(status.state).toBe("failed")
     expect(status.error).toContain("EADDRINUSE")
@@ -378,7 +378,7 @@ describe("Solodit spawn error handling", () => {
 
     await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
     const status = getLifecycleStatus()
     expect(status.state).toBe("failed")
     expect(status.error).toContain("ENOENT")
@@ -397,7 +397,7 @@ describe("Solodit spawn error handling", () => {
 
     await startSoloditMcp(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
     const status = getLifecycleStatus()
     expect(status.state).toBe("failed")
     expect(status.error).toContain("Unexpected spawn failure")
@@ -409,7 +409,7 @@ describe("Solodit spawn error handling", () => {
       status: 200,
     })) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
 
     globalThis.fetch = (async () => {
       throw new Error("Dead")
@@ -427,7 +427,7 @@ describe("Solodit spawn error handling", () => {
 
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(false)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(false)
     const status = getLifecycleStatus()
     expect(status.state).toBe("failed")
     expect(status.error).toContain("EADDRINUSE")
@@ -457,7 +457,7 @@ describe("Solodit deterministic restart", () => {
       status: 200,
     })) as unknown as typeof fetch
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
 
     let fetchCallCount = 0
     globalThis.fetch = (async () => {
@@ -476,7 +476,7 @@ describe("Solodit deterministic restart", () => {
 
     await _runMonitoringCycle(DEFAULT_SOLODIT_PORT)
 
-    expect(lifecycleModule.soloditAvailable).toBe(true)
+    expect(lifecycleModule.isSoloditAvailable()).toBe(true)
     expect(getLifecycleStatus().state).toBe("running")
   })
 

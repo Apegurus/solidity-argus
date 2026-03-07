@@ -677,6 +677,7 @@ export function createHooks(args: {
             },
           ),
         "tool-tracking",
+        { critical: true },
       )
     : undefined
 
@@ -760,6 +761,7 @@ export function createHooks(args: {
               )
               for (const trackedRunId of Array.from(eventSinksByRunId.keys())) {
                 if (!activeRunIds.has(trackedRunId)) {
+                  releaseEventSink(trackedRunId)
                   eventSinksByRunId.delete(trackedRunId)
                 }
               }
@@ -778,6 +780,7 @@ export function createHooks(args: {
           }
         },
         "event",
+        { critical: true },
       )
     : undefined
 

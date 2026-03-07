@@ -504,4 +504,60 @@ describe("createEventHook", () => {
       expect(sink.events).toHaveLength(0)
     })
   })
+
+  describe("getAuditState fallback consistency", () => {
+    const makeState = (sessionId: string) => ({
+      sessionId,
+      projectDir: "/tmp",
+      contractsReviewed: [],
+      findings: [],
+      toolsExecuted: [],
+      currentPhase: "scanning" as const,
+      scope: [],
+      startTime: Date.now(),
+    })
+
+    it("getAuditState(undefined) returns fallback state consistently regardless of session count", () => {
+      const { getAuditState, setAuditState } = createEventHook()
+
+      // Set fallback state (no sessionId)
+      setAuditState(makeState("fallback-run"))
+
+      // With zero sessions in map, fallback is returned
+      const stateZeroSessions = getAuditState(undefined)
+      expect(stateZeroSessions).not.toBeNull()
+      expect(stateZeroSessions?.sessionId).toBe("fallback-run")
+
+      // Add a session to the map
+      setAuditState(makeState("session-1-run"), "session-1")
+
+      // With one session in map, getAuditState(undefined) should still return a consistent state
+      // (activeSessionId is now "session-1", so it returns session-1's state ?? fallback)
+      const stateOneSession = getAuditState(undefined)
+      expect(stateOneSession).not.toBeNull()
+
+      // Add a second session to the map
+      setAuditState(makeState("session-2-run"), "session-2")
+
+      // With two sessions in map, getAuditState(undefined) should still return a consistent state
+      const stateTwoSessions = getAuditState(undefined)
+      expect(stateTwoSessions).not.toBeNull()
+    })
+
+    it("getAuditState(unknownSessionId) returns fallback when session not found, even with other sessions present", () => {
+      const { getAuditState, setAuditState } = createEventHook()
+
+      // Set fallback state
+      setAuditState(makeState("fallback-run"))
+
+      // Add a session to the map
+      setAuditState(makeState("session-1-run"), "session-1")
+
+      // Querying an unknown sessionId should return fallback, not null
+      // Bug: currently returns null when statesBySessionId.size > 0
+      const result = getAuditState("unknown-session")
+      expect(result).not.toBeNull()
+      expect(result?.sessionId).toBe("fallback-run")
+    })
+  })
 })

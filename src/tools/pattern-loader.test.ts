@@ -38,7 +38,7 @@ detection_rules:
 # Reentrancy`,
     )
 
-    const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    const { patterns: rules } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
     expect(rules).toHaveLength(1)
     expect(rules[0]?.name).toBe("reentrancy-rule-1")
     expect(rules[0]?.category).toBe("reentrancy")
@@ -58,8 +58,8 @@ pattern_category: reentrancy
 # Reentrancy`,
     )
 
-    const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
-    expect(rules).toEqual([])
+    const { patterns } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toEqual([])
   })
 
   it("ignores skills without pattern_category even if they have detection_rules", () => {
@@ -77,8 +77,8 @@ detection_rules:
 # Some Skill`,
     )
 
-    const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
-    expect(rules).toEqual([])
+    const { patterns } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toEqual([])
   })
 
   it("discovers skills dynamically from any pattern_category", () => {
@@ -111,7 +111,7 @@ detection_rules:
 # Signatures`,
     )
 
-    const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    const { patterns: rules } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
     expect(rules).toHaveLength(2)
 
     const dosRule = rules.find((r) => r.category === "dos")
@@ -142,7 +142,7 @@ detection_rules:
 # Multi`,
     )
 
-    const rules = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    const { patterns: rules } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
     expect(rules).toHaveLength(2)
     expect(rules[0]?.name).toBe("multi-rule-rule-1")
     expect(rules[0]?.category).toBe("access-control")
@@ -151,22 +151,44 @@ detection_rules:
   })
 })
 
+describe("error reporting", () => {
+  it("returns parse errors in the errors array when SKILL.md has malformed frontmatter", () => {
+    writeSkill(
+      "vulnerability-patterns/bad-skill",
+      `---
+name: bad-skill
+detection_rules:
+  - regex: [unclosed bracket
+    severity: High
+    description: bad
+---
+
+# Bad Skill`,
+    )
+
+    const { patterns, errors } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(errors.length).toBeGreaterThanOrEqual(1)
+    expect(errors[0]).toContain("bad-skill")
+    expect(patterns).toEqual([])
+  })
+})
+
 describe("production skill detection rules (skills/vulnerability-patterns/)", () => {
   const PRODUCTION_SKILLS_DIR = resolve(import.meta.dir, "../../skills")
 
   it("extracts detection rules from all skills with pattern_category", () => {
-    const rules = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
+    const { patterns: rules } = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
     expect(rules.length).toBeGreaterThanOrEqual(46)
   })
 
   it("covers at least 9 distinct pattern categories from skills", () => {
-    const rules = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
+    const { patterns: rules } = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
     const categories = new Set(rules.map((r) => r.category))
     expect(categories.size).toBeGreaterThanOrEqual(9)
   })
 
   it("all extracted rules have valid regex", () => {
-    const rules = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
+    const { patterns: rules } = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
     for (const rule of rules) {
       expect(() => new RegExp(rule.regex)).not.toThrow()
     }

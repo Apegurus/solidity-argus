@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "@opencode-ai/plugin"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createLogger } from "../shared/logger"
-import { soloditAvailable } from "../solodit-lifecycle"
+import { isSoloditAvailable } from "../solodit-lifecycle"
 
 const logger = createLogger()
 
@@ -193,7 +193,7 @@ async function callSoloditMcpHttp(
   port: number,
   fetchImpl: SoloditFetch = fetch,
 ): Promise<SoloditSearchResult | null> {
-  if (!soloditAvailable) {
+  if (!isSoloditAvailable()) {
     logger.debug(`[solodit] MCP not available — skipping HTTP primary path`)
     return null
   }

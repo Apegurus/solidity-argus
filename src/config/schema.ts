@@ -47,44 +47,46 @@ const MigrationConfigSchema = z.object({
   mode: z.enum(["legacy", "dual", "strict"]).default("legacy"),
 })
 
-export const ArgusConfigSchema = z.object({
-  agents: z
-    .object({
-      argus: AgentConfigSchema.default({}),
-      sentinel: AgentConfigSchema.default({}),
-      pythia: AgentConfigSchema.default({}),
-      scribe: AgentConfigSchema.default({}),
-    })
-    .default({
-      argus: {},
-      sentinel: {},
-      pythia: {},
-      scribe: {},
+export const ArgusConfigSchema = z
+  .object({
+    agents: z
+      .object({
+        argus: AgentConfigSchema.default({}),
+        sentinel: AgentConfigSchema.default({}),
+        pythia: AgentConfigSchema.default({}),
+        scribe: AgentConfigSchema.default({}),
+      })
+      .default({
+        argus: {},
+        sentinel: {},
+        pythia: {},
+        scribe: {},
+      }),
+    tools: ToolsConfigSchema.default({}),
+    knowledge: KnowledgeConfigSchema.default({
+      scvd: {
+        enabled: true,
+        apiUrl: "https://api.scvd.dev",
+      },
+      autoSync: true,
+      skillPrecedence: "bundled-first",
     }),
-  tools: ToolsConfigSchema.default({}),
-  knowledge: KnowledgeConfigSchema.default({
-    scvd: {
+    reporting: ReportingConfigSchema.default({
+      format: "markdown",
+      severityThreshold: "low",
+      gasAnalysis: false,
+      output_dir: ".argus/reports/",
+    }),
+    solodit: SoloditConfigSchema.default({
       enabled: true,
-      apiUrl: "https://api.scvd.dev",
-    },
-    autoSync: true,
-    skillPrecedence: "bundled-first",
-  }),
-  reporting: ReportingConfigSchema.default({
-    format: "markdown",
-    severityThreshold: "low",
-    gasAnalysis: false,
-    output_dir: ".argus/reports/",
-  }),
-  solodit: SoloditConfigSchema.default({
-    enabled: true,
-    port: 54173,
-  }),
-  disabled_hooks: z.array(z.string()).default([]),
-  hooks: z.record(z.string(), z.any()).default({}),
-  cli: z.record(z.string(), z.any()).default({}),
-  background: BackgroundConfigSchema.default({
-    max_concurrent: 3,
-  }),
-  migration: MigrationConfigSchema.optional(),
-})
+      port: 54173,
+    }),
+    disabled_hooks: z.array(z.string()).default([]),
+    hooks: z.record(z.string(), z.any()).default({}),
+    cli: z.record(z.string(), z.any()).default({}),
+    background: BackgroundConfigSchema.default({
+      max_concurrent: 3,
+    }),
+    migration: MigrationConfigSchema.optional(),
+  })
+  .strict()

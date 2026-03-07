@@ -86,7 +86,7 @@ export function createEventHook(
       if (sessionState) {
         return sessionState
       }
-      return statesBySessionId.size === 0 ? fallbackAuditState : null
+      return fallbackAuditState
     }
 
     if (activeSessionId.length > 0) {
@@ -116,7 +116,7 @@ export function createEventHook(
       if (sessionSink) {
         return sessionSink
       }
-      return sinksBySessionId.size === 0 ? fallbackEventSink : null
+      return fallbackEventSink
     }
 
     if (activeSessionId.length > 0) {

@@ -19,6 +19,14 @@ export function _mergeConfigs(
     return result.data
   }
 
+  // Warn about unknown keys (typos like 'disbled_hooks' instead of 'disabled_hooks')
+  const knownKeys = new Set(Object.keys(ArgusConfigSchema.shape))
+  for (const key of Object.keys(merged)) {
+    if (!knownKeys.has(key)) {
+      logger.warn(`Unknown config key '${key}' — did you mean a known field? Ignoring.`)
+    }
+  }
+
   const invalidFields: string[] = []
   const sanitized: Record<string, unknown> = {}
 

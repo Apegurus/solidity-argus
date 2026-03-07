@@ -306,7 +306,13 @@ export async function executePatternCheck(
   context.metadata({ title: `Pattern check: ${args.target}` })
 
   const skillsDir = join(dirname(dirname(__dirname)), "skills")
-  const skillDetectionRules = extractDetectionRulesFromSkills(skillsDir)
+  const { patterns: skillDetectionRules, errors: loaderErrors } =
+    extractDetectionRulesFromSkills(skillsDir)
+  if (loaderErrors.length > 0) {
+    for (const err of loaderErrors) {
+      logger.warn(`Pattern loader: ${err}`)
+    }
+  }
 
   const allPatterns: LoadedPattern[] = [
     ...normalizePatternDefinitions(skillDetectionRules, "skill"),

@@ -15,7 +15,7 @@ function matchesRegex(content: string, regexSource: string): boolean {
   return new RegExp(regexSource).test(content)
 }
 
-const skillPatterns = extractDetectionRulesFromSkills(SKILLS_DIR)
+const { patterns: skillPatterns } = extractDetectionRulesFromSkills(SKILLS_DIR)
 
 type CorpusCase = {
   patternName: string

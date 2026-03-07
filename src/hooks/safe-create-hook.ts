@@ -1,6 +1,15 @@
 import { createLogger } from "../shared/logger"
 
-export function safeCreateHook<T>(factory: () => T, hookName: string): T | undefined {
+export interface SafeCreateHookOptions {
+  critical?: boolean
+}
+
+export function safeCreateHook<T>(
+  factory: () => T,
+  hookName: string,
+  options: SafeCreateHookOptions = {},
+): T | undefined {
+  const { critical = false } = options
   try {
     return factory()
   } catch (error) {
@@ -8,6 +17,9 @@ export function safeCreateHook<T>(factory: () => T, hookName: string): T | undef
     logger.error(
       `Failed to create hook "${hookName}": ${error instanceof Error ? error.message : String(error)}`,
     )
+    if (critical) {
+      throw error
+    }
     return undefined
   }
 }
