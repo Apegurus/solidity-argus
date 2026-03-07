@@ -6,7 +6,9 @@ import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import {
   createEventSink,
+  createMutex,
   EventSinkError,
+  MUTEX_TIMEOUT_MS,
   readEvents,
   releaseEventSink,
   resetSinkRegistry,
@@ -244,19 +246,58 @@ describe("EventSink", () => {
     expect(events[1]?.type).toBe("run.finalized")
   })
 
-  test("new sink instance after release is not finalized", async () => {
+  test("finalization persists across process restart via marker file", async () => {
     const projectDir = makeTempDir()
     const sink1 = createEventSink(RUN_ID, projectDir)
     await sink1.append(makeEvent({ type: "session.created" }))
     sink1.markFinalized()
     releaseEventSink(RUN_ID)
 
+    // Simulate process restart: new sink for same runId
     const sink2 = createEventSink(RUN_ID, projectDir)
-    expect(sink2.isFinalized).toBe(false)
+    expect(sink2.isFinalized).toBe(true)
+
+    // Non-finalization events should be silently dropped
     await sink2.append(makeEvent({ type: "tool.started" }))
 
     const events = await sink2.readAll()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.type).toBe("session.created")
+  })
+
+  test("finalization marker file allows run.finalized event on restarted sink", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    await sink1.append(makeEvent({ type: "session.created" }))
+    sink1.markFinalized()
+    releaseEventSink(RUN_ID)
+
+    // Simulate restart
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    expect(sink2.isFinalized).toBe(true)
+
+    // run.finalized is still allowed even on a persisted-finalized sink
+    await sink2.append(makeEvent({ type: "run.finalized" }))
+
+    const events = await sink2.readAll()
     expect(events).toHaveLength(2)
+    expect(events[1]?.type).toBe("run.finalized")
+  })
+
+  test("finalization marker disk file exists after markFinalized", async () => {
+    const { existsSync } = await import("node:fs")
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+    await sink.append(makeEvent({ type: "session.created" }))
+
+    // Before finalization: no marker file
+    const expectedMarkerPath = join(projectDir, ".argus", "runs", RUN_ID, "events.jsonl.finalized")
+    expect(existsSync(expectedMarkerPath)).toBe(false)
+
+    sink.markFinalized()
+
+    // After finalization: marker file exists on disk
+    expect(existsSync(expectedMarkerPath)).toBe(true)
   })
 
   test("event sink writes to .argus root by default", async () => {
@@ -269,4 +310,54 @@ describe("EventSink", () => {
     const expectedPath = join(projectDir, ".argus", "runs", RUN_ID, "events.jsonl")
     expect(existsSync(expectedPath)).toBe(true)
   })
+})
+
+describe("createMutex timeout", () => {
+  test("MUTEX_TIMEOUT_MS is 30 seconds", () => {
+    expect(MUTEX_TIMEOUT_MS).toBe(30_000)
+  })
+
+  test("mutex acquisition times out after configured timeout with error log", async () => {
+    const errors: string[] = []
+    const testLogger = {
+      info: () => {},
+      debug: () => {},
+      warn: () => {},
+      error: (...args: unknown[]) => {
+        errors.push(args.map(String).join(" "))
+      },
+    }
+    const mutex = createMutex({ timeoutMs: 100, logger: testLogger })
+
+    // Start an operation that never completes — holds the lock forever
+    const neverResolves = new Promise<void>(() => {})
+    mutex.run(() => neverResolves) // intentionally not awaited
+
+    // Next operation must wait for the first — will timeout after 100ms
+    const result = await mutex.run(async () => "completed")
+
+    expect(result).toBe("completed") // Operation continues after timeout (no throw)
+    expect(errors.length).toBeGreaterThan(0)
+    expect(errors[0]).toContain("mutex timeout")
+  }, 5_000)
+
+  test("mutex does NOT timeout when operations complete normally", async () => {
+    const errors: string[] = []
+    const testLogger = {
+      info: () => {},
+      debug: () => {},
+      warn: () => {},
+      error: (...args: unknown[]) => {
+        errors.push(args.map(String).join(" "))
+      },
+    }
+    const mutex = createMutex({ timeoutMs: 100, logger: testLogger })
+
+    await mutex.run(async () => "first")
+    await mutex.run(async () => "second")
+    const result = await mutex.run(async () => "third")
+
+    expect(result).toBe("third")
+    expect(errors).toHaveLength(0) // No timeout errors for normal operations
+  }, 5_000)
 })

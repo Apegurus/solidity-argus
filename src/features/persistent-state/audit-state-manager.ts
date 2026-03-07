@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, stat } from "node:fs/promises"
+import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { AuditStateManager } from "../../managers/types"
 import { createLogger } from "../../shared/logger"
@@ -23,6 +23,47 @@ interface ConsistentStateResult {
   lastEventSeq?: number
   eventStreamHash?: string
   repaired: boolean
+}
+
+const SAVE_MUTEX_TIMEOUT_MS = 30_000
+const MAX_SAVE_CAS_RETRIES = 10
+
+export function createAsyncMutex(timeoutMs = SAVE_MUTEX_TIMEOUT_MS) {
+  const logger = createLogger()
+  let chain = Promise.resolve()
+
+  return {
+    async acquire(): Promise<() => void> {
+      const previous = chain
+      let releaseCurrent!: () => void
+      chain = new Promise<void>((resolve) => {
+        releaseCurrent = resolve
+      })
+
+      await previous
+
+      let released = false
+      const timeout = setTimeout(() => {
+        if (released) {
+          return
+        }
+
+        released = true
+        logger.error(`audit-state-manager mutex acquire timeout after ${timeoutMs}ms; continuing`)
+        releaseCurrent()
+      }, timeoutMs)
+
+      return () => {
+        if (released) {
+          return
+        }
+
+        released = true
+        clearTimeout(timeout)
+        releaseCurrent()
+      }
+    },
+  }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -118,26 +159,37 @@ export function createDebouncedSave(
   flush: () => Promise<void>
 } {
   let timer: ReturnType<typeof setTimeout> | null = null
-  let pendingState: AuditState | null = null
+  const pendingStates: AuditState[] = []
+  let persistQueue = Promise.resolve()
 
-  async function persistPendingState(): Promise<void> {
-    if (!pendingState) {
+  async function persistPendingStateQueue(): Promise<void> {
+    if (pendingStates.length === 0) {
       return
     }
 
-    const stateToPersist = pendingState
-    pendingState = null
+    const statesToPersist = pendingStates.splice(0, pendingStates.length)
 
-    try {
-      await saveState(stateToPersist)
-    } catch {
-      createLogger().debug("Debounced state persistence failed")
+    for (const state of statesToPersist) {
+      try {
+        await saveState(state)
+      } catch {
+        createLogger().debug("Debounced state persistence failed")
+      }
     }
+
+    if (pendingStates.length > 0) {
+      await persistPendingStateQueue()
+    }
+  }
+
+  function enqueuePersist(): Promise<void> {
+    persistQueue = persistQueue.then(() => persistPendingStateQueue())
+    return persistQueue
   }
 
   return {
     save(state: AuditState): void {
-      pendingState = state
+      pendingStates.push(state)
 
       if (timer) {
         clearTimeout(timer)
@@ -145,7 +197,7 @@ export function createDebouncedSave(
 
       timer = setTimeout(() => {
         timer = null
-        void persistPendingState()
+        void enqueuePersist()
       }, delayMs)
     },
     async flush(): Promise<void> {
@@ -154,7 +206,7 @@ export function createDebouncedSave(
         timer = null
       }
 
-      await persistPendingState()
+      await enqueuePersist()
     },
   }
 }
@@ -171,6 +223,33 @@ export function createAuditStateManager(
   let stateFilePath = sharedStateFilePath
   let boundSessionId: string | undefined
   let currentState: AuditState = createAuditState(projectDir).state
+  const saveMutex = createAsyncMutex()
+
+  async function cleanupStaleTempFiles(): Promise<void> {
+    for (const dirPath of [argusRoot, sessionsDirPath]) {
+      let entries: string[]
+
+      try {
+        entries = await readdir(dirPath)
+      } catch {
+        continue
+      }
+
+      for (const entry of entries) {
+        if (!entry.endsWith(".tmp")) {
+          continue
+        }
+
+        try {
+          await rm(join(dirPath, entry), { force: true })
+        } catch (error) {
+          logger.warn(`Failed to remove stale tmp state file ${entry}`, error)
+        }
+      }
+    }
+  }
+
+  const startupCleanup = cleanupStaleTempFiles()
 
   async function deriveConsistentState(state: AuditState): Promise<ConsistentStateResult> {
     if (!state.sessionId || !state.projectDir) {
@@ -357,16 +436,13 @@ export function createAuditStateManager(
     }
   }
 
-  let saveInFlight = false
-
   async function save(state: AuditState): Promise<void> {
+    await startupCleanup
     currentState = state
-
-    if (saveInFlight) return
-    saveInFlight = true
+    const releaseMutex = await saveMutex.acquire()
 
     try {
-      while (true) {
+      for (let attempt = 0; attempt < MAX_SAVE_CAS_RETRIES; attempt += 1) {
         const stateToSave = currentState
         const consistent = await deriveConsistentState(stateToSave)
 
@@ -392,13 +468,17 @@ export function createAuditStateManager(
         await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`)
         await rename(tempFilePath, stateFilePath)
 
-        if (currentState === consistent.state) break
+        if (currentState === consistent.state) {
+          return
+        }
       }
+
+      logger.warn("CAS retries exhausted after 10 attempts; using last read state")
     } catch (err) {
       logger.warn("Failed to persist audit state", err)
       throw err
     } finally {
-      saveInFlight = false
+      releaseMutex()
     }
   }
 

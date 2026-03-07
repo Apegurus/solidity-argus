@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
+import { resetLoggerSink } from "../../shared/logger"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import type { AuditState, Finding } from "../../state/types"
-import { createAuditStateManager } from "./audit-state-manager"
+import { createAsyncMutex, createAuditStateManager } from "./audit-state-manager"
 
 const WRITE_DIR = ".argus"
 const LEGACY_DIR = ".opencode"
@@ -758,5 +759,172 @@ describe("createAuditStateManager", () => {
     expect(loadedA?.currentPhase).toBe("scanning")
     expect(loadedB?.contractsReviewed).toEqual(["ContractB.sol"])
     expect(loadedB?.currentPhase).toBe("manual-review")
+  })
+
+  test("two concurrent save calls persist latest state without losing updates", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    expect(state).not.toBeNull()
+    if (!state) return
+
+    let firstWriteBlocked = true
+    let releaseFirstWrite!: () => void
+    const firstWriteGate = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve
+    })
+    const originalWrite = Bun.write
+
+    const writeSpy = spyOn(Bun, "write").mockImplementation(async (_path, data) => {
+      if (firstWriteBlocked) {
+        firstWriteBlocked = false
+        await firstWriteGate
+      }
+      return (originalWrite as (...args: unknown[]) => Promise<number>)(_path, data)
+    })
+
+    try {
+      const firstState: AuditState = {
+        ...state,
+        currentPhase: "scanning",
+      }
+
+      const secondState: AuditState = {
+        ...firstState,
+        currentPhase: "manual-review",
+        scope: ["src/Vault.sol"],
+      }
+
+      const firstSave = manager.save(firstState)
+      await Promise.resolve()
+      const secondSave = manager.save(secondState)
+
+      releaseFirstWrite()
+      await Promise.all([firstSave, secondSave])
+
+      const statePath = join(projectDir, WRITE_DIR, STATE_FILE)
+      const persisted = JSON.parse(readFileSync(statePath, "utf8")) as AuditState
+
+      expect(persisted.currentPhase).toBe("manual-review")
+      expect(persisted.scope).toEqual(["src/Vault.sol"])
+    } finally {
+      writeSpy.mockRestore()
+    }
+  })
+
+  test("CAS loop stops after max retries and logs warning", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    expect(state).not.toBeNull()
+    if (!state) return
+
+    const previousLogMode = process.env.ARGUS_LOG
+    const stderrLines: string[] = []
+    process.env.ARGUS_LOG = "stderr"
+    resetLoggerSink()
+
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(
+      (chunk: string | Uint8Array) => {
+        stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"))
+        return true
+      },
+    )
+
+    let writeCount = 0
+    const originalWrite = Bun.write
+    const writeSpy = spyOn(Bun, "write").mockImplementation(async (_path, data) => {
+      writeCount += 1
+      if (writeCount < 20) {
+        const latest = manager.get()
+        if (latest) {
+          void manager.save({
+            ...latest,
+            startTime: latest.startTime + writeCount,
+          })
+        }
+      }
+      return (originalWrite as (...args: unknown[]) => Promise<number>)(_path, data)
+    })
+
+    try {
+      await manager.save(state)
+      expect(writeCount).toBe(10)
+      expect(stderrLines.join("")).toContain("CAS retries exhausted")
+    } finally {
+      writeSpy.mockRestore()
+      stderrSpy.mockRestore()
+      process.env.ARGUS_LOG = previousLogMode
+      resetLoggerSink()
+    }
+  })
+
+  test("mutex logs timeout after 30 seconds and continues", async () => {
+    const previousLogMode = process.env.ARGUS_LOG
+    const stderrLines: string[] = []
+    process.env.ARGUS_LOG = "stderr"
+    resetLoggerSink()
+
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(
+      (chunk: string | Uint8Array) => {
+        stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"))
+        return true
+      },
+    )
+
+    const originalSetTimeout = globalThis.setTimeout
+    const originalClearTimeout = globalThis.clearTimeout
+    const delays: number[] = []
+    const callbacks: Array<() => void> = []
+
+    globalThis.setTimeout = ((handler: unknown, delay?: number) => {
+      delays.push(typeof delay === "number" ? delay : 0)
+      if (typeof handler === "function") {
+        callbacks.push(handler as () => void)
+      }
+      return 1 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+
+    globalThis.clearTimeout = (() => {
+      return undefined
+    }) as typeof clearTimeout
+
+    try {
+      const mutex = createAsyncMutex()
+      const releaseFirst = await mutex.acquire()
+      const secondAcquire = mutex.acquire()
+
+      expect(delays[0]).toBe(30_000)
+      callbacks[0]?.()
+
+      const releaseSecond = await secondAcquire
+      releaseSecond()
+      releaseFirst()
+
+      expect(stderrLines.join("")).toContain("mutex acquire timeout")
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+      globalThis.clearTimeout = originalClearTimeout
+      stderrSpy.mockRestore()
+      process.env.ARGUS_LOG = previousLogMode
+      resetLoggerSink()
+    }
+  })
+
+  test("startup cleanup removes stale tmp state files", async () => {
+    const projectDir = makeTempDir()
+    const stateDir = join(projectDir, WRITE_DIR)
+    mkdirSync(stateDir, { recursive: true })
+
+    const staleTmpA = join(stateDir, "argus-state.json.111.tmp")
+    const staleTmpB = join(stateDir, "state-ses_abc123.json.222.tmp")
+    writeFileSync(staleTmpA, "stale")
+    writeFileSync(staleTmpB, "stale")
+
+    createAuditStateManager(projectDir)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(existsSync(staleTmpA)).toBe(false)
+    expect(existsSync(staleTmpB)).toBe(false)
   })
 })

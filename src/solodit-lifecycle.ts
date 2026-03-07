@@ -122,11 +122,11 @@ function ensureExitHandler(): void {
   process.on("exit", killSoloditChild)
   process.on("SIGINT", () => {
     killSoloditChild()
-    process.exit(130)
+    process.exitCode = 130
   })
   process.on("SIGTERM", () => {
     killSoloditChild()
-    process.exit(143)
+    process.exitCode = 143
   })
 }
 

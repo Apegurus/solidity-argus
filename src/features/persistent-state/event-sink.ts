@@ -1,6 +1,7 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { appendFile, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { createLogger } from "../../shared/logger"
+import { createLogger, type Logger } from "../../shared/logger"
 import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 import type { AuditEvent, AuditEventType } from "../../state/schemas"
 
@@ -37,7 +38,15 @@ const VALID_EVENT_TYPES: ReadonlySet<string> = new Set<AuditEventType>([
   "run.finalized",
 ])
 
-function createMutex() {
+export const MUTEX_TIMEOUT_MS = 30_000
+
+export interface MutexOptions {
+  timeoutMs?: number
+  logger?: Logger
+}
+
+export function createMutex(options: MutexOptions = {}) {
+  const { timeoutMs = MUTEX_TIMEOUT_MS, logger } = options
   let chain = Promise.resolve()
 
   return {
@@ -48,7 +57,20 @@ function createMutex() {
         release = r
       })
 
-      await prev
+      let timer: ReturnType<typeof setTimeout>
+      const timedOut = await Promise.race([
+        prev.then(() => {
+          clearTimeout(timer)
+          return false as const
+        }),
+        new Promise<true>((resolve) => {
+          timer = setTimeout(() => resolve(true), timeoutMs)
+        }),
+      ])
+
+      if (timedOut) {
+        logger?.error("EventSink mutex timeout — operation took >30s, continuing")
+      }
 
       try {
         return await fn()
@@ -137,10 +159,19 @@ export function createEventSink(
 
   const logger = createLogger()
   const journalPath = buildJournalPath(runId, projectDir, resolver)
-  const mutex = createMutex()
+  const markerPath = `${journalPath}.finalized`
+  const mutex = createMutex({ logger })
   let lastSeq = 0
   let initialized = false
   const sinkState = { finalized: false }
+
+  try {
+    if (existsSync(markerPath)) {
+      sinkState.finalized = true
+    }
+  } catch (err) {
+    logger.warn(`Failed to check finalization marker: ${String(err)}`)
+  }
 
   async function ensureInitialized(): Promise<void> {
     if (initialized) return
@@ -168,6 +199,12 @@ export function createEventSink(
 
     markFinalized() {
       sinkState.finalized = true
+      try {
+        mkdirSync(dirname(markerPath), { recursive: true })
+        writeFileSync(markerPath, "")
+      } catch (err) {
+        logger.warn(`Failed to write finalization marker: ${String(err)}`)
+      }
     },
 
     async append(event: AuditEvent): Promise<void> {

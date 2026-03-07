@@ -15,6 +15,8 @@ const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-s
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
 const TOB_BRANCH = "main"
 let tobCloneInFlight = false
+let tobCloneStartedAt: number | null = null
+const TOB_CLONE_STUCK_TIMEOUT_MS = 120_000
 
 function getTrailOfBitsSkillsPaths(rootDir: string): string[] {
   const pluginsDir = join(rootDir, "plugins")
@@ -39,26 +41,61 @@ function ensureTrailOfBitsSkills(): string[] {
     return getTrailOfBitsSkillsPaths(TOB_CACHE_DIR)
   }
 
+  // Reset stuck flag if clone has been in-flight for more than 120 seconds
+  if (
+    tobCloneInFlight &&
+    tobCloneStartedAt !== null &&
+    Date.now() - tobCloneStartedAt > TOB_CLONE_STUCK_TIMEOUT_MS
+  ) {
+    const logger = createLogger()
+    logger.warn(
+      `Trail of Bits skills clone flag stuck for >${TOB_CLONE_STUCK_TIMEOUT_MS / 1000}s — resetting (URL: ${TOB_REPO_URL}, dir: ${TOB_CACHE_DIR})`,
+    )
+    tobCloneInFlight = false
+    tobCloneStartedAt = null
+  }
+
   if (!tobCloneInFlight) {
     tobCloneInFlight = true
-    const cloneProcess = Bun.spawn(
-      ["git", "clone", "--depth", "1", "--branch", TOB_BRANCH, TOB_REPO_URL, TOB_CACHE_DIR],
-      {
-        stdin: "ignore",
-        stdout: "ignore",
-        stderr: "ignore",
-        signal: AbortSignal.timeout(60_000),
-      },
-    )
+    tobCloneStartedAt = Date.now()
+    let cloneProcess: ReturnType<typeof Bun.spawn>
+    try {
+      cloneProcess = Bun.spawn(
+        ["git", "clone", "--depth", "1", "--branch", TOB_BRANCH, TOB_REPO_URL, TOB_CACHE_DIR],
+        {
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+          signal: AbortSignal.timeout(60_000),
+        },
+      )
+    } catch (spawnErr) {
+      const logger = createLogger()
+      logger.error(
+        `Trail of Bits skills clone spawn failed (URL: ${TOB_REPO_URL}, dir: ${TOB_CACHE_DIR}): ${spawnErr instanceof Error ? spawnErr.message : String(spawnErr)}`,
+      )
+      tobCloneInFlight = false
+      tobCloneStartedAt = null
+      return []
+    }
     cloneProcess.exited
       .then((code) => {
         if (code !== 0) {
           const logger = createLogger()
-          logger.warn(`Trail of Bits skills clone failed with exit code ${code}`)
+          logger.warn(
+            `Trail of Bits skills clone failed with exit code ${code} (URL: ${TOB_REPO_URL}, dir: ${TOB_CACHE_DIR})`,
+          )
         }
+      })
+      .catch((err) => {
+        const logger = createLogger()
+        logger.error(
+          `Trail of Bits skills clone process error (URL: ${TOB_REPO_URL}, dir: ${TOB_CACHE_DIR}): ${err instanceof Error ? err.message : String(err)}`,
+        )
       })
       .finally(() => {
         tobCloneInFlight = false
+        tobCloneStartedAt = null
       })
   }
 
