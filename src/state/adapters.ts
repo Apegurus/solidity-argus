@@ -1,3 +1,10 @@
+import { isRecord } from "../shared/type-guards"
+import {
+  VALID_AGENTS,
+  VALID_CONFIDENCES,
+  VALID_SEVERITIES,
+  VALID_SOURCES,
+} from "../shared/validation-constants"
 import { computeIssueFingerprint, computeObservationFingerprint } from "./finding-fingerprint"
 import {
   type CanonicalFinding,
@@ -5,7 +12,7 @@ import {
   type ValidationError,
   validateCanonicalFinding,
 } from "./schemas"
-import type { ArgusAgentName, AuditPhase, Finding, FindingSeverity } from "./types"
+import type { ArgusAgentName, AuditPhase, Finding } from "./types"
 
 export interface Diagnostic {
   level: "warn" | "error"
@@ -15,34 +22,6 @@ export interface Diagnostic {
 }
 
 export type AdapterResult<T> = { data: T; diagnostics: Diagnostic[] }
-
-const VALID_SEVERITIES: ReadonlySet<FindingSeverity> = new Set([
-  "Critical",
-  "High",
-  "Medium",
-  "Low",
-  "Informational",
-])
-const VALID_CONFIDENCES: ReadonlySet<CanonicalFinding["confidence"]> = new Set([
-  "High",
-  "Medium",
-  "Low",
-])
-const VALID_SOURCES: ReadonlySet<CanonicalFinding["source"]> = new Set([
-  "slither",
-  "manual",
-  "pattern",
-  "scvd",
-  "solodit",
-  "fuzz",
-])
-const VALID_REPORTED_AGENTS: ReadonlySet<ArgusAgentName> = new Set([
-  "argus",
-  "sentinel",
-  "pythia",
-  "scribe",
-  "unknown",
-])
 
 const KNOWN_INPUT_FIELDS = new Set([
   "id",
@@ -85,10 +64,6 @@ export interface NormalizeFindingOptions {
   reportedBySessionId?: string
   toolCallId?: string
   observationId?: string
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function normalizeSeverity(value: unknown): CanonicalFinding["severity"] {
@@ -220,9 +195,7 @@ export function normalizeToCanonicalFinding(
     (typeof input.reportedByAgent === "string" ? input.reportedByAgent : undefined) ??
     options.reportedByAgent ??
     "unknown"
-  const reportedByAgent: ArgusAgentName = VALID_REPORTED_AGENTS.has(
-    reportedByAgentRaw as ArgusAgentName,
-  )
+  const reportedByAgent: ArgusAgentName = VALID_AGENTS.has(reportedByAgentRaw as ArgusAgentName)
     ? (reportedByAgentRaw as ArgusAgentName)
     : "unknown"
 

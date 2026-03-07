@@ -1,3 +1,4 @@
+export { SEVERITY_RANK } from "../shared/validation-constants"
 export * from "./adapters"
 export { createAuditState } from "./audit-state"
 export { createFindingStore } from "./finding-store"
@@ -7,7 +8,6 @@ export {
   projectFindings,
   projectReportInput,
   projectToolExecutions,
-  SEVERITY_RANK,
   stableHash,
   validateEventSequence,
 } from "./projectors"

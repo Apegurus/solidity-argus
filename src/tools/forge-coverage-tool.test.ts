@@ -47,10 +47,10 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
   const result = await executeForgeCoverage(
     { target: "." },
     context,
-    async (command: string[], signal: AbortSignal, cwd: string) => {
+    async (command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
       expect(command).toEqual(["forge", "coverage"])
-      expect(signal).toBe(context.abort)
-      expect(cwd).toBe(".")
+      expect(options.signal).toBe(context.abort)
+      expect(options.cwd).toBe(".")
       return { stdout, stderr: "", exitCode: 0 }
     },
   )
@@ -144,8 +144,8 @@ test("executeForgeCoverage resolves cwd from context when target is omitted", as
   await executeForgeCoverage(
     {},
     context,
-    async (_command: string[], _signal: AbortSignal, cwd: string) => {
-      expect(cwd).toBe("/tmp/from-directory")
+    async (_command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
+      expect(options.cwd).toBe("/tmp/from-directory")
       return {
         stdout:
           "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 10.00% (1/10) | 20.00% (2/10) | 30.00% (3/10) | 40.00% (4/10) |",

@@ -120,8 +120,14 @@ function ensureExitHandler(): void {
   if (exitHandlerRegistered) return
   exitHandlerRegistered = true
   process.on("exit", killSoloditChild)
-  process.on("SIGINT", () => { killSoloditChild(); process.exit(130) })
-  process.on("SIGTERM", () => { killSoloditChild(); process.exit(143) })
+  process.on("SIGINT", () => {
+    killSoloditChild()
+    process.exit(130)
+  })
+  process.on("SIGTERM", () => {
+    killSoloditChild()
+    process.exit(143)
+  })
 }
 
 async function restartSoloditMcp(port: number): Promise<boolean> {
@@ -257,7 +263,7 @@ export function _resetSoloditState(): void {
   exitHandlerRegistered = false
 }
 
- /** Set soloditAvailable flag — for testing only. */
+/** Set soloditAvailable flag — for testing only. */
 export function _setSoloditAvailable(value: boolean): void {
   soloditAvailable = value
 }

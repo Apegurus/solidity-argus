@@ -45,13 +45,15 @@ export type SoloditFetch = (input: string | URL | Request, init?: RequestInit) =
 function extractSeverityFromTitle(title: string): string {
   const match = title.match(/^\[?([HMhm])[-\s]?\d+\]?[:\s]/)
   if (match) {
-    const letter = match[1]!.toUpperCase()
+    const letter = match[1]?.toUpperCase()
     if (letter === "H") return "High"
     if (letter === "M") return "Medium"
   }
   const prefixMatch = title.match(/^\[?(Critical|High|Medium|Low|Informational)\]?[:\s-]/i)
   if (prefixMatch) {
-    const s = prefixMatch[1]!.toLowerCase()
+    const severity = prefixMatch[1]
+    if (!severity) return ""
+    const s = severity.toLowerCase()
     return s.charAt(0).toUpperCase() + s.slice(1)
   }
   return ""
@@ -75,14 +77,16 @@ function parseFinding(raw: unknown): SoloditFinding {
   const obj = raw as Record<string, unknown>
   const title = typeof obj.title === "string" ? obj.title : ""
   const slug = typeof obj.slug === "string" ? obj.slug : ""
-  const severity = typeof obj.severity === "string" && obj.severity.length > 0
-    ? obj.severity
-    : extractSeverityFromTitle(title)
-  const url = typeof obj.url === "string" && obj.url.length > 0
-    ? obj.url
-    : slug.length > 0
-      ? `${SOLODIT_BASE_URL}/${slug}`
-      : ""
+  const severity =
+    typeof obj.severity === "string" && obj.severity.length > 0
+      ? obj.severity
+      : extractSeverityFromTitle(title)
+  const url =
+    typeof obj.url === "string" && obj.url.length > 0
+      ? obj.url
+      : slug.length > 0
+        ? `${SOLODIT_BASE_URL}/${slug}`
+        : ""
 
   return {
     title,
@@ -322,6 +326,19 @@ function mapTrpcFinding(raw: unknown): SoloditFinding {
   }
 }
 
+function parseTrpcData(dataStr: string): { findings?: unknown } {
+  try {
+    const jsonStr = dataStr
+      .trim()
+      .replace(/^\(/, "")
+      .replace(/\)$/, "")
+      .replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":')
+    return JSON.parse(jsonStr) as { findings?: unknown }
+  } catch {
+    return {}
+  }
+}
+
 async function callSoloditTrpc(
   query: string,
   limit: number,
@@ -363,9 +380,11 @@ async function callSoloditTrpc(
       }
     }
 
-    const fn = new Function(`return ${dataStr}`) as () => unknown
-    const parsed = fn() as { findings?: unknown }
-    const findingsRaw = Array.isArray(parsed?.findings) ? parsed.findings : []
+    const parsed = parseTrpcData(dataStr)
+    if (!Array.isArray(parsed.findings)) {
+      return { results: [], totalFound: 0, query, error: "Failed to parse Solodit response" }
+    }
+    const findingsRaw = parsed.findings
     const findings = findingsRaw.map(mapTrpcFinding)
     return { results: findings.slice(0, limit), totalFound: findings.length, query }
   } catch (error) {
@@ -435,4 +454,5 @@ export const _testExports = {
   parseFinding,
   buildMcpArgs,
   hasMcpError,
+  parseTrpcData,
 }

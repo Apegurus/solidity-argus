@@ -1,4 +1,5 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { runForgeCommand } from "../shared/forge-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeFuzzArgs = {
@@ -47,9 +48,7 @@ export type ForgeFuzzCommandResult = {
 
 type RunForgeFuzzCommand = (
   command: string[],
-  signal: AbortSignal,
-  cwd: string,
-  env: Record<string, string>,
+  options: { signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
 ) => Promise<ForgeFuzzCommandResult>
 
 function normalizeArgs(args: ForgeFuzzArgs, context: ToolContext): NormalizedForgeFuzzArgs {
@@ -177,32 +176,10 @@ function parseCounterexampleLine(line: string):
   }
 }
 
-const runForgeFuzzCommand: RunForgeFuzzCommand = async (command, signal, cwd, env) => {
-  const child = Bun.spawn(command, {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    signal,
-    env,
-  })
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-
-  return {
-    stdout,
-    stderr,
-    exitCode,
-  }
-}
-
 export async function executeForgeFuzz(
   args: ForgeFuzzArgs,
   context: ToolContext,
-  runCommand: RunForgeFuzzCommand = runForgeFuzzCommand,
+  runCommand: RunForgeFuzzCommand = runForgeCommand,
 ): Promise<ForgeFuzzResult> {
   const startedAt = Date.now()
   const normalized = normalizeArgs(args, context)
@@ -223,12 +200,11 @@ export async function executeForgeFuzz(
       FOUNDRY_FUZZ_RUNS: String(normalized.runs),
     }
 
-    const runResult = await runCommand(
-      buildForgeFuzzCommand(normalized),
-      context.abort,
-      normalized.target,
+    const runResult = await runCommand(buildForgeFuzzCommand(normalized), {
+      signal: context.abort,
+      cwd: normalized.target,
       env,
-    )
+    })
 
     const lines = `${runResult.stdout}\n${runResult.stderr}`
       .split(/\r?\n/)

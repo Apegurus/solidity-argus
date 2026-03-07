@@ -338,7 +338,9 @@ describe("Solodit spawn error handling", () => {
   })
 
   it("EADDRINUSE sets failed state with port conflict diagnostic", async () => {
-    const eaddrinuse = new Error(`listen EADDRINUSE: address already in use :::${DEFAULT_SOLODIT_PORT}`)
+    const eaddrinuse = new Error(
+      `listen EADDRINUSE: address already in use :::${DEFAULT_SOLODIT_PORT}`,
+    )
     Object.assign(eaddrinuse, { code: "EADDRINUSE" })
 
     _setTestConfig({

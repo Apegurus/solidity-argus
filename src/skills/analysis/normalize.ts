@@ -1,4 +1,6 @@
+import { isRecord } from "../../shared/type-guards"
 import { parseFrontmatter } from "../skill-schema"
+import { STOPWORDS } from "./stopwords"
 
 export interface SkillDoc {
   name: string
@@ -10,116 +12,6 @@ export interface SkillDoc {
   nameDescTokens: string[]
   ruleTokens: string[]
 }
-
-const STOPWORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "is",
-  "are",
-  "was",
-  "were",
-  "be",
-  "been",
-  "being",
-  "have",
-  "has",
-  "had",
-  "do",
-  "does",
-  "did",
-  "will",
-  "would",
-  "shall",
-  "should",
-  "may",
-  "might",
-  "can",
-  "could",
-  "of",
-  "in",
-  "to",
-  "for",
-  "with",
-  "on",
-  "at",
-  "by",
-  "from",
-  "as",
-  "into",
-  "through",
-  "during",
-  "before",
-  "after",
-  "above",
-  "below",
-  "between",
-  "out",
-  "off",
-  "over",
-  "under",
-  "again",
-  "further",
-  "then",
-  "once",
-  "here",
-  "there",
-  "where",
-  "when",
-  "how",
-  "all",
-  "each",
-  "every",
-  "both",
-  "few",
-  "more",
-  "most",
-  "other",
-  "some",
-  "such",
-  "no",
-  "nor",
-  "not",
-  "only",
-  "own",
-  "same",
-  "than",
-  "too",
-  "very",
-  "and",
-  "but",
-  "or",
-  "if",
-  "this",
-  "that",
-  "these",
-  "those",
-  "it",
-  "its",
-  "contract",
-  "function",
-  "solidity",
-  "smart",
-  "vulnerability",
-  "attack",
-  "attacker",
-  "token",
-  "address",
-  "value",
-  "state",
-  "require",
-  "modifier",
-  "external",
-  "internal",
-  "public",
-  "private",
-  "mapping",
-  "uint256",
-  "bool",
-  "returns",
-  "event",
-  "emit",
-])
 
 function stripFrontmatter(content: string): string {
   return content.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "")
@@ -145,10 +37,6 @@ function tokenize(text: string): string[] {
     .split(/[^a-z0-9]+/g)
     .filter((token) => token.length >= 3)
     .filter((token) => !STOPWORDS.has(token))
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
 }
 
 function extractDetectionRules(frontmatter: Record<string, unknown>): string[] {

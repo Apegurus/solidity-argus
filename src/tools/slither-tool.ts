@@ -431,6 +431,19 @@ export async function executeSlitherAnalyze(
   const startedAt = Date.now()
   context.metadata({ title: `Slither analysis: ${args.target}` })
 
+  if (args.solc_version && !/^\d+\.\d+\.\d+$/.test(args.solc_version)) {
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: [
+        `Invalid solc_version format: "${args.solc_version}". Expected semver format (e.g. 0.8.20)`,
+      ],
+      error: `Invalid solc_version format: "${args.solc_version}". Expected semver format (e.g. 0.8.20)`,
+    }
+  }
+
   if (args.via_ir) {
     const fallbackResult = await flattenFallback(args, context, {
       ...defaultFlattenDeps,

@@ -1,12 +1,5 @@
+import { SEVERITY_RANK } from "../shared/validation-constants"
 import type { CanonicalFinding } from "./schemas"
-
-const SEVERITY_RANK: Record<CanonicalFinding["severity"], number> = {
-  Critical: 0,
-  High: 1,
-  Medium: 2,
-  Low: 3,
-  Informational: 4,
-}
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right))

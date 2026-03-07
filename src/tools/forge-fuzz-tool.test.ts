@@ -48,7 +48,7 @@ test("executeForgeFuzz parses fuzz results and counterexamples", async () => {
       fork_url: "https://rpc.example",
     },
     context,
-    async (command, signal, cwd, env) => {
+    async (command, options) => {
       expect(command).toEqual([
         "forge",
         "test",
@@ -62,9 +62,9 @@ test("executeForgeFuzz parses fuzz results and counterexamples", async () => {
         "https://rpc.example",
         "-v",
       ])
-      expect(signal).toBe(context.abort)
-      expect(cwd).toBe("/tmp/project")
-      expect(env).toMatchObject({ FOUNDRY_FUZZ_RUNS: "256" })
+      expect(options.signal).toBe(context.abort)
+      expect(options.cwd).toBe("/tmp/project")
+      expect(options.env).toMatchObject({ FOUNDRY_FUZZ_RUNS: "256" })
 
       const response: ForgeFuzzCommandResult = {
         stdout: output,

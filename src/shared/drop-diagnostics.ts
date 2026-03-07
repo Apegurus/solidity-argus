@@ -76,9 +76,9 @@ export function createDropDiagnosticsCollector(
 
     const logMsg = `[${source}${tool ? `:${tool}` : ""}] ${code}${field ? ` (field: ${field})` : ""}: ${message}`
     if (level === "error") {
-      logger.warn(logMsg)
+      logger.error(logMsg)
     } else {
-      logger.info(logMsg)
+      logger.warn(logMsg)
     }
   }
 

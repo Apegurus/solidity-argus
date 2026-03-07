@@ -586,3 +586,21 @@ test("executeSlitherAnalyze passes cwd to runCommand", async () => {
 
   expect(capturedCwd).toBe("/custom/project/dir")
 })
+
+test("executeSlitherAnalyze rejects solcVersion with shell metacharacters", async () => {
+  const { context } = createContext()
+  let commandExecuted = false
+
+  const result = await executeSlitherAnalyze(
+    { target: ".", solc_version: "0.8.0; rm -rf /" },
+    context,
+    async (_command, _signal, _cwd) => {
+      commandExecuted = true
+      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }
+    },
+  )
+
+  expect(commandExecuted).toBe(false)
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("solc_version")
+})

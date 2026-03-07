@@ -1,6 +1,6 @@
 import { tokenJaccard } from "./similarity"
+import { STOPWORDS } from "./stopwords"
 
-/** Input finding from the PDF extraction pipeline */
 export interface ClusterFinding {
   title: string
   severity: string
@@ -10,7 +10,6 @@ export interface ClusterFinding {
   source_name?: string
 }
 
-/** A single cluster of related findings */
 export interface FindingCluster {
   id: number
   category: string
@@ -22,14 +21,12 @@ export interface FindingCluster {
   size: number
 }
 
-/** Configuration for clustering */
 export interface ClusterConfig {
   linkThreshold: number
   cohesionMinSimilarity: number
   minClusterSize: number
 }
 
-/** Full clustering result */
 export interface ClusterResult {
   clusters: FindingCluster[]
   singletons: ClusterFinding[]
@@ -48,116 +45,6 @@ export const DEFAULT_CLUSTER_CONFIG: ClusterConfig = {
   cohesionMinSimilarity: 0.65,
   minClusterSize: 2,
 }
-
-const STOPWORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "is",
-  "are",
-  "was",
-  "were",
-  "be",
-  "been",
-  "being",
-  "have",
-  "has",
-  "had",
-  "do",
-  "does",
-  "did",
-  "will",
-  "would",
-  "shall",
-  "should",
-  "may",
-  "might",
-  "can",
-  "could",
-  "of",
-  "in",
-  "to",
-  "for",
-  "with",
-  "on",
-  "at",
-  "by",
-  "from",
-  "as",
-  "into",
-  "through",
-  "during",
-  "before",
-  "after",
-  "above",
-  "below",
-  "between",
-  "out",
-  "off",
-  "over",
-  "under",
-  "again",
-  "further",
-  "then",
-  "once",
-  "here",
-  "there",
-  "where",
-  "when",
-  "how",
-  "all",
-  "each",
-  "every",
-  "both",
-  "few",
-  "more",
-  "most",
-  "other",
-  "some",
-  "such",
-  "no",
-  "nor",
-  "not",
-  "only",
-  "own",
-  "same",
-  "than",
-  "too",
-  "very",
-  "and",
-  "but",
-  "or",
-  "if",
-  "this",
-  "that",
-  "these",
-  "those",
-  "it",
-  "its",
-  "contract",
-  "function",
-  "solidity",
-  "smart",
-  "vulnerability",
-  "attack",
-  "attacker",
-  "token",
-  "address",
-  "value",
-  "state",
-  "require",
-  "modifier",
-  "external",
-  "internal",
-  "public",
-  "private",
-  "mapping",
-  "uint256",
-  "bool",
-  "returns",
-  "event",
-  "emit",
-])
 
 class UnionFind {
   parent: number[]

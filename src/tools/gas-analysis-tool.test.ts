@@ -56,10 +56,10 @@ test("gas-analysis parses forge gas report into structured result", async () => 
   const result = await executeGasAnalysis(
     { target: "." },
     context,
-    async (command: string[], signal: AbortSignal, cwd: string) => {
+    async (command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
       expect(command).toEqual(["forge", "test", "--gas-report"])
-      expect(signal).toBe(context.abort)
-      expect(cwd).toBe(".")
+      expect(options.signal).toBe(context.abort)
+      expect(options.cwd).toBe(".")
       return { stdout: SAMPLE_GAS_REPORT, stderr: "", exitCode: 0 }
     },
   )
@@ -146,8 +146,8 @@ test("gas-analysis resolves cwd from context when target is omitted", async () =
   await executeGasAnalysis(
     {},
     context,
-    async (_command: string[], _signal: AbortSignal, cwd: string) => {
-      expect(cwd).toBe("/tmp/from-directory")
+    async (_command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
+      expect(options.cwd).toBe("/tmp/from-directory")
       return { stdout: "", stderr: "", exitCode: 0 }
     },
   )

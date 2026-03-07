@@ -43,10 +43,10 @@ test("executeForgeTest parses contract-mapped forge test JSON", async () => {
     success: false,
   })
 
-  const result = await executeForgeTest({ target: "." }, context, async (command, signal, cwd) => {
+  const result = await executeForgeTest({ target: "." }, context, async (command, options) => {
     expect(command).toEqual(["forge", "test", "--json", "-vvv"])
-    expect(signal).toBe(context.abort)
-    expect(cwd).toBe("/tmp/project")
+    expect(options.signal).toBe(context.abort)
+    expect(options.cwd).toBe("/tmp/project")
     return { stdout, stderr: "", exitCode: 1 }
   })
 
@@ -186,9 +186,9 @@ test("executeForgeTest runs coverage command and parses report", async () => {
       verbosity: 4,
     },
     context,
-    async (command, _signal, cwd) => {
+    async (command, options) => {
       calls.push(command)
-      cwdCalls.push(cwd)
+      cwdCalls.push(options.cwd ?? "")
       const next = responses.shift()
       if (!next) {
         throw new Error("missing mocked response")

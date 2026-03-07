@@ -15,11 +15,9 @@ export interface ScvdStats {
   last_updated: string
 }
 
-const DEFAULT_PAGE_SIZE = 100
+import { isRecord } from "../shared/type-guards"
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
+const DEFAULT_PAGE_SIZE = 100
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {

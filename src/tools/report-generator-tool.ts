@@ -11,6 +11,7 @@ import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
+import { SEVERITY_RANK, VALID_SEVERITIES, VALID_SOURCES } from "../shared/validation-constants"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import {
   compareIssueFingerprintSets,
@@ -150,14 +151,6 @@ const FINDING_WEIGHT: Record<FindingSeverity, number> = {
   Medium: 3,
   Low: 2,
   Informational: 1,
-}
-
-const SEVERITY_RANK: Record<FindingSeverity, number> = {
-  Critical: 0,
-  High: 1,
-  Medium: 2,
-  Low: 3,
-  Informational: 4,
 }
 
 const MISSING_IMPACT_TEXT = "Impact details were not provided in the finding payload."
@@ -329,25 +322,9 @@ function hasMinimumFindingFields(
   return true
 }
 
-const VALID_SEVERITIES: ReadonlySet<string> = new Set([
-  "Critical",
-  "High",
-  "Medium",
-  "Low",
-  "Informational",
-])
-const VALID_SOURCES: ReadonlySet<string> = new Set([
-  "slither",
-  "manual",
-  "pattern",
-  "scvd",
-  "solodit",
-  "fuzz",
-])
-
 function normalizeFinding(f: Record<string, unknown>): Finding {
   const severity =
-    typeof f.severity === "string" && VALID_SEVERITIES.has(f.severity)
+    typeof f.severity === "string" && VALID_SEVERITIES.has(f.severity as Finding["severity"])
       ? (f.severity as Finding["severity"])
       : "Informational"
   const confidence =
@@ -355,7 +332,7 @@ function normalizeFinding(f: Record<string, unknown>): Finding {
       ? (f.confidence as Finding["confidence"])
       : "Low"
   const source =
-    typeof f.source === "string" && VALID_SOURCES.has(f.source)
+    typeof f.source === "string" && VALID_SOURCES.has(f.source as Finding["source"])
       ? (f.source as Finding["source"])
       : "manual"
   const description = typeof f.description === "string" ? f.description : (f.check as string)

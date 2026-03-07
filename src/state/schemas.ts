@@ -1,3 +1,10 @@
+import { isRecord } from "../shared/type-guards"
+import {
+  VALID_AGENTS,
+  VALID_CONFIDENCES,
+  VALID_SEVERITIES,
+  VALID_SOURCES,
+} from "../shared/validation-constants"
 import type {
   ArgusAgentName,
   AuditPhase,
@@ -140,38 +147,6 @@ function pushRequiredRootNumberError(
       message: `${String(field)} is required and must be an integer`,
     })
   }
-}
-
-const VALID_SEVERITIES: ReadonlySet<FindingSeverity> = new Set([
-  "Critical",
-  "High",
-  "Medium",
-  "Low",
-  "Informational",
-])
-const VALID_CONFIDENCES: ReadonlySet<CanonicalFinding["confidence"]> = new Set([
-  "High",
-  "Medium",
-  "Low",
-])
-const VALID_SOURCES: ReadonlySet<CanonicalFinding["source"]> = new Set([
-  "slither",
-  "manual",
-  "pattern",
-  "scvd",
-  "solodit",
-  "fuzz",
-])
-const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([
-  "argus",
-  "sentinel",
-  "pythia",
-  "scribe",
-  "unknown",
-])
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function pushRequiredStringError(

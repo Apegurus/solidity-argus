@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto"
+import { isRecord } from "../shared/type-guards"
+import { SEVERITY_RANK } from "../shared/validation-constants"
 import {
   type AuditEvent,
   type CanonicalFinding,
@@ -30,18 +32,6 @@ export class ProjectorError extends Error {
     this.name = "ProjectorError"
     this.code = code
   }
-}
-
-export const SEVERITY_RANK: Record<CanonicalFinding["severity"], number> = {
-  Critical: 0,
-  High: 1,
-  Medium: 2,
-  Low: 3,
-  Informational: 4,
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function extractScope(payload: unknown): string[] {

@@ -363,3 +363,47 @@ test("falls back to tRPC when MCP returns error envelope", async () => {
   const result = await executeSoloditSearch({ query: "reentrancy" }, context, 54173, mockFetch)
   expect(result.results[0]?.title).toBe("EE")
 })
+
+test("rejects malicious response containing process.exit", async () => {
+  const { context } = createContext()
+  const mockFetch: SoloditFetch = async () =>
+    new Response(JSON.stringify([{ result: { data: "({findings: [], attack: process.exit})" } }]), {
+      status: 200,
+    })
+
+  const result = await executeSoloditSearch({ query: "malicious" }, context, 54173, mockFetch)
+  expect(result.results).toHaveLength(0)
+  expect(result.totalFound).toBe(0)
+  expect(result.error).toBe("Failed to parse Solodit response")
+})
+
+test("parses valid JS object literal format correctly", async () => {
+  const { context } = createContext()
+  const mockFetch: SoloditFetch = async () =>
+    new Response(
+      JSON.stringify([
+        {
+          result: {
+            data: `({findings: [{title: "Valid", impact: "HIGH", content: "ok", protocol_name: "P", slug: "valid-1"}]})`,
+          },
+        },
+      ]),
+      { status: 200 },
+    )
+
+  const result = await executeSoloditSearch({ query: "valid" }, context, 54173, mockFetch)
+  expect(result.error).toBeUndefined()
+  expect(result.totalFound).toBe(1)
+  expect(result.results[0]?.title).toBe("Valid")
+})
+
+test("returns empty result for non-parseable response", async () => {
+  const { context } = createContext()
+  const mockFetch: SoloditFetch = async () =>
+    new Response(JSON.stringify([{ result: { data: "({findings:" } }]), { status: 200 })
+
+  const result = await executeSoloditSearch({ query: "broken" }, context, 54173, mockFetch)
+  expect(result.results).toHaveLength(0)
+  expect(result.totalFound).toBe(0)
+  expect(result.error).toBe("Failed to parse Solodit response")
+})

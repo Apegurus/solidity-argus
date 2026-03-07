@@ -1,4 +1,5 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { runForgeCommand } from "../shared/forge-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type GasAnalysisArgs = {
@@ -43,8 +44,7 @@ type GasAnalysisResult = {
 
 export type ForgeCommandRunner = (
   command: string[],
-  signal: AbortSignal,
-  cwd: string,
+  options: { signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
 
 function toNumber(value: string): number {
@@ -161,27 +161,6 @@ function normalizeArgs(args: GasAnalysisArgs, context: ToolContext): NormalizedG
   }
 }
 
-const runForgeCommand: ForgeCommandRunner = async (command, signal, cwd) => {
-  const child = Bun.spawn(command, {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    signal,
-  })
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-
-  return {
-    stdout,
-    stderr,
-    exitCode,
-  }
-}
-
 export async function executeGasAnalysis(
   args: GasAnalysisArgs,
   context: ToolContext,
@@ -200,11 +179,10 @@ export async function executeGasAnalysis(
   })
 
   try {
-    const forgeResult = await runCommand(
-      ["forge", "test", "--gas-report"],
-      context.abort,
-      normalizedArgs.target,
-    )
+    const forgeResult = await runCommand(["forge", "test", "--gas-report"], {
+      signal: context.abort,
+      cwd: normalizedArgs.target,
+    })
 
     const contracts = parseGasReport(forgeResult.stdout)
     const hotspots = contracts

@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/type-guards"
 import type { ScvdFinding } from "./scvd-client"
 
 export interface ScvdIndexEntry {
@@ -125,10 +126,6 @@ export async function saveIndex(index: ScvdIndex, filePath: string): Promise<voi
   const { renameSync } = await import("node:fs")
   await Bun.write(tmpPath, JSON.stringify(index, null, 2))
   renameSync(tmpPath, filePath)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
 }
 
 function parseStringArray(value: unknown): string[] {

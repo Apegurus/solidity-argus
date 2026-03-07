@@ -1,4 +1,5 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { runForgeCommand } from "../shared/forge-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeCoverageArgs = {
@@ -38,8 +39,7 @@ type ForgeCoverageResult = {
 
 export type ForgeCommandRunner = (
   command: string[],
-  signal: AbortSignal,
-  cwd: string,
+  options: { signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
 
 const EMPTY_SUMMARY: ForgeCoverageSummary = {
@@ -138,27 +138,6 @@ function parseCoverageReport(output: string): ForgeCoverageReport {
   return { files, summary }
 }
 
-const runForgeCommand: ForgeCommandRunner = async (command, signal, cwd) => {
-  const child = Bun.spawn(command, {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    signal,
-  })
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-
-  return {
-    stdout,
-    stderr,
-    exitCode,
-  }
-}
-
 export async function executeForgeCoverage(
   args: ForgeCoverageArgs,
   context: ToolContext,
@@ -176,7 +155,10 @@ export async function executeForgeCoverage(
   })
 
   try {
-    const runResult = await runCommand(["forge", "coverage"], context.abort, normalizedArgs.target)
+    const runResult = await runCommand(["forge", "coverage"], {
+      signal: context.abort,
+      cwd: normalizedArgs.target,
+    })
 
     if (runResult.exitCode !== 0) {
       return fail(

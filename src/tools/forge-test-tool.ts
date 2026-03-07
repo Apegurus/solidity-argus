@@ -1,4 +1,5 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { runForgeCommand } from "../shared/forge-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 import { extractJson } from "../utils/solidity-parser"
 
@@ -62,8 +63,7 @@ export type ForgeCommandResult = {
 
 type RunForgeCommand = (
   command: string[],
-  signal: AbortSignal,
-  cwd: string,
+  options: { signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
 ) => Promise<ForgeCommandResult>
 
 type ForgeTestPayload = {
@@ -311,27 +311,6 @@ function buildForgeTestCommand(args: NormalizedForgeTestArgs): string[] {
   return command
 }
 
-const runForgeCommand: RunForgeCommand = async (command, signal, cwd) => {
-  const child = Bun.spawn(command, {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    signal,
-  })
-
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-
-  return {
-    stdout,
-    stderr,
-    exitCode,
-  }
-}
-
 export async function executeForgeTest(
   args: ForgeTestArgs,
   context: ToolContext,
@@ -350,11 +329,10 @@ export async function executeForgeTest(
   })
 
   try {
-    const testResult = await runCommand(
-      buildForgeTestCommand(normalizedArgs),
-      context.abort,
-      normalizedArgs.target,
-    )
+    const testResult = await runCommand(buildForgeTestCommand(normalizedArgs), {
+      signal: context.abort,
+      cwd: normalizedArgs.target,
+    })
 
     let payload: ForgeTestPayload
     try {
@@ -380,11 +358,10 @@ export async function executeForgeTest(
     }
 
     if (normalizedArgs.coverage) {
-      const coverageResult = await runCommand(
-        ["forge", "coverage", "--report", "json"],
-        context.abort,
-        normalizedArgs.target,
-      )
+      const coverageResult = await runCommand(["forge", "coverage", "--report", "json"], {
+        signal: context.abort,
+        cwd: normalizedArgs.target,
+      })
       if (coverageResult.exitCode !== 0) {
         output.error = coverageResult.stderr.trim() || "forge coverage failed"
         output.success = false

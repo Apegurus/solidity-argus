@@ -40,7 +40,15 @@ test("executeRecordFinding normalizes one finding", async () => {
     success: boolean
     count: number
     schema_version: string
-    findings: Array<{ id: string; check: string; severity: string; file: string; description: string; lines: [number, number]; source: string }>
+    findings: Array<{
+      id: string
+      check: string
+      severity: string
+      file: string
+      description: string
+      lines: [number, number]
+      source: string
+    }>
     note: string
   }
 
@@ -86,7 +94,15 @@ test("executeRecordFinding accepts findings array", async () => {
 
   const parsed = JSON.parse(payload) as {
     count: number
-    findings: Array<{ id: string; check: string; severity: string; file: string; description: string; lines: [number, number]; source: string }>
+    findings: Array<{
+      id: string
+      check: string
+      severity: string
+      file: string
+      description: string
+      lines: [number, number]
+      source: string
+    }>
   }
   expect(parsed.count).toBe(2)
   expect(parsed.findings[0]?.check).toBe("issue-a")
