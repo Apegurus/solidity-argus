@@ -165,6 +165,26 @@ export function createHooks(args: {
   projectDir: string
   isHookEnabled: (name: HookName) => boolean
 }): Hooks {
+  // Instance-level mutex: when OpenCode loads the plugin multiple times in the
+  // same process (e.g. re-adding "solidity-argus" to global config), only the
+  // first instance runs full initialization.  Subsequent calls get inert hooks
+  // with only the config handler active (agent/MCP registration is idempotent).
+  const INSTANCE_LOCK = Symbol.for("solidity-argus:instance-lock")
+  const globals = globalThis as unknown as Record<symbol, boolean>
+  if (globals[INSTANCE_LOCK]) {
+    logger.debug("[plugin] Duplicate instance detected — returning inert hooks")
+    return {
+      config: createConfigHandler(args.config, args.projectDir),
+      "chat.params": undefined,
+      "chat.message": undefined,
+      "experimental.chat.system.transform": undefined,
+      "experimental.session.compacting": undefined,
+      "tool.execute.after": undefined,
+      event: undefined,
+    }
+  }
+  globals[INSTANCE_LOCK] = true
+
   const { config, managers, projectDir, isHookEnabled } = args
   const { auditStateManager, backgroundManager } = managers
   const agentTracker = createAgentTracker()
@@ -203,14 +223,7 @@ export function createHooks(args: {
   const sinkCreatedAtBySession = new Map<string, number>()
   const sinkCreatedAtByRunId = new Map<string, number>()
 
-  logger.info("[plugin] code version: 15cfd54")
-
-  const DEDUP_KEY = Symbol.for("solidity-argus:pendingSinkCreations")
-  const globalRecord = globalThis as unknown as Record<symbol, Set<string>>
-  if (!globalRecord[DEDUP_KEY]) {
-    globalRecord[DEDUP_KEY] = new Set<string>()
-  }
-  const pendingSinkCreations = globalRecord[DEDUP_KEY]
+  const pendingSinkCreations = new Set<string>()
 
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
   function evictOldestSink(

@@ -54,6 +54,8 @@ function latestArchivePath(): string {
 }
 
 async function createPlugin(): Promise<PluginInstance> {
+  const lockKey = Symbol.for("solidity-argus:instance-lock")
+  delete (globalThis as unknown as Record<symbol, unknown>)[lockKey]
   return ArgusPlugin({ directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0])
 }
 
