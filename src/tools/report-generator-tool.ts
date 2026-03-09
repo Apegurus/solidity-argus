@@ -612,27 +612,28 @@ function parseReportInputPayload(
     const validation = validateReportInput(parsed)
     if (!validation.success) {
       for (const error of validation.errors) {
-        diagnostics.error(
-          "REPORT_INPUT_CONTRACT_MISMATCH",
+        diagnostics.warn(
+          "REPORT_INPUT_INLINE_VALIDATION_FAILED",
           `${error.field}: ${error.message}`,
           error.field,
         )
       }
-      throwContractMismatch(
-        "ReportInput contract mismatch: report_input failed schema validation",
-        diagnostics.getDiagnostics(),
-      )
-    }
-
-    if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
       diagnostics.warn(
-        "REPORT_INPUT_LEGACY_FIELD_IGNORED",
-        "Both report_input and audit_state were provided; audit_state is ignored.",
-        "audit_state",
+        "REPORT_INPUT_INLINE_FALLTHROUGH",
+        `Inline report_input failed validation (${validation.errors.length} errors). Falling back to disk artifact.`,
+        "report_input",
       )
-    }
+    } else {
+      if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
+        diagnostics.warn(
+          "REPORT_INPUT_LEGACY_FIELD_IGNORED",
+          "Both report_input and audit_state were provided; audit_state is ignored.",
+          "audit_state",
+        )
+      }
 
-    return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
+      return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
+    }
   }
 
   if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {

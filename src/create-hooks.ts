@@ -362,16 +362,10 @@ export function createHooks(args: {
 
         if (sessionId) {
           if (pendingSinkCreations.has(sessionId)) {
-            logger.info(`[DEDUP] Blocked duplicate session.created for ${sessionId}`)
             runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
             return
           }
-          logger.info(
-            `[DEDUP] First session.created for ${sessionId} (set size=${pendingSinkCreations.size})`,
-          )
           pendingSinkCreations.add(sessionId)
-        } else {
-          logger.info("[DEDUP] No sessionId — cannot dedup")
         }
 
         try {
