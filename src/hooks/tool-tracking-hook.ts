@@ -518,15 +518,17 @@ export type ToolTrackingHook = {
 }
 
 export function createToolTrackingHook(
-  getAuditState: () => AuditState | null,
+  getAuditState: (sessionId?: string) => AuditState | null,
   onStateChanged?: (metadata: ToolExecutionMetadata) => void,
   options?: ToolTrackingOptions,
 ): ToolTrackingHook {
   const storesByState = new WeakMap<AuditState, FindingStore>()
   let lastDiagnostics: DropDiagnostic[] = []
 
-  function resolveStateAndStore(): { state: AuditState; store: FindingStore } | null {
-    const state = getAuditState()
+  function resolveStateAndStore(
+    sessionId?: string,
+  ): { state: AuditState; store: FindingStore } | null {
+    const state = getAuditState(sessionId)
     if (!state) return null
 
     let store = storesByState.get(state)
@@ -543,7 +545,7 @@ export function createToolTrackingHook(
     if (input.tool === "task") {
       const childSessionId = parseChildSessionId(input.result)
       const correlationId = randomUUID()
-      const resolved = resolveStateAndStore()
+      const resolved = resolveStateAndStore(input.sessionID)
       const sessionId = input.sessionID ?? options?.getSessionId?.() ?? ""
       const toolCallId = randomUUID()
 
@@ -607,7 +609,7 @@ export function createToolTrackingHook(
       return
     }
 
-    const resolved = resolveStateAndStore()
+    const resolved = resolveStateAndStore(input.sessionID)
     if (!resolved) {
       if (input.tool === "argus_record_finding") {
         throw new Error("argus_record_finding requires active audit state")

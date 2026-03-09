@@ -544,20 +544,15 @@ describe("createEventHook", () => {
       expect(stateTwoSessions).not.toBeNull()
     })
 
-    it("getAuditState(unknownSessionId) returns fallback when session not found, even with other sessions present", () => {
+    it("getAuditState(unknownSessionId) falls through to activeSessionId when session not found", () => {
       const { getAuditState, setAuditState } = createEventHook()
 
-      // Set fallback state
       setAuditState(makeState("fallback-run"))
-
-      // Add a session to the map
       setAuditState(makeState("session-1-run"), "session-1")
 
-      // Querying an unknown sessionId should return fallback, not null
-      // Bug: currently returns null when statesBySessionId.size > 0
       const result = getAuditState("unknown-session")
       expect(result).not.toBeNull()
-      expect(result?.sessionId).toBe("fallback-run")
+      expect(result?.sessionId).toBe("session-1-run")
     })
   })
 })

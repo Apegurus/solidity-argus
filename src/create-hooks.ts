@@ -595,7 +595,7 @@ export function createHooks(args: {
     ? safeCreateHook(
         () =>
           createToolTrackingHook(
-            () => getAuditState(),
+            (sessionId?: string) => getAuditState(sessionId),
             ({ tool, findingsCount }) => {
               const currentState = getAuditState()
               if (currentState) {

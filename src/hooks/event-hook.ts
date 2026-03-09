@@ -86,7 +86,8 @@ export function createEventHook(
       if (sessionState) {
         return sessionState
       }
-      return fallbackAuditState
+      // Fall through to activeSessionId — child sessions (e.g. sentinel)
+      // may not have their own state entry but share the parent's state.
     }
 
     if (activeSessionId.length > 0) {
