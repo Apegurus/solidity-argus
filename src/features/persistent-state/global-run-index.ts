@@ -1,13 +1,9 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { homedir } from "node:os"
-import { join } from "node:path"
+import { getGlobalRunIndexDir, getGlobalRunIndexFile } from "../../shared/cache-paths"
 import { createLogger } from "../../shared/logger"
 
 const logger = createLogger()
-
-const CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "runs")
-const INDEX_FILE = join(CACHE_DIR, "index.jsonl")
 
 export type RunStatus = "active" | "finalized" | "failed"
 
@@ -28,14 +24,14 @@ let dirEnsured = false
 
 async function ensureDir(): Promise<void> {
   if (dirEnsured) return
-  await mkdir(CACHE_DIR, { recursive: true })
+  await mkdir(getGlobalRunIndexDir(), { recursive: true })
   dirEnsured = true
 }
 
 export async function recordRun(entry: RunIndexEntry): Promise<void> {
   try {
     await ensureDir()
-    appendFileSync(INDEX_FILE, `${JSON.stringify(entry)}\n`)
+    appendFileSync(getGlobalRunIndexFile(), `${JSON.stringify(entry)}\n`)
   } catch {
     logger.debug("Failed to write global run index entry")
   }
@@ -45,7 +41,7 @@ export async function updateRunStatus(runId: string, status: RunStatus): Promise
   try {
     await ensureDir()
     const update = { runId, status, finalizedAt: status === "finalized" ? Date.now() : undefined }
-    appendFileSync(INDEX_FILE, `${JSON.stringify(update)}\n`)
+    appendFileSync(getGlobalRunIndexFile(), `${JSON.stringify(update)}\n`)
   } catch {
     logger.debug("Failed to write run status update")
   }
@@ -61,12 +57,14 @@ export function resolveRunIdFromOpencodeSession(
     return null
   }
 
-  if (!existsSync(INDEX_FILE)) {
+  const indexFile = getGlobalRunIndexFile()
+
+  if (!existsSync(indexFile)) {
     return null
   }
 
   try {
-    const raw = readFileSync(INDEX_FILE, "utf-8")
+    const raw = readFileSync(indexFile, "utf-8")
     const lines = raw.split("\n")
     const now = Date.now()
 

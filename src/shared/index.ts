@@ -4,6 +4,15 @@ export {
   type AuditArtifactResolver,
   createAuditArtifactResolver,
 } from "./audit-artifact-resolver"
+export {
+  getArgusCacheDir,
+  getArgusLogDir,
+  getArgusLogFile,
+  getGlobalRunIndexDir,
+  getGlobalRunIndexFile,
+  getScvdIndexPath,
+  getTrailOfBitsCacheDir,
+} from "./cache-paths"
 export { extractContractNames, hasBinary, parseSolcVersion } from "./binary-utils"
 export { deepMerge } from "./deep-merge"
 export {

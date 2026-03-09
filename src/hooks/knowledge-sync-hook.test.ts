@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ArgusConfig } from "../config/types"
+import { getScvdIndexPath } from "../shared/cache-paths"
 import { createKnowledgeSyncHook, type KnowledgeSyncDependencies } from "./knowledge-sync-hook"
 
 function createArgusConfig(enabled: boolean): ArgusConfig {
@@ -100,7 +101,7 @@ test("createKnowledgeSyncHook triggers async sync with default index path", asyn
   await Promise.resolve()
 
   expect(calls[0]).toBe("client:https://api.scvd.dev")
-  expect(calls[1]).toContain(".cache/solidity-argus/scvd-index.json")
+  expect(calls[1]).toContain(getScvdIndexPath())
   expect(calls[2]).toContain("SCVD index updated: 2 new findings")
 })
 

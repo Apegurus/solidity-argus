@@ -260,7 +260,7 @@ Argus supports three distinct knowledge ingestion patterns:
 **Sources:** SCVD local index, Trail of Bits companion skills
 
 - Local index synced periodically via `argus_sync_knowledge`
-- Cached locally in `~/.cache/solidity-argus/scvd-index.json`
+- Cached locally in `ARGUS_CACHE_DIR` (default: `~/.cache/solidity-argus/scvd-index.json`)
 - Refreshed on-demand when `knowledge.autoSync: true`
 - Trail of Bits skills git-cloned on install and updated via companion plugin
 - Example: SCVD findings indexed locally, queried without network latency
@@ -269,7 +269,7 @@ Argus supports three distinct knowledge ingestion patterns:
 
 ## Configuration
 
-Create `.opencode/solidity-argus.jsonc` in your project root:
+Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-argus.jsonc` remains supported as a project-level compatibility fallback:
 
 ```jsonc
 {
@@ -370,7 +370,7 @@ This channel is **lazy-loaded** — agents request skills only when needed, redu
 
 - **Dynamic injection:** `system.transform` uses agent-gated dynamic audit state injection via `createSystemPromptHook` (see `src/create-hooks.ts`).
 - **Global transforms forbidden:** No global system context injection unless agent-gated and minimal. Prevents context window overflow.
-- **Audit state persistence:** State is saved to `.opencode/argus-state.json` and restored on session restart (see `Persistent Audit State` section).
+- **Audit state persistence:** Active session state is stored under `.argus/sessions/state-{sessionId}.json` and archived to `.argus/archives/argus-state.{timestamp}.json` on teardown (see `Persistent Audit State` section).
 
 ---
 
@@ -386,7 +386,7 @@ Run diagnostics and setup from the command line:
 # Check that Slither, Foundry, and SCVD are available
 argus doctor
 
-# Generate a starter .opencode/solidity-argus.jsonc config
+# Generate a starter .argus/solidity-argus.json config
 argus init
 
 # Validate SKILL.md files against schema
@@ -412,7 +412,7 @@ Config is resolved by merging three layers (last wins):
 
 1. **Defaults** — Built-in sensible defaults
 2. **User-level** — `~/.config/opencode/solidity-argus.jsonc`
-3. **Project-level** — `.opencode/solidity-argus.jsonc`
+3. **Project-level** — `.argus/solidity-argus.jsonc` (preferred) or `.opencode/solidity-argus.jsonc` (compatibility fallback)
 
 ### Background Agent Management
 
@@ -428,7 +428,7 @@ Background tasks (knowledge sync, long-running analysis) are tracked with config
 
 ### Persistent Audit State
 
-Audit progress survives session restarts. State is saved to `.opencode/argus-state.json` and automatically restored on next session.
+Audit progress survives session restarts. Active runs persist to `.argus/sessions/state-{sessionId}.json` and teardown snapshots are archived to `.argus/archives/argus-state.{timestamp}.json`. `.opencode` remains a read fallback during migration.
 
 ### Error Recovery
 

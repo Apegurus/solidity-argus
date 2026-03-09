@@ -2,6 +2,7 @@ import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
+import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 import { parseFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
@@ -21,8 +22,6 @@ const OMO_PROJECT_SKILLS_DIR = [".opencode", "skills"]
 const OMO_GLOBAL_SKILLS_DIR = [".config", "opencode", "skills"]
 const CLAUDE_PROJECT_SKILLS_DIR = [".claude", "skills"]
 const CLAUDE_GLOBAL_SKILLS_DIR = [".claude", "skills"]
-const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
-
 const SKILL_NAME_ALIASES: Record<string, string> = {
   "vulnerability-patterns/reentrancy": "reentrancy",
   "vulnerability-patterns/oracle-manipulation": "oracle-manipulation",
@@ -90,7 +89,7 @@ function collectMarkdownFiles(root: string, maxDepth = 8): string[] {
 }
 
 function getTrailOfBitsRoots(): string[] {
-  const pluginsDir = join(TOB_CACHE_DIR, "plugins")
+  const pluginsDir = join(getTrailOfBitsCacheDir(), "plugins")
   if (!existsSync(pluginsDir)) return []
 
   let entries: Dirent[]

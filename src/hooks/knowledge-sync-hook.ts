@@ -1,8 +1,7 @@
-import os from "node:os"
-import path from "node:path"
 import type { ArgusConfig } from "../config/types"
 import { ScvdClient } from "../knowledge/scvd-client"
 import { type SyncResult, syncIncremental } from "../knowledge/scvd-sync"
+import { getScvdIndexPath } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 
 export type KnowledgeSyncDependencies = {
@@ -36,7 +35,7 @@ export function createKnowledgeSyncHook(
     }
 
     const apiUrl = argusConfig.knowledge?.scvd?.apiUrl ?? DEFAULT_SCVD_API_URL
-    const indexPath = path.join(os.homedir(), ".cache", "solidity-argus", "scvd-index.json")
+    const indexPath = getScvdIndexPath()
 
     Promise.resolve().then(async () => {
       try {

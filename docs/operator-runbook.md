@@ -33,7 +33,8 @@ Audit Session
         │     ├── tool.executed   (argus_slither_analyze, argus_forge_test, etc.)
         │     ├── finding.added   (CanonicalFinding records)
         │     └── session.deleted
-        ├── argus-state.json      ← legacy state (preserved for compat)
+        ├── sessions/state-{sessionId}.json   ← live session state while audit is active
+        ├── archives/argus-state.{timestamp}.json   ← archived teardown snapshot
         └── reports/
               └── {ContractName}-security-audit-YYYY-MM-DD.md
 ```
@@ -42,7 +43,7 @@ Audit Session
 | Artifact | Path |
 |----------|------|
 | Event journal | `{projectDir}/.argus/runs/{runId}/events.jsonl` |
-| Legacy state | `{projectDir}/.argus/argus-state.json` |
+| Live session state | `{projectDir}/.argus/sessions/state-{sessionId}.json` |
 | Archives | `{projectDir}/.argus/archives/argus-state.{timestamp}.json` |
 | Reports | `{projectDir}/.argus/reports/{ContractName}-security-audit-YYYY-MM-DD.md` |
 
@@ -158,8 +159,10 @@ Expected: Exit 0, no errors.
 ### 4.5 Archive Current State (rollback checkpoint)
 
 ```bash
-# Create a timestamped backup of current state before cutover
-cp .argus/argus-state.json .argus/argus-state.pre-cutover-$(date +%Y%m%d-%H%M%S).json
+# Create a timestamped backup of the legacy shared state if it exists
+if [ -f .argus/argus-state.json ]; then
+  cp .argus/argus-state.json .argus/argus-state.pre-cutover-$(date +%Y%m%d-%H%M%S).json
+fi
 ```
 
 ---
@@ -293,8 +296,8 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 
 2. Restore pre-cutover state if needed:
    ```bash
-   # Restore from the backup created in Pre-Cutover step 4.5
-    cp .argus/argus-state.pre-cutover-YYYYMMDD-HHMMSS.json .argus/argus-state.json
+   # Restore from the backup created in Pre-Cutover step 4.5, if you captured one
+   cp .argus/argus-state.pre-cutover-YYYYMMDD-HHMMSS.json .argus/argus-state.json
    ```
 
 3. Verify:

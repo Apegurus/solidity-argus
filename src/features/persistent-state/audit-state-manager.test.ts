@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
@@ -729,6 +737,65 @@ describe("createAuditStateManager", () => {
     expect(loaded).not.toBeNull()
     expect(loaded?.findings).toHaveLength(1)
     expect(loaded?.findings[0]?.id).toBe("f-1")
+  })
+
+  test("archive removes the live session state file and writes a canonical archive", async () => {
+    const projectDir = makeTempDir()
+    const manager = createAuditStateManager(projectDir)
+
+    manager.bindSession("ses_abc123")
+
+    const state: AuditState = {
+      sessionId: "ses_abc123",
+      projectDir,
+      contractsReviewed: ["Vault.sol"],
+      findings: [
+        {
+          id: "f-archive",
+          check: "reentrancy-check",
+          severity: "High",
+          confidence: "High",
+          description: "test finding",
+          file: "Vault.sol",
+          lines: [10, 20] as [number, number],
+          source: "manual",
+        },
+      ],
+      toolsExecuted: [
+        {
+          tool: "argus_slither_analyze",
+          startTime: Date.now(),
+          success: true,
+          findingsCount: 1,
+        },
+      ],
+      currentPhase: "reporting",
+      scope: ["Vault.sol"],
+      startTime: Date.now(),
+    }
+
+    await manager.save(state)
+
+    const sessionFilePath = join(projectDir, WRITE_DIR, "sessions", "state-ses_abc123.json")
+    expect(existsSync(sessionFilePath)).toBe(true)
+
+    await manager.archive()
+
+    expect(existsSync(sessionFilePath)).toBe(false)
+
+    const archivesDir = join(projectDir, WRITE_DIR, "archives")
+    const archiveFiles = readdirSync(archivesDir).filter(
+      (entry) => entry.startsWith("argus-state.") && entry.endsWith(".json"),
+    )
+    expect(archiveFiles).toHaveLength(1)
+
+    const archivePath = join(archivesDir, archiveFiles[0]!)
+    const archivedState = JSON.parse(readFileSync(archivePath, "utf8")) as AuditState & {
+      filePath: string
+    }
+    expect(archivedState.filePath).toBe(archivePath)
+    expect(archivedState.findings).toHaveLength(1)
+    expect(archivedState.findings[0]?.id).toBe("f-archive")
   })
 
   test("new bound session returns null instead of inheriting state from different session", async () => {

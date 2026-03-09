@@ -18,7 +18,7 @@ Argus auto-registers the Solodit MCP server. No manual setup is required.
 - **Query Examples**:
   - "reentrancy ERC4626"
   - "flash loan oracle manipulation"
-- **Disabling**: Set `solodit.enabled: false` in your `opencode-argus.jsonc` file.
+- **Disabling**: Set `solodit.enabled: false` in `.argus/solidity-argus.jsonc` (preferred) or `.opencode/solidity-argus.jsonc` (compatibility fallback).
 
 ## SCVD Integration
 

@@ -1,5 +1,4 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import os from "node:os"
 import { dirname, extname, join, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import {
@@ -8,6 +7,7 @@ import {
   type ScvdIndexEntry,
   searchIndex,
 } from "../knowledge/scvd-index"
+import { getScvdIndexPath } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 import { extractDetectionRulesFromSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
@@ -153,7 +153,7 @@ async function collectScvdMatches(
     return []
   }
 
-  const indexPath = join(os.homedir(), ".cache", "solidity-argus", "scvd-index.json")
+  const indexPath = getScvdIndexPath()
   const index = await dependencies.loadIndexFn(indexPath)
 
   if (!index) {

@@ -1,6 +1,7 @@
-// opencode-argus.jsonc — Argus Plugin Configuration
-// Place this file at: .opencode/opencode-argus.jsonc (project-level)
-// Or at: ~/.config/opencode/opencode-argus.jsonc (global)
+// solidity-argus.jsonc — Argus Plugin Configuration
+// Place this file at: .argus/solidity-argus.jsonc (preferred project-level)
+// Or at: .opencode/solidity-argus.jsonc (compatible project-level fallback)
+// Or at: ~/.config/opencode/solidity-argus.jsonc (global)
 //
 // All fields are optional — the plugin works with zero configuration.
 // Defaults are shown below.

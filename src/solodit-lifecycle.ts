@@ -20,6 +20,7 @@ export interface LifecycleStatus {
 let soloditChild: SoloditChildProcess | null = null
 let monitorTimer: ReturnType<typeof setInterval> | null = null
 let isRestarting = false
+let startupPromise: Promise<void> | null = null
 
 /** Whether the Solodit MCP server is currently available for tool calls. */
 let _soloditAvailable = false
@@ -39,13 +40,31 @@ const HEALTH_CHECK_INTERVAL_MS = 60_000
 let restartSettleMs = DEFAULT_RESTART_SETTLE_MS
 let retryBaseDelayMs = DEFAULT_RETRY_BASE_DELAY_MS
 
+function withSuppressedParentOutput<T>(fn: () => T): T {
+  const savedStdoutWrite = process.stdout.write.bind(process.stdout)
+  const savedStderrWrite = process.stderr.write.bind(process.stderr)
+  const noop = (() => true) as typeof process.stdout.write
+
+  process.stdout.write = noop
+  process.stderr.write = noop
+
+  try {
+    return fn()
+  } finally {
+    process.stdout.write = savedStdoutWrite
+    process.stderr.write = savedStderrWrite
+  }
+}
+
 const defaultSpawnFn = (port: number): SoloditChildProcess =>
-  Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "ignore",
-    env: { ...process.env, PORT: String(port) },
-  })
+  withSuppressedParentOutput(() =>
+    Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      env: { ...process.env, PORT: String(port) },
+    }),
+  )
 
 let spawnFn: (port: number) => SoloditChildProcess = defaultSpawnFn
 
@@ -251,6 +270,7 @@ export function _resetSoloditState(): void {
   stopSoloditMonitoring()
   _soloditAvailable = false
   isRestarting = false
+  startupPromise = null
   lifecycleState = "stopped"
   lifecycleError = undefined
   restartSettleMs = DEFAULT_RESTART_SETTLE_MS
@@ -273,7 +293,7 @@ export function _setSoloditAvailable(value: boolean): void {
   _soloditAvailable = value
 }
 
-export async function startSoloditMcp(port: number): Promise<void> {
+async function startSoloditMcpInternal(port: number): Promise<void> {
   const logger = createLogger()
   lifecycleState = "starting"
   lifecycleError = undefined
@@ -322,4 +342,30 @@ export async function startSoloditMcp(port: number): Promise<void> {
   }
 
   startMonitoring(port)
+}
+
+export async function startSoloditMcp(
+  port: number,
+  options: { waitForHealth?: boolean } = {},
+): Promise<void> {
+  const waitForHealth = options.waitForHealth ?? true
+
+  if (startupPromise) {
+    if (waitForHealth) {
+      await startupPromise
+    }
+    return
+  }
+
+  let promise!: Promise<void>
+  promise = startSoloditMcpInternal(port).finally(() => {
+    if (startupPromise === promise) {
+      startupPromise = null
+    }
+  })
+  startupPromise = promise
+
+  if (waitForHealth) {
+    await promise
+  }
 }

@@ -14,20 +14,11 @@ const ArgusPlugin: Plugin = async (ctx) => {
   const config = loadArgusConfig(projectDir)
 
   if (config.solodit?.enabled !== false) {
-    // Suppress Bun auto-install stdout/stderr noise during Solodit MCP startup.
-    // Bun prints "bun install v..." and internal warnings to the parent process
-    // when resolving dependencies, which pollutes OpenCode's TUI.
-    const savedStdoutWrite = process.stdout.write.bind(process.stdout)
-    const savedStderrWrite = process.stderr.write.bind(process.stderr)
-    const noop = (() => true) as typeof process.stdout.write
-    process.stdout.write = noop
-    process.stderr.write = noop
-    try {
-      await startSoloditMcp(config.solodit?.port ?? DEFAULT_SOLODIT_PORT)
-    } finally {
-      process.stdout.write = savedStdoutWrite
-      process.stderr.write = savedStderrWrite
-    }
+    // MCP bootstrap must not block plugin load; the Solodit search tool falls
+    // back to direct HTTP when the local MCP is still coming up.
+    void startSoloditMcp(config.solodit?.port ?? DEFAULT_SOLODIT_PORT, {
+      waitForHealth: false,
+    })
   }
 
   const isHookEnabled = createHookGuard(config.disabled_hooks)

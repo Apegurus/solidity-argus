@@ -42,7 +42,7 @@ function sessionStateJson(sessionID: string): Record<string, unknown> {
 }
 
 function latestArchivePath(): string {
-  const archivesDir = join(FIXTURE_DIR, ".argus", "sessions", "archives")
+  const archivesDir = join(FIXTURE_DIR, ".argus", "archives")
   const files = readdirSync(archivesDir)
     .filter((entry) => entry.startsWith("argus-state.") && entry.endsWith(".json"))
     .sort()
@@ -316,7 +316,8 @@ describe("Full audit session lifecycle", () => {
 
     await fireEvent(plugin, "session.deleted", sessionID)
 
-    expect(existsSync(sessionStatePath(sessionID))).toBe(true)
+    expect(existsSync(sessionStatePath(sessionID))).toBe(false)
+    expect(existsSync(latestArchivePath())).toBe(true)
   })
 })
 
@@ -625,7 +626,8 @@ describe("Plugin teardown and cleanup", () => {
     )
 
     await fireEvent(plugin, "session.deleted", sessionID)
-    expect(existsSync(sessionStatePath(sessionID))).toBe(true)
+    expect(existsSync(sessionStatePath(sessionID))).toBe(false)
+    expect(existsSync(latestArchivePath())).toBe(true)
 
     const staleTmpFile = join(FIXTURE_DIR, ".argus", "sessions", "state-stale.json.tmp")
     writeFileSync(staleTmpFile, "stale")

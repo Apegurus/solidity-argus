@@ -584,7 +584,7 @@ export function createAuditStateManager(
     if (hasContent) {
       try {
         const consistent = await deriveConsistentState(currentState)
-        const archivesDir = join(dirname(stateFilePath), "archives")
+        const archivesDir = join(argusRoot, "archives")
         await mkdir(archivesDir, { recursive: true })
         const archivePath = join(archivesDir, `argus-state.${Date.now()}.json`)
         const persistentState: PersistentAuditState = {
@@ -603,7 +603,12 @@ export function createAuditStateManager(
     }
 
     currentState = createAuditState(projectDir).state
-    await save(currentState)
+
+    try {
+      await rm(stateFilePath, { force: true })
+    } catch (error) {
+      logger.warn(`Failed to remove live state file after archive: ${stateFilePath}`, error)
+    }
   }
 
   let disposed = false
