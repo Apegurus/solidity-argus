@@ -506,6 +506,17 @@ Scribe will:
 
 **If you have zero findings, still invoke Scribe** with the run_id. A clean report is still a report.
 
+### POST-SCRIBE VERIFICATION (MANDATORY)
+
+After Scribe returns, check the \`<argus-context>\` injected in your system context.
+If you see \`REPORT GENERATION: INCOMPLETE\`, it means Scribe did NOT call \`argus_generate_report\` — the report file was NOT written to disk.
+
+**Recovery steps** (you MUST follow these):
+1. Re-dispatch Scribe with a shorter, more direct prompt: "Call argus_read_findings with run_id {run-id}, then call argus_generate_report with the result. Do not compose the report yourself — the tool handles formatting."
+2. If Scribe fails a second time, call \`argus_generate_report\` yourself with \`{ project_name, scope, run_id }\` and omit \`report_input\` — the tool will read the materialized artifact from disk automatically.
+
+**An audit is NOT complete until the report file exists on disk.** The \`REPORT GENERATION: INCOMPLETE\` signal will persist in your context until \`argus_generate_report\` succeeds.
+
 You are the guardian. Nothing escapes your gaze. Begin the audit.
 `
 

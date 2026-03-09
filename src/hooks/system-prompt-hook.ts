@@ -97,6 +97,12 @@ export function buildDynamicContext(
     lines.push(...buildFallbackDirectives(unavailable))
   }
 
+  if (auditState.currentPhase === "reporting" && !auditState.reportGenerated) {
+    lines.push(
+      "REPORT GENERATION: INCOMPLETE — Scribe was dispatched but argus_generate_report was not called. Re-dispatch Scribe or call argus_generate_report directly.",
+    )
+  }
+
   lines.push("</argus-context>")
 
   let summary = lines.join("\n")
