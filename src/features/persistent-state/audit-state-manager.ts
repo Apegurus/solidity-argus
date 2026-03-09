@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { mkdirSync } from "node:fs"
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { AuditStateManager } from "../../managers/types"
@@ -349,6 +350,11 @@ export function createAuditStateManager(
     }
     boundSessionId = sessionId
     stateFilePath = join(sessionsDirPath, `state-${sessionId}.json`)
+    try {
+      mkdirSync(sessionsDirPath, { recursive: true })
+    } catch {
+      logger.warn(`Failed to create sessions directory: ${sessionsDirPath}`)
+    }
     logger.debug(`Bound state manager to session ${sessionId}: ${stateFilePath}`)
   }
 

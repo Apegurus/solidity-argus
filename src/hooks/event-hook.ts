@@ -285,7 +285,7 @@ export function createEventHook(
                 )
               : false
 
-          if (preDeleteSink && !hasSiblingSessionForRun) {
+          if (preDeleteSink && !preDeleteSink.isFinalized && !hasSiblingSessionForRun) {
             try {
               lastFinalizationResult = await finalizeRun(
                 preDeleteState.sessionId,

@@ -400,6 +400,19 @@ export function createHooks(args: {
 
         const effectiveState = auditState ?? recoveredState
         if (effectiveState) {
+          if (sessionId) {
+            const raceSink = eventSinksByOpencodeSession.get(sessionId)
+            if (raceSink) {
+              setEventSink(raceSink, sessionId)
+              setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
+              if (auditState) {
+                setState({ ...auditState, sessionId: raceSink.runId })
+              }
+              runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
+              return
+            }
+          }
+
           const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
           try {
             const sink = createEventSink(effectiveState.sessionId, projectDir)
@@ -484,7 +497,7 @@ export function createHooks(args: {
             eventSinksByRunId.get(auditState.sessionId) ??
             (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
 
-          if (runSink) {
+          if (runSink && !runSink.isFinalized) {
             try {
               const idleFinalization = await finalizeRun(
                 auditState.sessionId,
