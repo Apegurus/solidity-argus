@@ -293,11 +293,25 @@ export function createHooks(args: {
           }
 
           const parentSessionId = agentTracker.getParentSession(sessionId)
-          if (!parentSessionId) {
-            return null
+          if (parentSessionId) {
+            const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+            if (parentSink) {
+              return parentSink
+            }
           }
 
-          return eventSinksByOpencodeSession.get(parentSessionId) ?? null
+          // Single-run coalescence: if no direct or parent sink was found but
+          // there is exactly one active (non-finalized) run sink, attach this
+          // session to it.  This handles child sessions (sentinel, pythia, scribe)
+          // that are created before trackChildSession establishes the parent link.
+          const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
+          const coalescedSink = activeSinks.length === 1 ? activeSinks[0] : undefined
+          if (coalescedSink) {
+            logger.debug(`Coalescing session ${sessionId} into active run ${coalescedSink.runId}`)
+            return coalescedSink
+          }
+
+          return null
         })()
         if (existingSink) {
           if (sessionId) {
@@ -649,6 +663,8 @@ export function createHooks(args: {
                   return null
                 })(),
               getEventSinkForRun: (runId: string) => eventSinksByRunId.get(runId) ?? null,
+              getActiveRunSinks: () =>
+                Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized),
               getAgentNameForSession: (sessionId: string) => {
                 const directAgent = agentTracker.getAgentForSession(sessionId)
                 const parentSessionId = agentTracker.getParentSession(sessionId)

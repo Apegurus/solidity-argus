@@ -40,6 +40,7 @@ export type ToolTrackingOptions = {
   getEventSink?: () => EventSink | null
   getEventSinkForSession?: (sessionId: string) => EventSink | null
   getEventSinkForRun?: (runId: string) => EventSink | null
+  getActiveRunSinks?: () => EventSink[]
   getSessionId?: () => string
   getAgentName?: () => ArgusAgentName | undefined
   getAgentNameForSession?: (sessionId: string) => ArgusAgentName | undefined
@@ -649,10 +650,21 @@ export function createToolTrackingHook(
       if (runScopedSink && runScopedSink.runId === runId) {
         sink = runScopedSink
       } else {
-        logger.warn(
-          `Skipping sink emission for ${input.tool} due to run mismatch: state run ${runId}, sink run ${sink.runId}`,
-        )
-        sink = null
+        // Single-run coalescence: if exactly one active (non-finalized) sink
+        // exists, use it rather than dropping events silently.
+        const activeSinks = options?.getActiveRunSinks?.() ?? []
+        const coalescedSink = activeSinks.length === 1 ? activeSinks[0] : undefined
+        if (coalescedSink) {
+          logger.debug(
+            `Coalescing tool ${input.tool} from session ${sessionId} into active run ${coalescedSink.runId} (state run ${runId}, original sink run ${sink.runId})`,
+          )
+          sink = coalescedSink
+        } else {
+          logger.warn(
+            `Skipping sink emission for ${input.tool} due to run mismatch: state run ${runId}, sink run ${sink.runId}`,
+          )
+          sink = null
+        }
       }
     }
     const reportedByAgent =
@@ -840,12 +852,15 @@ export function createToolTrackingHook(
         }
 
         if (input.tool === "argus_record_finding" && !sink) {
-          // Findings are already in auditState (in-memory) and will be persisted
-          // via debouncedSave on state change. The sink provides durable event
-          // streaming but is not required for finding persistence.
+          const newFindings = auditState.findings.slice(findingsCountBefore)
+          if (newFindings.length > 0) {
+            throw new Error(
+              `argus_record_finding produced ${newFindings.length} finding(s) but no event sink is available — findings would be lost from the report`,
+            )
+          }
           diag.error(
             "NO_EVENT_SINK",
-            "argus_record_finding: no active event sink — findings saved to audit state only",
+            "argus_record_finding: no active event sink — no new findings to emit",
           )
         }
 
