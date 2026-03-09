@@ -514,9 +514,28 @@ export function createAuditStateManager(
         }
 
         const tempFilePath = `${stateFilePath}.${Date.now()}.tmp`
-        await mkdir(dirname(stateFilePath), { recursive: true })
-        await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`)
-        await rename(tempFilePath, stateFilePath)
+        const targetDir = dirname(stateFilePath)
+        await mkdir(targetDir, { recursive: true })
+
+        // Retry write+rename on ENOENT — mkdir may not have flushed to
+        // disk before Bun.write attempts to use the directory.
+        const ENOENT_RETRIES = 3
+        for (let fsRetry = 0; fsRetry < ENOENT_RETRIES; fsRetry += 1) {
+          try {
+            await Bun.write(tempFilePath, `${JSON.stringify(persistentState, null, 2)}\n`)
+            await rename(tempFilePath, stateFilePath)
+            break
+          } catch (fsErr) {
+            const isEnoent =
+              fsErr instanceof Error && (fsErr as NodeJS.ErrnoException).code === "ENOENT"
+            if (!isEnoent || fsRetry === ENOENT_RETRIES - 1) {
+              throw fsErr
+            }
+            // Re-create directory and retry after a brief delay
+            await mkdir(targetDir, { recursive: true })
+            await Bun.sleep(50)
+          }
+        }
 
         if (currentState === consistent.state) {
           return
