@@ -689,7 +689,7 @@ describe("createHooks", () => {
     expect(completed[0]?.session_id).toBe("oc-child-after-idle")
   })
 
-  it("uses canonical state run_id for report materialization when tool output run_id mismatches", async () => {
+  it("warns but proceeds when tool output run_id mismatches state run_id", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-canonical-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
@@ -729,25 +729,23 @@ describe("createHooks", () => {
 
     const freshRunId = await discoverFreshRunId(runsBefore)
 
-    await expect(
-      hooks["tool.execute.after"]?.(
-        {
-          tool: "argus_generate_report",
-          args: { target: FIXTURE_DIR },
-        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
-        {
-          title: "argus_generate_report",
-          output: JSON.stringify({
-            run_id: "ses_should_not_be_used",
-            filePath: ".argus/reports/mismatch.md",
-            report: "ok",
-          }),
-          metadata: {},
-        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
-      ),
-    ).rejects.toThrow("mismatched run_id")
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: "ses_should_not_be_used",
+          filePath: ".argus/reports/mismatch.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
 
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
-    expect(await Bun.file(findingsPath).exists()).toBe(false)
+    expect(await Bun.file(findingsPath).exists()).toBe(true)
   })
 })

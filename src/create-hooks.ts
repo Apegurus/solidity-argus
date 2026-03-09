@@ -203,6 +203,11 @@ export function createHooks(args: {
   const sinkCreatedAtBySession = new Map<string, number>()
   const sinkCreatedAtByRunId = new Map<string, number>()
 
+  // Synchronous dedup guard: prevents concurrent session.created handlers
+  // from creating duplicate sinks for the same OpenCode session.
+  // Set BEFORE the async await; checked by subsequent handlers synchronously.
+  const pendingSinkCreations = new Set<string>()
+
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
   function evictOldestSink(
     sinkMap: Map<string, EventSink>,
@@ -351,6 +356,14 @@ export function createHooks(args: {
             findingsCount: 0,
           })
           return
+        }
+
+        if (sessionId) {
+          if (pendingSinkCreations.has(sessionId)) {
+            runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
+            return
+          }
+          pendingSinkCreations.add(sessionId)
         }
 
         try {
@@ -783,6 +796,7 @@ export function createHooks(args: {
               if (deletedSessionId) {
                 agentTracker.clearSession(deletedSessionId)
                 eventSinksByOpencodeSession.delete(deletedSessionId)
+                pendingSinkCreations.delete(deletedSessionId)
               }
 
               const activeRunIds = new Set(
@@ -872,8 +886,8 @@ export function createHooks(args: {
               throw new Error("argus_generate_report completed without run_id")
             }
             if (extractedRunId !== state.sessionId) {
-              throw new Error(
-                `argus_generate_report returned mismatched run_id ${extractedRunId}; canonical run is ${state.sessionId}`,
+              logger.warn(
+                `argus_generate_report run_id ${extractedRunId} differs from state.sessionId ${state.sessionId} — proceeding with report`,
               )
             }
 
