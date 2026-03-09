@@ -13,14 +13,10 @@ import { createManagers } from "../../src/create-managers"
 import { createTools } from "../../src/create-tools"
 import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
 import { createHookGuard } from "../../src/hooks/hook-system"
-import ArgusPlugin, { _resetInstanceLockForTesting } from "../../src/index"
+import ArgusPlugin from "../../src/index"
 import { createPluginInterface } from "../../src/plugin-interface"
 
 const FIXTURE_DIR = path.resolve(import.meta.dir, "../fixtures/vulnerable-vault")
-
-beforeEach(() => {
-  _resetInstanceLockForTesting()
-})
 
 function makeTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `argus-e2e-${prefix}-`))

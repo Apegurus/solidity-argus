@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path, { basename, join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
-import ArgusPlugin, { _resetInstanceLockForTesting } from "../../src/index"
+import ArgusPlugin from "../../src/index"
 
 const FIXTURE_DIR = path.resolve(import.meta.dir, "../fixtures/vulnerable-vault")
 
@@ -54,7 +54,6 @@ function latestArchivePath(): string {
 }
 
 async function createPlugin(): Promise<PluginInstance> {
-  _resetInstanceLockForTesting()
   return ArgusPlugin({ directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0])
 }
 

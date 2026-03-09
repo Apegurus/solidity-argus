@@ -203,7 +203,14 @@ export function createHooks(args: {
   const sinkCreatedAtBySession = new Map<string, number>()
   const sinkCreatedAtByRunId = new Map<string, number>()
 
-  const pendingSinkCreations = new Set<string>()
+  logger.info("[plugin] code version: 15cfd54")
+
+  const DEDUP_KEY = Symbol.for("solidity-argus:pendingSinkCreations")
+  const globalRecord = globalThis as unknown as Record<symbol, Set<string>>
+  if (!globalRecord[DEDUP_KEY]) {
+    globalRecord[DEDUP_KEY] = new Set<string>()
+  }
+  const pendingSinkCreations = globalRecord[DEDUP_KEY]
 
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
   function evictOldestSink(
