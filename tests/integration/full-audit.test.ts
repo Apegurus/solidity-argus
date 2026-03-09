@@ -5,7 +5,7 @@ import type { ArgusConfig } from "../../src/config/types"
 import { createCompactionHook } from "../../src/hooks/compaction-hook"
 import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
-import ArgusPlugin from "../../src/index"
+import ArgusPlugin, { _resetInstanceLockForTesting } from "../../src/index"
 import { createAuditState } from "../../src/state/audit-state"
 import type { Finding } from "../../src/state/types"
 import { contractAnalyzerTool } from "../../src/tools/contract-analyzer-tool"
@@ -90,6 +90,7 @@ function makeFinding(overrides: Partial<Finding>): Finding {
 
 describe("full audit integration", () => {
   test("plugin loads and exports all expected tools", async () => {
+    _resetInstanceLockForTesting()
     const pluginContext = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const plugin = await ArgusPlugin(pluginContext)
 
