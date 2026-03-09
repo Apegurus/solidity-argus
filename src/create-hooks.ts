@@ -203,10 +203,12 @@ export function createHooks(args: {
   const sinkCreatedAtBySession = new Map<string, number>()
   const sinkCreatedAtByRunId = new Map<string, number>()
 
-  // Synchronous dedup guard: prevents concurrent session.created handlers
-  // from creating duplicate sinks for the same OpenCode session.
-  // Set BEFORE the async await; checked by subsequent handlers synchronously.
-  const pendingSinkCreations = new Set<string>()
+  const DEDUP_KEY = Symbol.for("solidity-argus:pendingSinkCreations")
+  const globalRecord = globalThis as unknown as Record<symbol, Set<string>>
+  if (!globalRecord[DEDUP_KEY]) {
+    globalRecord[DEDUP_KEY] = new Set<string>()
+  }
+  const pendingSinkCreations = globalRecord[DEDUP_KEY]
 
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
   function evictOldestSink(
