@@ -401,6 +401,52 @@ function reportInputToAuditState(reportInput: ReportInput): AuditState {
   }
 }
 
+function normalizeToolsExecutedDefaults(
+  parsed: unknown,
+  expectedRunId: string | undefined,
+  diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
+): void {
+  if (!parsed || typeof parsed !== "object") return
+  const obj = parsed as Record<string, unknown>
+  if (!Array.isArray(obj.toolsExecuted)) return
+
+  const runId = (typeof obj.run_id === "string" && obj.run_id) || expectedRunId || "unknown"
+  let patched = false
+
+  for (const entry of obj.toolsExecuted) {
+    if (!entry || typeof entry !== "object") continue
+    const rec = entry as Record<string, unknown>
+    if (typeof rec.startTime !== "number" || rec.startTime <= 0) {
+      rec.startTime = Date.now()
+      patched = true
+    }
+    if (typeof rec.success !== "boolean") {
+      rec.success = true
+      patched = true
+    }
+    if (typeof rec.findingsCount !== "number" || rec.findingsCount < 0) {
+      rec.findingsCount = 0
+      patched = true
+    }
+    if (typeof rec.run_id !== "string" || rec.run_id.trim().length === 0) {
+      rec.run_id = runId
+      patched = true
+    }
+    if (typeof rec.schema_version !== "string" || rec.schema_version.trim().length === 0) {
+      rec.schema_version = SCHEMA_VERSION
+      patched = true
+    }
+  }
+
+  if (patched) {
+    diagnostics.warn(
+      "REPORT_INPUT_TOOLS_EXECUTED_NORMALIZED",
+      "toolsExecuted entries were missing canonical fields (startTime, success, findingsCount, run_id, schema_version); defaults applied.",
+      "toolsExecuted",
+    )
+  }
+}
+
 function buildLegacyCompatibleReportInput(
   state: AuditState,
   context: ToolContext,
@@ -560,6 +606,8 @@ function parseReportInputPayload(
         diagnostics.getDiagnostics(),
       )
     }
+
+    normalizeToolsExecutedDefaults(parsed, expectedRunId, diagnostics)
 
     const validation = validateReportInput(parsed)
     if (!validation.success) {

@@ -1066,12 +1066,12 @@ test("preflight warn mode adds Completeness Warning section", async () => {
   expect(result.report).toContain("Missing lifecycle")
 })
 
-test("executeReportGeneration rejects malformed toolsExecuted in report_input", async () => {
-  const malformedReportInput = {
-    run_id: "run-malformed-tools",
+test("executeReportGeneration normalizes incomplete toolsExecuted in report_input", async () => {
+  const incompleteReportInput = {
+    run_id: "run-incomplete-tools",
     seq: 1,
-    session_id: "sess-malformed-tools",
-    tool_call_id: "tc-report-malformed",
+    session_id: "sess-incomplete-tools",
+    tool_call_id: "tc-report-incomplete",
     source: "argus",
     schema_version: SCHEMA_VERSION,
     projectDir: "/tmp/project",
@@ -1079,26 +1079,21 @@ test("executeReportGeneration rejects malformed toolsExecuted in report_input", 
     toolsExecuted: [
       {
         tool: "argus_forge_test",
-        startTime: 100,
-        endTime: 120,
-        findingsCount: 0,
-        run_id: "run-malformed-tools",
-        schema_version: SCHEMA_VERSION,
       },
     ],
     scope: ["Vault.sol"],
   }
 
-  expect(
-    executeReportGeneration(
-      {
-        project_name: "MalformedToolsExecuted",
-        scope: ["Vault.sol"],
-        report_input: JSON.stringify(malformedReportInput),
-      },
-      createContext(),
-    ),
-  ).rejects.toThrow("ReportInput contract mismatch")
+  const result = await executeReportGeneration(
+    {
+      project_name: "IncompleteToolsExecuted",
+      scope: ["Vault.sol"],
+      report_input: JSON.stringify(incompleteReportInput),
+    },
+    createContext(),
+  )
+
+  expect(result.report).toContain("IncompleteToolsExecuted")
 })
 
 test("durable-evidence report path renders without undefined when synthesis text is absent", async () => {
