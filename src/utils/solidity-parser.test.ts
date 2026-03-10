@@ -111,27 +111,43 @@ const mockCustomAccessControlABIOutput = JSON.stringify([
   },
 ])
 
-type SpawnSyncResult = ReturnType<typeof Bun.spawnSync>
+function mockSpawnResult(stdout: string, stderr: string, exitCode: number) {
+  return {
+    exited: Promise.resolve(exitCode),
+    stdout: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(stdout))
+        controller.close()
+      },
+    }),
+    stderr: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(stderr))
+        controller.close()
+      },
+    }),
+    pid: 0,
+    kill: () => {},
+  }
+}
 
-test("extractContractInfo - parses basic contract with ownable pattern", async () => {
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
+function createSpawnMock(abiOutput: string, storageOutput: string, success = true) {
+  return (cmd: string[] | unknown) => {
     const args = cmd as string[]
     if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from(mockABIOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
+      return mockSpawnResult(abiOutput, "", success ? 0 : 1)
     }
     if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from(mockStorageLayoutOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
+      return mockSpawnResult(storageOutput, "", success ? 0 : 1)
     }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+    return mockSpawnResult("", "Unknown command", 1)
+  }
+}
+
+test("extractContractInfo - parses basic contract with ownable pattern", async () => {
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock(mockABIOutput, mockStorageLayoutOutput) as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("TestContract", "/test/project")
@@ -156,24 +172,9 @@ test("extractContractInfo - parses basic contract with ownable pattern", async (
 })
 
 test("extractContractInfo - detects access-control pattern", async () => {
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
-    const args = cmd as string[]
-    if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from(mockAccessControlABIOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from(mockStorageLayoutOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock(mockAccessControlABIOutput, mockStorageLayoutOutput) as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("AccessControlContract", "/test/project")
@@ -186,24 +187,9 @@ test("extractContractInfo - detects access-control pattern", async () => {
 })
 
 test("extractContractInfo - detects custom access control pattern", async () => {
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
-    const args = cmd as string[]
-    if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from(mockCustomAccessControlABIOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from(mockStorageLayoutOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock(mockCustomAccessControlABIOutput, mockStorageLayoutOutput) as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("CustomAccessContract", "/test/project")
@@ -216,11 +202,9 @@ test("extractContractInfo - detects custom access control pattern", async () => 
 })
 
 test("extractContractInfo - handles forge error gracefully", async () => {
-  const spy = spyOn(Bun, "spawnSync").mockReturnValue({
-    stdout: Buffer.from(""),
-    stderr: Buffer.from("Error: Contract not found"),
-    success: false,
-  } as SpawnSyncResult)
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    (() => mockSpawnResult("", "Error: Contract not found", 1)) as unknown as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("NonExistentContract", "/test/project")
@@ -266,24 +250,9 @@ test("extractContractInfo - maps stateMutability to visibility correctly", async
     },
   ])
 
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
-    const args = cmd as string[]
-    if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from(abiWithAllMutabilities),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from(mockStorageLayoutOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock(abiWithAllMutabilities, mockStorageLayoutOutput) as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("MutabilityTest", "/test/project")
@@ -309,24 +278,9 @@ test("extractContractInfo - maps stateMutability to visibility correctly", async
 })
 
 test("extractContractInfo - parses state variables from storage layout", async () => {
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
-    const args = cmd as string[]
-    if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from(mockABIOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from(mockStorageLayoutOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock(mockABIOutput, mockStorageLayoutOutput) as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("TestContract", "/test/project")
@@ -346,24 +300,9 @@ test("extractContractInfo - parses state variables from storage layout", async (
 })
 
 test("extractContractInfo - handles invalid JSON gracefully", async () => {
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
-    const args = cmd as string[]
-    if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from("invalid json {"),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from("invalid json {"),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock("invalid json {", "invalid json {") as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("BadJSON", "/test/project")
@@ -387,24 +326,9 @@ test("extractContractInfo - returns default none pattern when no access control 
     },
   ])
 
-  const spy = spyOn(Bun, "spawnSync").mockImplementation((cmd) => {
-    const args = cmd as string[]
-    if (args.includes("abi")) {
-      return {
-        stdout: Buffer.from(simpleABI),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    if (args.includes("storage-layout")) {
-      return {
-        stdout: Buffer.from(mockStorageLayoutOutput),
-        stderr: Buffer.from(""),
-        success: true,
-      } as SpawnSyncResult
-    }
-    return { stdout: Buffer.from(""), stderr: Buffer.from(""), success: false } as SpawnSyncResult
-  })
+  const spy = spyOn(Bun, "spawn").mockImplementation(
+    createSpawnMock(simpleABI, mockStorageLayoutOutput) as typeof Bun.spawn,
+  )
 
   try {
     const result = await extractContractInfo("SimpleContract", "/test/project")

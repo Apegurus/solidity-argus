@@ -140,6 +140,31 @@ export function parseExternalCalls(sourceText: string): string[] {
   }
 }
 
+async function spawnForgeInspect(
+  contractName: string,
+  inspectType: string,
+  cwd: string,
+): Promise<{ success: boolean; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(["forge", "inspect", contractName, inspectType, "--json"], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+
+  const timeout = 15_000
+  const timer = new Promise<never>((_, reject) =>
+    setTimeout(() => {
+      proc.kill()
+      reject(new Error(`forge inspect ${inspectType} timed out after ${timeout}ms`))
+    }, timeout),
+  )
+
+  const exitCode = await Promise.race([proc.exited, timer])
+  const stdout = await new Response(proc.stdout).text()
+  const stderr = await new Response(proc.stderr).text()
+  return { success: exitCode === 0, stdout, stderr }
+}
+
 /**
  * Extract contract information using forge inspect
  * Runs forge inspect <contractName> abi and storage-layout
@@ -162,39 +187,24 @@ export async function extractContractInfo(
   }
 
   try {
-    // Run forge inspect abi
-    const abiResult = Bun.spawnSync(["forge", "inspect", contractName, "abi", "--json"], {
-      cwd: projectDir,
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 15_000,
-    })
+    // Run both forge inspect commands in parallel (async, non-blocking)
+    const [abiResult, storageResult] = await Promise.all([
+      spawnForgeInspect(contractName, "abi", projectDir),
+      spawnForgeInspect(contractName, "storage-layout", projectDir),
+    ])
 
     if (!abiResult.success) {
-      const errorMsg = abiResult.stderr?.toString() || "Unknown error"
-      result.error = `Failed to inspect ABI: ${errorMsg}`
+      result.error = `Failed to inspect ABI: ${abiResult.stderr}`
       return result
     }
 
-    // Run forge inspect storage-layout
-    const storageResult = Bun.spawnSync(
-      ["forge", "inspect", contractName, "storage-layout", "--json"],
-      {
-        cwd: projectDir,
-        stdout: "pipe",
-        stderr: "pipe",
-        timeout: 15_000,
-      },
-    )
-
     if (!storageResult.success) {
-      const errorMsg = storageResult.stderr?.toString() || "Unknown error"
-      result.error = `Failed to inspect storage layout: ${errorMsg}`
+      result.error = `Failed to inspect storage layout: ${storageResult.stderr}`
       return result
     }
 
     // Parse ABI
-    const abiRaw = abiResult.stdout?.toString() || "[]"
+    const abiRaw = abiResult.stdout || "[]"
     const abiOutput = extractJson(abiRaw, "[")
     let abi: ABIFunction[] = []
     try {
@@ -205,7 +215,7 @@ export async function extractContractInfo(
     }
 
     // Parse storage layout
-    const storageRaw = storageResult.stdout?.toString() || "{}"
+    const storageRaw = storageResult.stdout || "{}"
     const storageOutput = extractJson(storageRaw, "{")
     let storageLayout: StorageLayout = { storage: [], types: {} }
     try {
