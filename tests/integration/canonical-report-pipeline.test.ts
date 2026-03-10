@@ -193,6 +193,7 @@ describe("canonical report pipeline E2E", () => {
           scope: ["src/Vault.sol"],
           report_input: JSON.stringify(readResult.reportInput),
           preflight_policy: "warn",
+          tool_coverage_policy: "skip",
         },
         context,
         {

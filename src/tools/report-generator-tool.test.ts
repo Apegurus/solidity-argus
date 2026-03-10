@@ -1000,6 +1000,7 @@ test("preflight strict-fail throws when events have orphaned tool", async () => 
         scope: ["Vault.sol"],
         report_input: JSON.stringify(reportInput),
         preflight_policy: "strict-fail",
+        tool_coverage_policy: "skip",
       },
       createContext(),
       {
@@ -1054,6 +1055,7 @@ test("preflight warn mode adds Completeness Warning section", async () => {
       scope: ["Vault.sol"],
       report_input: JSON.stringify(reportInput),
       preflight_policy: "warn",
+      tool_coverage_policy: "skip",
     },
     createContext(),
     {
@@ -1089,6 +1091,7 @@ test("executeReportGeneration normalizes incomplete toolsExecuted in report_inpu
       project_name: "IncompleteToolsExecuted",
       scope: ["Vault.sol"],
       report_input: JSON.stringify(incompleteReportInput),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -1189,6 +1192,7 @@ test("durable-evidence report path renders without undefined when synthesis text
       scope: ["src/Vault.sol"],
       report_input: JSON.stringify(reportInput),
       preflight_policy: "warn",
+      tool_coverage_policy: "skip",
     },
     createContext(),
     {
@@ -1221,6 +1225,7 @@ test("preflight warn mode succeeds when event read fails", async () => {
       scope: ["Vault.sol"],
       report_input: JSON.stringify(reportInput),
       preflight_policy: "warn",
+      tool_coverage_policy: "skip",
     },
     createContext(),
     {
@@ -1256,6 +1261,7 @@ test("preflight strict-fail throws when event read fails", async () => {
         scope: ["Vault.sol"],
         report_input: JSON.stringify(reportInput),
         preflight_policy: "strict-fail",
+        tool_coverage_policy: "skip",
       },
       createContext(),
       {
@@ -1568,6 +1574,7 @@ test("executeReportGeneration falls back to run_id disk report-input.json", asyn
         project_name: "TestProject",
         scope: ["Vault.sol"],
         run_id: runId,
+        tool_coverage_policy: "skip",
       },
       context,
     )

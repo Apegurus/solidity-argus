@@ -122,6 +122,7 @@ describe("report input contract", () => {
         project_name: "ContractFlow",
         scope: ["src/Vault.sol"],
         report_input: JSON.stringify(makeCanonicalReportInput()),
+        tool_coverage_policy: "skip",
       },
       createContext(),
     )
@@ -196,6 +197,7 @@ describe("report input contract", () => {
           scope: reportInput.scope,
           report_input: JSON.stringify(reportInput),
           preflight_policy: "strict-fail",
+          tool_coverage_policy: "skip",
         },
         createContext(),
         {
@@ -237,6 +239,7 @@ describe("report input contract", () => {
         scope: reportInput.scope,
         report_input: JSON.stringify(reportInput),
         preflight_policy: "warn",
+        tool_coverage_policy: "skip",
       },
       createContext(),
       {
@@ -291,6 +294,7 @@ describe("report input contract", () => {
         scope: reportInput.scope,
         report_input: JSON.stringify(reportInput),
         preflight_policy: "warn",
+        tool_coverage_policy: "skip",
       },
       createContext(),
       {

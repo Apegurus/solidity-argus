@@ -289,6 +289,7 @@ describe("Full audit session lifecycle", () => {
         include_executive_summary: true,
         severity_threshold: "low",
         run_id: runId,
+        tool_coverage_policy: "skip",
       },
       createMockContext(sessionID),
     )

@@ -1,23 +1,12 @@
+import {
+  KEY_TOOLS,
+  TOOL_SHORT_NAMES,
+  computeMissingKeyTools,
+} from "../shared/key-tools"
 import type { AuditState, FindingSeverity } from "../state/types"
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const TOKENS_PER_CHAR = 4
-
-const TOOL_SHORT_NAMES: Record<string, string> = {
-  argus_slither_analyze: "slither",
-  argus_forge_test: "forge-test",
-  argus_check_patterns: "patterns",
-  argus_solodit_search: "solodit",
-  argus_analyze_contract: "analyzer",
-}
-const KEY_TOOLS = ["slither", "forge-test", "patterns", "solodit", "analyzer"]
-
-/** Maps unavailable-tool short names to their KEY_TOOLS counterpart */
-const UNAVAILABLE_TO_KEY_TOOL: Record<string, string> = {
-  slither: "slither",
-  forge: "forge-test",
-  solodit: "solodit",
-}
 
 export interface SystemPromptHookDeps {
   getAuditState: () => AuditState | null
@@ -76,8 +65,7 @@ export function buildDynamicContext(
     (t) => `${t}=${executedToolNames.has(t) ? "done" : "pending"}`,
   ).join(" ")
   const unavailable = auditState.unavailableTools ?? []
-  const excusedTools = new Set(unavailable.map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean))
-  const pendingKeyTools = KEY_TOOLS.filter((t) => !executedToolNames.has(t) && !excusedTools.has(t))
+  const pendingKeyTools = computeMissingKeyTools(auditState.toolsExecuted, unavailable)
   const gateStatus =
     pendingKeyTools.length > 0
       ? `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`

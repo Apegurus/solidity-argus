@@ -20,9 +20,12 @@ import {
 import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { AuditState, Finding, FindingSeverity } from "../state/types"
+import { computeMissingKeyTools } from "../shared/key-tools"
 import { checkReportPreflight } from "./report-preflight"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
+
+type ToolCoveragePolicy = "enforce" | "warn" | "skip"
 
 type ReportGeneratorArgs = {
   project_name: string
@@ -33,6 +36,7 @@ type ReportGeneratorArgs = {
   report_input?: string
   audit_state?: string
   preflight_policy?: PreflightPolicy
+  tool_coverage_policy?: ToolCoveragePolicy
   run_id?: string
 }
 
@@ -1251,11 +1255,30 @@ export async function executeReportGeneration(
   const includeExecutiveSummary = args.include_executive_summary ?? true
   const threshold = args.severity_threshold ?? "low"
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
+  const isLegacyPath = !args.report_input && !!args.audit_state
+  const toolCoveragePolicy = args.tool_coverage_policy ?? (isLegacyPath ? "warn" : "enforce")
   const expectedRunId = resolveExpectedRunId(args, context, deps)
   const { reportInput, diagnostics } = parseReportInputPayload(args, context, expectedRunId)
+
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
   const warningBullets: string[] = []
+
+  // Hard gate: refuse to generate a report if key audit tools have not been executed
+  if (toolCoveragePolicy !== "skip") {
+    const missingTools = computeMissingKeyTools(reportInput.toolsExecuted)
+    if (missingTools.length > 0) {
+      const toolList = missingTools.join(", ")
+      if (toolCoveragePolicy === "enforce") {
+        throw new Error(
+          `Tool coverage gate failed: the following key audit tools have not been executed: ${toolList}. ` +
+            "Run the missing tools before generating a report, or pass tool_coverage_policy: \"warn\" to override.",
+        )
+      }
+      warningBullets.push(`- Tool coverage incomplete: ${toolList} not executed`)
+    }
+  }
+
   try {
     const readEventsFn = deps.readEvents ?? readEvents
     const events = await readEventsFn(reportInput.run_id, reportInput.projectDir)
@@ -1465,6 +1488,13 @@ export const reportGeneratorTool = tool({
     report_input: tool.schema.string().optional(),
     audit_state: tool.schema.string().optional(),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
+    tool_coverage_policy: tool.schema
+      .enum(["enforce", "warn", "skip"])
+      .optional()
+      .describe(
+        "Controls whether report generation requires key audit tools to have been executed. " +
+          "Defaults to 'enforce' for canonical report_input path, 'warn' for legacy audit_state path.",
+      ),
     run_id: tool.schema
       .string()
       .optional()
