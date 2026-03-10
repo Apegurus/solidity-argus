@@ -23,11 +23,15 @@ function isValidHydrationFinding(f: unknown): f is Finding {
   )
 }
 
+function normalizeText(value: string): string {
+  return value.trim().toLowerCase()
+}
+
 export function createFindingStore(state: AuditState): FindingStore {
   function generateObservationId(check: string, file: string, lines: [number, number]): string {
     return crypto
       .createHash("sha256")
-      .update(`${check}:${file}:${lines[0]}-${lines[1]}`)
+      .update(`${normalizeText(check)}:${normalizeText(file)}:${lines[0]}-${lines[1]}`)
       .digest("hex")
       .substring(0, 16)
   }
@@ -70,10 +74,12 @@ export function createFindingStore(state: AuditState): FindingStore {
   }
 
   function hasFinding(check: string, file: string, lines: [number, number]): boolean {
+    const normalizedCheck = normalizeText(check)
+    const normalizedFile = normalizeText(file)
     return hydratedFindings.some(
       (finding) =>
-        finding.check === check &&
-        finding.file === file &&
+        normalizeText(finding.check) === normalizedCheck &&
+        normalizeText(finding.file) === normalizedFile &&
         finding.lines[0] === lines[0] &&
         finding.lines[1] === lines[1],
     )

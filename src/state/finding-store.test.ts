@@ -133,6 +133,51 @@ describe("FindingStore", () => {
     expect(store.hasFinding("bad", "Vault.sol", [1, 2])).toBe(false)
   })
 
+  test("hasFinding normalizes check and file case", () => {
+    const state = createBaseState([
+      createPersistedFinding("Reentrancy-Eth", "src/Vault.sol", [10, 15]),
+    ])
+    const store = createFindingStore(state)
+
+    // Exact match
+    expect(store.hasFinding("Reentrancy-Eth", "src/Vault.sol", [10, 15])).toBe(true)
+    // Different case
+    expect(store.hasFinding("reentrancy-eth", "src/Vault.sol", [10, 15])).toBe(true)
+    expect(store.hasFinding("REENTRANCY-ETH", "SRC/VAULT.SOL", [10, 15])).toBe(true)
+    // With whitespace
+    expect(store.hasFinding("  reentrancy-eth  ", "  src/Vault.sol  ", [10, 15])).toBe(true)
+    // Different lines still not a match
+    expect(store.hasFinding("reentrancy-eth", "src/Vault.sol", [10, 16])).toBe(false)
+  })
+
+  test("generateObservationId normalizes case for same-content detection", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+
+    const lower = store.addFinding({
+      check: "reentrancy-eth",
+      severity: "High",
+      confidence: "High",
+      description: "lowercase check",
+      file: "src/vault.sol",
+      lines: [10, 15],
+      source: "slither",
+    })
+
+    const upper = store.addFinding({
+      check: "Reentrancy-Eth",
+      severity: "High",
+      confidence: "High",
+      description: "mixed case check",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+      source: "manual",
+    })
+
+    // Same observation ID despite different casing
+    expect(lower.id).toBe(upper.id)
+  })
+
   test("serialize reflects observation counts", () => {
     const state = createBaseState()
     const store = createFindingStore(state)
