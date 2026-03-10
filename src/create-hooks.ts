@@ -852,9 +852,11 @@ export function createHooks(args: {
     "chat.message": async (input) => {
       agentTracker.chatMessageHook(input)
     },
-    "experimental.chat.system.transform": async (input, output) => {
-      await systemPromptHook(input, output)
-    },
+    "experimental.chat.system.transform": isHookEnabled("system-prompt")
+      ? async (input, output) => {
+          await systemPromptHook(input, output)
+        }
+      : undefined,
     "experimental.session.compacting": compactionHook
       ? async (_input, output) => {
           const block = await compactionHook({ summary: output.context.join("\n") })

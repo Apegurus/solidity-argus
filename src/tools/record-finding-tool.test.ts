@@ -110,13 +110,23 @@ test("executeRecordFinding accepts findings array", async () => {
   expect(parsed.findings.every((f) => typeof f.id === "string")).toBe(true)
 })
 
-test("executeRecordFinding rejects malformed finding payload", async () => {
-  await expect(
-    executeRecordFinding(
-      {
-        finding: "{bad-json}",
-      },
-      createContext("argus"),
-    ),
-  ).rejects.toThrow("finding must be valid JSON")
+test("executeRecordFinding returns error for malformed finding payload", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: "{bad-json}",
+    },
+    createContext("argus"),
+  )
+
+  const parsed = JSON.parse(payload) as { success: boolean; error: string }
+  expect(parsed.success).toBe(false)
+  expect(parsed.error).toContain("finding must be valid JSON")
+})
+
+test("executeRecordFinding returns error when no findings provided", async () => {
+  const payload = await executeRecordFinding({}, createContext("argus"))
+
+  const parsed = JSON.parse(payload) as { success: boolean; error: string }
+  expect(parsed.success).toBe(false)
+  expect(parsed.error).toContain("Provide at least one finding")
 })

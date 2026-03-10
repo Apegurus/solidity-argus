@@ -389,7 +389,11 @@ export function createAuditStateManager(
               try {
                 const s = await stat(filePath)
                 const mtime = s.mtimeMs
-                if (!newest || mtime > newest.mtime) {
+                if (
+                  !newest ||
+                  mtime > newest.mtime ||
+                  (mtime === newest.mtime && name > newest.name)
+                ) {
                   newest = { name, mtime }
                 }
               } catch {

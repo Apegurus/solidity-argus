@@ -24,29 +24,36 @@ type RecordFindingResponse = {
   note: string
 }
 
-function parseFindingObject(raw: string, label: "finding" | "findings"): Record<string, unknown>[] {
+type ParseResult =
+  | { ok: true; data: Record<string, unknown>[] }
+  | { ok: false; error: string }
+
+function parseFindingObject(raw: string, label: "finding" | "findings"): ParseResult {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    throw new Error(`${label} must be valid JSON`)
+    return { ok: false, error: `${label} must be valid JSON` }
   }
 
   if (label === "finding") {
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      throw new Error("finding must be a JSON object")
+      return { ok: false, error: "finding must be a JSON object" }
     }
-    return [parsed as Record<string, unknown>]
+    return { ok: true, data: [parsed as Record<string, unknown>] }
   }
 
   if (!Array.isArray(parsed)) {
-    throw new Error("findings must be a JSON array")
+    return { ok: false, error: "findings must be a JSON array" }
   }
 
-  return parsed.filter(
-    (item): item is Record<string, unknown> =>
-      typeof item === "object" && item !== null && !Array.isArray(item),
-  )
+  return {
+    ok: true,
+    data: parsed.filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && !Array.isArray(item),
+    ),
+  }
 }
 
 function normalizeAgent(value: string): ArgusAgentName {
@@ -57,6 +64,17 @@ function normalizeAgent(value: string): ArgusAgentName {
   return "unknown"
 }
 
+function errorResponse(error: string): string {
+  return JSON.stringify({
+    success: false,
+    count: 0,
+    findings: [],
+    schema_version: SCHEMA_VERSION,
+    note: error,
+    error,
+  })
+}
+
 export async function executeRecordFinding(
   args: RecordFindingArgs,
   context: ToolContext,
@@ -64,14 +82,18 @@ export async function executeRecordFinding(
   const rawFindings: Record<string, unknown>[] = []
 
   if (typeof args.finding === "string" && args.finding.trim().length > 0) {
-    rawFindings.push(...parseFindingObject(args.finding, "finding"))
+    const result = parseFindingObject(args.finding, "finding")
+    if (!result.ok) return errorResponse(result.error)
+    rawFindings.push(...result.data)
   }
   if (typeof args.findings === "string" && args.findings.trim().length > 0) {
-    rawFindings.push(...parseFindingObject(args.findings, "findings"))
+    const result = parseFindingObject(args.findings, "findings")
+    if (!result.ok) return errorResponse(result.error)
+    rawFindings.push(...result.data)
   }
 
   if (rawFindings.length === 0) {
-    throw new Error("Provide at least one finding via finding or findings")
+    return errorResponse("Provide at least one finding via finding or findings")
   }
 
   const reportedByAgent = normalizeAgent(context.agent)
@@ -102,7 +124,7 @@ export async function executeRecordFinding(
   }
 
   if (errors.length > 0) {
-    throw new Error(`Failed to record finding(s): ${errors.join("; ")}`)
+    return errorResponse(`Failed to record finding(s): ${errors.join("; ")}`)
   }
 
   const response: RecordFindingResponse = {

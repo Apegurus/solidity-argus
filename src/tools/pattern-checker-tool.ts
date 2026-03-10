@@ -246,15 +246,18 @@ export function findMatches(file: string, patterns: LoadedPattern[]): Match[] {
   const matches: Match[] = []
 
   // Strip comments and string literals to reduce false positives.
-  // Use a space-preserving approach so line numbers remain valid.
-  // Order: multi-line comments first (can contain //), then single-line, then strings.
-  const stripped = content
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
-    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (m) => {
+  // Single-pass approach: match whichever construct appears first so that
+  // a "//" inside a string (e.g. URLs) is NOT treated as a comment.
+  const stripped = content.replace(
+    /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
+    (m) => {
+      if (m.startsWith("/*")) return m.replace(/[^\n]/g, " ")
+      if (m.startsWith("//")) return " ".repeat(m.length)
+      // String literal — preserve quotes, blank interior
       const quote = m[0]
       return `${quote}${" ".repeat(Math.max(0, m.length - 2))}${quote}`
-    })
+    },
+  )
 
   for (const pattern of patterns) {
     const regex = new RegExp(

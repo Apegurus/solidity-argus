@@ -417,7 +417,7 @@ describe("E2E D: Hook Lifecycle", () => {
       hooks,
     })
 
-    expect(typeof iface["experimental.chat.system.transform"]).toBe("function")
+    expect(iface["experimental.chat.system.transform"]).toBeUndefined()
     expect(iface["experimental.session.compacting"]).toBeUndefined()
     expect(iface.event).toBeUndefined()
 

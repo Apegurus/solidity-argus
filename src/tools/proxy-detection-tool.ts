@@ -115,49 +115,29 @@ function collectIndicators(source: string): Set<string> {
   return indicators
 }
 
-function hasAny(indicators: Set<string>, candidates: string[]): boolean {
-  return candidates.some((candidate) => indicators.has(candidate))
-}
+// Scored classification: each proxy type gets a score based on how many
+// of its specific indicators are present. The type with the highest score
+// wins. This avoids implicit order-dependency when multiple proxy types
+// have matching indicators.
+const PROXY_TYPE_INDICATORS: Array<{ type: ProxyType; indicators: string[] }> = [
+  { type: "diamond", indicators: ["diamond-cut", "diamond-cut-interface", "facet-address", "diamond-loupe"] },
+  { type: "uups", indicators: ["uups-authorize-upgrade", "uups-upgrade-to-and-call", "uups-upgradeable"] },
+  { type: "beacon", indicators: ["beacon-interface", "beacon-proxy", "upgradeable-beacon"] },
+  { type: "transparent", indicators: ["transparent-implementation-getter", "transparent-admin-getter", "transparent-set-implementation"] },
+  { type: "erc1967", indicators: ["erc1967-implementation-slot", "erc1967-admin-slot", "erc1967-beacon-slot", "delegatecall"] },
+]
 
 function classifyProxyType(indicators: Set<string>): ProxyType | null {
-  if (
-    hasAny(indicators, ["diamond-cut", "diamond-cut-interface", "facet-address", "diamond-loupe"])
-  ) {
-    return "diamond"
+  let best: { type: ProxyType; score: number } | null = null
+
+  for (const entry of PROXY_TYPE_INDICATORS) {
+    const score = entry.indicators.filter((ind) => indicators.has(ind)).length
+    if (score > 0 && (!best || score > best.score)) {
+      best = { type: entry.type, score }
+    }
   }
 
-  if (
-    hasAny(indicators, ["uups-authorize-upgrade", "uups-upgrade-to-and-call", "uups-upgradeable"])
-  ) {
-    return "uups"
-  }
-
-  if (hasAny(indicators, ["beacon-interface", "beacon-proxy", "upgradeable-beacon"])) {
-    return "beacon"
-  }
-
-  if (
-    hasAny(indicators, [
-      "transparent-implementation-getter",
-      "transparent-admin-getter",
-      "transparent-set-implementation",
-    ])
-  ) {
-    return "transparent"
-  }
-
-  if (
-    hasAny(indicators, [
-      "erc1967-implementation-slot",
-      "erc1967-admin-slot",
-      "erc1967-beacon-slot",
-      "delegatecall",
-    ])
-  ) {
-    return "erc1967"
-  }
-
-  return null
+  return best?.type ?? null
 }
 
 export async function executeProxyDetection(

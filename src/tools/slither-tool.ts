@@ -309,14 +309,37 @@ export async function flattenFallback(
         ],
         { timeout: 5_000 },
       )
-      if (findResult.exitCode !== 0) return undefined
+      if (findResult.exitCode !== 0) {
+        return {
+          success: false,
+          findingsCount: 0,
+          findings: [],
+          executionTime: Date.now() - startedAt,
+          errors: ["[flatten-fallback] find command failed — could not discover .sol files"],
+        }
+      }
       solFiles = findResult.stdout.trim().split("\n").filter(Boolean)
-    } catch (_e) {
-      return undefined
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return {
+        success: false,
+        findingsCount: 0,
+        findings: [],
+        executionTime: Date.now() - startedAt,
+        errors: [`[flatten-fallback] file discovery failed: ${msg}`],
+      }
     }
   }
 
-  if (solFiles.length === 0) return undefined
+  if (solFiles.length === 0) {
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: ["[flatten-fallback] no .sol files found in target directory"],
+    }
+  }
 
   const tmpDir = mkdtempSync(join(tmpdir(), "argus-slither-"))
   const allFindings: Finding[] = []

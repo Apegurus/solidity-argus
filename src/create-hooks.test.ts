@@ -127,7 +127,7 @@ describe("createHooks", () => {
     })
 
     expect(hooks.config).toBeDefined()
-    expect(hooks["experimental.chat.system.transform"]).toBeDefined()
+    expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
     expect(hooks["experimental.session.compacting"]).toBeUndefined()
     expect(hooks["tool.execute.after"]).toBeUndefined()
     expect(hooks.event).toBeUndefined()
@@ -175,7 +175,7 @@ describe("createHooks", () => {
       },
     })
 
-    expect(checkedHooks).toEqual(["compaction", "tool-tracking", "event"])
+    expect(checkedHooks).toEqual(["compaction", "tool-tracking", "event", "system-prompt"])
   })
 
   it("persists current state on session.idle", async () => {
