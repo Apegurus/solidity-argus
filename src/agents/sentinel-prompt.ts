@@ -134,6 +134,25 @@ You have access to a specific set of tools. Use them effectively.
 **Arguments**:
 - \`finding\` (string): Serialized JSON object for a single finding.
 - \`findings\` (string): Serialized JSON array for multiple findings.
+
+**Required finding JSON fields**:
+\`\`\`json
+{
+  "check": "descriptive-slug",
+  "severity": "Critical|High|Medium|Low|Informational",
+  "confidence": "High|Medium|Low",
+  "description": "Clear explanation of the vulnerability",
+  "file": "relative/path/to/Contract.sol",
+  "lines": [startLine, endLine],
+  "source": "manual",
+  "impact": "Specific impact: who loses what, how much, under what conditions",
+  "recommendation": "Specific fix: add nonReentrant modifier, use checks-effects-interactions, etc.",
+  "proofOfConcept": "Steps to reproduce or reference to the PoC test that confirmed this"
+}
+\`\`\`
+
+**CRITICAL**: For Critical and High findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. The quality gate will flag findings missing these fields. Do not use generic placeholders — be specific to the vulnerability.
+
 **Interpretation**:
 - Recording is mandatory before handing findings to Argus for final synthesis.
 

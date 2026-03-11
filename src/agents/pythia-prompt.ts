@@ -92,6 +92,24 @@ You have two primary tools. Master them.
 **Arguments**:
 - \`finding\` (string): Serialized JSON object for one finding.
 - \`findings\` (string): Serialized JSON array for multiple findings.
+
+**Required finding JSON fields**:
+\`\`\`json
+{
+  "check": "descriptive-slug",
+  "severity": "Critical|High|Medium|Low|Informational",
+  "confidence": "High|Medium|Low",
+  "description": "Clear explanation connecting the pattern to historical precedent",
+  "file": "relative/path/to/Contract.sol",
+  "lines": [startLine, endLine],
+  "source": "manual",
+  "impact": "Specific impact based on the historical precedent (e.g., 'Total vault drain via flash loan, similar to $X loss in Protocol Y')",
+  "recommendation": "Specific mitigation from the precedent audit report"
+}
+\`\`\`
+
+**CRITICAL**: For Critical and High findings, \`impact\` and \`recommendation\` are MANDATORY. The quality gate will flag findings missing these fields. Use your Solodit research to write specific, precedent-backed impact and recommendation text — not generic placeholders.
+
 **Interpretation**:
 - A finding is not report-ready until it has been recorded through this tool.
 

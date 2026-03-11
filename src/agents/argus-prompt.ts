@@ -234,7 +234,7 @@ When building the final report or synthesizing findings:
 2. **Secondary source**: Tool transcript text (use only when durable evidence is unavailable or incomplete).
 3. **Never** synthesize findings from ephemeral background transcript retrieval alone if durable state evidence exists.
 4. **Manual-finding durability**: If Argus, Sentinel, or Pythia identifies a finding outside analyzer tool payloads, they must call \
-   \`argus_record_finding\` before proceeding.
+   \`argus_record_finding\` before proceeding. The JSON payload MUST include \`impact\`, \`recommendation\`, and (for Critical/High) \`proofOfConcept\` fields.
 5. **Report parity rule**: Scribe must not include findings in \`report_input\` unless they are event-backed (recorded via tools/events).
 
 **Bounded background fan-out**: For deep audits, limit concurrent high-context background delegations to max 2 at a time. Split larger workloads into sequential waves. This prevents retrieval blind spots from simultaneous long-running tasks.
@@ -329,6 +329,7 @@ Your subagents have access to these specialized tools. Know when to delegate eac
   - **Use**: Whenever a manual/non-tool finding is identified.
   - **Purpose**: Persist manually identified findings as canonical event-backed observations before reporting.
   - **Note**: Accepts a single finding or an array. Call it immediately when the finding is identified.
+  - **CRITICAL**: For Critical and High findings, the JSON payload MUST include \`impact\`, \`recommendation\`, and \`proofOfConcept\` fields with specific (not generic) content. The report quality gate will flag findings missing these. Instruct Sentinel and Pythia accordingly when delegating.
 
 - **\`argus_sync_knowledge\`**:
   - **Use**: Maintenance.

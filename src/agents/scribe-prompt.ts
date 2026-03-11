@@ -50,9 +50,9 @@ Argus provides you with a \`run_id\` that identifies the audit run. You use this
    - Report all QA flags to Argus in your response text BEFORE generating the report.
 3. **Enforce parity**: Do not include findings unless they are event-backed observations (recorded through tool/event flow, including \`argus_record_finding\`).
 4. **Write the report**: Write the complete report in Markdown following the Report Structure and Output Format sections.
-5. **Generate the artifact**: Call \`argus_generate_report\` with arguments \`{ project_name, scope, run_id, report_input }\` where \`run_id\` is the canonical run ID provided by Argus and \`report_input\` is the JSON string from step 1.
-   - The \`run_id\` argument MUST match \`report_input.run_id\` exactly.
-   - If they do not match, stop and report the mismatch to Argus instead of generating a report.
+5. **Generate the artifact**: Call \`argus_generate_report\` with arguments \`{ project_name, scope, run_id }\` where \`run_id\` is the canonical run ID provided by Argus.
+   - Do NOT pass \`report_input\` inline — the tool reads the materialized artifact from disk automatically using the \`run_id\`.
+   - Passing inline \`report_input\` risks stale data and validation failures. The disk artifact is the single source of truth.
 6. **Limitations disclosure** (MANDATORY when tools fail or are absent): If any tool was unavailable, timed out, or failed, add a \`## Limitations\` section to the report BEFORE \`## Findings\`. Use this format:
    - \`**Tool name**: [reason — unavailable/failed/timed out]. [Impact on finding coverage if any.]\`
    - Example: \`**argus_solodit_search**: External database was unavailable. Known-vulnerability cross-referencing was performed using local patterns only.\`
