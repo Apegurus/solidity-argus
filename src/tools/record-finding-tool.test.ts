@@ -63,6 +63,8 @@ test("executeRecordFinding normalizes one finding", async () => {
   expect(parsed.findings[0]?.source).toBe("manual")
   expect(typeof parsed.findings[0]?.id).toBe("string")
   expect(parsed.note).toContain("run_id")
+  // High finding without enrichment fields should trigger warning
+  expect((parsed as Record<string, unknown>).enrichment_warnings).toBeDefined()
 })
 
 test("executeRecordFinding accepts findings array", async () => {
@@ -129,4 +131,85 @@ test("executeRecordFinding returns error when no findings provided", async () =>
   const parsed = JSON.parse(payload) as { success: boolean; error: string }
   expect(parsed.success).toBe(false)
   expect(parsed.error).toContain("Provide at least one finding")
+})
+
+test("executeRecordFinding emits enrichment warnings for Critical/High missing fields", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "reentrancy-drain",
+        severity: "Critical",
+        confidence: "High",
+        description: "Vault is vulnerable to reentrancy",
+        file: "src/Vault.sol",
+        lines: [42, 58],
+        source: "manual",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    enrichment_warnings?: string[]
+    enrichment_hint?: string
+  }
+  expect(parsed.success).toBe(true)
+  expect(parsed.enrichment_warnings).toBeDefined()
+  expect(parsed.enrichment_warnings!.length).toBe(1)
+  expect(parsed.enrichment_warnings![0]).toContain("impact")
+  expect(parsed.enrichment_warnings![0]).toContain("recommendation")
+  expect(parsed.enrichment_warnings![0]).toContain("proofOfConcept")
+  expect(parsed.enrichment_hint).toContain("quality gate")
+})
+
+test("executeRecordFinding has no enrichment warnings when fields are present", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "reentrancy-drain",
+        severity: "Critical",
+        confidence: "High",
+        description: "Vault is vulnerable to reentrancy",
+        file: "src/Vault.sol",
+        lines: [42, 58],
+        source: "manual",
+        impact: "Complete vault drain",
+        recommendation: "Add nonReentrant modifier",
+        proofOfConcept: "See test/ReentrancyPoC.t.sol",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    enrichment_warnings?: string[]
+  }
+  expect(parsed.success).toBe(true)
+  expect(parsed.enrichment_warnings).toBeUndefined()
+})
+
+test("executeRecordFinding skips enrichment warnings for Low/Medium findings", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "gas-optimization",
+        severity: "Low",
+        confidence: "High",
+        description: "Unused storage variable",
+        file: "src/Vault.sol",
+        lines: [10, 10],
+        source: "manual",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    enrichment_warnings?: string[]
+  }
+  expect(parsed.success).toBe(true)
+  expect(parsed.enrichment_warnings).toBeUndefined()
 })

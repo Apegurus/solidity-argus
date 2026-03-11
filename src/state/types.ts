@@ -28,6 +28,9 @@ export interface Finding {
   reported_by_agents?: string[]
   sources?: string[]
   observation_count?: number
+  impact?: string
+  recommendation?: string
+  proofOfConcept?: string
   remediation?: string
   exploitReference?: string
   provenance?: {

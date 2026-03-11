@@ -127,6 +127,22 @@ export async function executeRecordFinding(
     return errorResponse(`Failed to record finding(s): ${errors.join("; ")}`)
   }
 
+  // Warn when Critical/High findings are missing enrichment fields
+  const enrichmentWarnings: string[] = []
+  const HIGH_SEVERITIES = new Set(["Critical", "High"])
+  for (const f of findings) {
+    if (!HIGH_SEVERITIES.has(f.severity)) continue
+    const missing: string[] = []
+    if (!f.impact) missing.push("impact")
+    if (!f.recommendation) missing.push("recommendation")
+    if (!f.proofOfConcept) missing.push("proofOfConcept")
+    if (missing.length > 0) {
+      enrichmentWarnings.push(
+        `[${f.severity}] ${f.check} in ${f.file} is missing: ${missing.join(", ")}. Quality gate will flag this.`,
+      )
+    }
+  }
+
   const response: RecordFindingResponse = {
     success: true,
     count: findings.length,
@@ -141,6 +157,13 @@ export async function executeRecordFinding(
     })),
     schema_version: SCHEMA_VERSION,
     note: "Findings recorded to event journal. The system assigns the canonical run_id automatically — use the run_id from <argus-context> for Scribe dispatch.",
+    ...(enrichmentWarnings.length > 0
+      ? {
+          enrichment_warnings: enrichmentWarnings,
+          enrichment_hint:
+            "Critical and High findings MUST include impact, recommendation, and proofOfConcept fields. Re-submit with these fields to pass the quality gate.",
+        }
+      : {}),
   }
 
   return JSON.stringify(response)

@@ -38,6 +38,9 @@ const KNOWN_INPUT_FIELDS = new Set([
   "line_start",
   "line_end",
   "source",
+  "recommendation",
+  "proofOfConcept",
+  "proof_of_concept",
   "remediation",
   "exploitReference",
   "provenance",
@@ -268,6 +271,18 @@ export function normalizeToCanonicalFinding(
     issue_fingerprint: issueFingerprint,
     observation_fingerprint: observationFingerprint,
     observation_id: observationId,
+    impact: typeof input.impact === "string" && input.impact.length > 0 ? input.impact : undefined,
+    recommendation:
+      typeof input.recommendation === "string" && input.recommendation.length > 0
+        ? input.recommendation
+        : undefined,
+    proofOfConcept:
+      (typeof input.proofOfConcept === "string" && input.proofOfConcept.length > 0
+        ? input.proofOfConcept
+        : undefined) ??
+      (typeof input.proof_of_concept === "string" && input.proof_of_concept.length > 0
+        ? input.proof_of_concept
+        : undefined),
     remediation: typeof input.remediation === "string" ? input.remediation : undefined,
     exploitReference:
       typeof input.exploitReference === "string" ? input.exploitReference : undefined,

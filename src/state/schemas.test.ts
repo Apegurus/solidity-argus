@@ -164,6 +164,46 @@ describe("normalizeToCanonicalFinding", () => {
     expect(result.data.description).toBe("Reentrancy with external call")
     expect(result.diagnostics.some((d) => d.level === "error")).toBe(false)
   })
+
+  test("preserves impact, recommendation, and proofOfConcept through normalization", () => {
+    const raw = {
+      check: "reentrancy-vault-drain",
+      severity: "Critical",
+      confidence: "High",
+      description: "Vault withdraw is vulnerable to reentrancy",
+      file: "src/Vault.sol",
+      lines: [42, 58],
+      source: "manual",
+      impact: "Complete vault drain via recursive withdraw calls",
+      recommendation: "Add nonReentrant modifier to withdraw function",
+      proofOfConcept: "See test/ReentrancyPoC.t.sol::testReentrancyExploit",
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-enrichment", 1)
+    expect(result.data.impact).toBe("Complete vault drain via recursive withdraw calls")
+    expect(result.data.recommendation).toBe("Add nonReentrant modifier to withdraw function")
+    expect(result.data.proofOfConcept).toBe(
+      "See test/ReentrancyPoC.t.sol::testReentrancyExploit",
+    )
+    expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
+  })
+
+  test("normalizes proof_of_concept snake_case alias to proofOfConcept", () => {
+    const raw = {
+      check: "access-control-bypass",
+      severity: "High",
+      confidence: "High",
+      description: "Missing access control",
+      file: "src/Admin.sol",
+      lines: [10, 15],
+      source: "manual",
+      proof_of_concept: "Call setOwner from non-owner account",
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-snake", 1)
+    expect(result.data.proofOfConcept).toBe("Call setOwner from non-owner account")
+    expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
+  })
 })
 
 describe("normalizeLegacyFindingsArray", () => {
