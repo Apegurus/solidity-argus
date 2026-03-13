@@ -70,7 +70,6 @@ test("reads findings via on-demand materialization and returns them", async () =
     source: string
     reportInput: {
       run_id: string
-      schema_version: string
       findings: unknown[]
       toolsExecuted: unknown[]
       scope: unknown[]
@@ -80,7 +79,6 @@ test("reads findings via on-demand materialization and returns them", async () =
   expect(parsed.success).toBe(true)
   expect(parsed.source).toBe("report-input.json")
   expect(parsed.reportInput.run_id).toBe(runId)
-  expect(parsed.reportInput.schema_version).toBe(SCHEMA_VERSION)
   expect(Array.isArray(parsed.reportInput.findings)).toBe(true)
   expect(Array.isArray(parsed.reportInput.toolsExecuted)).toBe(true)
   expect(Array.isArray(parsed.reportInput.scope)).toBe(true)

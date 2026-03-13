@@ -186,12 +186,14 @@ describe("canonical report pipeline E2E", () => {
       expect(readResult.reportInput.findings).toHaveLength(2)
       expect(readResult.reportInput.toolsExecuted).toHaveLength(2)
 
-      // Step 4: Generate report using the canonical ReportInput (simulates Scribe's final step)
+      // Step 4: Generate report using run_id (simulates Scribe's actual flow —
+      // read_findings returns compact data for context, generate_report reads full
+      // canonical data from disk via run_id)
       const result = await executeReportGeneration(
         {
           project_name: "CanonicalPipelineTest",
           scope: ["src/Vault.sol"],
-          report_input: JSON.stringify(readResult.reportInput),
+          run_id: RUN_ID,
           preflight_policy: "warn",
           tool_coverage_policy: "skip",
         },
@@ -245,7 +247,7 @@ describe("canonical report pipeline E2E", () => {
       const context = createContext(projectDir)
       const readResult = JSON.parse(await executeReadFindings({ run_id: RUN_ID }, context))
       expect(readResult.success).toBe(true)
-      expect(readResult.reportInput.tool_call_id).toBe("pending-finalization")
+      expect(readResult.reportInput.run_id).toBe(RUN_ID)
     } finally {
       await rm(projectDir, { recursive: true, force: true })
     }

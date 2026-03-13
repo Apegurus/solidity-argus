@@ -1,16 +1,69 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { materializeReportInput } from "../features/persistent-state/findings-materializer"
 import { resolveProjectDir } from "../shared/project-utils"
-import type { ReportInput } from "../state/schemas"
+import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../state/schemas"
 
 type ReadFindingsArgs = {
   run_id: string
 }
 
+type ReportFinding = Omit<
+  CanonicalFinding,
+  | "run_id"
+  | "seq"
+  | "schema_version"
+  | "observation_id"
+  | "issue_fingerprint"
+  | "observation_fingerprint"
+  | "reported_by_agent"
+  | "reported_by_session_id"
+>
+
+type ReportToolExecution = Omit<CanonicalToolExecution, "run_id" | "schema_version">
+
+type CompactReportInput = Omit<
+  ReportInput,
+  | "findings"
+  | "toolsExecuted"
+  | "run_id"
+  | "seq"
+  | "session_id"
+  | "tool_call_id"
+  | "source"
+  | "schema_version"
+> & {
+  run_id: string
+  findings: ReportFinding[]
+  toolsExecuted: ReportToolExecution[]
+}
+
 type ReadFindingsResult = {
   success: boolean
   source: "report-input.json"
-  reportInput: ReportInput
+  reportInput: CompactReportInput
+}
+
+const FINDING_INTERNAL_KEYS: ReadonlySet<string> = new Set([
+  "run_id",
+  "seq",
+  "schema_version",
+  "observation_id",
+  "issue_fingerprint",
+  "observation_fingerprint",
+  "reported_by_agent",
+  "reported_by_session_id",
+])
+
+const TOOL_EXECUTION_INTERNAL_KEYS: ReadonlySet<string> = new Set(["run_id", "schema_version"])
+
+function stripInternalKeys(obj: object, keysToStrip: ReadonlySet<string>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(obj)) {
+    if (!keysToStrip.has(key)) {
+      result[key] = value
+    }
+  }
+  return result
 }
 
 export async function executeReadFindings(
@@ -25,10 +78,31 @@ export async function executeReadFindings(
   const projectDir = resolveProjectDir(context)
   const reportInput = await materializeReportInput(runId, projectDir)
 
+  const compactInput: CompactReportInput = {
+    run_id: reportInput.run_id,
+    projectDir: reportInput.projectDir,
+    findings: reportInput.findings.map(
+      (f) => stripInternalKeys(f, FINDING_INTERNAL_KEYS) as ReportFinding,
+    ),
+    toolsExecuted: reportInput.toolsExecuted.map(
+      (t) => stripInternalKeys(t, TOOL_EXECUTION_INTERNAL_KEYS) as ReportToolExecution,
+    ),
+    scope: reportInput.scope,
+    ...(reportInput.soloditResults && { soloditResults: reportInput.soloditResults }),
+    ...(reportInput.fuzzCounterexamples && {
+      fuzzCounterexamples: reportInput.fuzzCounterexamples,
+    }),
+    ...(reportInput.coverageReport && { coverageReport: reportInput.coverageReport }),
+    ...(reportInput.gasHotspots && { gasHotspots: reportInput.gasHotspots }),
+    ...(reportInput.proxyContracts && { proxyContracts: reportInput.proxyContracts }),
+    ...(reportInput.patternVersion && { patternVersion: reportInput.patternVersion }),
+    ...(reportInput.skillsLoaded && { skillsLoaded: reportInput.skillsLoaded }),
+  }
+
   const result: ReadFindingsResult = {
     success: true,
     source: "report-input.json",
-    reportInput,
+    reportInput: compactInput,
   }
 
   return JSON.stringify(result)
