@@ -731,6 +731,23 @@ export function createHooks(args: {
               onChildSessionDetected: (parentSessionId: string, childSessionId: string) => {
                 if (parentSessionId && childSessionId) {
                   agentTracker.trackChildSession(parentSessionId, childSessionId)
+
+                  const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+                  if (parentSink && toolTrackingHook) {
+                    setBoundedSink(
+                      eventSinksByOpencodeSession,
+                      sinkCreatedAtBySession,
+                      childSessionId,
+                      parentSink,
+                    )
+                    void toolTrackingHook
+                      .flushOrphanEvents(childSessionId, parentSink)
+                      .catch((error: unknown) => {
+                        logger.warn(
+                          `Failed to flush orphan events for child session ${childSessionId}: ${error instanceof Error ? error.message : String(error)}`,
+                        )
+                      })
+                  }
                 }
               },
             },

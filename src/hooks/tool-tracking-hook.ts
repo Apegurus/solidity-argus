@@ -149,6 +149,7 @@ function buildEvent(
  * or plain text with an embedded JSON fragment.
  */
 function parseChildSessionId(result: string): string | null {
+  // Strategy 1: Full JSON parse (structured tool output)
   try {
     const parsed = JSON.parse(result)
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
@@ -166,11 +167,32 @@ function parseChildSessionId(result: string): string | null {
       }
     }
   } catch {
-    const match = result.match(/"session_id"\s*:\s*"([^"]+)"/)
-    if (match?.[1]) {
-      return match[1]
-    }
+    // Not valid JSON — fall through to regex strategies
   }
+
+  // Strategy 2: OpenCode task tool XML format
+  // <task_metadata>
+  // session_id: ses_xxx
+  // </task_metadata>
+  const xmlMatch = result.match(
+    /<task_metadata>[\s\S]*?session_id:\s*(ses_\S+)[\s\S]*?<\/task_metadata>/,
+  )
+  if (xmlMatch?.[1]) {
+    return xmlMatch[1]
+  }
+
+  // Strategy 3: JSON fragment in plain text
+  const jsonFragmentMatch = result.match(/"session_id"\s*:\s*"([^"]+)"/)
+  if (jsonFragmentMatch?.[1]) {
+    return jsonFragmentMatch[1]
+  }
+
+  // Strategy 4: Bare session_id line (e.g. "session_id: ses_xxx" outside XML tags)
+  const bareMatch = result.match(/session_id:\s*(ses_\S+)/)
+  if (bareMatch?.[1]) {
+    return bareMatch[1]
+  }
+
   return null
 }
 
@@ -513,9 +535,19 @@ function inferPhaseAdvancement(
   return inferredPhase
 }
 
+type OrphanEvent = {
+  event: AuditEvent
+  failFast: boolean
+  bufferedAt: number
+}
+
+const ORPHAN_BUFFER_TTL_MS = 60_000
+const MAX_ORPHAN_EVENTS_PER_SESSION = 50
+
 export type ToolTrackingHook = {
   (input: ToolHookInput): Promise<void>
   getLastDiagnostics(): DropDiagnostic[]
+  flushOrphanEvents(sessionId: string, sink: EventSink): Promise<number>
 }
 
 export function createToolTrackingHook(
@@ -525,6 +557,22 @@ export function createToolTrackingHook(
 ): ToolTrackingHook {
   const storesByState = new WeakMap<AuditState, FindingStore>()
   let lastDiagnostics: DropDiagnostic[] = []
+  const orphanBuffer = new Map<string, OrphanEvent[]>()
+
+  function bufferOrphanEvent(sessionId: string, entry: OrphanEvent): void {
+    let entries = orphanBuffer.get(sessionId)
+    if (!entries) {
+      entries = []
+      orphanBuffer.set(sessionId, entries)
+    }
+    if (entries.length >= MAX_ORPHAN_EVENTS_PER_SESSION) {
+      logger.warn(
+        `Orphan event buffer full for session ${sessionId} (${MAX_ORPHAN_EVENTS_PER_SESSION} events) — dropping oldest`,
+      )
+      entries.shift()
+    }
+    entries.push(entry)
+  }
 
   function resolveStateAndStore(
     sessionId?: string,
@@ -687,6 +735,19 @@ export function createToolTrackingHook(
           args: input.args,
         }),
         { failFast: input.tool === "argus_record_finding" },
+      )
+    } else if (sessionId) {
+      const event = buildEvent("tool.started", runId, sessionId, toolCallId, {
+        tool: input.tool,
+        args: input.args,
+      })
+      bufferOrphanEvent(sessionId, {
+        event,
+        failFast: input.tool === "argus_record_finding",
+        bufferedAt: Date.now(),
+      })
+      logger.warn(
+        `Buffered orphan tool.started event for ${input.tool} from session ${sessionId} (run_id=${runId})`,
       )
     }
 
@@ -948,11 +1009,57 @@ export function createToolTrackingHook(
           }),
           { failFast },
         )
+      } else if (sessionId) {
+        const enrichment: Record<string, unknown> = {}
+        const event = buildEvent("tool.completed", runId, sessionId, toolCallId, {
+          tool: input.tool,
+          findingsCount,
+          success: completedSuccess,
+          ...(completionError ? { error: completionError } : {}),
+          ...enrichment,
+        })
+        bufferOrphanEvent(sessionId, {
+          event,
+          failFast: input.tool === "argus_record_finding",
+          bufferedAt: Date.now(),
+        })
+        logger.warn(
+          `Buffered orphan tool.completed event for ${input.tool} from session ${sessionId} (run_id=${runId}, findings=${findingsCount})`,
+        )
       }
     }
   }
 
   hookFn.getLastDiagnostics = (): DropDiagnostic[] => lastDiagnostics
+
+  hookFn.flushOrphanEvents = async (sessionId: string, sink: EventSink): Promise<number> => {
+    const entries = orphanBuffer.get(sessionId)
+    if (!entries || entries.length === 0) {
+      return 0
+    }
+
+    orphanBuffer.delete(sessionId)
+    const now = Date.now()
+    const fresh = entries.filter((e) => now - e.bufferedAt < ORPHAN_BUFFER_TTL_MS)
+
+    if (fresh.length < entries.length) {
+      logger.debug(
+        `Discarded ${entries.length - fresh.length} stale orphan events for session ${sessionId}`,
+      )
+    }
+
+    let flushed = 0
+    for (const entry of fresh) {
+      await emitToSink(sink, entry.event, { failFast: entry.failFast })
+      flushed++
+    }
+
+    if (flushed > 0) {
+      logger.info(`Flushed ${flushed} orphan events for session ${sessionId} to sink ${sink.runId}`)
+    }
+
+    return flushed
+  }
 
   return hookFn
 }

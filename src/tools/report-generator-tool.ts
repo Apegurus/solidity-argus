@@ -8,6 +8,7 @@ import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/gl
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
+import { computeMissingKeyTools } from "../shared/key-tools"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
@@ -20,7 +21,6 @@ import {
 import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { AuditState, Finding, FindingSeverity } from "../state/types"
-import { computeMissingKeyTools } from "../shared/key-tools"
 import { checkReportPreflight } from "./report-preflight"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
@@ -533,20 +533,49 @@ function resolveExpectedRunId(
   context: ToolContext,
   deps: ReportGenerationDependencies,
 ): string | undefined {
+  // 1. Explicit run_id from LLM args (highest priority)
   if (typeof args.run_id === "string" && args.run_id.trim().length > 0) {
     return args.run_id.trim()
   }
 
+  // 2. Global run index lookup by session ID
   const sessionId = context.sessionID
-  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
-    return undefined
+  const projectDir = resolveProjectDir(context)
+  if (typeof sessionId === "string" && sessionId.trim().length > 0) {
+    const resolveCanonicalRunId = deps.resolveCanonicalRunId ?? resolveRunIdFromOpencodeSession
+    const resolved = resolveCanonicalRunId(sessionId, projectDir)
+    if (typeof resolved === "string" && resolved.trim().length > 0) {
+      return resolved
+    }
   }
 
-  const projectDir = resolveProjectDir(context)
-  const resolveCanonicalRunId = deps.resolveCanonicalRunId ?? resolveRunIdFromOpencodeSession
-  const resolved = resolveCanonicalRunId(sessionId, projectDir)
-  if (typeof resolved === "string" && resolved.trim().length > 0) {
-    return resolved
+  // 3. Deterministic fallback: read argus-state.json directly.
+  //    Eliminates LLM-in-the-loop dependency for run_id resolution.
+  //    Scribe's child session may not be in the global run index.
+  const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
+  try {
+    const stateFilePath = path.join(projectDir, ".argus", "argus-state.json")
+    if (existsSync(stateFilePath)) {
+      const stateRaw = JSON.parse(readFileSync(stateFilePath, "utf-8")) as Record<string, unknown>
+      const stateSessionId = stateRaw.sessionId
+      const savedAt = typeof stateRaw.savedAt === "number" ? stateRaw.savedAt : 0
+      const isFresh = Date.now() - savedAt < STALE_STATE_TTL_MS
+      if (
+        typeof stateSessionId === "string" &&
+        stateSessionId.trim().length > 0 &&
+        !stateSessionId.startsWith("ses_") &&
+        isFresh
+      ) {
+        const resolver = createAuditArtifactResolver(stateSessionId, projectDir)
+        const hasArtifacts =
+          existsSync(resolver.paths().reportInputFile) || existsSync(resolver.paths().journalFile)
+        if (hasArtifacts) {
+          return stateSessionId
+        }
+      }
+    }
+  } catch {
+    /* fallback path */
   }
 
   return undefined
@@ -654,14 +683,19 @@ function parseReportInputPayload(
     return finalizeReportInputSelection(reportInput, diagnostics, expectedRunId)
   }
 
-  if (typeof args.run_id === "string" && args.run_id.trim().length > 0) {
+  const effectiveRunId =
+    (typeof args.run_id === "string" && args.run_id.trim().length > 0
+      ? args.run_id.trim()
+      : undefined) ?? expectedRunId
+
+  if (typeof effectiveRunId === "string" && effectiveRunId.length > 0) {
     const projectDir = resolveProjectDir(context)
-    const resolver = createAuditArtifactResolver(args.run_id, projectDir)
+    const resolver = createAuditArtifactResolver(effectiveRunId, projectDir)
     const reportInputFile = resolver.paths().reportInputFile
     if (existsSync(reportInputFile)) {
       diagnostics.warn(
         "REPORT_INPUT_DISK_FALLBACK",
-        "No report_input or audit_state provided; reading materialized report-input.json from disk.",
+        `No report_input or audit_state provided; reading materialized report-input.json from disk for run ${effectiveRunId}.`,
         "report_input",
       )
       let parsed: unknown
@@ -670,7 +704,7 @@ function parseReportInputPayload(
       } catch {
         diagnostics.error(
           "REPORT_INPUT_DISK_CORRUPT",
-          `Materialized report-input.json for run ${args.run_id} is not valid JSON.`,
+          `Materialized report-input.json for run ${effectiveRunId} is not valid JSON.`,
           "report_input",
         )
         throwContractMismatch(
@@ -697,7 +731,7 @@ function parseReportInputPayload(
   }
   diagnostics.error(
     "REPORT_INPUT_MISSING",
-    "Missing report_input payload. Provide report_input (preferred), run_id for disk fallback, or legacy audit_state.",
+    `Missing report_input payload. args.run_id=${args.run_id ?? "undefined"}, expectedRunId=${expectedRunId ?? "undefined"}. Provide report_input (preferred), run_id for disk fallback, or legacy audit_state.`,
     "report_input",
   )
   throwContractMismatch(
@@ -1258,6 +1292,25 @@ export async function executeReportGeneration(
   const isLegacyPath = !args.report_input && !!args.audit_state
   const toolCoveragePolicy = args.tool_coverage_policy ?? (isLegacyPath ? "warn" : "enforce")
   const expectedRunId = resolveExpectedRunId(args, context, deps)
+
+  // Ensure report-input.json is materialized before attempting disk lookup.
+  // Scribe may call generate_report without calling read_findings first,
+  // or read_findings may have materialized under a different run_id.
+  if (typeof expectedRunId === "string" && expectedRunId.length > 0) {
+    const projectDir = resolveProjectDir(context)
+    const resolver = createAuditArtifactResolver(expectedRunId, projectDir)
+    if (!existsSync(resolver.paths().reportInputFile)) {
+      try {
+        const { materializeReportInput } = await import(
+          "../features/persistent-state/findings-materializer"
+        )
+        await materializeReportInput(expectedRunId, projectDir, context.sessionID)
+      } catch {
+        /* Best-effort: parseReportInputPayload will produce a clear error if the file is still missing */
+      }
+    }
+  }
+
   const { reportInput, diagnostics } = parseReportInputPayload(args, context, expectedRunId)
 
   const preflightPolicy = args.preflight_policy ?? "warn"
@@ -1272,7 +1325,7 @@ export async function executeReportGeneration(
       if (toolCoveragePolicy === "enforce") {
         throw new Error(
           `Tool coverage gate failed: the following key audit tools have not been executed: ${toolList}. ` +
-            "Run the missing tools before generating a report, or pass tool_coverage_policy: \"warn\" to override.",
+            'Run the missing tools before generating a report, or pass tool_coverage_policy: "warn" to override.',
         )
       }
       warningBullets.push(`- Tool coverage incomplete: ${toolList} not executed`)
