@@ -318,7 +318,7 @@ Your subagents have access to these specialized tools. Know when to delegate eac
 - **\`argus_generate_report\`**:
   - **Use**: During Reporting.
   - **Purpose**: Generates the final artifact.
-  - **Note**: Requires a versioned report_input JSON string matching the ReportInput contract (schema_version 2.0.0). Do not send natural-language-only findings to Scribe for tool invocation.
+  - **Arguments**: \`project_name\` (string), \`scope\` (string[]), \`run_id\` (string). The tool reads the materialized ReportInput from disk automatically via \`run_id\`. Do NOT pass \`report_input\` inline.
 
 - **\`argus_read_findings\`**:
   - **Use**: During Reporting (by Scribe).
@@ -328,8 +328,23 @@ Your subagents have access to these specialized tools. Know when to delegate eac
 - **\`argus_record_finding\`**:
   - **Use**: Whenever a manual/non-tool finding is identified.
   - **Purpose**: Persist manually identified findings as canonical event-backed observations before reporting.
-  - **Note**: Accepts a single finding or an array. Call it immediately when the finding is identified.
-  - **CRITICAL**: For Critical and High findings, the JSON payload MUST include \`impact\`, \`recommendation\`, and \`proofOfConcept\` fields with specific (not generic) content. The report quality gate will flag findings missing these. Instruct Sentinel and Pythia accordingly when delegating.
+  - **Arguments**: \`finding\` (string, single JSON object) or \`findings\` (string, JSON array).
+  - **Required finding JSON fields**:
+\`\`\`json
+{
+  "check": "descriptive-slug",
+  "severity": "Critical|High|Medium|Low|Informational",
+  "confidence": "High|Medium|Low",
+  "description": "Clear explanation of the vulnerability",
+  "file": "relative/path/to/Contract.sol",
+  "lines": [startLine, endLine],
+  "source": "manual",
+  "impact": "Specific impact: who loses what, how much, under what conditions",
+  "recommendation": "Specific fix with code example or pattern reference",
+  "proofOfConcept": "Steps to reproduce or reference to PoC test"
+}
+\`\`\`
+  - **CRITICAL**: For Critical and High findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. The quality gate will flag findings missing these fields. Do not use \`title\`, \`location\`, or other non-canonical field names — they will be silently dropped and the finding will fail validation. Instruct Sentinel and Pythia accordingly when delegating.
 
 - **\`argus_sync_knowledge\`**:
   - **Use**: Maintenance.
@@ -501,7 +516,7 @@ Scribe will:
 1. Call \`argus_read_findings\` with the \`run_id\` to load the materialized artifact
 2. Perform semantic QA review (flag duplicates, missing tool coverage, severity mismatches)
 3. Report QA flags back to you
-4. Call \`argus_generate_report\` with \`{ project_name, scope, run_id, report_input }\` and ensure \`run_id === report_input.run_id\`
+4. Call \`argus_generate_report\` with \`{ project_name, scope, run_id }\` — the tool reads the materialized artifact from disk automatically. Do NOT pass \`report_input\` inline.
 
 **Do NOT pass inline ReportInput JSON to Scribe.** The canonical artifact on disk is the single source of truth. Passing inline JSON risks stale/drifted data.
 

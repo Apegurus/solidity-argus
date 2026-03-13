@@ -24,9 +24,7 @@ type RecordFindingResponse = {
   note: string
 }
 
-type ParseResult =
-  | { ok: true; data: Record<string, unknown>[] }
-  | { ok: false; error: string }
+type ParseResult = { ok: true; data: Record<string, unknown>[] } | { ok: false; error: string }
 
 function parseFindingObject(raw: string, label: "finding" | "findings"): ParseResult {
   let parsed: unknown
@@ -176,11 +174,15 @@ export const recordFindingTool = tool({
     finding: tool.schema
       .string()
       .optional()
-      .describe("Serialized JSON object containing a single finding payload."),
+      .describe(
+        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"). Optional: impact, recommendation, proofOfConcept (mandatory for Critical/High).',
+      ),
     findings: tool.schema
       .string()
       .optional()
-      .describe("Serialized JSON array containing one or more finding payload objects."),
+      .describe(
+        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Do NOT use title, location, or other non-canonical field names.",
+      ),
   },
   async execute(args, context) {
     return executeRecordFinding(args, context)

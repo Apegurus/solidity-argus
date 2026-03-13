@@ -1530,7 +1530,7 @@ export async function executeReportGeneration(
 
 export const reportGeneratorTool = tool({
   description:
-    "Generate a professional markdown security audit report from versioned ReportInput payloads with legacy audit_state compatibility.",
+    "Generate a professional markdown security audit report. Pass project_name, scope, and run_id — the tool reads the materialized ReportInput artifact from disk automatically.",
   args: {
     project_name: tool.schema.string(),
     scope: tool.schema.array(tool.schema.string()),
@@ -1554,7 +1554,7 @@ export const reportGeneratorTool = tool({
       .string()
       .optional()
       .describe(
-        "Run ID for disk fallback. When report_input is omitted, reads materialized report-input.json from disk.",
+        "The canonical run ID from <argus-context>. The tool reads the materialized report-input.json from disk using this ID.",
       ),
   },
   async execute(args, context) {
