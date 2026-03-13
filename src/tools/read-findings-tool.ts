@@ -1,5 +1,8 @@
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { materializeReportInput } from "../features/persistent-state/findings-materializer"
+import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import { resolveProjectDir } from "../shared/project-utils"
 import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../state/schemas"
 
@@ -37,11 +40,36 @@ type CompactReportInput = Omit<
   toolsExecuted: ReportToolExecution[]
 }
 
-type ReadFindingsResult = {
+type ReadFindingsInlineResult = {
   success: boolean
+  truncated: false
   source: "report-input.json"
   reportInput: CompactReportInput
 }
+
+type ReadFindingsFileResult = {
+  success: boolean
+  truncated: true
+  source: "report-input.json"
+  compactReportInputFile: string
+  summary: {
+    run_id: string
+    findingsCount: number
+    toolsExecutedCount: number
+    scope: string[]
+    severityDistribution: Record<string, number>
+    topFindings: Array<{ title: string; severity: string; category: string }>
+  }
+  instructions: string
+}
+
+export type ReadFindingsResult = ReadFindingsInlineResult | ReadFindingsFileResult
+
+/**
+ * OpenCode truncates plugin tool output above ~50KB (exact threshold unknown,
+ * but observed at 122KB). We use 40KB as a safe ceiling to avoid truncation.
+ */
+const OUTPUT_SIZE_THRESHOLD_BYTES = 40_000
 
 const FINDING_INTERNAL_KEYS: ReadonlySet<string> = new Set([
   "run_id",
@@ -66,19 +94,8 @@ function stripInternalKeys(obj: object, keysToStrip: ReadonlySet<string>): Recor
   return result
 }
 
-export async function executeReadFindings(
-  args: ReadFindingsArgs,
-  context: ToolContext,
-): Promise<string> {
-  const runId = args.run_id
-  if (!runId || runId.trim().length === 0) {
-    throw new Error("run_id is required")
-  }
-
-  const projectDir = resolveProjectDir(context)
-  const reportInput = await materializeReportInput(runId, projectDir)
-
-  const compactInput: CompactReportInput = {
+function buildCompactInput(reportInput: ReportInput): CompactReportInput {
+  return {
     run_id: reportInput.run_id,
     projectDir: reportInput.projectDir,
     findings: reportInput.findings.map(
@@ -98,14 +115,94 @@ export async function executeReadFindings(
     ...(reportInput.patternVersion && { patternVersion: reportInput.patternVersion }),
     ...(reportInput.skillsLoaded && { skillsLoaded: reportInput.skillsLoaded }),
   }
+}
 
-  const result: ReadFindingsResult = {
-    success: true,
-    source: "report-input.json",
-    reportInput: compactInput,
+function buildSeverityDistribution(findings: ReportFinding[]): Record<string, number> {
+  const dist: Record<string, number> = {}
+  for (const f of findings) {
+    const sev = (f as Record<string, unknown>).severity as string | undefined
+    const key = sev ?? "Unknown"
+    dist[key] = (dist[key] ?? 0) + 1
+  }
+  return dist
+}
+
+function buildTopFindings(
+  findings: ReportFinding[],
+  limit = 10,
+): Array<{ title: string; severity: string; category: string }> {
+  const severityOrder: Record<string, number> = {
+    Critical: 0,
+    High: 1,
+    Medium: 2,
+    Low: 3,
+    Informational: 4,
+  }
+  const sorted = [...findings].sort((a, b) => {
+    const ra = a as Record<string, unknown>
+    const rb = b as Record<string, unknown>
+    const sa = severityOrder[(ra.severity as string) ?? ""] ?? 5
+    const sb = severityOrder[(rb.severity as string) ?? ""] ?? 5
+    return sa - sb
+  })
+  return sorted.slice(0, limit).map((f) => {
+    const r = f as Record<string, unknown>
+    return {
+      title: (r.title as string) ?? (r.description as string)?.slice(0, 80) ?? "Untitled",
+      severity: (r.severity as string) ?? "Unknown",
+      category: (r.category as string) ?? "Unknown",
+    }
+  })
+}
+
+export async function executeReadFindings(
+  args: ReadFindingsArgs,
+  context: ToolContext,
+): Promise<string> {
+  const runId = args.run_id
+  if (!runId || runId.trim().length === 0) {
+    throw new Error("run_id is required")
   }
 
-  return JSON.stringify(result)
+  const projectDir = resolveProjectDir(context)
+  const reportInput = await materializeReportInput(runId, projectDir)
+  const compactInput = buildCompactInput(reportInput)
+
+  const inlineJson = JSON.stringify({
+    success: true,
+    truncated: false,
+    source: "report-input.json" as const,
+    reportInput: compactInput,
+  })
+
+  if (Buffer.byteLength(inlineJson, "utf-8") <= OUTPUT_SIZE_THRESHOLD_BYTES) {
+    return inlineJson
+  }
+
+  const resolver = createAuditArtifactResolver(runId, projectDir)
+  const compactFilePath = resolver
+    .paths()
+    .reportInputFile.replace("report-input.json", "compact-report-input.json")
+  await mkdir(dirname(compactFilePath), { recursive: true })
+  await writeFile(compactFilePath, JSON.stringify(compactInput, null, 2))
+
+  const fileResult: ReadFindingsFileResult = {
+    success: true,
+    truncated: true,
+    source: "report-input.json",
+    compactReportInputFile: compactFilePath,
+    summary: {
+      run_id: runId,
+      findingsCount: compactInput.findings.length,
+      toolsExecutedCount: compactInput.toolsExecuted.length,
+      scope: compactInput.scope,
+      severityDistribution: buildSeverityDistribution(compactInput.findings),
+      topFindings: buildTopFindings(compactInput.findings),
+    },
+    instructions: `Output exceeds safe inline size (${Buffer.byteLength(inlineJson, "utf-8")} bytes). Full compact data written to: ${compactFilePath}. Use the read tool to access the file contents before generating the report.`,
+  }
+
+  return JSON.stringify(fileResult)
 }
 
 export const readFindingsTool = tool({
