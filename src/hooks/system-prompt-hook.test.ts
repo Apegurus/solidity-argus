@@ -130,6 +130,14 @@ describe("createSystemPromptHook", () => {
 })
 
 describe("buildDynamicContext", () => {
+  it("includes run_id from sessionId", () => {
+    const context = buildDynamicContext(
+      makeAuditState({ sessionId: "abc123-run-id" }),
+      "scribe",
+    )
+    expect(context).toContain("run_id: abc123-run-id")
+  })
+
   it("includes phase information", () => {
     const context = buildDynamicContext(makeAuditState({ currentPhase: "manual-review" }), "argus")
     expect(context).toContain("Phase: manual-review")

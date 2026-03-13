@@ -72,6 +72,7 @@ export function buildDynamicContext(
       : "REPORTING GATE: ALLOWED"
   const lines: string[] = [
     `<argus-context agent="${agent}">`,
+    ...(auditState.sessionId ? [`run_id: ${auditState.sessionId}`] : []),
     gateStatus,
     `Phase: ${auditState.currentPhase}`,
     `Contracts: ${auditState.contractsReviewed.length} reviewed`,
@@ -99,6 +100,7 @@ export function buildDynamicContext(
     const doneCount = KEY_TOOLS.filter((t) => executedToolNames.has(t)).length
     summary = [
       `<argus-context agent="${agent}">`,
+      ...(auditState.sessionId ? [`run_id: ${auditState.sessionId}`] : []),
       gateStatus,
       `Phase: ${auditState.currentPhase} | Findings: ${auditState.findings.length} | Contracts: ${auditState.contractsReviewed.length} | Tasks: ${doneCount}/${KEY_TOOLS.length} done`,
       "</argus-context>",
