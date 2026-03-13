@@ -1485,8 +1485,10 @@ export const reportGeneratorTool = tool({
     severity_threshold: tool.schema
       .enum(["critical", "high", "medium", "low", "informational"])
       .default("low"),
-    report_input: tool.schema.string().optional(),
-    audit_state: tool.schema.string().optional(),
+    // report_input and audit_state are intentionally excluded from the schema
+    // to prevent agents from passing inline payloads (which consistently fail
+    // validation). The tool always reads from the materialized disk artifact
+    // via run_id. Runtime handling for these fields is kept as defense-in-depth.
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
     tool_coverage_policy: tool.schema
       .enum(["enforce", "warn", "skip"])
