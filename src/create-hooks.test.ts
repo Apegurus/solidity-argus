@@ -1,8 +1,9 @@
-import { describe, expect, it } from "bun:test"
-import { readdir } from "node:fs/promises"
+import { beforeEach, describe, expect, it } from "bun:test"
+import { mkdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
 import { createHooks } from "./create-hooks"
+import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/global-run-index"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
@@ -13,36 +14,30 @@ import type { AuditState } from "./state/types"
 const FIXTURE_DIR = resolve(import.meta.dir, "../tests/fixtures/vulnerable-vault")
 const RUNS_DIR = join(FIXTURE_DIR, ".argus", "runs")
 
-/**
- * After session.created, the event-hook creates a fresh state with a randomUUID
- * as sessionId. When recovered state is merged, the fresh sessionId is preserved
- * (multi-instance isolation). This helper discovers the fresh runId by scanning
- * for new run directories that appeared after the test started.
- */
-async function discoverFreshRunId(knownRunsBefore: Set<string>): Promise<string> {
-  const entries = await readdir(RUNS_DIR)
-  const newEntries = entries.filter((e) => !knownRunsBefore.has(e))
-  // Filter to UUID-shaped entries (the fresh state uses randomUUID)
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-  const freshRuns = newEntries.filter((e) => uuidPattern.test(e))
-  if (freshRuns.length !== 1) {
-    throw new Error(
-      `Expected exactly 1 new UUID run directory, found ${freshRuns.length}: ${freshRuns.join(", ")}`,
-    )
+async function waitForRunId(sessionID: string): Promise<string> {
+  const timeoutMs = 1_500
+  const pollMs = 10
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const runId = resolveRunIdFromOpencodeSession(sessionID, FIXTURE_DIR)
+    if (runId) return runId
+    await new Promise((resolve) => setTimeout(resolve, pollMs))
   }
-  const freshRun = freshRuns.at(0)
-  if (!freshRun) {
-    throw new Error("Expected one fresh run directory")
-  }
-  return freshRun
+
+  throw new Error(`Expected run_id to be indexed for session ${sessionID}`)
 }
 
-async function getExistingRuns(): Promise<Set<string>> {
-  try {
-    return new Set(await readdir(RUNS_DIR))
-  } catch {
-    return new Set()
-  }
+async function activateArgusSession(
+  hooks: ReturnType<typeof createHooks>,
+  sessionID: string,
+): Promise<void> {
+  const input = { sessionID, agent: "argus" }
+  const output = { temperature: 0, topP: 1, topK: 0, options: {} }
+  await hooks["chat.params"]?.(
+    input as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+    output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+  )
 }
 
 function makeAuditState(overrides?: Partial<AuditState>): AuditState {
@@ -82,6 +77,11 @@ function makeManagers(): Managers {
 }
 
 describe("createHooks", () => {
+  beforeEach(() => {
+    const lock = Symbol.for("solidity-argus:instance-lock")
+    delete (globalThis as unknown as Record<symbol, unknown>)[lock]
+  })
+
   it("returns all current hooks when all feature hooks are enabled", () => {
     const config = ArgusConfigSchema.parse({})
 
@@ -255,15 +255,14 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-parent" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-parent")
 
-    // The fresh state gets a new randomUUID sessionId (multi-instance isolation).
-    // Recovered state's findings/tools are merged but the fresh sessionId is used.
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-parent")
+
+    await mkdir(join(RUNS_DIR, freshRunId), { recursive: true })
 
     const eventsPath = join(FIXTURE_DIR, ".argus", "runs", freshRunId, "events.jsonl")
     const existing = await Bun.file(eventsPath).text()
@@ -340,13 +339,12 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-materialize" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-materialize")
 
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-materialize")
 
     await hooks.event?.({
       event: { type: "session.deleted", properties: { info: { id: "oc-materialize" } } },
@@ -394,13 +392,12 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-live" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-live")
 
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-live")
 
     await hooks["tool.execute.after"]?.(
       {
@@ -470,13 +467,12 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-idle-finalize" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-idle-finalize")
 
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-idle-finalize")
 
     await hooks["tool.execute.after"]?.(
       {
@@ -542,13 +538,12 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-parent-sink" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-parent-sink")
 
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-parent-sink")
 
     await hooks["tool.execute.after"]?.(
       {
@@ -629,13 +624,12 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-persist-sink" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-persist-sink")
 
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-persist-sink")
 
     await hooks.event?.({
       event: { type: "session.idle", properties: { sessionID: "oc-persist-sink" } },
@@ -721,13 +715,12 @@ describe("createHooks", () => {
       isHookEnabled: () => true,
     })
 
-    const runsBefore = await getExistingRuns()
-
     await hooks.event?.({
       event: { type: "session.created", properties: { info: { id: "oc-canonical" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-canonical")
 
-    const freshRunId = await discoverFreshRunId(runsBefore)
+    const freshRunId = await waitForRunId("oc-canonical")
 
     await hooks["tool.execute.after"]?.(
       {

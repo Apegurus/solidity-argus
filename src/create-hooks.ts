@@ -37,6 +37,8 @@ import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { createLogger } from "./shared/logger"
+import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
 import { detectProject, type ProjectConfig } from "./utils/project-detector"
@@ -224,6 +226,158 @@ export function createHooks(args: {
   const sinkCreatedAtByRunId = new Map<string, number>()
 
   const pendingSinkCreations = new Set<string>()
+  const activatedSessions = new Set<string>()
+
+  async function activateSession(sessionId: string): Promise<void> {
+    if (activatedSessions.has(sessionId)) return
+
+    const auditState = getAuditState(sessionId)
+    if (!auditState) return
+
+    activatedSessions.add(sessionId)
+    const timestamp = Date.now()
+
+    auditStateManager.bindSession(sessionId)
+
+    const existingSink = (() => {
+      const directSink = eventSinksByOpencodeSession.get(sessionId)
+      if (directSink) return directSink
+
+      const parentSessionId = agentTracker.getParentSession(sessionId)
+      if (parentSessionId) {
+        const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+        if (parentSink) return parentSink
+      }
+
+      const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
+      return activeSinks.length === 1 ? (activeSinks[0] ?? null) : null
+    })()
+
+    if (existingSink) {
+      setEventSink(existingSink, sessionId)
+      setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, existingSink)
+      setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
+
+      const existingResolver = createAuditArtifactResolver(existingSink.runId, projectDir)
+      void recordRun({
+        runId: existingSink.runId,
+        opencodeSessionId: sessionId,
+        projectDir: auditState?.projectDir ?? projectDir,
+        statePath: existingResolver.paths().stateFile,
+        journalPath: existingResolver.paths().journalFile,
+        startedAt: auditState?.startTime ?? timestamp,
+        phase: auditState?.currentPhase ?? "reconnaissance",
+        findingsCount: auditState?.findings.length ?? 0,
+      })
+
+      if (auditState) {
+        setAuditState({ ...auditState, sessionId: existingSink.runId }, sessionId)
+      }
+      runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
+      return
+    }
+
+    if (pendingSinkCreations.has(sessionId)) {
+      runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
+      return
+    }
+    pendingSinkCreations.add(sessionId)
+
+    let recoveredState: AuditState | null = null
+    try {
+      recoveredState = await auditStateManager.load()
+    } finally {
+      runJournal.log({
+        type: "state.loaded",
+        timestamp,
+        success: recoveredState !== null,
+        findingsCount: recoveredState?.findings.length ?? 0,
+      })
+    }
+
+    const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
+    if (recoveredState) {
+      const isStale =
+        typeof recoveredState.startTime === "number" &&
+        timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
+      const isCompleted = recoveredState.reportGenerated === true
+      if (isStale || isCompleted) {
+        logger.debug(
+          `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
+        )
+        recoveredState = null
+      }
+    }
+
+    if (recoveredState && auditState) {
+      setAuditState(
+        {
+          ...recoveredState,
+          sessionId: auditState.sessionId,
+          projectDir: auditState.projectDir,
+          startTime: auditState.startTime,
+        },
+        sessionId,
+      )
+    } else if (recoveredState) {
+      setAuditState(recoveredState, sessionId)
+    }
+
+    const effectiveState = getAuditState(sessionId) ?? recoveredState
+    if (effectiveState) {
+      const raceSink = eventSinksByOpencodeSession.get(sessionId)
+      if (raceSink) {
+        setEventSink(raceSink, sessionId)
+        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
+        if (auditState) {
+          setAuditState({ ...auditState, sessionId: raceSink.runId }, sessionId)
+        }
+        runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
+        return
+      }
+
+      const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
+      try {
+        const sink = createEventSink(effectiveState.sessionId, projectDir)
+        setEventSink(sink, sessionId)
+        setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, sink)
+        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, effectiveState.sessionId, sink)
+
+        await sink.append({
+          type: "session.created",
+          run_id: effectiveState.sessionId,
+          seq: 0,
+          session_id: sessionId,
+          source: "create-hooks",
+          schema_version: SCHEMA_VERSION,
+          timestamp,
+          payload: {
+            projectDir: effectiveState.projectDir,
+            sessionId: effectiveState.sessionId,
+            plugin_version: ARGUS_PLUGIN_VERSION,
+            scope: effectiveState.scope,
+          },
+        })
+      } catch (error) {
+        logger.warn(
+          `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+      void recordRun({
+        runId: effectiveState.sessionId,
+        opencodeSessionId: sessionId,
+        projectDir: effectiveState.projectDir,
+        statePath: resolver.paths().stateFile,
+        journalPath: resolver.paths().journalFile,
+        startedAt: effectiveState.startTime,
+        phase: effectiveState.currentPhase,
+        findingsCount: effectiveState.findings.length,
+        status: "active",
+      })
+
+      void pruneStaleRuns(effectiveState.projectDir)
+    }
+  }
 
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
   function evictOldestSink(
@@ -292,189 +446,19 @@ export function createHooks(args: {
     setEventSink,
     getLastFinalizationResult,
   } = createEventHook(projectDir, [
-    async ({ type, sessionId, auditState, setAuditState: setState }) => {
+    async ({ type, sessionId, auditState, setAuditState: _setState }) => {
       if (type === "session.created") {
-        const timestamp = Date.now()
-        let recoveredState: AuditState | null = null
-
-        // Bind state manager to this OpenCode session BEFORE loading.
-        // bindSession is idempotent — only the first call (primary Argus session)
-        // takes effect. Sub-agent sessions (Sentinel, Pythia) are no-ops.
-        if (sessionId) {
-          auditStateManager.bindSession(sessionId)
-        }
-
-        const existingSink = (() => {
-          if (!sessionId) {
-            return null
-          }
-
-          const directSink = eventSinksByOpencodeSession.get(sessionId)
-          if (directSink) {
-            return directSink
-          }
-
-          const parentSessionId = agentTracker.getParentSession(sessionId)
-          if (parentSessionId) {
-            const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
-            if (parentSink) {
-              return parentSink
-            }
-          }
-
-          // Single-run coalescence: if no direct or parent sink was found but
-          // there is exactly one active (non-finalized) run sink, attach this
-          // session to it.  This handles child sessions (sentinel, pythia, scribe)
-          // that are created before trackChildSession establishes the parent link.
-          const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
-          const coalescedSink = activeSinks.length === 1 ? activeSinks[0] : undefined
-          if (coalescedSink) {
-            logger.debug(`Coalescing session ${sessionId} into active run ${coalescedSink.runId}`)
-            return coalescedSink
-          }
-
-          return null
-        })()
-        if (existingSink) {
-          if (sessionId) {
-            setEventSink(existingSink, sessionId)
-            setBoundedSink(
-              eventSinksByOpencodeSession,
-              sinkCreatedAtBySession,
-              sessionId,
-              existingSink,
-            )
-          }
-          setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
-
-          const existingRunId = existingSink.runId
-          const existingResolver = createAuditArtifactResolver(existingRunId, projectDir)
-          void recordRun({
-            runId: existingRunId,
-            opencodeSessionId: sessionId,
-            projectDir: auditState?.projectDir ?? projectDir,
-            statePath: existingResolver.paths().stateFile,
-            journalPath: existingResolver.paths().journalFile,
-            startedAt: auditState?.startTime ?? timestamp,
-            phase: auditState?.currentPhase ?? "reconnaissance",
-            findingsCount: auditState?.findings.length ?? 0,
-          })
-
-          // Set this session's state sessionId to match the primary run_id.
-          // The event-hook will emit session.created with stateForSession.sessionId,
-          // which must match the sink's runId to avoid rejection.
-          if (auditState) {
-            setState({ ...auditState, sessionId: existingSink.runId })
-          }
-          runJournal.log({
-            type: "state.loaded",
-            timestamp,
-            success: true,
-            findingsCount: 0,
-          })
-          return
-        }
-
-        if (sessionId) {
-          if (pendingSinkCreations.has(sessionId)) {
-            runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
-            return
-          }
-          pendingSinkCreations.add(sessionId)
-        }
-
-        try {
-          recoveredState = await auditStateManager.load()
-        } finally {
-          runJournal.log({
-            type: "state.loaded",
-            timestamp,
-            success: recoveredState !== null,
-            findingsCount: recoveredState?.findings.length ?? 0,
-          })
-        }
-
-        // Discard recovered state if it belongs to a completed or stale run.
-        // This prevents findings/tools from a prior audit accumulating into
-        // the new session's state (Fix #4: state accumulation across sessions).
-        const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
-        if (recoveredState) {
-          const isStale =
-            typeof recoveredState.startTime === "number" &&
-            timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
-          const isCompleted = recoveredState.reportGenerated === true
-
-          if (isStale || isCompleted) {
-            logger.debug(
-              `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
-            )
-            recoveredState = null
-          }
-        }
-
-        if (recoveredState && auditState) {
-          // Merge recovered audit data (findings, tools, phase) into this session's
-          // fresh state. We preserve the fresh auditState.sessionId as the run identity
-          // because each audit run needs its own EventSink journal (run directory).
-          // The session-scoped state file prevents cross-instance contamination,
-          // while the fresh sessionId ensures EventSink run_id consistency.
-          setState({
-            ...recoveredState,
-            sessionId: auditState.sessionId,
-            projectDir: auditState.projectDir,
-            startTime: auditState.startTime,
-          })
-        } else if (recoveredState) {
-          setState(recoveredState)
-        }
-
-        const effectiveState = auditState ?? recoveredState
-        if (effectiveState) {
-          if (sessionId) {
-            const raceSink = eventSinksByOpencodeSession.get(sessionId)
-            if (raceSink) {
-              setEventSink(raceSink, sessionId)
-              setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
-              if (auditState) {
-                setState({ ...auditState, sessionId: raceSink.runId })
-              }
-              runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
-              return
-            }
-          }
-
-          const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
-          try {
-            const sink = createEventSink(effectiveState.sessionId, projectDir)
-            setEventSink(sink, sessionId)
-            if (sessionId) {
-              setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, sink)
-            }
-            setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, effectiveState.sessionId, sink)
-          } catch (error) {
-            logger.warn(
-              `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
-            )
-          }
-          void recordRun({
-            runId: effectiveState.sessionId,
-            opencodeSessionId: sessionId,
-            projectDir: effectiveState.projectDir,
-            statePath: resolver.paths().stateFile,
-            journalPath: resolver.paths().journalFile,
-            startedAt: effectiveState.startTime,
-            phase: effectiveState.currentPhase,
-            findingsCount: effectiveState.findings.length,
-            status: "active",
-          })
-
-          void pruneStaleRuns(effectiveState.projectDir)
-        }
-
+        // Lazy activation: on session.created we don't yet know which agent
+        // the user will select (chat.params fires later).  We only create
+        // in-memory state here; all disk I/O (EventSink, state persistence,
+        // run recording) is deferred to activateSession() which is triggered
+        // by chat.params (Argus agent) or tool.execute.after (argus_* tool).
         return
       }
 
       if (type === "session.idle" && auditState) {
+        if (sessionId && !activatedSessions.has(sessionId)) return
+
         await debouncedSave.flush()
 
         let saveSuccess = true
@@ -512,8 +496,6 @@ export function createHooks(args: {
           findingsCount: auditState.findings.length,
         })
 
-        // Materialize report-input.json on idle so Scribe can read it
-        // via argus_read_findings before generating the report.
         try {
           await materializeReportInput(auditState.sessionId, auditState.projectDir, sessionId)
         } catch (error) {
@@ -570,6 +552,8 @@ export function createHooks(args: {
       }
 
       if (type === "session.deleted") {
+        if (sessionId && !activatedSessions.has(sessionId)) return
+
         await debouncedSave.flush()
         if (auditState) {
           await auditStateManager.save(auditState)
@@ -865,6 +849,9 @@ export function createHooks(args: {
     config: createConfigHandler(config, projectDir),
     "chat.params": async (input) => {
       agentTracker.chatParamsHook(input)
+      if (agentTracker.isArgusAgent(input.sessionID)) {
+        await activateSession(input.sessionID)
+      }
     },
     "chat.message": async (input) => {
       agentTracker.chatMessageHook(input)
@@ -886,6 +873,10 @@ export function createHooks(args: {
           // Non-argus tools (read, grep, MCP calls, etc.) must pass through untouched.
           if (!input.tool.startsWith("argus_") && input.tool !== "task") {
             return
+          }
+
+          if (input.tool.startsWith("argus_") && input.sessionID) {
+            await activateSession(input.sessionID)
           }
 
           const recoveryHint = toolErrorRecoveryHandler({

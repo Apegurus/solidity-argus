@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
-import { mkdir, readdir, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -12,6 +12,7 @@ import {
   resetSinkRegistry,
 } from "../../src/features/persistent-state/event-sink"
 import { materializeReportInput } from "../../src/features/persistent-state/findings-materializer"
+import { resolveRunIdFromOpencodeSession } from "../../src/features/persistent-state/global-run-index"
 import { finalizeRun } from "../../src/features/persistent-state/run-finalizer"
 import type { Managers } from "../../src/managers/types"
 import type { AuditEvent } from "../../src/state/schemas"
@@ -22,6 +23,18 @@ import { reportGeneratorTool } from "../../src/tools/report-generator-tool"
 
 const FIXTURE_DIR = resolve(import.meta.dir, "../fixtures/vulnerable-vault")
 const RUNS_DIR = join(FIXTURE_DIR, ".argus", "runs")
+
+async function activateArgusSession(
+  hooks: ReturnType<typeof createHooks>,
+  sessionID: string,
+): Promise<void> {
+  const input = { sessionID, agent: "argus" }
+  const output = { temperature: 0, topP: 1, topK: 0, options: {} }
+  await hooks["chat.params"]?.(
+    input as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+    output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+  )
+}
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "argus-pipeline-e2e-"))
@@ -119,31 +132,27 @@ function makeManagers(overrides?: Partial<Managers>): Managers {
   }
 }
 
-async function getExistingRuns(): Promise<Set<string>> {
-  try {
-    return new Set(await readdir(RUNS_DIR))
-  } catch {
-    return new Set()
-  }
-}
+async function waitForRunId(sessionID: string): Promise<string> {
+  const timeoutMs = 1_500
+  const pollMs = 10
+  const deadline = Date.now() + timeoutMs
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  while (Date.now() < deadline) {
+    const runId = resolveRunIdFromOpencodeSession(sessionID, FIXTURE_DIR)
+    if (runId) return runId
+    await new Promise((resolve) => setTimeout(resolve, pollMs))
+  }
 
-async function discoverFreshRunId(knownBefore: Set<string>): Promise<string> {
-  const entries = await readdir(RUNS_DIR)
-  const freshRuns = entries.filter((e) => !knownBefore.has(e) && UUID_PATTERN.test(e))
-  if (freshRuns.length !== 1) {
-    throw new Error(`Expected 1 new run dir, found ${freshRuns.length}: ${freshRuns.join(", ")}`)
-  }
-  const run = freshRuns[0]
-  if (!run) {
-    throw new Error("Expected one fresh run directory")
-  }
-  return run
+  throw new Error(`Expected run_id to be indexed for session ${sessionID}`)
 }
 
 describe("Pipeline fixes E2E", () => {
   const tempDirs: string[] = []
+
+  beforeEach(() => {
+    const lock = Symbol.for("solidity-argus:instance-lock")
+    delete (globalThis as unknown as Record<symbol, unknown>)[lock]
+  })
 
   afterEach(() => {
     resetSinkRegistry()
@@ -160,28 +169,30 @@ describe("Pipeline fixes E2E", () => {
 
   describe("Fix #1: report tool returns slim JSON without full markdown", () => {
     test("report result has reportSummary but no report field", async () => {
+      const reportArgs = {
+        project_name: "TestVault",
+        scope: ["Vault.sol"],
+        include_executive_summary: true,
+        severity_threshold: "low",
+        preflight_policy: "warn",
+        audit_state: JSON.stringify({
+          findings: [
+            {
+              id: "f-1",
+              check: "reentrancy",
+              severity: "Critical",
+              confidence: "High",
+              description: "Reentrancy in withdraw()",
+              file: "src/Vault.sol",
+              lines: [10, 20],
+              source: "slither",
+            },
+          ],
+        }),
+      }
+
       const payload = await reportGeneratorTool.execute(
-        {
-          project_name: "TestVault",
-          scope: ["Vault.sol"],
-          include_executive_summary: true,
-          severity_threshold: "low",
-          preflight_policy: "warn",
-          audit_state: JSON.stringify({
-            findings: [
-              {
-                id: "f-1",
-                check: "reentrancy",
-                severity: "Critical",
-                confidence: "High",
-                description: "Reentrancy in withdraw()",
-                file: "src/Vault.sol",
-                lines: [10, 20],
-                source: "slither",
-              },
-            ],
-          }),
-        },
+        reportArgs as Parameters<typeof reportGeneratorTool.execute>[0],
         makeToolContext(FIXTURE_DIR),
       )
 
@@ -240,9 +251,9 @@ describe("Pipeline fixes E2E", () => {
     test("executeReadFindings throws when no events exist", async () => {
       const dir = trackTempDir(makeTempDir())
 
-      await expect(
-        executeReadFindings({ run_id: "no-such-run" }, makeToolContext(dir)),
-      ).rejects.toThrow("No events found for run")
+      expect(executeReadFindings({ run_id: "no-such-run" }, makeToolContext(dir))).rejects.toThrow(
+        "No events found for run",
+      )
     })
   })
 
@@ -293,15 +304,14 @@ describe("Pipeline fixes E2E", () => {
         isHookEnabled: () => true,
       })
 
-      const runsBefore = await getExistingRuns()
-
       await hooks.event?.({
         event: { type: "session.created", properties: { info: { id: "oc-new-session" } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+      await activateArgusSession(hooks, "oc-new-session")
 
       expect(loadCallCount).toBe(1)
 
-      const freshRunId = await discoverFreshRunId(runsBefore)
+      const freshRunId = await waitForRunId("oc-new-session")
       const eventsPath = join(RUNS_DIR, freshRunId, "events.jsonl")
       expect(existsSync(eventsPath)).toBe(true)
 
@@ -356,13 +366,12 @@ describe("Pipeline fixes E2E", () => {
         isHookEnabled: () => true,
       })
 
-      const runsBefore = await getExistingRuns()
-
       await hooks.event?.({
         event: { type: "session.created", properties: { info: { id: "oc-fresh-session" } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+      await activateArgusSession(hooks, "oc-fresh-session")
 
-      const freshRunId = await discoverFreshRunId(runsBefore)
+      const freshRunId = await waitForRunId("oc-fresh-session")
 
       await hooks.event?.({
         event: { type: "session.idle", properties: { info: { id: "oc-fresh-session" } } },
@@ -412,13 +421,12 @@ describe("Pipeline fixes E2E", () => {
         isHookEnabled: () => true,
       })
 
-      const runsBefore = await getExistingRuns()
-
       await hooks.event?.({
         event: { type: "session.created", properties: { info: { id: "oc-continue-session" } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+      await activateArgusSession(hooks, "oc-continue-session")
 
-      const freshRunId = await discoverFreshRunId(runsBefore)
+      const freshRunId = await waitForRunId("oc-continue-session")
 
       await hooks.event?.({
         event: { type: "session.idle", properties: { info: { id: "oc-continue-session" } } },

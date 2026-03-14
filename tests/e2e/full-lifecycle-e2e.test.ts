@@ -241,9 +241,8 @@ describe("Full audit session lifecycle", () => {
   test("runs full plugin lifecycle from session creation to persisted teardown", async () => {
     const sessionID = "ses-full-lifecycle"
     const plugin = await createPlugin()
-    await trackArgusAgent(plugin, sessionID)
-
     await fireEvent(plugin, "session.created", sessionID)
+    await trackArgusAgent(plugin, sessionID)
     await runCoreToolSequence(plugin, sessionID)
 
     const compactOutput = { context: ["Previous summary."] }
@@ -334,8 +333,8 @@ describe("Cross-session state continuity", () => {
   test("does not inherit findings between different session IDs", async () => {
     const sessionOne = "ses-continuity-1"
     const pluginOne = await createPlugin()
-    await trackArgusAgent(pluginOne, sessionOne)
     await fireEvent(pluginOne, "session.created", sessionOne)
+    await trackArgusAgent(pluginOne, sessionOne)
 
     await fireToolAfter(
       pluginOne,
@@ -368,8 +367,8 @@ describe("Cross-session state continuity", () => {
 
     const sessionTwo = "ses-continuity-2"
     const pluginTwo = await createPlugin()
-    await trackArgusAgent(pluginTwo, sessionTwo)
     await fireEvent(pluginTwo, "session.created", sessionTwo)
+    await trackArgusAgent(pluginTwo, sessionTwo)
 
     const systemOutput = { system: [] as string[] }
     type SystemTransformInput = Parameters<
@@ -436,8 +435,8 @@ describe("v0.4.0 hardening verification", () => {
   test("deterministic finding IDs remain stable for repeated identical outputs", async () => {
     const sessionID = "ses-hardening-deterministic"
     const plugin = await createPlugin()
-    await trackArgusAgent(plugin, sessionID)
     await fireEvent(plugin, "session.created", sessionID)
+    await trackArgusAgent(plugin, sessionID)
 
     const repeatedOutput = JSON.stringify({
       success: true,
@@ -521,8 +520,8 @@ describe("v0.4.0 hardening verification", () => {
   test("truncated output marker is handled as non-success and does not mutate audit findings", async () => {
     const sessionID = "ses-hardening-truncated"
     const plugin = await createPlugin()
-    await trackArgusAgent(plugin, sessionID)
     await fireEvent(plugin, "session.created", sessionID)
+    await trackArgusAgent(plugin, sessionID)
 
     await fireToolAfter(
       plugin,
@@ -596,8 +595,8 @@ describe("Plugin teardown and cleanup", () => {
   test("persists state on teardown and removes stale .tmp files on next plugin lifecycle", async () => {
     const sessionID = "ses-teardown-1"
     const plugin = await createPlugin()
-    await trackArgusAgent(plugin, sessionID)
     await fireEvent(plugin, "session.created", sessionID)
+    await trackArgusAgent(plugin, sessionID)
 
     await fireToolAfter(
       plugin,
@@ -636,8 +635,8 @@ describe("Plugin teardown and cleanup", () => {
 
     const secondPlugin = await createPlugin()
     const secondSessionID = "ses-teardown-2"
-    await trackArgusAgent(secondPlugin, secondSessionID)
     await fireEvent(secondPlugin, "session.created", secondSessionID)
+    await trackArgusAgent(secondPlugin, secondSessionID)
     await fireEvent(secondPlugin, "session.deleted", secondSessionID)
 
     expect(existsSync(staleTmpFile)).toBe(false)
@@ -656,8 +655,8 @@ describe("Report generation with provenance", () => {
   test("writes a provenance-rich report with run-scoped filename", async () => {
     const sessionID = "ses-report-provenance"
     const plugin = await createPlugin()
-    await trackArgusAgent(plugin, sessionID)
     await fireEvent(plugin, "session.created", sessionID)
+    await trackArgusAgent(plugin, sessionID)
 
     await runCoreToolSequence(plugin, sessionID)
     await fireToolAfter(
