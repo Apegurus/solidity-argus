@@ -250,7 +250,7 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
       severity_threshold: "low",
       preflight_policy: "warn",
       audit_state: JSON.stringify(findings),
-    },
+    } as Parameters<typeof reportGeneratorTool.execute>[0],
     createContext(),
   )
 

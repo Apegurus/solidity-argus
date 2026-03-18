@@ -1,8 +1,4 @@
-import {
-  KEY_TOOLS,
-  TOOL_SHORT_NAMES,
-  computeMissingKeyTools,
-} from "../shared/key-tools"
+import { computeMissingKeyTools, KEY_TOOLS, TOOL_SHORT_NAMES } from "../shared/key-tools"
 import type { AuditState, FindingSeverity } from "../state/types"
 
 const DEFAULT_TOKEN_BUDGET = 2000

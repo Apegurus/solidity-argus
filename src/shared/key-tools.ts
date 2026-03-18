@@ -31,9 +31,7 @@ export function computeMissingKeyTools(
   toolsExecuted: Array<{ tool: string }>,
   unavailableTools?: string[],
 ): string[] {
-  const executedShortNames = new Set(
-    toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
-  )
+  const executedShortNames = new Set(toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool))
   const excused = new Set(
     (unavailableTools ?? []).map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean),
   )

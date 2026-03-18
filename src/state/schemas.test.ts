@@ -182,9 +182,7 @@ describe("normalizeToCanonicalFinding", () => {
     const result = normalizeToCanonicalFinding(raw, "run-enrichment", 1)
     expect(result.data.impact).toBe("Complete vault drain via recursive withdraw calls")
     expect(result.data.recommendation).toBe("Add nonReentrant modifier to withdraw function")
-    expect(result.data.proofOfConcept).toBe(
-      "See test/ReentrancyPoC.t.sol::testReentrancyExploit",
-    )
+    expect(result.data.proofOfConcept).toBe("See test/ReentrancyPoC.t.sol::testReentrancyExploit")
     expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
   })
 

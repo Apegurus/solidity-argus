@@ -156,10 +156,10 @@ test("executeRecordFinding emits enrichment warnings for Critical/High missing f
   }
   expect(parsed.success).toBe(true)
   expect(parsed.enrichment_warnings).toBeDefined()
-  expect(parsed.enrichment_warnings!.length).toBe(1)
-  expect(parsed.enrichment_warnings![0]).toContain("impact")
-  expect(parsed.enrichment_warnings![0]).toContain("recommendation")
-  expect(parsed.enrichment_warnings![0]).toContain("proofOfConcept")
+  expect(parsed.enrichment_warnings?.length).toBe(1)
+  expect(parsed.enrichment_warnings?.[0]).toContain("impact")
+  expect(parsed.enrichment_warnings?.[0]).toContain("recommendation")
+  expect(parsed.enrichment_warnings?.[0]).toContain("proofOfConcept")
   expect(parsed.enrichment_hint).toContain("quality gate")
 })
 

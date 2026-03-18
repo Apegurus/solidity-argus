@@ -202,9 +202,8 @@ test("extractContractInfo - detects custom access control pattern", async () => 
 })
 
 test("extractContractInfo - handles forge error gracefully", async () => {
-  const spy = spyOn(Bun, "spawn").mockImplementation(
-    (() => mockSpawnResult("", "Error: Contract not found", 1)) as unknown as typeof Bun.spawn,
-  )
+  const spy = spyOn(Bun, "spawn").mockImplementation((() =>
+    mockSpawnResult("", "Error: Contract not found", 1)) as unknown as typeof Bun.spawn)
 
   try {
     const result = await extractContractInfo("NonExistentContract", "/test/project")

@@ -120,11 +120,32 @@ function collectIndicators(source: string): Set<string> {
 // wins. This avoids implicit order-dependency when multiple proxy types
 // have matching indicators.
 const PROXY_TYPE_INDICATORS: Array<{ type: ProxyType; indicators: string[] }> = [
-  { type: "diamond", indicators: ["diamond-cut", "diamond-cut-interface", "facet-address", "diamond-loupe"] },
-  { type: "uups", indicators: ["uups-authorize-upgrade", "uups-upgrade-to-and-call", "uups-upgradeable"] },
+  {
+    type: "diamond",
+    indicators: ["diamond-cut", "diamond-cut-interface", "facet-address", "diamond-loupe"],
+  },
+  {
+    type: "uups",
+    indicators: ["uups-authorize-upgrade", "uups-upgrade-to-and-call", "uups-upgradeable"],
+  },
   { type: "beacon", indicators: ["beacon-interface", "beacon-proxy", "upgradeable-beacon"] },
-  { type: "transparent", indicators: ["transparent-implementation-getter", "transparent-admin-getter", "transparent-set-implementation"] },
-  { type: "erc1967", indicators: ["erc1967-implementation-slot", "erc1967-admin-slot", "erc1967-beacon-slot", "delegatecall"] },
+  {
+    type: "transparent",
+    indicators: [
+      "transparent-implementation-getter",
+      "transparent-admin-getter",
+      "transparent-set-implementation",
+    ],
+  },
+  {
+    type: "erc1967",
+    indicators: [
+      "erc1967-implementation-slot",
+      "erc1967-admin-slot",
+      "erc1967-beacon-slot",
+      "delegatecall",
+    ],
+  },
 ]
 
 function classifyProxyType(indicators: Set<string>): ProxyType | null {

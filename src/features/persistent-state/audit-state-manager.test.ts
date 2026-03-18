@@ -4,8 +4,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -789,7 +789,8 @@ describe("createAuditStateManager", () => {
     )
     expect(archiveFiles).toHaveLength(1)
 
-    const archivePath = join(archivesDir, archiveFiles[0]!)
+    const firstArchive = archiveFiles[0] ?? ""
+    const archivePath = join(archivesDir, firstArchive)
     const archivedState = JSON.parse(readFileSync(archivePath, "utf8")) as AuditState & {
       filePath: string
     }

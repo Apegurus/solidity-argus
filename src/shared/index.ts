@@ -4,6 +4,7 @@ export {
   type AuditArtifactResolver,
   createAuditArtifactResolver,
 } from "./audit-artifact-resolver"
+export { extractContractNames, hasBinary, parseSolcVersion } from "./binary-utils"
 export {
   getArgusCacheDir,
   getArgusLogDir,
@@ -13,7 +14,6 @@ export {
   getScvdIndexPath,
   getTrailOfBitsCacheDir,
 } from "./cache-paths"
-export { extractContractNames, hasBinary, parseSolcVersion } from "./binary-utils"
 export { deepMerge } from "./deep-merge"
 export {
   type ConfigFileInfo,
