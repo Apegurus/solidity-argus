@@ -175,7 +175,15 @@ describe("Pipeline fixes E2E", () => {
         include_executive_summary: true,
         severity_threshold: "low",
         preflight_policy: "warn",
-        audit_state: JSON.stringify({
+        tool_coverage_policy: "warn",
+        report_input: JSON.stringify({
+          run_id: "test-run-pipeline-1",
+          seq: 1,
+          session_id: "ses-e2e",
+          tool_call_id: "tc-report",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          projectDir: FIXTURE_DIR,
           findings: [
             {
               id: "f-1",
@@ -186,8 +194,19 @@ describe("Pipeline fixes E2E", () => {
               file: "src/Vault.sol",
               lines: [10, 20],
               source: "slither",
+              run_id: "test-run-pipeline-1",
+              seq: 1,
+              session_id: "ses-e2e",
+              tool_call_id: "tc-1",
+              schema_version: SCHEMA_VERSION,
+              observation_id: "obs-1",
+              issue_fingerprint: "ifp-1",
+              observation_fingerprint: "ofp-1",
+              reported_by_agent: "sentinel",
             },
           ],
+          toolsExecuted: [],
+          scope: ["Vault.sol"],
         }),
       }
 

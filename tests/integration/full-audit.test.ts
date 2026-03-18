@@ -7,6 +7,7 @@ import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
 import ArgusPlugin from "../../src/index"
 import { createAuditState } from "../../src/state/audit-state"
+import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { Finding } from "../../src/state/types"
 import { contractAnalyzerTool } from "../../src/tools/contract-analyzer-tool"
 import { forgeTestTool } from "../../src/tools/forge-test-tool"
@@ -202,7 +203,31 @@ describe("full audit integration", () => {
         include_executive_summary: true,
         severity_threshold: "low",
         preflight_policy: "warn",
-        audit_state: JSON.stringify({ findings }),
+        tool_coverage_policy: "warn",
+        report_input: JSON.stringify({
+          run_id: "test-run-1",
+          seq: findings.length,
+          session_id: "session-1",
+          tool_call_id: "tc-report",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          projectDir: "/tmp/project",
+          findings: findings.map((f, i) => ({
+            ...f,
+            run_id: "test-run-1",
+            seq: i + 1,
+            session_id: "session-1",
+            tool_call_id: "tc-1",
+            source: f.source ?? "slither",
+            schema_version: SCHEMA_VERSION,
+            observation_id: `obs-${i + 1}`,
+            issue_fingerprint: `ifp-${i + 1}`,
+            observation_fingerprint: `ofp-${i + 1}`,
+            reported_by_agent: "sentinel",
+          })),
+          toolsExecuted: [],
+          scope: ["VulnerableVault.sol"],
+        }),
       } as Parameters<typeof reportGeneratorTool.execute>[0],
       createMockContext(),
     )
