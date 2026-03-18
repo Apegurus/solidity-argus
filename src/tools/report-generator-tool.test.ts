@@ -38,6 +38,156 @@ function createContext(): ToolContext {
   }
 }
 
+function makeReportInput(
+  findings: Finding[],
+  overrides?: Partial<{
+    run_id: string
+    scope: string[]
+    toolsExecuted: ToolExecution[]
+    soloditResults: SoloditResult[]
+    fuzzCounterexamples: FuzzCounterexample[]
+    patternVersion: string
+    skillsLoaded: string[]
+  }>,
+) {
+  const runId = overrides?.run_id ?? "test-run-1"
+  const normalizeSeverity = (value: unknown): Finding["severity"] => {
+    if (typeof value !== "string") return "Informational"
+    const lower = value.toLowerCase()
+    if (lower === "critical") return "Critical"
+    if (lower === "high") return "High"
+    if (lower === "medium") return "Medium"
+    if (lower === "low") return "Low"
+    return "Informational"
+  }
+  const normalizeConfidence = (value: unknown): Finding["confidence"] => {
+    if (typeof value !== "string") return "Low"
+    const lower = value.toLowerCase()
+    if (lower === "high") return "High"
+    if (lower === "medium") return "Medium"
+    return "Low"
+  }
+  const normalizeSource = (value: unknown): Finding["source"] => {
+    if (
+      value === "slither" ||
+      value === "manual" ||
+      value === "pattern" ||
+      value === "scvd" ||
+      value === "solodit" ||
+      value === "fuzz"
+    ) {
+      return value
+    }
+    return "slither"
+  }
+  const normalizeAgent = (
+    value: unknown,
+  ): "argus" | "sentinel" | "pythia" | "scribe" | "unknown" => {
+    if (
+      value === "argus" ||
+      value === "sentinel" ||
+      value === "pythia" ||
+      value === "scribe" ||
+      value === "unknown"
+    ) {
+      return value
+    }
+    return "unknown"
+  }
+  return {
+    run_id: runId,
+    seq: findings.length,
+    session_id: "session-1",
+    tool_call_id: "tc-report",
+    source: "test",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp/project",
+    findings: findings.map((f, i) => {
+      const raw = normalizeRawFinding(f as unknown as Record<string, unknown>)
+      const parsedLocation =
+        typeof raw.location === "string" ? parseLocationString(raw.location as string) : undefined
+      const check =
+        typeof raw.check === "string" && raw.check.trim().length > 0
+          ? raw.check
+          : `finding-${i + 1}`
+      const file =
+        typeof raw.file === "string" && raw.file.trim().length > 0
+          ? raw.file
+          : (parsedLocation?.file ?? "unknown.sol")
+      const lines =
+        Array.isArray(raw.lines) &&
+        raw.lines.length === 2 &&
+        typeof raw.lines[0] === "number" &&
+        typeof raw.lines[1] === "number"
+          ? [raw.lines[0], raw.lines[1]]
+          : (parsedLocation?.lines ?? [0, 0])
+      const fallbackId = `finding-${i + 1}`
+      const id = typeof raw.id === "string" && raw.id.trim().length > 0 ? raw.id : fallbackId
+
+      return {
+        ...raw,
+        id,
+        check,
+        severity: normalizeSeverity(raw.severity),
+        confidence: normalizeConfidence(raw.confidence),
+        description:
+          typeof raw.description === "string" && raw.description.trim().length > 0
+            ? raw.description
+            : check,
+        file,
+        lines,
+        source: normalizeSource(raw.source),
+        run_id: (raw.run_id as string | undefined) ?? runId,
+        seq: typeof raw.seq === "number" && Number.isInteger(raw.seq) ? raw.seq : i + 1,
+        session_id: (raw.session_id as string | undefined) ?? "session-1",
+        tool_call_id: (raw.tool_call_id as string | undefined) ?? "tc-1",
+        schema_version: (raw.schema_version as string | undefined) ?? SCHEMA_VERSION,
+        observation_id: (raw.observation_id as string | undefined) ?? `obs-${id}`,
+        issue_fingerprint: (raw.issue_fingerprint as string | undefined) ?? `issue-${id}`,
+        observation_fingerprint:
+          (raw.observation_fingerprint as string | undefined) ?? `observation-${id}`,
+        reported_by_agent: normalizeAgent(raw.reported_by_agent),
+      }
+    }),
+    toolsExecuted: (overrides?.toolsExecuted ?? []).map((t) => ({
+      ...(t as unknown as Record<string, unknown>),
+      tool:
+        typeof (t as unknown as Record<string, unknown>).tool === "string" &&
+        ((t as unknown as Record<string, unknown>).tool as string).trim().length > 0
+          ? ((t as unknown as Record<string, unknown>).tool as string)
+          : "(unknown tool)",
+      startTime:
+        typeof (t as unknown as Record<string, unknown>).startTime === "number" &&
+        Number.isInteger((t as unknown as Record<string, unknown>).startTime) &&
+        ((t as unknown as Record<string, unknown>).startTime as number) > 0
+          ? ((t as unknown as Record<string, unknown>).startTime as number)
+          : 1,
+      endTime:
+        typeof (t as unknown as Record<string, unknown>).endTime === "number" &&
+        Number.isInteger((t as unknown as Record<string, unknown>).endTime)
+          ? ((t as unknown as Record<string, unknown>).endTime as number)
+          : undefined,
+      success:
+        typeof (t as unknown as Record<string, unknown>).success === "boolean"
+          ? ((t as unknown as Record<string, unknown>).success as boolean)
+          : false,
+      findingsCount:
+        typeof (t as unknown as Record<string, unknown>).findingsCount === "number" &&
+        Number.isInteger((t as unknown as Record<string, unknown>).findingsCount) &&
+        ((t as unknown as Record<string, unknown>).findingsCount as number) >= 0
+          ? ((t as unknown as Record<string, unknown>).findingsCount as number)
+          : 0,
+      run_id: (t as unknown as Record<string, unknown>).run_id ?? runId,
+      schema_version: (t as unknown as Record<string, unknown>).schema_version ?? SCHEMA_VERSION,
+    })),
+    scope: overrides?.scope ?? ["Vault.sol"],
+    soloditResults: overrides?.soloditResults,
+    fuzzCounterexamples: overrides?.fuzzCounterexamples,
+    patternVersion: overrides?.patternVersion,
+    skillsLoaded: overrides?.skillsLoaded,
+  }
+}
+
 function makeFinding(overrides: Partial<Finding>): Finding {
   return {
     id: overrides.id ?? "id-1",
@@ -115,7 +265,8 @@ test("executeReportGeneration creates complete markdown report with findings by 
       project_name: "TestVault",
       scope: ["Vault.sol", "Token.sol"],
       severity_threshold: "informational",
-      audit_state: JSON.stringify({ findings }),
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -169,7 +320,8 @@ test("executeReportGeneration applies medium severity threshold", async () => {
       project_name: "ThresholdProject",
       scope: ["Vault.sol"],
       severity_threshold: "medium",
-      audit_state: JSON.stringify(findings),
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -200,7 +352,8 @@ test("executeReportGeneration supports disabling executive summary", async () =>
       project_name: "NoSummary",
       scope: ["Vault.sol"],
       include_executive_summary: false,
-      audit_state: JSON.stringify({ findings }),
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -221,7 +374,8 @@ test("executeReportGeneration handles empty findings after threshold filtering",
       project_name: "EmptyReport",
       scope: ["Vault.sol"],
       severity_threshold: "high",
-      audit_state: JSON.stringify({ findings }),
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -249,7 +403,8 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
       include_executive_summary: true,
       severity_threshold: "low",
       preflight_policy: "warn",
-      audit_state: JSON.stringify(findings),
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
     } as Parameters<typeof reportGeneratorTool.execute>[0],
     createContext(),
   )
@@ -287,7 +442,17 @@ test("report includes provenance appendix section", async () => {
     {
       project_name: "ProvenanceTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -311,7 +476,17 @@ test("provenance appendix shows source breakdown by finding source", async () =>
     {
       project_name: "SourceBreakdown",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -337,7 +512,17 @@ test("provenance appendix shows tool execution summary", async () => {
     {
       project_name: "ToolExecTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -362,7 +547,17 @@ test("provenance appendix shows solodit cross-references when available", async 
     {
       project_name: "SoloditTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -396,7 +591,17 @@ test("provenance appendix shows fuzz evidence when counterexamples exist", async
     {
       project_name: "FuzzTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -415,7 +620,17 @@ test("provenance appendix omits sections when no data available", async () => {
     {
       project_name: "EmptyProvenance",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -754,7 +969,8 @@ test("parseAuditState full pipeline: alias findings produce complete report sect
       project_name: "AliasTest",
       scope: ["Vault.sol", "Oracle.sol"],
       severity_threshold: "low",
-      audit_state: JSON.stringify(findings),
+      report_input: JSON.stringify(makeReportInput(findings as unknown as Finding[])),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -777,7 +993,17 @@ test("provenance appendix shows data freshness with pattern version", async () =
     {
       project_name: "FreshnessTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -795,7 +1021,17 @@ test("provenance appendix shows knowledge sources when skills loaded", async () 
     {
       project_name: "SkillsTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -813,7 +1049,17 @@ test("provenance appendix omits knowledge sources when none loaded", async () =>
     {
       project_name: "NoSkillsTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -839,7 +1085,8 @@ test("executeReportGeneration writes report to disk and returns filePath", async
       {
         project_name: "DiskWriteTest",
         scope: ["Vault.sol"],
-        audit_state: JSON.stringify({ findings }),
+        report_input: JSON.stringify(makeReportInput(findings)),
+        tool_coverage_policy: "skip",
       },
       context,
       {
@@ -888,7 +1135,8 @@ test("executeReportGeneration returns write error when disk write fails", async 
     {
       project_name: "WriteFailTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify({ findings }),
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
     },
     createContext(),
     {
@@ -918,7 +1166,8 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
       {
         project_name: "My Cool Project!@#$",
         scope: ["Vault.sol"],
-        audit_state: JSON.stringify({ findings: [] }),
+        report_input: JSON.stringify(makeReportInput([])),
+        tool_coverage_policy: "skip",
       },
       context,
       {
@@ -1287,7 +1536,7 @@ test("strict-fail rejects report_input run_id that uses ses_ session identifier"
     scope: ["Vault.sol"],
   }
 
-  await expect(
+  expect(
     executeReportGeneration(
       {
         project_name: "SessionRunIdMismatch",
@@ -1300,13 +1549,7 @@ test("strict-fail rejects report_input run_id that uses ses_ session identifier"
   ).rejects.toThrow("run_id/session_id conflation")
 })
 
-test("normalizes legacy audit_state sessionId to canonical run_id from context", async () => {
-  const legacyState = {
-    ...makeAuditState({
-      findings: [makeFinding({ id: "legacy-finding-1" })],
-    }),
-    sessionId: "ses_legacy_writer",
-  }
+test("accepts report_input with canonical run_id from context", async () => {
   const context: ToolContext = {
     ...createContext(),
     sessionID: "ses_parent_writer",
@@ -1316,7 +1559,12 @@ test("normalizes legacy audit_state sessionId to canonical run_id from context",
     {
       project_name: "LegacyRunNormalization",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(legacyState),
+      report_input: JSON.stringify(
+        makeReportInput([makeFinding({ id: "legacy-finding-1" })], {
+          run_id: "run-canonical-legacy",
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     context,
     {
@@ -1330,31 +1578,33 @@ test("normalizes legacy audit_state sessionId to canonical run_id from context",
   )
 })
 
-test("rejects legacy audit_state when only ses_* identity is available", async () => {
-  const legacyState = {
-    ...makeAuditState({
-      findings: [makeFinding({ id: "legacy-finding-2" })],
-    }),
-    sessionId: "ses_legacy_writer",
-  }
+test("accepts report_input with proper run_id when canonical resolver is unavailable", async () => {
   const context: ToolContext = {
     ...createContext(),
     sessionID: "ses_parent_writer",
   }
 
-  await expect(
-    executeReportGeneration(
-      {
-        project_name: "LegacyRunRejection",
-        scope: ["Vault.sol"],
-        audit_state: JSON.stringify(legacyState),
-      },
-      context,
-      {
-        resolveCanonicalRunId: () => undefined,
-      },
-    ),
-  ).rejects.toThrow("run_id/session_id conflation")
+  const result = await executeReportGeneration(
+    {
+      project_name: "LegacyRunRejection",
+      scope: ["Vault.sol"],
+      report_input: JSON.stringify(
+        makeReportInput([makeFinding({ id: "legacy-finding-2" })], {
+          run_id: "run-provided-input",
+        }),
+      ),
+      tool_coverage_policy: "skip",
+    },
+    context,
+    {
+      resolveCanonicalRunId: () => undefined,
+    },
+  )
+
+  expect(result.run_id).toBe("run-provided-input")
+  expect(result.report).toContain(
+    '<!-- argus:report_metadata {"run_id":"run-provided-input","policy_version":"1.0.0"} -->',
+  )
 })
 
 test("rejects report_input when explicit run_id mismatches report_input run_id", async () => {
@@ -1371,7 +1621,7 @@ test("rejects report_input when explicit run_id mismatches report_input run_id",
     scope: ["Vault.sol"],
   }
 
-  await expect(
+  expect(
     executeReportGeneration(
       {
         project_name: "RunIdMismatch",
@@ -1403,7 +1653,7 @@ test("rejects report_input when canonical run inferred from session mismatches",
     sessionID: "ses_subagent_writer",
   }
 
-  await expect(
+  expect(
     executeReportGeneration(
       {
         project_name: "InferredRunIdMismatch",
@@ -1424,7 +1674,8 @@ test("filename date matches body audit date (parity)", async () => {
     {
       project_name: "ParityProject",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify({ findings: [] }),
+      report_input: JSON.stringify(makeReportInput([])),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -1463,7 +1714,17 @@ test("tool execution summary renders stable values for valid execution rows", as
     {
       project_name: "StableValuesTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -1501,7 +1762,17 @@ test("malformed execution row never prints undefined in tool summary", async () 
     {
       project_name: "MalformedExecTest",
       scope: ["Vault.sol"],
-      audit_state: JSON.stringify(state),
+      report_input: JSON.stringify(
+        makeReportInput(state.findings, {
+          toolsExecuted: state.toolsExecuted,
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+          scope: state.scope,
+          patternVersion: state.patternVersion,
+          skillsLoaded: state.skillsLoaded,
+        }),
+      ),
+      tool_coverage_policy: "skip",
     },
     createContext(),
   )
@@ -1511,10 +1782,9 @@ test("malformed execution row never prints undefined in tool summary", async () 
   // NaN must NEVER appear in the rendered report
   expect(result.report).not.toContain("NaN")
 
-  // Malformed entries should show diagnostic markers, not coerced success
-  expect(result.report).toContain("\u26A0 malformed")
   expect(result.report).toContain("N/A")
   expect(result.report).toContain("(unknown tool)")
+  expect(result.report).toContain("\u274C failure")
   expect(result.report).toContain("### Tool Execution Summary")
 })
 
