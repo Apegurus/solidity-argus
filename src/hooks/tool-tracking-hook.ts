@@ -811,9 +811,23 @@ export function createToolTrackingHook(
         }
 
         switch (input.tool) {
-          case "argus_slither_analyze":
+          case "argus_slither_analyze": {
             findingsCount = processSlitherResult(record, store, diag, findingMetadata)
+            if (auditState.scope.length === 0 && findingsCount > 0) {
+              const slitherFindings = Array.isArray(record.findings) ? record.findings : []
+              const files = [
+                ...new Set(
+                  slitherFindings
+                    .map((f: Record<string, unknown>) => f.file as string)
+                    .filter(Boolean),
+                ),
+              ]
+              if (files.length > 0) {
+                auditState.scope = files
+              }
+            }
             break
+          }
           case "argus_check_patterns":
             findingsCount = processPatternResult(record, store, diag, findingMetadata)
             if (typeof record.patternVersion === "string") {
@@ -823,9 +837,14 @@ export function createToolTrackingHook(
           case "argus_record_finding":
             findingsCount = processRecordedFindingResult(record, store, diag, findingMetadata)
             break
-          case "argus_analyze_contract":
+          case "argus_analyze_contract": {
             processContractAnalyzerResult(record, auditState)
+            const filePath = (input.args as Record<string, unknown>)?.file_path as string
+            if (filePath && !auditState.scope.includes(filePath)) {
+              auditState.scope = [...auditState.scope, filePath]
+            }
             break
+          }
           case "argus_solodit_search":
             processSoloditResult(record, auditState)
             break

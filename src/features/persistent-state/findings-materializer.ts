@@ -167,6 +167,10 @@ export async function materializeReportInput(
 
   const reportInput = projectReportInput(events, runId, projectDir)
 
+  if (reportInput.scope.length === 0 && reportInput.findings.length > 0) {
+    reportInput.scope = [...new Set(reportInput.findings.map((f) => f.file).filter(Boolean))]
+  }
+
   if (reportInput.findings.length === 0) {
     const primarySessionIds = collectSessionIds(events)
     const crossFindings = await collectCrossRunFindings(runId, primarySessionIds, projectDir)

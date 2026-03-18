@@ -1,3 +1,4 @@
+import { normalizeFilePath } from "../shared/path-utils"
 import { isRecord } from "../shared/type-guards"
 import {
   VALID_AGENTS,
@@ -147,6 +148,7 @@ export function normalizeToCanonicalFinding(
   runId: string,
   seq: number,
   options: NormalizeFindingOptions = {},
+  projectDir?: string,
 ): AdapterResult<CanonicalFinding> {
   const diagnostics: Diagnostic[] = []
   const input = isRecord(raw) ? raw : {}
@@ -179,10 +181,11 @@ export function normalizeToCanonicalFinding(
           ? input.first_markdown_element
           : check
 
-  const file =
+  const rawFile =
     typeof input.file === "string" && input.file.length > 0
       ? input.file
       : (slitherElementFileAlias(input) ?? "")
+  const file = projectDir ? normalizeFilePath(rawFile, projectDir) : rawFile
 
   const lines = normalizeLines(input.lines, input)
   const severity = normalizeSeverity(input.severity)

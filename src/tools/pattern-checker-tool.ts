@@ -9,6 +9,7 @@ import {
 } from "../knowledge/scvd-index"
 import { getScvdIndexPath } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
+import { normalizeFilePath } from "../shared/path-utils"
 import { extractDetectionRulesFromSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
 
@@ -241,8 +242,9 @@ function lineWindow(content: string, index: number): [number, number] {
   return [start, end]
 }
 
-export function findMatches(file: string, patterns: LoadedPattern[]): Match[] {
+export function findMatches(file: string, patterns: LoadedPattern[], projectDir?: string): Match[] {
   const content = readFileSync(file, "utf8")
+  const normalizedFile = projectDir ? normalizeFilePath(file, projectDir) : file
   const matches: Match[] = []
 
   // Strip comments and string literals to reduce false positives.
@@ -269,7 +271,7 @@ export function findMatches(file: string, patterns: LoadedPattern[]): Match[] {
       matches.push({
         pattern: pattern.name,
         severity: pattern.severity,
-        file,
+        file: normalizedFile,
         lines: lineWindow(content, index),
         description: pattern.description,
         exploitReference: pattern.exploitReference,
@@ -337,12 +339,18 @@ export async function executePatternCheck(
     }
   }
 
+  const absoluteTarget = resolve(args.target)
+  let targetStat: ReturnType<typeof statSync> | undefined
+  try {
+    targetStat = statSync(absoluteTarget)
+  } catch {}
+  const projectDir = targetStat?.isFile() ? dirname(absoluteTarget) : absoluteTarget
   const sourceMatches: Match[] = []
   for (const solidityFile of solidityFiles) {
     if (context.abort.aborted) {
       throw new Error("pattern check aborted")
     }
-    sourceMatches.push(...findMatches(solidityFile, selectedPatterns))
+    sourceMatches.push(...findMatches(solidityFile, selectedPatterns, projectDir))
   }
 
   const sources: MatchSource[] = [

@@ -84,6 +84,17 @@ Leverage collective knowledge to find subtle bugs.
     - **Upgradability**: Check for storage collisions in proxy patterns.
     - **Integration Risks**: How does the protocol handle weird ERC20s (fee-on-transfer, rebasing)?
 
+### 5.5. Finding Enrichment (MANDATORY)
+
+Before delegating to Scribe, review ALL Critical and High severity findings in the audit state.
+For each one that lacks \`impact\` or \`recommendation\`:
+
+1. Search Solodit for the vulnerability class (reentrancy, access control, oracle manipulation, etc.)
+2. Use the best matching precedent to write specific impact and recommendation text
+3. Call argus_record_finding to record the enriched finding (same check, file, lines — the dedup will merge it)
+
+This step ensures Scribe has rich finding data to work with. Do NOT skip this step — reports with "Impact details were not provided" are unacceptable.
+
 ### 6. Testing & Verification
 Prove the existence of vulnerabilities.
 - **Objective**: Confirm findings and explore edge cases.
