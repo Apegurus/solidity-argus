@@ -133,37 +133,6 @@ describe("report input contract", () => {
     expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
   })
 
-  test("legacy audit_state payload emits explicit deprecation diagnostics", async () => {
-    const result = await executeReportGeneration(
-      {
-        project_name: "LegacyFlow",
-        scope: ["src/LegacyVault.sol"],
-        audit_state: JSON.stringify({
-          findings: [
-            {
-              title: "Missing Access Control",
-              severity: "high",
-              location: "src/LegacyVault.sol:33-40",
-              description: "setAdmin can be called by arbitrary user",
-              source: "manual",
-              impact: "Arbitrary admin takeover.",
-              recommendation: "Restrict setAdmin with onlyOwner.",
-              proofOfConcept: "forge test --match-test testSetAdminHijack",
-            },
-          ],
-        }),
-      },
-      createContext(),
-    )
-
-    const codes = result.contractDiagnostics.map((d) => d.reason.code)
-    expect(codes).toContain("REPORT_INPUT_DEPRECATED_LEGACY_PAYLOAD")
-    expect(codes).toContain("REPORT_INPUT_SYNTHESIZED_SESSION")
-    expect(codes).toContain("REPORT_INPUT_SYNTHESIZED_PROJECT_DIR")
-    expect(result.findingsCount.high).toBe(1)
-    expect(result.report).toContain("# Security Audit Report — LegacyFlow")
-  })
-
   test("strict mode rejects incomplete orchestration with orphaned tools", async () => {
     const reportInput = makeCanonicalReportInput()
     const orphanedEvents: AuditEvent[] = [

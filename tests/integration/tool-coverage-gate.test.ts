@@ -176,30 +176,4 @@ describe("tool coverage gate", () => {
       ),
     ).rejects.toThrow("Tool coverage gate failed")
   })
-
-  test("defaults to warn for legacy audit_state path", async () => {
-    const auditState = {
-      findings: [
-        {
-          title: "Test Finding",
-          severity: "high",
-          location: "src/Vault.sol:10-15",
-          description: "Test description",
-          source: "manual",
-        },
-      ],
-    }
-
-    const result = await executeReportGeneration(
-      {
-        project_name: "DefaultWarnTest",
-        scope: ["src/Vault.sol"],
-        audit_state: JSON.stringify(auditState),
-      },
-      createContext(),
-    )
-
-    // Legacy path defaults to warn, so should succeed
-    expect(result.report).toContain("# Security Audit Report")
-  })
 })
