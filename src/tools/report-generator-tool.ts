@@ -6,14 +6,13 @@ import type { ArgusConfig } from "../config/types"
 import { readEvents } from "../features/persistent-state/event-sink"
 import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/global-run-index"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
-import type { DropDiagnostic, DropPolicy } from "../shared/drop-diagnostics"
+import type { DropDiagnostic } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { computeMissingKeyTools } from "../shared/key-tools"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
-import { SEVERITY_RANK, VALID_SEVERITIES, VALID_SOURCES } from "../shared/validation-constants"
-import { normalizeToCanonicalFinding } from "../state/adapters"
+import { SEVERITY_RANK } from "../shared/validation-constants"
 import {
   compareIssueFingerprintSets,
   dedupeFindingsForFinalOutput,
@@ -34,7 +33,6 @@ type ReportGeneratorArgs = {
   severity_threshold?: SeverityThreshold
   quality_gate_policy?: QualityGatePolicy
   report_input?: string
-  audit_state?: string
   preflight_policy?: PreflightPolicy
   tool_coverage_policy?: ToolCoveragePolicy
   run_id?: string
@@ -177,19 +175,6 @@ function emptyCounts(): FindingsCount {
   }
 }
 
-function emptyAuditState(findings: Finding[] = []): AuditState {
-  return {
-    sessionId: "",
-    projectDir: "",
-    contractsReviewed: [],
-    findings,
-    toolsExecuted: [],
-    currentPhase: "complete",
-    scope: [],
-    startTime: 0,
-  }
-}
-
 /**
  * Parse a location string like "File.sol:18-22" or "File.sol:18" into { file, lines }.
  * Returns undefined if the string doesn't match a recognized format.
@@ -310,64 +295,6 @@ export function normalizeRawFinding(raw: Record<string, unknown>): Record<string
   return result
 }
 
-function hasMinimumFindingFields(
-  f: unknown,
-): f is { check: string; file: string; lines: [number, number] } {
-  if (typeof f !== "object" || f === null) return false
-  const obj = f as Record<string, unknown>
-  const hasCheck = typeof obj.check === "string" && obj.check.length > 0
-  if (!hasCheck) return false
-  if (typeof obj.file !== "string") {
-    obj.file = ""
-  }
-  if (!Array.isArray(obj.lines) || obj.lines.length !== 2) {
-    obj.lines = [0, 0]
-  }
-  return true
-}
-
-function normalizeFinding(f: Record<string, unknown>): Finding {
-  const severity =
-    typeof f.severity === "string" && VALID_SEVERITIES.has(f.severity as Finding["severity"])
-      ? (f.severity as Finding["severity"])
-      : "Informational"
-  const confidence =
-    typeof f.confidence === "string" && ["High", "Medium", "Low"].includes(f.confidence)
-      ? (f.confidence as Finding["confidence"])
-      : "Low"
-  const source =
-    typeof f.source === "string" && VALID_SOURCES.has(f.source as Finding["source"])
-      ? (f.source as Finding["source"])
-      : "manual"
-  const description = typeof f.description === "string" ? f.description : (f.check as string)
-  const id = typeof f.id === "string" ? f.id : `${f.check}:${f.file}:${(f.lines as number[])[0]}`
-  return {
-    id,
-    check: f.check as string,
-    severity,
-    confidence,
-    description,
-    file: f.file as string,
-    lines: f.lines as [number, number],
-    source,
-    remediation: typeof f.remediation === "string" ? f.remediation : undefined,
-    exploitReference: typeof f.exploitReference === "string" ? f.exploitReference : undefined,
-    ...(typeof f.impact === "string" ? { impact: f.impact } : {}),
-    ...(typeof f.recommendation === "string" ? { recommendation: f.recommendation } : {}),
-    ...(typeof f.proofOfConcept === "string" ? { proofOfConcept: f.proofOfConcept } : {}),
-    ...(typeof f.proof_of_concept === "string" ? { proofOfConcept: f.proof_of_concept } : {}),
-  } as Finding
-}
-
-export type ParseAuditStateOptions = {
-  dropPolicy?: DropPolicy
-}
-
-export type ParseAuditStateResult = {
-  state: AuditState
-  diagnostics: DropDiagnostic[]
-}
-
 type ParseReportInputResult = {
   reportInput: ReportInput
   diagnostics: DropDiagnostic[]
@@ -448,83 +375,6 @@ function normalizeToolsExecutedDefaults(
       "toolsExecuted entries were missing canonical fields (startTime, success, findingsCount, run_id, schema_version); defaults applied.",
       "toolsExecuted",
     )
-  }
-}
-
-function buildLegacyCompatibleReportInput(
-  state: AuditState,
-  context: ToolContext,
-  diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
-  expectedRunId?: string,
-): ReportInput {
-  diagnostics.warn(
-    "REPORT_INPUT_DEPRECATED_LEGACY_PAYLOAD",
-    "Legacy audit_state payload is deprecated; pass report_input with canonical ReportInput schema.",
-    "audit_state",
-  )
-
-  const runId = expectedRunId || state.sessionId || context.sessionID || "legacy-run"
-  const sessionId = state.sessionId || context.sessionID || runId
-
-  if (expectedRunId && state.sessionId.startsWith("ses_")) {
-    diagnostics.warn(
-      "REPORT_INPUT_LEGACY_SESSION_NORMALIZED",
-      "Legacy audit_state sessionId resembled an OpenCode session id; normalized run_id from canonical context.",
-      "run_id",
-    )
-  }
-
-  if (!state.sessionId) {
-    diagnostics.warn(
-      "REPORT_INPUT_SYNTHESIZED_SESSION",
-      "Legacy payload missing sessionId; synthesized session_id from tool context/run_id.",
-      "session_id",
-    )
-  }
-  if (!state.projectDir) {
-    diagnostics.warn(
-      "REPORT_INPUT_SYNTHESIZED_PROJECT_DIR",
-      "Legacy payload missing projectDir; synthesized projectDir from tool context.",
-      "projectDir",
-    )
-  }
-
-  const canonicalFindings = state.findings
-    .map((finding, index) => {
-      const normalized = normalizeToCanonicalFinding(finding, runId, index + 1)
-      for (const diag of normalized.diagnostics) {
-        diagnostics.warn(
-          "REPORT_INPUT_LEGACY_FINDING_NORMALIZED",
-          `[index:${index}] ${diag.message}`,
-          diag.field,
-        )
-      }
-      return normalized.data
-    })
-    .filter((finding) => finding.check.length > 0 && finding.file.length > 0)
-
-  return {
-    run_id: runId,
-    seq: state.toolsExecuted.length + canonicalFindings.length,
-    session_id: sessionId,
-    tool_call_id: "legacy-adapter",
-    source: "report-generator-legacy-adapter",
-    schema_version: SCHEMA_VERSION,
-    projectDir: state.projectDir || resolveProjectDir(context),
-    findings: canonicalFindings,
-    toolsExecuted: state.toolsExecuted.map((toolExec) => ({
-      ...toolExec,
-      run_id: runId,
-      schema_version: SCHEMA_VERSION,
-    })),
-    scope: state.scope,
-    soloditResults: state.soloditResults,
-    fuzzCounterexamples: state.fuzzCounterexamples,
-    coverageReport: state.coverageReport,
-    gasHotspots: state.gasHotspots,
-    proxyContracts: state.proxyContracts,
-    patternVersion: state.patternVersion,
-    skillsLoaded: state.skillsLoaded,
   }
 }
 
@@ -657,30 +507,8 @@ function parseReportInputPayload(
         "report_input",
       )
     } else {
-      if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
-        diagnostics.warn(
-          "REPORT_INPUT_LEGACY_FIELD_IGNORED",
-          "Both report_input and audit_state were provided; audit_state is ignored.",
-          "audit_state",
-        )
-      }
-
       return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
     }
-  }
-
-  if (typeof args.audit_state === "string" && args.audit_state.trim().length > 0) {
-    const legacy = parseAuditStateWithDiagnostics(args.audit_state, { dropPolicy: "warn" })
-    for (const diagnostic of legacy.diagnostics) {
-      diagnostics.warn(diagnostic.reason.code, diagnostic.reason.message, diagnostic.reason.field)
-    }
-    const reportInput = buildLegacyCompatibleReportInput(
-      legacy.state,
-      context,
-      diagnostics,
-      expectedRunId,
-    )
-    return finalizeReportInputSelection(reportInput, diagnostics, expectedRunId)
   }
 
   const effectiveRunId =
@@ -695,7 +523,7 @@ function parseReportInputPayload(
     if (existsSync(reportInputFile)) {
       diagnostics.warn(
         "REPORT_INPUT_DISK_FALLBACK",
-        `No report_input or audit_state provided; reading materialized report-input.json from disk for run ${effectiveRunId}.`,
+        `No report_input provided; reading materialized report-input.json from disk for run ${effectiveRunId}.`,
         "report_input",
       )
       let parsed: unknown
@@ -731,142 +559,13 @@ function parseReportInputPayload(
   }
   diagnostics.error(
     "REPORT_INPUT_MISSING",
-    `Missing report_input payload. args.run_id=${args.run_id ?? "undefined"}, expectedRunId=${expectedRunId ?? "undefined"}. Provide report_input (preferred), run_id for disk fallback, or legacy audit_state.`,
+    `Missing report_input payload. args.run_id=${args.run_id ?? "undefined"}, expectedRunId=${expectedRunId ?? "undefined"}. Provide report_input (preferred) or run_id for disk fallback.`,
     "report_input",
   )
   throwContractMismatch(
     "ReportInput contract mismatch: missing required payload",
     diagnostics.getDiagnostics(),
   )
-}
-
-function emitDropDiagnosticsForFindings(
-  rawItems: unknown[],
-  normalized: Record<string, unknown>[],
-  validFindings: Finding[],
-  diag: ReturnType<typeof createDropDiagnosticsCollector>,
-): void {
-  const droppedCount = rawItems.length - validFindings.length
-  if (droppedCount <= 0) return
-
-  for (const item of normalized) {
-    if (hasMinimumFindingFields(item)) continue
-    const missing: string[] = []
-    if (typeof item.check !== "string" || (item.check as string).length === 0) missing.push("check")
-    if (typeof item.file !== "string") missing.push("file")
-    if (!Array.isArray(item.lines) || (item.lines as unknown[]).length !== 2) missing.push("lines")
-    diag.error(
-      "MISSING_REQUIRED_FIELD",
-      `Finding dropped: missing ${missing.join(", ") || "unknown fields"} after normalization`,
-      missing[0],
-    )
-  }
-}
-
-export function parseAuditState(auditState: string, options?: ParseAuditStateOptions): AuditState {
-  const policy = options?.dropPolicy ?? "warn"
-  const diag = createDropDiagnosticsCollector(policy, "report-generator")
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(auditState)
-  } catch {
-    diag.error("MALFORMED_JSON", "audit_state is not valid JSON")
-    diag.throwIfStrict()
-    throw new Error(
-      "audit_state is not valid JSON — expected an AuditState object or Finding[] array",
-    )
-  }
-
-  if (Array.isArray(parsed)) {
-    const rawItems = parsed as unknown[]
-    const normalized = rawItems
-      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
-      .map((item) => normalizeRawFinding(item))
-    const validFindings = normalized
-      .filter(hasMinimumFindingFields)
-      .map((f) => normalizeFinding(f as Record<string, unknown>))
-    emitDropDiagnosticsForFindings(rawItems, normalized, validFindings, diag)
-    diag.throwIfStrict()
-    return emptyAuditState(validFindings)
-  }
-
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    Array.isArray((parsed as AuditState).findings)
-  ) {
-    const state = parsed as AuditState
-    const rawFindings = state.findings as unknown[]
-    const normalized = rawFindings
-      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
-      .map((item) => normalizeRawFinding(item))
-    const validFindings = normalized
-      .filter(hasMinimumFindingFields)
-      .map((f) => normalizeFinding(f as Record<string, unknown>))
-    emitDropDiagnosticsForFindings(rawFindings, normalized, validFindings, diag)
-    diag.throwIfStrict()
-    return {
-      ...emptyAuditState(),
-      ...state,
-      findings: validFindings,
-    }
-  }
-
-  return emptyAuditState()
-}
-
-export function parseAuditStateWithDiagnostics(
-  auditState: string,
-  options?: ParseAuditStateOptions,
-): ParseAuditStateResult {
-  const policy = options?.dropPolicy ?? "warn"
-  const diag = createDropDiagnosticsCollector(policy, "report-generator")
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(auditState)
-  } catch {
-    diag.error("MALFORMED_JSON", "audit_state is not valid JSON")
-    diag.throwIfStrict()
-    return { state: emptyAuditState(), diagnostics: diag.getDiagnostics() }
-  }
-
-  if (Array.isArray(parsed)) {
-    const rawItems = parsed as unknown[]
-    const normalized = rawItems
-      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
-      .map((item) => normalizeRawFinding(item))
-    const validFindings = normalized
-      .filter(hasMinimumFindingFields)
-      .map((f) => normalizeFinding(f as Record<string, unknown>))
-    emitDropDiagnosticsForFindings(rawItems, normalized, validFindings, diag)
-    diag.throwIfStrict()
-    return { state: emptyAuditState(validFindings), diagnostics: diag.getDiagnostics() }
-  }
-
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    Array.isArray((parsed as AuditState).findings)
-  ) {
-    const auditStateObj = parsed as AuditState
-    const rawFindings = auditStateObj.findings as unknown[]
-    const normalized = rawFindings
-      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
-      .map((item) => normalizeRawFinding(item))
-    const validFindings = normalized
-      .filter(hasMinimumFindingFields)
-      .map((f) => normalizeFinding(f as Record<string, unknown>))
-    emitDropDiagnosticsForFindings(rawFindings, normalized, validFindings, diag)
-    diag.throwIfStrict()
-    return {
-      state: { ...emptyAuditState(), ...auditStateObj, findings: validFindings },
-      diagnostics: diag.getDiagnostics(),
-    }
-  }
-
-  return { state: emptyAuditState(), diagnostics: diag.getDiagnostics() }
 }
 
 function normalizeTitle(check: string): string {
@@ -1167,7 +866,7 @@ export function buildProvenanceAppendix(
 ): string {
   const lines: string[] = ["## Appendix: Data Provenance"]
 
-  lines.push("- Data source: `report_input` payload (legacy `audit_state` supported via adapter)")
+  lines.push("- Data source: `report_input` payload")
   lines.push(`- Severity threshold applied: ${threshold}`)
   lines.push(`- Findings included in report: ${includedCount}`)
 
@@ -1289,8 +988,7 @@ export async function executeReportGeneration(
   const includeExecutiveSummary = args.include_executive_summary ?? true
   const threshold = args.severity_threshold ?? "low"
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
-  const isLegacyPath = !args.report_input && !!args.audit_state
-  const toolCoveragePolicy = args.tool_coverage_policy ?? (isLegacyPath ? "warn" : "enforce")
+  const toolCoveragePolicy = args.tool_coverage_policy ?? "enforce"
   const expectedRunId = resolveExpectedRunId(args, context, deps)
 
   // Ensure report-input.json is materialized before attempting disk lookup.
@@ -1538,17 +1236,13 @@ export const reportGeneratorTool = tool({
     severity_threshold: tool.schema
       .enum(["critical", "high", "medium", "low", "informational"])
       .default("low"),
-    // report_input and audit_state are intentionally excluded from the schema
-    // to prevent agents from passing inline payloads (which consistently fail
-    // validation). The tool always reads from the materialized disk artifact
-    // via run_id. Runtime handling for these fields is kept as defense-in-depth.
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
     tool_coverage_policy: tool.schema
       .enum(["enforce", "warn", "skip"])
       .optional()
       .describe(
         "Controls whether report generation requires key audit tools to have been executed. " +
-          "Defaults to 'enforce' for canonical report_input path, 'warn' for legacy audit_state path.",
+          "Defaults to 'enforce'.",
       ),
     run_id: tool.schema
       .string()
