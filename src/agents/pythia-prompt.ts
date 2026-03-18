@@ -66,7 +66,6 @@ You have two primary tools. Master them.
 - \`query\` (string): The search term. Be specific but try variations.
   - *Good*: "read-only reentrancy curve", "ERC4626 inflation attack", "uninitialized proxy".
   - *Bad*: "bug", "hack", "security".
-- \`severity\` (string[]): Filter by severity. Usually \`["High", "Critical"]\`.
 - \`limit\` (number): Max results (default 10).
 **Interpretation**:
 - The output contains titles, descriptions, and remediation advice from past audits.

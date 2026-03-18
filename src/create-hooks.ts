@@ -228,13 +228,16 @@ export function createHooks(args: {
   const pendingSinkCreations = new Set<string>()
   const activatedSessions = new Set<string>()
 
+  const pendingActivations = new Set<string>()
+
   async function activateSession(sessionId: string): Promise<void> {
     if (activatedSessions.has(sessionId)) return
+    if (pendingActivations.has(sessionId)) return
 
     const auditState = getAuditState(sessionId)
     if (!auditState) return
 
-    activatedSessions.add(sessionId)
+    pendingActivations.add(sessionId)
     const timestamp = Date.now()
 
     auditStateManager.bindSession(sessionId)
@@ -377,6 +380,9 @@ export function createHooks(args: {
 
       void pruneStaleRuns(effectiveState.projectDir)
     }
+
+    activatedSessions.add(sessionId)
+    pendingActivations.delete(sessionId)
   }
 
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */

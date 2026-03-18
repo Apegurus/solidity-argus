@@ -146,6 +146,7 @@ export function createConfigHandler(
           argus_check_patterns: "allow",
           argus_proxy_detection: "allow",
           argus_forge_coverage: "allow",
+          argus_record_finding: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -159,6 +160,7 @@ export function createConfigHandler(
         permission: {
           argus_solodit_search: "allow",
           argus_check_patterns: "allow",
+          argus_record_finding: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -170,6 +172,7 @@ export function createConfigHandler(
         description: "Audit report writer",
         prompt: SCRIBE_PROMPT,
         permission: {
+          argus_read_findings: "allow",
           argus_generate_report: "allow",
           argus_skill_load: "allow",
           skill: "allow",

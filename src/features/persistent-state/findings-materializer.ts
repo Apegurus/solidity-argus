@@ -1,8 +1,6 @@
-import { existsSync, readdirSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
-import { defaultRootResolver } from "../../shared/path-root-resolver"
 import { dedupeFindingsForFinalOutput } from "../../state/finding-aggregation"
 import {
   projectFindings,
@@ -10,13 +8,8 @@ import {
   projectToolExecutions,
   stableHash,
 } from "../../state/projectors"
-import type {
-  AuditEvent,
-  CanonicalFinding,
-  CanonicalToolExecution,
-  ReportInput,
-} from "../../state/schemas"
-import { SCHEMA_VERSION, validateCanonicalFinding } from "../../state/schemas"
+import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../../state/schemas"
+import { SCHEMA_VERSION } from "../../state/schemas"
 import { readEvents } from "./event-sink"
 
 export interface FindingsArtifact {
@@ -85,76 +78,6 @@ export async function materializeFindings(
   return artifact
 }
 
-function listSiblingRunIds(runId: string, projectDir: string): string[] {
-  const runsDir = join(defaultRootResolver.writeRoot(projectDir), "runs")
-  if (!existsSync(runsDir)) return []
-  try {
-    return readdirSync(runsDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name !== runId)
-      .map((d) => d.name)
-  } catch {
-    return []
-  }
-}
-
-function collectSessionIds(events: AuditEvent[]): Set<string> {
-  const ids = new Set<string>()
-  for (const event of events) {
-    if (event.session_id) ids.add(event.session_id)
-  }
-  return ids
-}
-
-function extractFindingsFromEvents(events: AuditEvent[]): CanonicalFinding[] {
-  const findings: CanonicalFinding[] = []
-  for (const event of events) {
-    if (event.type !== "finding.added") continue
-    const validation = validateCanonicalFinding(event.payload)
-    if (validation.success) {
-      findings.push({
-        ...validation.data,
-        seq: event.seq,
-        run_id: event.run_id,
-        schema_version: event.schema_version,
-      })
-    }
-  }
-  return findings
-}
-
-async function collectCrossRunFindings(
-  primaryRunId: string,
-  primarySessionIds: Set<string>,
-  projectDir: string,
-): Promise<CanonicalFinding[]> {
-  const siblingIds = listSiblingRunIds(primaryRunId, projectDir)
-  const crossFindings: CanonicalFinding[] = []
-
-  for (const siblingId of siblingIds) {
-    let siblingEvents: AuditEvent[]
-    try {
-      siblingEvents = await readEvents(siblingId, projectDir)
-    } catch {
-      continue
-    }
-    if (siblingEvents.length === 0) continue
-
-    const siblingSessionIds = collectSessionIds(siblingEvents)
-    let hasOverlap = false
-    for (const sid of siblingSessionIds) {
-      if (primarySessionIds.has(sid)) {
-        hasOverlap = true
-        break
-      }
-    }
-    if (!hasOverlap) continue
-
-    crossFindings.push(...extractFindingsFromEvents(siblingEvents))
-  }
-
-  return crossFindings
-}
-
 export async function materializeReportInput(
   runId: string,
   projectDir: string,
@@ -171,13 +94,9 @@ export async function materializeReportInput(
     reportInput.scope = [...new Set(reportInput.findings.map((f) => f.file).filter(Boolean))]
   }
 
-  if (reportInput.findings.length === 0) {
-    const primarySessionIds = collectSessionIds(events)
-    const crossFindings = await collectCrossRunFindings(runId, primarySessionIds, projectDir)
-    if (crossFindings.length > 0) {
-      reportInput.findings = dedupeFindingsForFinalOutput(crossFindings)
-    }
-  }
+  // Cross-run finding import removed: importing findings from sibling runs
+  // risks contaminating fresh audits with stale data and breaks per-run provenance.
+  // If the primary run has zero findings, the report reflects that accurately.
 
   const reportInputFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
   await mkdir(dirname(reportInputFile), { recursive: true })

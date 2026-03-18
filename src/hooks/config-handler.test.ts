@@ -104,16 +104,19 @@ describe("createConfigHandler", () => {
       argus_check_patterns: "allow",
       argus_proxy_detection: "allow",
       argus_forge_coverage: "allow",
+      argus_record_finding: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
     expect(config.agent?.pythia?.permission).toEqual({
       argus_solodit_search: "allow",
       argus_check_patterns: "allow",
+      argus_record_finding: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
     expect(config.agent?.scribe?.permission).toEqual({
+      argus_read_findings: "allow",
       argus_generate_report: "allow",
       argus_skill_load: "allow",
       skill: "allow",
