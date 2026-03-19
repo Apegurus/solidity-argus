@@ -148,7 +148,10 @@ export type Hooks = Pick<
   | "experimental.session.compacting"
   | "tool.execute.after"
   | "event"
->
+> & {
+  /** Release the process-wide instance lock so the plugin can be re-initialized. */
+  dispose?: () => void
+}
 
 /**
  * Creates the hook handlers for the Argus plugin.
@@ -173,6 +176,10 @@ export function createHooks(args: {
   // with only the config handler active (agent/MCP registration is idempotent).
   const INSTANCE_LOCK = Symbol.for("solidity-argus:instance-lock")
   const globals = globalThis as unknown as Record<symbol, boolean>
+  const releaseInstanceLock = () => {
+    delete globals[INSTANCE_LOCK]
+  }
+
   if (globals[INSTANCE_LOCK]) {
     logger.debug("[plugin] Duplicate instance detected — returning inert hooks")
     return {
@@ -183,6 +190,7 @@ export function createHooks(args: {
       "experimental.session.compacting": undefined,
       "tool.execute.after": undefined,
       event: undefined,
+      dispose: releaseInstanceLock,
     }
   }
   globals[INSTANCE_LOCK] = true
@@ -217,6 +225,7 @@ export function createHooks(args: {
 
   // Memory-leak guard: cap unbounded EventSink maps at 100 entries with 24-hour TTL.
   const MAX_SINKS = 100
+  const MAX_SESSION_TRACKING = 500
   const SINK_TTL_MS = 24 * 60 * 60 * 1000
 
   const eventSinksByOpencodeSession = new Map<string, EventSink>()
@@ -229,6 +238,34 @@ export function createHooks(args: {
   const activatedSessions = new Set<string>()
 
   const pendingActivations = new Set<string>()
+
+  /**
+   * Prevent session-tracking Sets from growing unboundedly in long-running processes.
+   *
+   * activatedSessions uses FIFO eviction because it is a permanent dedup guard —
+   * losing an entry could cause a redundant (but harmless) re-activation.
+   *
+   * pendingSinkCreations and pendingActivations are transient guards that are
+   * removed after their async operation completes. If they overflow, .clear() is
+   * safe — the worst case is a redundant activation attempt that the rest of the
+   * pipeline handles idempotently.
+   */
+  function trimSessionSets(): void {
+    if (activatedSessions.size > MAX_SESSION_TRACKING) {
+      const excess = activatedSessions.size - MAX_SESSION_TRACKING
+      const iterator = activatedSessions.values()
+      for (let i = 0; i < excess; i++) {
+        const next = iterator.next()
+        if (!next.done) activatedSessions.delete(next.value)
+      }
+    }
+    if (pendingSinkCreations.size > MAX_SESSION_TRACKING) {
+      pendingSinkCreations.clear()
+    }
+    if (pendingActivations.size > MAX_SESSION_TRACKING) {
+      pendingActivations.clear()
+    }
+  }
 
   async function activateSession(sessionId: string): Promise<void> {
     if (activatedSessions.has(sessionId)) return
@@ -262,7 +299,7 @@ export function createHooks(args: {
       setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
 
       const existingResolver = createAuditArtifactResolver(existingSink.runId, projectDir)
-      void recordRun({
+      recordRun({
         runId: existingSink.runId,
         opencodeSessionId: sessionId,
         projectDir: auditState?.projectDir ?? projectDir,
@@ -271,7 +308,7 @@ export function createHooks(args: {
         startedAt: auditState?.startTime ?? timestamp,
         phase: auditState?.currentPhase ?? "reconnaissance",
         findingsCount: auditState?.findings.length ?? 0,
-      })
+      }).catch((err) => logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`))
 
       if (auditState) {
         setAuditState({ ...auditState, sessionId: existingSink.runId }, sessionId)
@@ -366,7 +403,7 @@ export function createHooks(args: {
           `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
         )
       }
-      void recordRun({
+      recordRun({
         runId: effectiveState.sessionId,
         opencodeSessionId: sessionId,
         projectDir: effectiveState.projectDir,
@@ -376,9 +413,9 @@ export function createHooks(args: {
         phase: effectiveState.currentPhase,
         findingsCount: effectiveState.findings.length,
         status: "active",
-      })
+      }).catch((err) => logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`))
 
-      void pruneStaleRuns(effectiveState.projectDir)
+      pruneStaleRuns(effectiveState.projectDir).catch((err) => logger.warn(`Failed to prune stale runs: ${err instanceof Error ? err.message : String(err)}`))
     }
 
     activatedSessions.add(sessionId)
@@ -441,6 +478,7 @@ export function createHooks(args: {
     if (!timestampMap.has(key)) {
       timestampMap.set(key, Date.now())
     }
+    trimSessionSets()
   }
 
   // Sub-handlers run sequentially. The state persistence handler MUST be first:
@@ -491,7 +529,7 @@ export function createHooks(args: {
           auditState.sessionId,
           auditState.projectDir,
         )
-        void recordRun({
+        recordRun({
           runId: auditState.sessionId,
           opencodeSessionId: sessionId,
           projectDir: auditState.projectDir,
@@ -500,7 +538,7 @@ export function createHooks(args: {
           startedAt: auditState.startTime,
           phase: auditState.currentPhase,
           findingsCount: auditState.findings.length,
-        })
+        }).catch((err) => logger.warn(`Failed to record run on idle: ${err instanceof Error ? err.message : String(err)}`))
 
         try {
           await materializeReportInput(auditState.sessionId, auditState.projectDir, sessionId)
@@ -522,10 +560,10 @@ export function createHooks(args: {
                 auditState.projectDir,
                 runSink,
               )
-              void updateRunStatus(
+              updateRunStatus(
                 auditState.sessionId,
                 idleFinalization.invariantsPassed ? "finalized" : "failed",
-              )
+              ).catch((err) => logger.warn(`Failed to update run status: ${err instanceof Error ? err.message : String(err)}`))
               if (!idleFinalization.invariantsPassed) {
                 logger.warn(
                   `Idle finalization for run ${auditState.sessionId} has invariant errors: ${idleFinalization.errors.join("; ")}`,
@@ -814,9 +852,17 @@ export function createHooks(args: {
                 }
               }
 
-              await auditStateManager.archive()
-
+              // Only archive audit state when the root session is deleted.
+              // Child sessions (sentinel/pythia/scribe) may end before the parent
+              // audit completes — archiving here would wipe live state.
               const deletedSessionId = eventSessionId
+              const isChildSession =
+                deletedSessionId != null &&
+                agentTracker.getParentSession(deletedSessionId) != null
+              if (!isChildSession) {
+                await auditStateManager.archive()
+              }
+
               if (deletedSessionId) {
                 agentTracker.clearSession(deletedSessionId)
                 eventSinksByOpencodeSession.delete(deletedSessionId)
@@ -853,9 +899,19 @@ export function createHooks(args: {
 
   return {
     config: createConfigHandler(config, projectDir),
-    "chat.params": async (input) => {
+    "chat.params": async (input, output) => {
       agentTracker.chatParamsHook(input)
+
+      // Enforce deterministic LLM output for Argus-family agents (temperature=0).
+      // Per-agent overrides are supported via config.agents.<name>.temperature.
+      // Non-Argus sessions are left untouched so other plugins are not affected.
       if (agentTracker.isArgusAgent(input.sessionID)) {
+        const agentName = agentTracker.getAgentForSession(input.sessionID)
+        const agentConfig = agentName
+          ? config.agents?.[agentName as keyof typeof config.agents]
+          : undefined
+        output.temperature = agentConfig?.temperature ?? 0
+
         await activateSession(input.sessionID)
       }
     },
@@ -958,10 +1014,10 @@ export function createHooks(args: {
                     state.projectDir,
                     runSink,
                   )
-                  void updateRunStatus(
+                  updateRunStatus(
                     state.sessionId,
                     reportFinalization.invariantsPassed ? "finalized" : "failed",
-                  )
+                  ).catch((err) => logger.warn(`Failed to update run status: ${err instanceof Error ? err.message : String(err)}`))
                   if (!reportFinalization.invariantsPassed) {
                     logger.warn(
                       `Report-triggered finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
@@ -981,5 +1037,6 @@ export function createHooks(args: {
         }
       : undefined,
     event: safeEventHook,
+    dispose: releaseInstanceLock,
   }
 }

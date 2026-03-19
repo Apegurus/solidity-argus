@@ -44,6 +44,7 @@ export function createBackgroundManager(
   let runningCount = 0
   const maxConcurrent = options?.maxConcurrent ?? 3
   let taskCount = 0
+  let processingScheduled = false
 
   function safeInvokeCallback(callback: CompletionCallback, taskId: string, result: unknown): void {
     try {
@@ -71,64 +72,74 @@ export function createBackgroundManager(
   }
 
   function processQueue(): void {
-    while (runningCount < maxConcurrent && queue.length > 0) {
-      const nextTaskId = queue.shift()
+    // Guard against re-entrant calls from async finally blocks.
+    // Instead of recursing, we schedule a deferred drain via queueMicrotask.
+    if (processingScheduled) return
+    processingScheduled = true
 
-      if (!nextTaskId) {
-        return
+    try {
+      while (runningCount < maxConcurrent && queue.length > 0) {
+        const nextTaskId = queue.shift()
+
+        if (!nextTaskId) {
+          return
+        }
+
+        const task = tasks.get(nextTaskId)
+        if (!task || task.status === "cancelled") {
+          continue
+        }
+
+        task.status = "running"
+        runningCount += 1
+
+        const TASK_TIMEOUT_MS = 5 * 60 * 1000
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Background task timed out after 5 minutes: ${nextTaskId}`)),
+            TASK_TIMEOUT_MS,
+          ),
+        )
+
+        Promise.race([dispatcher(task.agentName, task.prompt, task.options), timeoutPromise])
+          .then((result) => {
+            const currentTask = tasks.get(nextTaskId)
+
+            if (!currentTask || currentTask.status === "cancelled") {
+              return
+            }
+
+            currentTask.status = "completed"
+            currentTask.result = result
+            invokeCallbacks(nextTaskId, result)
+          })
+          .catch((error: unknown) => {
+            const currentTask = tasks.get(nextTaskId)
+
+            if (!currentTask || currentTask.status === "cancelled") {
+              return
+            }
+
+            const isTimeout =
+              error instanceof Error && error.message.includes("timed out after 5 minutes")
+            if (isTimeout) {
+              logger.error(`Background task timed out: ${nextTaskId}`, error)
+            } else {
+              logger.error(`Background task failed: ${nextTaskId}`, error)
+            }
+
+            currentTask.status = "failed"
+            currentTask.error = error
+            invokeCallbacks(nextTaskId, error)
+          })
+          .finally(() => {
+            runningCount = Math.max(0, runningCount - 1)
+            // Defer queue processing to avoid re-entrant calls
+            queueMicrotask(() => processQueue())
+          })
       }
-
-      const task = tasks.get(nextTaskId)
-      if (!task || task.status === "cancelled") {
-        continue
-      }
-
-      task.status = "running"
-      runningCount += 1
-
-      const TASK_TIMEOUT_MS = 5 * 60 * 1000
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Background task timed out after 5 minutes: ${nextTaskId}`)),
-          TASK_TIMEOUT_MS,
-        ),
-      )
-
-      Promise.race([dispatcher(task.agentName, task.prompt, task.options), timeoutPromise])
-        .then((result) => {
-          const currentTask = tasks.get(nextTaskId)
-
-          if (!currentTask || currentTask.status === "cancelled") {
-            return
-          }
-
-          currentTask.status = "completed"
-          currentTask.result = result
-          invokeCallbacks(nextTaskId, result)
-        })
-        .catch((error: unknown) => {
-          const currentTask = tasks.get(nextTaskId)
-
-          if (!currentTask || currentTask.status === "cancelled") {
-            return
-          }
-
-          const isTimeout =
-            error instanceof Error && error.message.includes("timed out after 5 minutes")
-          if (isTimeout) {
-            logger.error(`Background task timed out: ${nextTaskId}`, error)
-          } else {
-            logger.error(`Background task failed: ${nextTaskId}`, error)
-          }
-
-          currentTask.status = "failed"
-          currentTask.error = error
-          invokeCallbacks(nextTaskId, error)
-        })
-        .finally(() => {
-          runningCount = Math.max(0, runningCount - 1)
-          processQueue()
-        })
+    } finally {
+      processingScheduled = false
     }
   }
 

@@ -39,19 +39,34 @@ function extractScope(payload: unknown): string[] {
   return payload.scope.filter((entry): entry is string => typeof entry === "string")
 }
 
+const VALID_PHASES = new Set<string>([
+  "reconnaissance",
+  "scanning",
+  "manual-review",
+  "attack-surface",
+  "research",
+  "testing",
+  "reporting",
+  "complete",
+])
+
+function isAuditPhase(value: string): value is AuditPhase {
+  return VALID_PHASES.has(value)
+}
+
 function extractPhase(payload: unknown): AuditPhase | undefined {
   if (typeof payload === "string") {
-    return payload as AuditPhase
+    return isAuditPhase(payload) ? payload : undefined
   }
 
   if (!isRecord(payload)) return undefined
 
-  if (typeof payload.phase === "string") {
-    return payload.phase as AuditPhase
+  if (typeof payload.phase === "string" && isAuditPhase(payload.phase)) {
+    return payload.phase
   }
 
-  if (typeof payload.currentPhase === "string") {
-    return payload.currentPhase as AuditPhase
+  if (typeof payload.currentPhase === "string" && isAuditPhase(payload.currentPhase)) {
+    return payload.currentPhase
   }
 
   return undefined
@@ -397,6 +412,7 @@ export function projectReportInput(
   const proxyContracts = extractLatestFromPayload(events, "proxyContracts", asProxyContracts)
   const patternVersion = extractLatestFromPayload(events, "patternVersion", asString)
   const skillsLoaded = extractLatestFromPayload(events, "skillsLoaded", asStringArray)
+  const unavailableTools = extractLatestFromPayload(events, "unavailableTools", asStringArray)
 
   return {
     run_id: runId,
@@ -416,6 +432,7 @@ export function projectReportInput(
     proxyContracts,
     patternVersion,
     skillsLoaded,
+    unavailableTools,
   }
 }
 

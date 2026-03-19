@@ -12,6 +12,7 @@ import { computeMissingKeyTools } from "../shared/key-tools"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
+import { isNonEmptyString } from "../shared/type-guards"
 import { SEVERITY_RANK } from "../shared/validation-constants"
 import {
   compareIssueFingerprintSets,
@@ -154,6 +155,9 @@ const FINDING_WEIGHT: Record<FindingSeverity, number> = {
   Low: 2,
   Informational: 1,
 }
+
+/** Sentinel for missing/unknown tool execution timestamps (schema requires startTime > 0). */
+const UNKNOWN_TIMESTAMP_SENTINEL = 1
 
 const MISSING_IMPACT_TEXT = "Impact details were not provided in the finding payload."
 const MISSING_RECOMMENDATION_TEXT =
@@ -329,6 +333,7 @@ function reportInputToAuditState(reportInput: ReportInput): AuditState {
     proxyContracts: reportInput.proxyContracts,
     patternVersion: reportInput.patternVersion,
     skillsLoaded: reportInput.skillsLoaded,
+    unavailableTools: reportInput.unavailableTools,
   }
 }
 
@@ -348,7 +353,7 @@ function normalizeToolsExecutedDefaults(
     if (!entry || typeof entry !== "object") continue
     const rec = entry as Record<string, unknown>
     if (typeof rec.startTime !== "number" || rec.startTime <= 0) {
-      rec.startTime = Date.now()
+      rec.startTime = UNKNOWN_TIMESTAMP_SENTINEL
       patched = true
     }
     if (typeof rec.success !== "boolean") {
@@ -359,11 +364,11 @@ function normalizeToolsExecutedDefaults(
       rec.findingsCount = 0
       patched = true
     }
-    if (typeof rec.run_id !== "string" || rec.run_id.trim().length === 0) {
+    if (!isNonEmptyString(rec.run_id)) {
       rec.run_id = runId
       patched = true
     }
-    if (typeof rec.schema_version !== "string" || rec.schema_version.trim().length === 0) {
+    if (!isNonEmptyString(rec.schema_version)) {
       rec.schema_version = SCHEMA_VERSION
       patched = true
     }
@@ -384,17 +389,17 @@ function resolveExpectedRunId(
   deps: ReportGenerationDependencies,
 ): string | undefined {
   // 1. Explicit run_id from LLM args (highest priority)
-  if (typeof args.run_id === "string" && args.run_id.trim().length > 0) {
+  if (isNonEmptyString(args.run_id)) {
     return args.run_id.trim()
   }
 
   // 2. Global run index lookup by session ID
   const sessionId = context.sessionID
   const projectDir = resolveProjectDir(context)
-  if (typeof sessionId === "string" && sessionId.trim().length > 0) {
+  if (isNonEmptyString(sessionId)) {
     const resolveCanonicalRunId = deps.resolveCanonicalRunId ?? resolveRunIdFromOpencodeSession
     const resolved = resolveCanonicalRunId(sessionId, projectDir)
-    if (typeof resolved === "string" && resolved.trim().length > 0) {
+    if (isNonEmptyString(resolved)) {
       return resolved
     }
   }
@@ -474,7 +479,7 @@ function parseReportInputPayload(
     "argus_generate_report",
   )
 
-  if (typeof args.report_input === "string" && args.report_input.trim().length > 0) {
+  if (isNonEmptyString(args.report_input)) {
     let parsed: unknown
     try {
       parsed = JSON.parse(args.report_input)
@@ -512,11 +517,9 @@ function parseReportInputPayload(
   }
 
   const effectiveRunId =
-    (typeof args.run_id === "string" && args.run_id.trim().length > 0
-      ? args.run_id.trim()
-      : undefined) ?? expectedRunId
+    (isNonEmptyString(args.run_id) ? args.run_id.trim() : undefined) ?? expectedRunId
 
-  if (typeof effectiveRunId === "string" && effectiveRunId.length > 0) {
+  if (isNonEmptyString(effectiveRunId)) {
     const projectDir = resolveProjectDir(context)
     const resolver = createAuditArtifactResolver(effectiveRunId, projectDir)
     const reportInputFile = resolver.paths().reportInputFile
@@ -645,7 +648,7 @@ function getExtendedFinding(finding: Finding): Finding & ReportFindingFields {
 
 function getFindingImpact(finding: Finding): string {
   const extended = getExtendedFinding(finding)
-  if (typeof extended.impact === "string" && extended.impact.trim().length > 0) {
+  if (isNonEmptyString(extended.impact)) {
     return extended.impact.trim()
   }
   return MISSING_IMPACT_TEXT
@@ -653,10 +656,10 @@ function getFindingImpact(finding: Finding): string {
 
 function getFindingRecommendation(finding: Finding): string {
   const extended = getExtendedFinding(finding)
-  if (typeof extended.recommendation === "string" && extended.recommendation.trim().length > 0) {
+  if (isNonEmptyString(extended.recommendation)) {
     return extended.recommendation.trim()
   }
-  if (typeof finding.remediation === "string" && finding.remediation.trim().length > 0) {
+  if (isNonEmptyString(finding.remediation)) {
     return finding.remediation.trim()
   }
   return MISSING_RECOMMENDATION_TEXT
@@ -664,10 +667,10 @@ function getFindingRecommendation(finding: Finding): string {
 
 function getPocEvidence(finding: Finding): string | undefined {
   const extended = getExtendedFinding(finding)
-  if (typeof extended.proofOfConcept === "string" && extended.proofOfConcept.trim().length > 0) {
+  if (isNonEmptyString(extended.proofOfConcept)) {
     return extended.proofOfConcept.trim()
   }
-  if (typeof finding.exploitReference === "string" && finding.exploitReference.trim().length > 0) {
+  if (isNonEmptyString(finding.exploitReference)) {
     return finding.exploitReference.trim()
   }
   return undefined
@@ -1017,7 +1020,7 @@ export async function executeReportGeneration(
 
   // Hard gate: refuse to generate a report if key audit tools have not been executed
   if (toolCoveragePolicy !== "skip") {
-    const missingTools = computeMissingKeyTools(reportInput.toolsExecuted)
+    const missingTools = computeMissingKeyTools(reportInput.toolsExecuted, reportInput.unavailableTools)
     if (missingTools.length > 0) {
       const toolList = missingTools.join(", ")
       if (toolCoveragePolicy === "enforce") {
@@ -1110,7 +1113,22 @@ export async function executeReportGeneration(
     )
   }
   const counts = calculateCounts(findings)
-  const auditDate = new Date().toISOString().slice(0, 10)
+  // Derive audit date from the run's start time for deterministic output.
+  // Falls back to the earliest toolsExecuted timestamp, then current date as last resort.
+  // Exclude UNKNOWN_TIMESTAMP_SENTINEL (patched-in value for missing timestamps).
+  const runStartTime = reportInput.toolsExecuted.reduce(
+    (earliest, exec) =>
+      typeof exec.startTime === "number" &&
+      exec.startTime > UNKNOWN_TIMESTAMP_SENTINEL &&
+      exec.startTime < earliest
+        ? exec.startTime
+        : earliest,
+    Number.MAX_SAFE_INTEGER,
+  )
+  const auditDate =
+    runStartTime < Number.MAX_SAFE_INTEGER
+      ? new Date(runStartTime).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
 
   context.metadata({ title: `Generate audit report: ${args.project_name}` })
 
@@ -1201,7 +1219,8 @@ export async function executeReportGeneration(
     const config = loadConfig(projectDir)
     const rawOutputDir = config.reporting?.output_dir ?? ".argus/reports/"
     const resolvedOutput = path.resolve(projectDir, rawOutputDir)
-    if (!resolvedOutput.startsWith(projectDir)) {
+    const projectRoot = projectDir.endsWith(path.sep) ? projectDir : projectDir + path.sep
+    if (resolvedOutput !== projectDir && !resolvedOutput.startsWith(projectRoot)) {
       result.error = {
         code: "OUTPUT_DIR_TRAVERSAL",
         message: `output_dir "${rawOutputDir}" resolves outside the project root. Report not written.`,

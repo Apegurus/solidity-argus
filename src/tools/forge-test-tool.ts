@@ -1,4 +1,5 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 import { extractJson } from "../utils/solidity-parser"
@@ -383,18 +384,10 @@ export async function executeForgeTest(
 
     return output
   } catch (error) {
-    if (context.abort.aborted || (error instanceof DOMException && error.name === "AbortError")) {
-      return fail("forge test aborted")
-    }
+    const classified = classifyForgeError(error, context, "forge test")
+    if (classified) return fail(classified)
 
-    const maybeError = error as Error & { code?: string }
-    if (maybeError.code === "ENOENT") {
-      return fail("Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash")
-    }
-    if (maybeError.code === "ETIMEDOUT" || maybeError.message.toLowerCase().includes("timed out")) {
-      return fail("forge test timed out")
-    }
-
+    const maybeError = error as Error
     return fail(maybeError.message || "forge test failed")
   }
 }

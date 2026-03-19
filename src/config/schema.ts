@@ -5,6 +5,7 @@ const AgentConfigSchema = z.object({
   steps: z.number().positive().optional(),
   permission: z.record(z.string(), z.any()).optional(),
   tools: z.record(z.string(), z.boolean()).optional(),
+  temperature: z.number().min(0).max(2).optional(),
 })
 
 const ToolsConfigSchema = z.object({

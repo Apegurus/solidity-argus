@@ -119,6 +119,7 @@ export interface ReportInput {
   proxyContracts?: ProxyContract[]
   patternVersion?: string
   skillsLoaded?: string[]
+  unavailableTools?: string[]
 }
 
 function pushRequiredRootStringError(

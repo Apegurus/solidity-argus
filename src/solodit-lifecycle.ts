@@ -19,7 +19,7 @@ export interface LifecycleStatus {
 
 let soloditChild: SoloditChildProcess | null = null
 let monitorTimer: ReturnType<typeof setInterval> | null = null
-let isRestarting = false
+let restartPromise: Promise<boolean | void> | null = null
 let startupPromise: Promise<void> | null = null
 
 /** Whether the Solodit MCP server is currently available for tool calls. */
@@ -221,7 +221,12 @@ async function restartSoloditMcp(port: number): Promise<boolean> {
 }
 
 export async function _runMonitoringCycle(port: number): Promise<void> {
-  if (isRestarting) return
+  // Use a promise-based mutex to prevent concurrent restart attempts.
+  // If a restart is already in flight, wait for it rather than starting another.
+  if (restartPromise) {
+    await restartPromise.catch(() => {})
+    return
+  }
   const logger = createLogger()
   try {
     const health = await checkSoloditHealth(port, true)
@@ -235,12 +240,10 @@ export async function _runMonitoringCycle(port: number): Promise<void> {
     } else if (_soloditAvailable) {
       _soloditAvailable = false
       logger.warn("Solodit MCP health check failed, attempting restart...")
-      isRestarting = true
-      try {
-        await restartSoloditMcp(port)
-      } finally {
-        isRestarting = false
-      }
+      restartPromise = restartSoloditMcp(port).finally(() => {
+        restartPromise = null
+      })
+      await restartPromise
     }
   } catch {
     logger.debug("Monitoring cycle encountered an error")
@@ -269,7 +272,7 @@ export function stopSoloditMonitoring(): void {
 export function _resetSoloditState(): void {
   stopSoloditMonitoring()
   _soloditAvailable = false
-  isRestarting = false
+  restartPromise = null
   startupPromise = null
   lifecycleState = "stopped"
   lifecycleError = undefined

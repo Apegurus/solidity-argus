@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { basename } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { FOUNDRY_NOT_FOUND_MESSAGE } from "../shared/forge-errors"
 import { findFoundryProjectDir } from "../shared/project-utils"
 import type { ContractProfile } from "../state/types"
 import { extractContractInfo, parseExternalCalls } from "../utils/solidity-parser"
@@ -224,11 +225,7 @@ export async function executeContractAnalyzer(
 
     const maybeError = error as Error & { code?: string }
     if (maybeError.code === "ENOENT") {
-      return createFailureProfile(
-        contractName,
-        filePath,
-        "Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash",
-      )
+      return createFailureProfile(contractName, filePath, FOUNDRY_NOT_FOUND_MESSAGE)
     }
 
     const message = maybeError.message || "contract analysis failed"

@@ -1,4 +1,5 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { isNonEmptyString } from "../shared/type-guards"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import { SCHEMA_VERSION } from "../state/schemas"
 import type { ArgusAgentName } from "../state/types"
@@ -79,12 +80,12 @@ export async function executeRecordFinding(
 ): Promise<string> {
   const rawFindings: Record<string, unknown>[] = []
 
-  if (typeof args.finding === "string" && args.finding.trim().length > 0) {
+  if (isNonEmptyString(args.finding)) {
     const result = parseFindingObject(args.finding, "finding")
     if (!result.ok) return errorResponse(result.error)
     rawFindings.push(...result.data)
   }
-  if (typeof args.findings === "string" && args.findings.trim().length > 0) {
+  if (isNonEmptyString(args.findings)) {
     const result = parseFindingObject(args.findings, "findings")
     if (!result.ok) return errorResponse(result.error)
     rawFindings.push(...result.data)
