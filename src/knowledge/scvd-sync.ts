@@ -4,6 +4,7 @@ import type { ScvdClient } from "./scvd-client"
 import { ScvdApiError, ScvdNetworkError } from "./scvd-client"
 import {
   createApiError,
+  createLockError,
   createNetworkError,
   createParseError,
   createSyncSuccess,
@@ -39,11 +40,10 @@ function buildErrorResult(error: unknown): SyncError {
 }
 
 function shouldRetrySyncError(error: unknown): boolean {
-  if (!(error instanceof ScvdNetworkError)) {
-    return false
+  if (error instanceof ScvdNetworkError || error instanceof ScvdApiError) {
+    return isRetryableError(buildErrorResult(error))
   }
-
-  return isRetryableError(buildErrorResult(error))
+  return false
 }
 
 function errorReasonFromResult(result: SyncError): string {
@@ -111,7 +111,7 @@ export async function syncAll(client: ScvdClient, indexPath: string): Promise<Sy
   const logger = createLogger()
 
   if (!acquireSyncLock()) {
-    return createParseError("Sync already in progress")
+    return createLockError("Sync already in progress")
   }
 
   logger.debug("[sync] starting", "source=scvd mode=full")
@@ -144,7 +144,7 @@ export async function syncIncremental(client: ScvdClient, indexPath: string): Pr
   const logger = createLogger()
 
   if (!acquireSyncLock()) {
-    return createParseError("Sync already in progress")
+    return createLockError("Sync already in progress")
   }
 
   logger.debug("[sync] starting", "source=scvd mode=incremental")

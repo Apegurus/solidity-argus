@@ -1,7 +1,7 @@
 export type SyncError = {
   status: "error"
   success: false
-  reason: "network" | "api" | "parse"
+  reason: "network" | "api" | "parse" | "lock"
   message: string
   error: string
   httpStatus?: number
@@ -74,6 +74,19 @@ export function createParseError(message: string): SyncError {
   }
 }
 
+export function createLockError(message: string): SyncError {
+  return {
+    status: "error",
+    success: false,
+    reason: "lock",
+    message,
+    error: message,
+    newFindings: 0,
+    totalIndexed: 0,
+    lastSync: new Date().toISOString(),
+  }
+}
+
 export function createSyncSuccess(
   data: Omit<SyncSuccess, "status" | "success" | "error"> & { attempts?: number },
 ): SyncSuccess {
@@ -84,6 +97,11 @@ export function createSyncSuccess(
   }
 }
 
+const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504])
+
 export function isRetryableError(outcome: SyncOutcome): boolean {
-  return outcome.status === "error" && outcome.reason === "network"
+  if (outcome.status !== "error") return false
+  if (outcome.reason === "network") return true
+  if (outcome.reason === "api" && outcome.httpStatus && RETRYABLE_HTTP_STATUSES.has(outcome.httpStatus)) return true
+  return false
 }
