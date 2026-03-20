@@ -149,18 +149,23 @@ function killSoloditChild(): void {
 
 // Register once: kill child on parent exit to prevent orphaned processes.
 let exitHandlerRegistered = false
+let sigintHandler: (() => void) | null = null
+let sigtermHandler: (() => void) | null = null
+
 function ensureExitHandler(): void {
   if (exitHandlerRegistered) return
   exitHandlerRegistered = true
   process.on("exit", killSoloditChild)
-  process.on("SIGINT", () => {
+  sigintHandler = () => {
     killSoloditChild()
-    process.exitCode = 130
-  })
-  process.on("SIGTERM", () => {
+    process.exit(130)
+  }
+  sigtermHandler = () => {
     killSoloditChild()
-    process.exitCode = 143
-  })
+    process.exit(143)
+  }
+  process.on("SIGINT", sigintHandler)
+  process.on("SIGTERM", sigtermHandler)
 }
 
 async function restartSoloditMcp(port: number): Promise<boolean> {
@@ -295,6 +300,16 @@ export function _resetSoloditState(): void {
       createLogger().debug("Failed to kill Solodit MCP on reset")
     }
     soloditChild = null
+  }
+  // Remove registered signal/exit handlers to prevent accumulation
+  process.removeListener("exit", killSoloditChild)
+  if (sigintHandler) {
+    process.removeListener("SIGINT", sigintHandler)
+    sigintHandler = null
+  }
+  if (sigtermHandler) {
+    process.removeListener("SIGTERM", sigtermHandler)
+    sigtermHandler = null
   }
   // Reset exit handler so tests can re-register cleanly
   exitHandlerRegistered = false
