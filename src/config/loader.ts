@@ -34,7 +34,7 @@ export function _mergeConfigs(
     if (key in merged) {
       const fieldResult = (fieldSchema as z.ZodTypeAny).safeParse(merged[key])
       if (fieldResult.success) {
-        sanitized[key] = merged[key]
+        sanitized[key] = fieldResult.data
       } else {
         invalidFields.push(key)
         const issues = fieldResult.error.issues.map((i) => i.message).join(", ")
