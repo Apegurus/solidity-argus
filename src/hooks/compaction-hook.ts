@@ -3,11 +3,11 @@ import type { ReconContext } from "./recon-context-builder"
 import { buildReconContextBlock } from "./recon-context-builder"
 
 export function createCompactionHook(
-  getAuditState: () => AuditState | null,
+  getAuditState: (sessionId?: string) => AuditState | null,
   getReconContext?: () => ReconContext | null,
-): (input: { summary: string }) => Promise<string | null> {
-  return async (_input: { summary: string }): Promise<string | null> => {
-    const state = getAuditState()
+): (input: { summary: string; sessionId?: string }) => Promise<string | null> {
+  return async (input: { summary: string; sessionId?: string }): Promise<string | null> => {
+    const state = getAuditState(input.sessionId)
 
     const parts: string[] = []
 

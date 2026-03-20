@@ -5,10 +5,10 @@ const DEFAULT_TOKEN_BUDGET = 2000
 const TOKENS_PER_CHAR = 4
 
 export interface SystemPromptHookDeps {
-  getAuditState: () => AuditState | null
+  getAuditState: (sessionId?: string) => AuditState | null
   getAgentForSession: (sessionID: string) => string | undefined
   isArgusAgent: (sessionID: string) => boolean
-  getContextPressure?: (systemText: string) => number
+  getContextPressure?: (systemText: string, sessionId?: string) => number
   getTokenBudget?: (agent: string, contextPressure: number) => number
   getEnforcerReminder?: (state: AuditState) => string | null
   getReconBlock?: () => string | null
@@ -119,7 +119,7 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
       return
     }
 
-    const auditState = deps.getAuditState()
+    const auditState = deps.getAuditState(input.sessionID)
     if (!auditState) {
       return
     }
@@ -130,7 +130,7 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
     }
 
     const currentSystem = output.system.join("\n")
-    const pressure = deps.getContextPressure?.(currentSystem) ?? 0
+    const pressure = deps.getContextPressure?.(currentSystem, input.sessionID) ?? 0
     const budget = deps.getTokenBudget?.(agent, pressure) ?? DEFAULT_TOKEN_BUDGET
 
     output.system.push(buildDynamicContext(auditState, agent, budget))

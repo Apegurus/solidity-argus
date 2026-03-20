@@ -275,6 +275,8 @@ export function createHooks(args: {
     if (!auditState) return
 
     pendingActivations.add(sessionId)
+    let sessionActivated = false
+    try {
     const timestamp = Date.now()
 
     auditStateManager.bindSession(sessionId)
@@ -314,6 +316,7 @@ export function createHooks(args: {
         setAuditState({ ...auditState, sessionId: existingSink.runId }, sessionId)
       }
       runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
+      sessionActivated = true
       return
     }
 
@@ -373,6 +376,7 @@ export function createHooks(args: {
           setAuditState({ ...auditState, sessionId: raceSink.runId }, sessionId)
         }
         runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
+        sessionActivated = true
         return
       }
 
@@ -418,8 +422,14 @@ export function createHooks(args: {
       pruneStaleRuns(effectiveState.projectDir).catch((err) => logger.warn(`Failed to prune stale runs: ${err instanceof Error ? err.message : String(err)}`))
     }
 
-    activatedSessions.add(sessionId)
-    pendingActivations.delete(sessionId)
+    sessionActivated = true
+    } finally {
+      if (sessionActivated) {
+        activatedSessions.add(sessionId)
+      }
+      pendingActivations.delete(sessionId)
+      pendingSinkCreations.delete(sessionId)
+    }
   }
 
   /** Evict the oldest entry from a bounded EventSink map and its companion timestamp map. */
@@ -636,11 +646,11 @@ export function createHooks(args: {
   const auditEnforcer = createAuditEnforcer()
 
   const systemPromptHook = createSystemPromptHook({
-    getAuditState: () => getAuditState(),
+    getAuditState: (sessionId?: string) => getAuditState(sessionId),
     getAgentForSession: agentTracker.getAgentForSession,
     isArgusAgent: agentTracker.isArgusAgent,
-    getContextPressure: (systemText: string) => {
-      const status = contextMonitor.getContextStatus(systemText, getAuditState())
+    getContextPressure: (systemText: string, sessionId?: string) => {
+      const status = contextMonitor.getContextStatus(systemText, getAuditState(sessionId))
       return status.usage
     },
     getTokenBudget: getTokenBudgetForAgent,
@@ -671,7 +681,7 @@ export function createHooks(args: {
 
   const compactionHook = isHookEnabled("compaction")
     ? safeCreateHook(
-        () => createCompactionHook(() => getAuditState(), getReconContext),
+        () => createCompactionHook((sessionId?: string) => getAuditState(sessionId), getReconContext),
         "compaction",
       )
     : undefined
@@ -718,7 +728,7 @@ export function createHooks(args: {
                       return parentSink
                     }
                   }
-                  const state = getAuditState()
+                  const state = getAuditState(sessionId)
                   if (state && state.sessionId.length > 0) {
                     const runSink = eventSinksByRunId.get(state.sessionId)
                     if (runSink) {
@@ -867,6 +877,8 @@ export function createHooks(args: {
                 agentTracker.clearSession(deletedSessionId)
                 eventSinksByOpencodeSession.delete(deletedSessionId)
                 pendingSinkCreations.delete(deletedSessionId)
+                pendingActivations.delete(deletedSessionId)
+                activatedSessions.delete(deletedSessionId)
               }
 
               const activeRunIds = new Set(
@@ -924,8 +936,8 @@ export function createHooks(args: {
         }
       : undefined,
     "experimental.session.compacting": compactionHook
-      ? async (_input, output) => {
-          const block = await compactionHook({ summary: output.context.join("\n") })
+      ? async (input, output) => {
+          const block = await compactionHook({ summary: output.context.join("\n"), sessionId: input.sessionID })
           if (block) output.context.push(block)
         }
       : undefined,
@@ -955,7 +967,7 @@ export function createHooks(args: {
           })
 
           if (input.tool === "argus_generate_report") {
-            const state = getAuditState()
+            const state = getAuditState(input.sessionID)
             if (!state || state.sessionId.length === 0) {
               throw new Error("argus_generate_report completed without active audit state")
             }

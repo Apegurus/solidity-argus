@@ -116,14 +116,23 @@ function spawnSoloditChild(port: number): SoloditChildProcess {
 
 function trackChildExit(child: SoloditChildProcess): void {
   const logger = createLogger()
-  child.exited.then((code) => {
-    if (code !== 0 && code !== null) {
-      logger.warn(`Solodit MCP exited with code ${code}`)
-    }
-    if (soloditChild === child) {
-      soloditChild = null
-    }
-  })
+  child.exited
+    .then((code) => {
+      if (code !== 0 && code !== null) {
+        logger.warn(`Solodit MCP exited with code ${code}`)
+      }
+      if (soloditChild === child) {
+        soloditChild = null
+      }
+    })
+    .catch((error) => {
+      logger.warn(
+        `Solodit MCP exit tracking failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      if (soloditChild === child) {
+        soloditChild = null
+      }
+    })
 }
 
 /** Kill the solodit-mcp child process. Called on parent exit to prevent orphans. */

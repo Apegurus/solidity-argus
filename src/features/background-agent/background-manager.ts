@@ -94,12 +94,13 @@ export function createBackgroundManager(
         runningCount += 1
 
         const TASK_TIMEOUT_MS = 5 * 60 * 1000
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(
             () => reject(new Error(`Background task timed out after 5 minutes: ${nextTaskId}`)),
             TASK_TIMEOUT_MS,
-          ),
-        )
+          )
+        })
 
         Promise.race([dispatcher(task.agentName, task.prompt, task.options), timeoutPromise])
           .then((result) => {
@@ -133,6 +134,7 @@ export function createBackgroundManager(
             invokeCallbacks(nextTaskId, error)
           })
           .finally(() => {
+            if (timeoutHandle) clearTimeout(timeoutHandle)
             runningCount = Math.max(0, runningCount - 1)
             // Defer queue processing to avoid re-entrant calls
             queueMicrotask(() => processQueue())

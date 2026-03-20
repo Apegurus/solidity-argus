@@ -6,8 +6,11 @@ import { createTools } from "./create-tools"
 import type { Dispatcher } from "./features/background-agent/background-manager"
 import { createHookGuard } from "./hooks/hook-system"
 import { createPluginInterface } from "./plugin-interface"
+import { createLogger } from "./shared/logger"
 import { startSoloditMcp } from "./solodit-lifecycle"
 import { DEFAULT_SOLODIT_PORT } from "./tools/solodit-search-tool"
+
+const logger = createLogger()
 
 const ArgusPlugin: Plugin = async (ctx) => {
   const projectDir = ctx.directory ?? process.cwd()
@@ -36,6 +39,7 @@ const ArgusPlugin: Plugin = async (ctx) => {
               return taskId
             }
           }
+          logger.warn(`ctx.task returned unexpected shape (${typeof result}), using fabricated task ID`)
           return `task-${Date.now()}`
         }
       : undefined
