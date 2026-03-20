@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, readFileSync } from "node:fs"
-import { mkdir } from "node:fs/promises"
+import { existsSync, readFileSync } from "node:fs"
+import { appendFile, mkdir } from "node:fs/promises"
 import { getGlobalRunIndexDir, getGlobalRunIndexFile } from "../../shared/cache-paths"
 import { createLogger } from "../../shared/logger"
 
@@ -31,7 +31,7 @@ async function ensureDir(): Promise<void> {
 export async function recordRun(entry: RunIndexEntry): Promise<void> {
   try {
     await ensureDir()
-    appendFileSync(getGlobalRunIndexFile(), `${JSON.stringify(entry)}\n`)
+    await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(entry)}\n`)
   } catch {
     logger.debug("Failed to write global run index entry")
   }
@@ -41,7 +41,7 @@ export async function updateRunStatus(runId: string, status: RunStatus): Promise
   try {
     await ensureDir()
     const update = { runId, status, finalizedAt: status === "finalized" ? Date.now() : undefined }
-    appendFileSync(getGlobalRunIndexFile(), `${JSON.stringify(update)}\n`)
+    await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(update)}\n`)
   } catch {
     logger.debug("Failed to write run status update")
   }
