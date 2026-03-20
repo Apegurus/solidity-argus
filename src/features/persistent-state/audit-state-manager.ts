@@ -494,8 +494,8 @@ export function createAuditStateManager(
 
   async function save(state: AuditState): Promise<void> {
     await startupCleanup
-    currentState = state
     const releaseMutex = await saveMutex.acquire()
+    currentState = state
 
     try {
       for (let attempt = 0; attempt < MAX_SAVE_CAS_RETRIES; attempt += 1) {

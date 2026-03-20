@@ -946,35 +946,30 @@ describe("createAuditStateManager", () => {
     }
   })
 
-  test("CAS loop stops after max retries and logs warning", async () => {
+  test("mutex serializes concurrent saves — no CAS race possible", async () => {
+    // With currentState assigned inside the mutex, concurrent save() calls are
+    // fully serialized. Each save sees a stable currentState throughout its CAS
+    // loop and completes in exactly 1 write. The old "CAS retries exhausted"
+    // scenario cannot happen anymore.
     const projectDir = makeTempDir()
     const manager = createAuditStateManager(projectDir)
     const state = manager.get()
     expect(state).not.toBeNull()
     if (!state) return
 
-    const previousLogMode = process.env.ARGUS_LOG
-    const stderrLines: string[] = []
-    process.env.ARGUS_LOG = "stderr"
-    resetLoggerSink()
-
-    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(
-      (chunk: string | Uint8Array) => {
-        stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"))
-        return true
-      },
-    )
-
     let writeCount = 0
     const originalWrite = Bun.write
     const writeSpy = spyOn(Bun, "write").mockImplementation(async (_path, data) => {
       writeCount += 1
-      if (writeCount < 20) {
+      // Enqueue a concurrent save while the first is in progress.
+      // Because the mutex serializes them, the first save is already holding
+      // the lock and will see a stable currentState — it returns after 1 write.
+      if (writeCount === 1) {
         const latest = manager.get()
         if (latest) {
           void manager.save({
             ...latest,
-            startTime: latest.startTime + writeCount,
+            startTime: latest.startTime + 1,
           })
         }
       }
@@ -983,13 +978,10 @@ describe("createAuditStateManager", () => {
 
     try {
       await manager.save(state)
-      expect(writeCount).toBe(10)
-      expect(stderrLines.join("")).toContain("CAS retries exhausted")
+      // First save completed in exactly 1 write (no CAS retries needed).
+      expect(writeCount).toBe(1)
     } finally {
       writeSpy.mockRestore()
-      stderrSpy.mockRestore()
-      process.env.ARGUS_LOG = previousLogMode
-      resetLoggerSink()
     }
   })
 
