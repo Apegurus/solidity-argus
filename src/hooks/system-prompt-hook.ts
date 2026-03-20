@@ -1,9 +1,9 @@
 import { computeMissingKeyTools, KEY_TOOLS, TOOL_SHORT_NAMES } from "../shared/key-tools"
-import { estimateTokens as _estimateTokens } from "../shared/token-utils"
+import { estimateTokens } from "../shared/token-utils"
 import { countBySeverity } from "../shared/validation-constants"
 import type { AuditState } from "../state/types"
 
-export { estimateTokens } from "../shared/token-utils"
+export { estimateTokens }
 
 const DEFAULT_TOKEN_BUDGET = 2000
 
@@ -81,7 +81,7 @@ export function buildDynamicContext(
 
   let summary = lines.join("\n")
 
-  if (_estimateTokens(summary) > tokenBudget) {
+  if (estimateTokens(summary) > tokenBudget) {
     const doneCount = KEY_TOOLS.filter((t) => executedToolNames.has(t)).length
     summary = [
       `<argus-context agent="${agent}">`,
@@ -126,7 +126,7 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
 
     if (deps.getReconBlock) {
       const reconBlock = deps.getReconBlock()
-      if (reconBlock && _estimateTokens(reconBlock) <= budget) {
+      if (reconBlock && estimateTokens(reconBlock) <= budget) {
         output.system.push(reconBlock)
       }
     }

@@ -1,6 +1,6 @@
-export const ARGUS_ORCHESTRATOR = new Set(["argus"] as const)
-export const ARGUS_SUBAGENTS = new Set(["sentinel", "pythia", "scribe"] as const)
-export const ARGUS_FAMILY = new Set([...ARGUS_ORCHESTRATOR, ...ARGUS_SUBAGENTS])
+export const ARGUS_ORCHESTRATOR: ReadonlySet<string> = new Set(["argus"])
+export const ARGUS_SUBAGENTS: ReadonlySet<string> = new Set(["sentinel", "pythia", "scribe"])
+export const ARGUS_FAMILY: ReadonlySet<string> = new Set([...ARGUS_ORCHESTRATOR, ...ARGUS_SUBAGENTS])
 
 export function isArgusFamily(agent: string): boolean {
   return ARGUS_FAMILY.has(agent)

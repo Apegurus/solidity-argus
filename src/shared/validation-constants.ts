@@ -38,7 +38,7 @@ export const VALID_SOURCES: ReadonlySet<Finding["source"]> = new Set([
   "fuzz",
 ])
 
-export const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([...ARGUS_FAMILY, "unknown"])
+export const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([...ARGUS_FAMILY, "unknown"] as ArgusAgentName[])
 
 export const SEVERITY_RANK: Record<FindingSeverity, number> = {
   Critical: 0,
