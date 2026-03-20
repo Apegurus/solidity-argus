@@ -28,10 +28,11 @@ describe("createBackgroundManager", () => {
     const taskId = manager.dispatch("argus", "audit this")
 
     expect(taskId).toMatch(/^task-/)
+
+    // scheduleDrain defers execution to a microtask, so flush before asserting
+    await flushMicrotasks()
     expect(dispatcher).toHaveBeenCalledTimes(1)
     expect(dispatcher).toHaveBeenCalledWith("argus", "audit this", undefined)
-
-    await flushMicrotasks()
     expect(await manager.getResult(taskId)).toBe("remote-task-1")
   })
 
@@ -80,6 +81,9 @@ describe("createBackgroundManager", () => {
 
     expect(taskA).toMatch(/^task-/)
     expect(taskB).toMatch(/^task-/)
+
+    // scheduleDrain defers execution to a microtask, so flush before asserting
+    await flushMicrotasks()
     expect(calls).toEqual(["one"])
 
     deferredA.resolve("done-1")
