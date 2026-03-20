@@ -40,7 +40,8 @@ function createFailureProfile(
 }
 
 function addIndicator(indicators: Set<string>, source: string, indicator: string): void {
-  if (source.includes(indicator.split("uses-")[1] ?? "")) {
+  const keyword = indicator.split("uses-")[1]
+  if (keyword && source.includes(keyword)) {
     indicators.add(indicator)
   }
 }
