@@ -1,8 +1,11 @@
 import { computeMissingKeyTools, KEY_TOOLS, TOOL_SHORT_NAMES } from "../shared/key-tools"
-import type { AuditState, FindingSeverity } from "../state/types"
+import { estimateTokens as _estimateTokens } from "../shared/token-utils"
+import { countBySeverity } from "../shared/validation-constants"
+import type { AuditState } from "../state/types"
+
+export { estimateTokens } from "../shared/token-utils"
 
 const DEFAULT_TOKEN_BUDGET = 2000
-const TOKENS_PER_CHAR = 4
 
 export interface SystemPromptHookDeps {
   getAuditState: (sessionId?: string) => AuditState | null
@@ -32,26 +35,12 @@ export function buildFallbackDirectives(unavailableTools: string[]): string[] {
   return directives
 }
 
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / TOKENS_PER_CHAR)
-}
-
 export function buildDynamicContext(
   auditState: AuditState,
   agent: string,
   tokenBudget: number = DEFAULT_TOKEN_BUDGET,
 ): string {
-  const severityCounts: Record<FindingSeverity, number> = {
-    Critical: 0,
-    High: 0,
-    Medium: 0,
-    Low: 0,
-    Informational: 0,
-  }
-
-  for (const finding of auditState.findings) {
-    severityCounts[finding.severity]++
-  }
+  const severityCounts = countBySeverity(auditState.findings)
 
   const executedToolNames = new Set(
     auditState.toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
@@ -92,7 +81,7 @@ export function buildDynamicContext(
 
   let summary = lines.join("\n")
 
-  if (estimateTokens(summary) > tokenBudget) {
+  if (_estimateTokens(summary) > tokenBudget) {
     const doneCount = KEY_TOOLS.filter((t) => executedToolNames.has(t)).length
     summary = [
       `<argus-context agent="${agent}">`,
@@ -137,7 +126,7 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
 
     if (deps.getReconBlock) {
       const reconBlock = deps.getReconBlock()
-      if (reconBlock && estimateTokens(reconBlock) <= budget) {
+      if (reconBlock && _estimateTokens(reconBlock) <= budget) {
         output.system.push(reconBlock)
       }
     }
