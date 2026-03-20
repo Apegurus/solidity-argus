@@ -1,4 +1,5 @@
 import type { ArgusAgentName, Finding, FindingSeverity } from "../state/types"
+import { ARGUS_FAMILY } from "./agent-names"
 
 export function countBySeverity(findings: Finding[]): Record<FindingSeverity, number> {
   const counts: Record<FindingSeverity, number> = {
@@ -37,13 +38,7 @@ export const VALID_SOURCES: ReadonlySet<Finding["source"]> = new Set([
   "fuzz",
 ])
 
-export const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([
-  "argus",
-  "sentinel",
-  "pythia",
-  "scribe",
-  "unknown",
-])
+export const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([...ARGUS_FAMILY, "unknown"])
 
 export const SEVERITY_RANK: Record<FindingSeverity, number> = {
   Critical: 0,

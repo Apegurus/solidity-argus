@@ -1,11 +1,10 @@
 import type { Hooks as PluginHooks } from "@opencode-ai/plugin"
+import { ARGUS_FAMILY } from "../shared/agent-names"
 
 type ChatParamsInput = Parameters<NonNullable<PluginHooks["chat.params"]>>[0] & {
   agent?: string
 }
 type ChatMessageInput = Parameters<NonNullable<PluginHooks["chat.message"]>>[0]
-
-const ARGUS_FAMILY = new Set(["argus", "sentinel", "pythia", "scribe"])
 
 export type AgentTracker = ReturnType<typeof createAgentTracker>
 
