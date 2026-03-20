@@ -509,7 +509,7 @@ export async function executeSlitherAnalyze(
       const message = error instanceof Error ? error.message : "Unknown parse error"
       if (shouldTryFlattenFallback(errors, runResult.stderr)) {
         const fallbackResult = await flattenFallback(args, context, {
-          ...defaultFlattenDeps,
+          ...getDefaultFlattenDeps(),
           runCommand,
           cwd: projectDir,
         })
@@ -534,7 +534,7 @@ export async function executeSlitherAnalyze(
 
     if (!success && findings.length === 0 && shouldTryFlattenFallback(errors, runResult.stderr)) {
       const fallbackResult = await flattenFallback(args, context, {
-        ...defaultFlattenDeps,
+        ...getDefaultFlattenDeps(),
         runCommand,
         cwd: projectDir,
       })
