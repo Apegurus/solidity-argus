@@ -76,13 +76,9 @@ export function createAsyncMutex(timeoutMs = SAVE_MUTEX_TIMEOUT_MS) {
 
       let released = false
       const timeout = setTimeout(() => {
-        if (released) {
-          return
-        }
-
-        released = true
-        logger.error(`audit-state-manager mutex acquire timeout after ${timeoutMs}ms; continuing`)
-        releaseCurrent()
+        // Log the timeout but do NOT release — the holder must finish
+        // its critical section and call release() explicitly.
+        logger.error(`audit-state-manager mutex held for >${timeoutMs}ms — possible deadlock`)
       }, timeoutMs)
 
       return () => {

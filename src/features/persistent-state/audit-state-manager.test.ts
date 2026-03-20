@@ -993,7 +993,10 @@ describe("createAuditStateManager", () => {
     }
   })
 
-  test("mutex logs timeout after 30 seconds and continues", async () => {
+  test("mutex timeout only logs a warning — does NOT release the lock", async () => {
+    // The timeout callback must NOT call releaseCurrent(). It only logs a
+    // warning. The lock is only released when the holder explicitly calls
+    // the release function returned by acquire().
     const previousLogMode = process.env.ARGUS_LOG
     const stderrLines: string[] = []
     process.env.ARGUS_LOG = "stderr"
@@ -1029,13 +1032,19 @@ describe("createAuditStateManager", () => {
       const secondAcquire = mutex.acquire()
 
       expect(delays[0]).toBe(30_000)
+
+      // Fire the timeout callback — it should only log, not release.
       callbacks[0]?.()
+
+      // The timeout message must appear in the log.
+      expect(stderrLines.join("")).toContain("possible deadlock")
+
+      // secondAcquire is still blocked — the lock was NOT released by the
+      // timeout. Releasing it now must unblock the waiter.
+      releaseFirst()
 
       const releaseSecond = await secondAcquire
       releaseSecond()
-      releaseFirst()
-
-      expect(stderrLines.join("")).toContain("mutex acquire timeout")
     } finally {
       globalThis.setTimeout = originalSetTimeout
       globalThis.clearTimeout = originalClearTimeout

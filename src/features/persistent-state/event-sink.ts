@@ -57,20 +57,13 @@ export function createMutex(options: MutexOptions = {}) {
         release = r
       })
 
-      let timer: ReturnType<typeof setTimeout>
-      const timedOut = await Promise.race([
-        prev.then(() => {
-          clearTimeout(timer)
-          return false as const
-        }),
-        new Promise<true>((resolve) => {
-          timer = setTimeout(() => resolve(true), timeoutMs)
-        }),
-      ])
+      const timer = setTimeout(() => {
+        logger?.error("EventSink mutex held >30s — possible deadlock, still waiting")
+      }, timeoutMs)
 
-      if (timedOut) {
-        logger?.error("EventSink mutex timeout — operation took >30s, continuing")
-      }
+      await prev
+
+      clearTimeout(timer)
 
       try {
         return await fn()

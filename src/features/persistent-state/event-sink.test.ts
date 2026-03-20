@@ -317,7 +317,10 @@ describe("createMutex timeout", () => {
     expect(MUTEX_TIMEOUT_MS).toBe(30_000)
   })
 
-  test("mutex acquisition times out after configured timeout with error log", async () => {
+  test("mutex timeout only logs a warning — does NOT skip waiting", async () => {
+    // The timeout must only log; the waiter must remain blocked until the
+    // holder explicitly resolves. This prevents concurrent critical-section
+    // execution.
     const errors: string[] = []
     const testLogger = {
       info: () => {},
@@ -327,18 +330,57 @@ describe("createMutex timeout", () => {
         errors.push(args.map(String).join(" "))
       },
     }
-    const mutex = createMutex({ timeoutMs: 100, logger: testLogger })
 
-    // Start an operation that never completes — holds the lock forever
-    const neverResolves = new Promise<void>(() => {})
-    mutex.run(() => neverResolves) // intentionally not awaited
+    const originalSetTimeout = globalThis.setTimeout
+    const originalClearTimeout = globalThis.clearTimeout
+    const capturedCallbacks: Array<() => void> = []
 
-    // Next operation must wait for the first — will timeout after 100ms
-    const result = await mutex.run(async () => "completed")
+    globalThis.setTimeout = ((handler: unknown, _delay?: number) => {
+      if (typeof handler === "function") {
+        capturedCallbacks.push(handler as () => void)
+      }
+      return 1 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    globalThis.clearTimeout = (() => undefined) as typeof clearTimeout
 
-    expect(result).toBe("completed") // Operation continues after timeout (no throw)
-    expect(errors.length).toBeGreaterThan(0)
-    expect(errors[0]).toContain("mutex timeout")
+    try {
+      const mutex = createMutex({ timeoutMs: 100, logger: testLogger })
+
+      let firstRelease!: () => void
+      const firstDone = new Promise<void>((resolve) => {
+        firstRelease = resolve
+      })
+
+      // Start a controlled first operation — holds the lock until we say so.
+      const firstRun = mutex.run(() => firstDone)
+
+      // Start a second operation — it must wait for the first.
+      let secondStarted = false
+      const secondRun = mutex.run(async () => {
+        secondStarted = true
+        return "completed"
+      })
+
+      // Fire the timeout callback — must only log, not release the lock.
+      capturedCallbacks[0]?.()
+
+      expect(errors.length).toBeGreaterThan(0)
+      expect(errors[0]).toContain("deadlock")
+
+      // Second operation is still blocked.
+      expect(secondStarted).toBe(false)
+
+      // Release the first lock — now the second can proceed.
+      firstRelease()
+      await firstRun
+
+      const result = await secondRun
+      expect(result).toBe("completed")
+      expect(secondStarted).toBe(true)
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+      globalThis.clearTimeout = originalClearTimeout
+    }
   }, 5_000)
 
   test("mutex does NOT timeout when operations complete normally", async () => {
