@@ -152,17 +152,22 @@ async function spawnForgeInspect(
   })
 
   const timeout = 15_000
-  const timer = new Promise<never>((_, reject) =>
-    setTimeout(() => {
+  let timerId: ReturnType<typeof setTimeout>
+  const timer = new Promise<never>((_, reject) => {
+    timerId = setTimeout(() => {
       proc.kill()
       reject(new Error(`forge inspect ${inspectType} timed out after ${timeout}ms`))
-    }, timeout),
-  )
+    }, timeout)
+  })
 
-  const exitCode = await Promise.race([proc.exited, timer])
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  return { success: exitCode === 0, stdout, stderr }
+  try {
+    const exitCode = await Promise.race([proc.exited, timer])
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    return { success: exitCode === 0, stdout, stderr }
+  } finally {
+    clearTimeout(timerId!)
+  }
 }
 
 /**
