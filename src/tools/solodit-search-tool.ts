@@ -327,13 +327,19 @@ function mapTrpcFinding(raw: unknown): SoloditFinding {
 }
 
 function parseTrpcData(dataStr: string): { findings?: unknown } {
+  const cleaned = dataStr.trim().replace(/^\(/, "").replace(/\)$/, "")
+
+  // Try standard JSON first
   try {
-    const jsonStr = dataStr
-      .trim()
-      .replace(/^\(/, "")
-      .replace(/\)$/, "")
-      .replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":')
-    return JSON.parse(jsonStr) as { findings?: unknown }
+    return JSON.parse(cleaned) as { findings?: unknown }
+  } catch {
+    // Fall through to unquoted-key fixup
+  }
+
+  // Fallback: attempt to fix unquoted keys
+  try {
+    const fixed = cleaned.replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":')
+    return JSON.parse(fixed) as { findings?: unknown }
   } catch {
     return {}
   }
