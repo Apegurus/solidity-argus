@@ -230,20 +230,22 @@ async function defaultSpawnFn(
   return { stdout, exitCode }
 }
 
-const defaultFlattenDeps: FlattenFallbackDeps = {
-  runCommand: runSlitherCommand,
-  hasBinary,
-  ensureSolc,
-  parseSolcVersion,
-  extractContractNames,
-  spawnFn: defaultSpawnFn,
-  cwd: process.cwd(),
+function getDefaultFlattenDeps(): FlattenFallbackDeps {
+  return {
+    runCommand: runSlitherCommand,
+    hasBinary,
+    ensureSolc,
+    parseSolcVersion,
+    extractContractNames,
+    spawnFn: defaultSpawnFn,
+    cwd: process.cwd(),
+  }
 }
 
 export async function flattenFallback(
   args: SlitherArgs,
   context: ToolContext,
-  deps: FlattenFallbackDeps = defaultFlattenDeps,
+  deps: FlattenFallbackDeps = getDefaultFlattenDeps(),
 ): Promise<SlitherAnalyzeResult | undefined> {
   const startedAt = Date.now()
 
@@ -469,7 +471,7 @@ export async function executeSlitherAnalyze(
 
   if (args.via_ir) {
     const fallbackResult = await flattenFallback(args, context, {
-      ...defaultFlattenDeps,
+      ...getDefaultFlattenDeps(),
       runCommand,
       cwd: projectDir,
     })
