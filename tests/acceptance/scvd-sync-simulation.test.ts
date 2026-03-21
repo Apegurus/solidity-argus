@@ -138,7 +138,7 @@ describe("failure mode: concurrent sync", () => {
       (r) =>
         r.success === false &&
         r.status === "error" &&
-        r.reason === "parse" &&
+        r.reason === "lock" &&
         r.message.includes("already in progress"),
     )
 
@@ -293,19 +293,19 @@ describe("failure accumulation", () => {
     await syncAll(client, indexPath)
 
     client.fetchAllFindings = async () => {
-      throw new ScvdApiError(502, "Bad Gateway")
+      throw new ScvdApiError(400, "Bad Request")
     }
     await syncAll(client, indexPath)
     let index = await loadIndex(indexPath)
     expect(index?.metadata?.errorCount).toBe(1)
 
     client.fetchAllFindings = async () => {
-      throw new ScvdApiError(504, "Gateway Timeout")
+      throw new ScvdApiError(422, "Unprocessable Entity")
     }
     await syncAll(client, indexPath)
     index = await loadIndex(indexPath)
     expect(index?.metadata?.errorCount).toBe(2)
-    expect(index?.metadata?.lastError).toContain("Gateway Timeout")
+    expect(index?.metadata?.lastError).toContain("Unprocessable Entity")
     expect(index?.metadata?.lastErrorReason).toBe("api")
 
     client.fetchAllFindings = async () => [makeFinding("SCVD-1"), makeFinding("SCVD-2")]
