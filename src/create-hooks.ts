@@ -27,7 +27,7 @@ import { createAgentTracker } from "./hooks/agent-tracker"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createConfigHandler } from "./hooks/config-handler"
 import { getTokenBudgetForAgent } from "./hooks/context-budget"
-import { createEventHook } from "./hooks/event-hook"
+import { createEventHook, extractSessionId } from "./hooks/event-hook"
 import type { ReconContext } from "./hooks/recon-context-builder"
 import { buildReconContextBlock } from "./hooks/recon-context-builder"
 import { safeCreateHook } from "./hooks/safe-create-hook"
@@ -54,28 +54,6 @@ let _agentTrackerRef: AgentTrackerRef | undefined
 
 const REPORT_METADATA_REGEX = /<!-- argus:report_metadata (.+?) -->/
 
-function resolveOpencodeEventSessionId(event: {
-  properties?: Record<string, unknown>
-}): string | undefined {
-  if (!event.properties || typeof event.properties !== "object") {
-    return undefined
-  }
-
-  const info = event.properties.info
-  if (typeof info === "object" && info !== null && !Array.isArray(info)) {
-    const infoId = (info as Record<string, unknown>).id
-    if (typeof infoId === "string" && infoId.length > 0) {
-      return infoId
-    }
-  }
-
-  const sessionId = event.properties.sessionID
-  if (typeof sessionId === "string" && sessionId.length > 0) {
-    return sessionId
-  }
-
-  return undefined
-}
 
 function extractRunIdFromReportToolOutput(result: string): string | undefined {
   try {
@@ -828,7 +806,7 @@ export function createHooks(args: {
     ? safeCreateHook(
         () => async (input: Parameters<typeof eventHook>[0]) => {
           const isSessionDeleted = input.event.type === "session.deleted"
-          const eventSessionId = resolveOpencodeEventSessionId(input.event)
+          const eventSessionId = extractSessionId(input.event)
           const finalizationBeforeDelete = isSessionDeleted ? getLastFinalizationResult() : null
 
           try {

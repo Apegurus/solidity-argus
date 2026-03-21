@@ -30,7 +30,7 @@ export type EventHookFn = (input: {
  *   - session.idle / session.error      → { properties: { sessionID: string } }
  *   - Other events may have properties.sessionID or none at all.
  */
-function extractSessionId(event: {
+export function extractSessionId(event: {
   type: string
   properties?: Record<string, unknown>
 }): string | undefined {
