@@ -196,15 +196,9 @@ export async function executeForgeFuzz(
   })
 
   try {
-    const env = {
-      ...Bun.env,
-      FOUNDRY_FUZZ_RUNS: String(normalized.runs),
-    }
-
     const runResult = await runCommand(buildForgeFuzzCommand(normalized), {
       signal: context.abort,
       cwd: normalized.target,
-      env,
     })
 
     const lines = `${runResult.stdout}\n${runResult.stderr}`

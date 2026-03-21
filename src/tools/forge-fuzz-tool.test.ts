@@ -64,7 +64,6 @@ test("executeForgeFuzz parses fuzz results and counterexamples", async () => {
       ])
       expect(options.signal).toBe(context.abort)
       expect(options.cwd).toBe("/tmp/project")
-      expect(options.env).toMatchObject({ FOUNDRY_FUZZ_RUNS: "256" })
 
       const response: ForgeFuzzCommandResult = {
         stdout: output,
