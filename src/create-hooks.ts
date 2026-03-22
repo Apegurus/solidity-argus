@@ -2,14 +2,14 @@ import type { Hooks as PluginHooks } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
 import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
 import { createContextMonitor, createToolOutputTruncator } from "./features/context-monitor"
-import {
-  createSessionRecoveryHandler,
-  createToolErrorRecoveryHandler,
-} from "./features/error-recovery"
+import { createToolErrorRecoveryHandler } from "./features/error-recovery"
 import { getMigrationMode } from "./features/migration"
 import { adaptLegacyFindings } from "./features/migration/migration-adapter"
 import { computeParityMetrics, formatParityReport } from "./features/migration/parity-telemetry"
-import { createDebouncedSave } from "./features/persistent-state/audit-state-manager"
+import {
+  createAuditStateManager,
+  createDebouncedSave,
+} from "./features/persistent-state/audit-state-manager"
 import {
   createEventSink,
   type EventSink,
@@ -34,7 +34,7 @@ import { safeCreateHook } from "./hooks/safe-create-hook"
 import { createSystemPromptHook } from "./hooks/system-prompt-hook"
 import { createToolTrackingHook } from "./hooks/tool-tracking-hook"
 import type { HookName } from "./hooks/types"
-import type { Managers } from "./managers/types"
+import type { AuditStateManager, Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { createLogger } from "./shared/logger"
 import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
@@ -53,7 +53,6 @@ export type AgentTrackerRef = {
 let _agentTrackerRef: AgentTrackerRef | undefined
 
 const REPORT_METADATA_REGEX = /<!-- argus:report_metadata (.+?) -->/
-
 
 function extractRunIdFromReportToolOutput(result: string): string | undefined {
   try {
@@ -182,12 +181,14 @@ export function createHooks(args: {
   logger.debug(`Migration mode: ${migrationMode}`)
 
   const contextMonitor = createContextMonitor()
-  const sessionRecoveryHandler = createSessionRecoveryHandler(auditStateManager)
   const debouncedSave = createDebouncedSave(auditStateManager.save)
 
   process.on("exit", () => {
     try {
       debouncedSave.dispose()
+      for (const sessionDebouncedSave of debouncedSavesBySession.values()) {
+        sessionDebouncedSave.dispose()
+      }
     } catch {
       /* noop */
     }
@@ -214,8 +215,43 @@ export function createHooks(args: {
 
   const pendingSinkCreations = new Set<string>()
   const activatedSessions = new Set<string>()
+  const sessionManagers = new Map<string, AuditStateManager>()
+  const debouncedSavesBySession = new Map<string, ReturnType<typeof createDebouncedSave>>()
 
   const pendingActivations = new Set<string>()
+
+  function getSessionManager(sessionId: string): AuditStateManager {
+    let manager = sessionManagers.get(sessionId)
+    if (!manager) {
+      manager = createAuditStateManager(projectDir)
+      manager.bindSession(sessionId)
+      sessionManagers.set(sessionId, manager)
+
+      if (sessionManagers.size > MAX_SESSION_TRACKING) {
+        const oldest = sessionManagers.keys().next()
+        if (!oldest.done) {
+          const oldestSessionId = oldest.value
+          if (oldestSessionId !== sessionId) {
+            const oldestDebouncedSave = debouncedSavesBySession.get(oldestSessionId)
+            oldestDebouncedSave?.dispose()
+            debouncedSavesBySession.delete(oldestSessionId)
+            sessionManagers.delete(oldestSessionId)
+          }
+        }
+      }
+    }
+
+    return manager
+  }
+
+  function getSessionDebouncedSave(sessionId: string): ReturnType<typeof createDebouncedSave> {
+    let sessionDebouncedSave = debouncedSavesBySession.get(sessionId)
+    if (!sessionDebouncedSave) {
+      sessionDebouncedSave = createDebouncedSave(getSessionManager(sessionId).save)
+      debouncedSavesBySession.set(sessionId, sessionDebouncedSave)
+    }
+    return sessionDebouncedSave
+  }
 
   /**
    * Prevent session-tracking Sets from growing unboundedly in long-running processes.
@@ -255,152 +291,159 @@ export function createHooks(args: {
     pendingActivations.add(sessionId)
     let sessionActivated = false
     try {
-    const timestamp = Date.now()
+      const timestamp = Date.now()
+      const sessionManager = getSessionManager(sessionId)
 
-    auditStateManager.bindSession(sessionId)
+      const existingSink = (() => {
+        const directSink = eventSinksByOpencodeSession.get(sessionId)
+        if (directSink) return directSink
 
-    const existingSink = (() => {
-      const directSink = eventSinksByOpencodeSession.get(sessionId)
-      if (directSink) return directSink
+        const parentSessionId = agentTracker.getParentSession(sessionId)
+        if (parentSessionId) {
+          const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+          if (parentSink) return parentSink
+        }
 
-      const parentSessionId = agentTracker.getParentSession(sessionId)
-      if (parentSessionId) {
-        const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
-        if (parentSink) return parentSink
-      }
+        const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
+        return activeSinks.length === 1 ? (activeSinks[0] ?? null) : null
+      })()
 
-      const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
-      return activeSinks.length === 1 ? (activeSinks[0] ?? null) : null
-    })()
+      if (existingSink) {
+        setEventSink(existingSink, sessionId)
+        setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, existingSink)
+        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
 
-    if (existingSink) {
-      setEventSink(existingSink, sessionId)
-      setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, existingSink)
-      setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
-
-      const existingResolver = createAuditArtifactResolver(existingSink.runId, projectDir)
-      recordRun({
-        runId: existingSink.runId,
-        opencodeSessionId: sessionId,
-        projectDir: auditState?.projectDir ?? projectDir,
-        statePath: existingResolver.paths().stateFile,
-        journalPath: existingResolver.paths().journalFile,
-        startedAt: auditState?.startTime ?? timestamp,
-        phase: auditState?.currentPhase ?? "reconnaissance",
-        findingsCount: auditState?.findings.length ?? 0,
-      }).catch((err) => logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`))
-
-      if (auditState) {
-        setAuditState({ ...auditState, sessionId: existingSink.runId }, sessionId)
-      }
-      runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
-      sessionActivated = true
-      return
-    }
-
-    if (pendingSinkCreations.has(sessionId)) {
-      runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
-      return
-    }
-    pendingSinkCreations.add(sessionId)
-
-    let recoveredState: AuditState | null = null
-    try {
-      recoveredState = await auditStateManager.load()
-    } finally {
-      runJournal.log({
-        type: "state.loaded",
-        timestamp,
-        success: recoveredState !== null,
-        findingsCount: recoveredState?.findings.length ?? 0,
-      })
-    }
-
-    const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
-    if (recoveredState) {
-      const isStale =
-        typeof recoveredState.startTime === "number" &&
-        timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
-      const isCompleted = recoveredState.reportGenerated === true
-      if (isStale || isCompleted) {
-        logger.debug(
-          `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
+        const existingResolver = createAuditArtifactResolver(existingSink.runId, projectDir)
+        recordRun({
+          runId: existingSink.runId,
+          opencodeSessionId: sessionId,
+          projectDir: auditState?.projectDir ?? projectDir,
+          statePath: existingResolver.paths().stateFile,
+          journalPath: existingResolver.paths().journalFile,
+          startedAt: auditState?.startTime ?? timestamp,
+          phase: auditState?.currentPhase ?? "reconnaissance",
+          findingsCount: auditState?.findings.length ?? 0,
+        }).catch((err) =>
+          logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`),
         )
-        recoveredState = null
-      }
-    }
 
-    if (recoveredState && auditState) {
-      setAuditState(
-        {
-          ...recoveredState,
-          sessionId: auditState.sessionId,
-          projectDir: auditState.projectDir,
-          startTime: auditState.startTime,
-        },
-        sessionId,
-      )
-    } else if (recoveredState) {
-      setAuditState(recoveredState, sessionId)
-    }
-
-    const effectiveState = getAuditState(sessionId) ?? recoveredState
-    if (effectiveState) {
-      const raceSink = eventSinksByOpencodeSession.get(sessionId)
-      if (raceSink) {
-        setEventSink(raceSink, sessionId)
-        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
         if (auditState) {
-          setAuditState({ ...auditState, sessionId: raceSink.runId }, sessionId)
+          setAuditState({ ...auditState, sessionId: existingSink.runId }, sessionId)
         }
         runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
         sessionActivated = true
         return
       }
 
-      const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
-      try {
-        const sink = createEventSink(effectiveState.sessionId, projectDir)
-        setEventSink(sink, sessionId)
-        setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, sink)
-        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, effectiveState.sessionId, sink)
+      if (pendingSinkCreations.has(sessionId)) {
+        runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
+        return
+      }
+      pendingSinkCreations.add(sessionId)
 
-        await sink.append({
-          type: "session.created",
-          run_id: effectiveState.sessionId,
-          seq: 0,
-          session_id: sessionId,
-          source: "create-hooks",
-          schema_version: SCHEMA_VERSION,
+      let recoveredState: AuditState | null = null
+      try {
+        recoveredState = await sessionManager.load()
+      } finally {
+        runJournal.log({
+          type: "state.loaded",
           timestamp,
-          payload: {
-            projectDir: effectiveState.projectDir,
-            sessionId: effectiveState.sessionId,
-            plugin_version: ARGUS_PLUGIN_VERSION,
-            scope: effectiveState.scope,
-          },
+          success: recoveredState !== null,
+          findingsCount: recoveredState?.findings.length ?? 0,
         })
-      } catch (error) {
-        logger.warn(
-          `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
+      }
+
+      const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
+      if (recoveredState) {
+        const isStale =
+          typeof recoveredState.startTime === "number" &&
+          timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
+        const isCompleted = recoveredState.reportGenerated === true
+        if (isStale || isCompleted) {
+          logger.debug(
+            `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
+          )
+          recoveredState = null
+        }
+      }
+
+      if (recoveredState && auditState) {
+        setAuditState(
+          {
+            ...recoveredState,
+            sessionId: auditState.sessionId,
+            projectDir: auditState.projectDir,
+            startTime: auditState.startTime,
+          },
+          sessionId,
+        )
+      } else if (recoveredState) {
+        setAuditState(recoveredState, sessionId)
+      }
+
+      const effectiveState = getAuditState(sessionId) ?? recoveredState
+      if (effectiveState) {
+        const raceSink = eventSinksByOpencodeSession.get(sessionId)
+        if (raceSink) {
+          setEventSink(raceSink, sessionId)
+          setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
+          if (auditState) {
+            setAuditState({ ...auditState, sessionId: raceSink.runId }, sessionId)
+          }
+          runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
+          sessionActivated = true
+          return
+        }
+
+        const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
+        try {
+          const sink = createEventSink(effectiveState.sessionId, projectDir)
+          setEventSink(sink, sessionId)
+          setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, sink)
+          setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, effectiveState.sessionId, sink)
+
+          await sink.append({
+            type: "session.created",
+            run_id: effectiveState.sessionId,
+            seq: 0,
+            session_id: sessionId,
+            source: "create-hooks",
+            schema_version: SCHEMA_VERSION,
+            timestamp,
+            payload: {
+              projectDir: effectiveState.projectDir,
+              sessionId: effectiveState.sessionId,
+              plugin_version: ARGUS_PLUGIN_VERSION,
+              scope: effectiveState.scope,
+            },
+          })
+        } catch (error) {
+          logger.warn(
+            `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+        recordRun({
+          runId: effectiveState.sessionId,
+          opencodeSessionId: sessionId,
+          projectDir: effectiveState.projectDir,
+          statePath: resolver.paths().stateFile,
+          journalPath: resolver.paths().journalFile,
+          startedAt: effectiveState.startTime,
+          phase: effectiveState.currentPhase,
+          findingsCount: effectiveState.findings.length,
+          status: "active",
+        }).catch((err) =>
+          logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`),
+        )
+
+        pruneStaleRuns(effectiveState.projectDir).catch((err) =>
+          logger.warn(
+            `Failed to prune stale runs: ${err instanceof Error ? err.message : String(err)}`,
+          ),
         )
       }
-      recordRun({
-        runId: effectiveState.sessionId,
-        opencodeSessionId: sessionId,
-        projectDir: effectiveState.projectDir,
-        statePath: resolver.paths().stateFile,
-        journalPath: resolver.paths().journalFile,
-        startedAt: effectiveState.startTime,
-        phase: effectiveState.currentPhase,
-        findingsCount: effectiveState.findings.length,
-        status: "active",
-      }).catch((err) => logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`))
 
-      pruneStaleRuns(effectiveState.projectDir).catch((err) => logger.warn(`Failed to prune stale runs: ${err instanceof Error ? err.message : String(err)}`))
-    }
-
-    sessionActivated = true
+      sessionActivated = true
     } finally {
       if (sessionActivated) {
         activatedSessions.add(sessionId)
@@ -491,11 +534,18 @@ export function createHooks(args: {
       if (type === "session.idle" && auditState) {
         if (sessionId && !activatedSessions.has(sessionId)) return
 
-        await debouncedSave.flush()
+        if (sessionId) {
+          await getSessionDebouncedSave(sessionId).flush()
+        } else {
+          await debouncedSave.flush()
+        }
 
         let saveSuccess = true
         try {
-          await auditStateManager.save(auditState)
+          const idleManager = sessionId ? sessionManagers.get(sessionId) : auditStateManager
+          if (idleManager) {
+            await idleManager.save(auditState)
+          }
         } catch {
           saveSuccess = false
         } finally {
@@ -526,7 +576,11 @@ export function createHooks(args: {
           startedAt: auditState.startTime,
           phase: auditState.currentPhase,
           findingsCount: auditState.findings.length,
-        }).catch((err) => logger.warn(`Failed to record run on idle: ${err instanceof Error ? err.message : String(err)}`))
+        }).catch((err) =>
+          logger.warn(
+            `Failed to record run on idle: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        )
 
         try {
           await materializeReportInput(auditState.sessionId, auditState.projectDir, sessionId)
@@ -551,7 +605,11 @@ export function createHooks(args: {
               updateRunStatus(
                 auditState.sessionId,
                 idleFinalization.invariantsPassed ? "finalized" : "failed",
-              ).catch((err) => logger.warn(`Failed to update run status: ${err instanceof Error ? err.message : String(err)}`))
+              ).catch((err) =>
+                logger.warn(
+                  `Failed to update run status: ${err instanceof Error ? err.message : String(err)}`,
+                ),
+              )
               if (!idleFinalization.invariantsPassed) {
                 logger.warn(
                   `Idle finalization for run ${auditState.sessionId} has invariant errors: ${idleFinalization.errors.join("; ")}`,
@@ -586,16 +644,24 @@ export function createHooks(args: {
       if (type === "session.deleted") {
         if (sessionId && !activatedSessions.has(sessionId)) return
 
-        await debouncedSave.flush()
-        if (auditState) {
-          await auditStateManager.save(auditState)
+        if (sessionId) {
+          await getSessionDebouncedSave(sessionId).flush()
+        } else {
+          await debouncedSave.flush()
         }
-        try {
-          await auditStateManager.dispose()
-        } catch (error) {
-          logger.warn(
-            `State manager dispose failed: ${error instanceof Error ? error.message : String(error)}`,
-          )
+
+        const deletedManager = sessionId ? sessionManagers.get(sessionId) : auditStateManager
+        if (deletedManager) {
+          if (auditState) {
+            await deletedManager.save(auditState)
+          }
+          try {
+            await deletedManager.dispose()
+          } catch (error) {
+            logger.warn(
+              `State manager dispose failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
         }
         runJournal.log({
           type: "state.saved",
@@ -605,7 +671,21 @@ export function createHooks(args: {
       }
     },
     async ({ type, sessionId, setAuditState: setState }) => {
-      await sessionRecoveryHandler({ type, sessionId, setAuditState: setState })
+      if (type !== "session.error") {
+        return
+      }
+
+      const recoveryManager = sessionId ? getSessionManager(sessionId) : auditStateManager
+      try {
+        const recoveredState = await recoveryManager.load()
+        if (recoveredState) {
+          setState(recoveredState)
+        }
+      } catch (error) {
+        logger.warn(
+          `Session recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
     },
     async ({ type }) => {
       if (type === "session.idle") {
@@ -659,7 +739,8 @@ export function createHooks(args: {
 
   const compactionHook = isHookEnabled("compaction")
     ? safeCreateHook(
-        () => createCompactionHook((sessionId?: string) => getAuditState(sessionId), getReconContext),
+        () =>
+          createCompactionHook((sessionId?: string) => getAuditState(sessionId), getReconContext),
         "compaction",
       )
     : undefined
@@ -669,10 +750,14 @@ export function createHooks(args: {
         () =>
           createToolTrackingHook(
             (sessionId?: string) => getAuditState(sessionId),
-            ({ tool, findingsCount }) => {
-              const currentState = getAuditState()
+            ({ tool, findingsCount, sessionId }) => {
+              const currentState = getAuditState(sessionId)
               if (currentState) {
-                debouncedSave.save(currentState)
+                if (sessionId && sessionManagers.has(sessionId)) {
+                  getSessionDebouncedSave(sessionId).save(currentState)
+                } else {
+                  debouncedSave.save(currentState)
+                }
               }
 
               runJournal.log({
@@ -845,10 +930,13 @@ export function createHooks(args: {
               // audit completes — archiving here would wipe live state.
               const deletedSessionId = eventSessionId
               const isChildSession =
-                deletedSessionId != null &&
-                agentTracker.getParentSession(deletedSessionId) != null
+                deletedSessionId != null && agentTracker.getParentSession(deletedSessionId) != null
               if (!isChildSession) {
-                await auditStateManager.archive()
+                const deletedManager =
+                  deletedSessionId != null
+                    ? (sessionManagers.get(deletedSessionId) ?? auditStateManager)
+                    : auditStateManager
+                await deletedManager.archive()
               }
 
               if (deletedSessionId) {
@@ -857,6 +945,21 @@ export function createHooks(args: {
                 pendingSinkCreations.delete(deletedSessionId)
                 pendingActivations.delete(deletedSessionId)
                 activatedSessions.delete(deletedSessionId)
+                const deletedDebouncedSave = debouncedSavesBySession.get(deletedSessionId)
+                deletedDebouncedSave?.dispose()
+                debouncedSavesBySession.delete(deletedSessionId)
+                sessionManagers.delete(deletedSessionId)
+
+                if (sessionManagers.size > MAX_SESSION_TRACKING) {
+                  const oldest = sessionManagers.keys().next()
+                  if (!oldest.done) {
+                    const oldestSessionId = oldest.value
+                    const oldestDebouncedSave = debouncedSavesBySession.get(oldestSessionId)
+                    oldestDebouncedSave?.dispose()
+                    debouncedSavesBySession.delete(oldestSessionId)
+                    sessionManagers.delete(oldestSessionId)
+                  }
+                }
               }
 
               const activeRunIds = new Set(
@@ -915,7 +1018,10 @@ export function createHooks(args: {
       : undefined,
     "experimental.session.compacting": compactionHook
       ? async (input, output) => {
-          const block = await compactionHook({ summary: output.context.join("\n"), sessionId: input.sessionID })
+          const block = await compactionHook({
+            summary: output.context.join("\n"),
+            sessionId: input.sessionID,
+          })
           if (block) output.context.push(block)
         }
       : undefined,
@@ -1007,7 +1113,11 @@ export function createHooks(args: {
                   updateRunStatus(
                     state.sessionId,
                     reportFinalization.invariantsPassed ? "finalized" : "failed",
-                  ).catch((err) => logger.warn(`Failed to update run status: ${err instanceof Error ? err.message : String(err)}`))
+                  ).catch((err) =>
+                    logger.warn(
+                      `Failed to update run status: ${err instanceof Error ? err.message : String(err)}`,
+                    ),
+                  )
                   if (!reportFinalization.invariantsPassed) {
                     logger.warn(
                       `Report-triggered finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,

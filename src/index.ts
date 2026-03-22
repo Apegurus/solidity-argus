@@ -39,7 +39,9 @@ const ArgusPlugin: Plugin = async (ctx) => {
               return taskId
             }
           }
-          logger.warn(`ctx.task returned unexpected shape (${typeof result}), using fabricated task ID`)
+          logger.warn(
+            `ctx.task returned unexpected shape (${typeof result}), using fabricated task ID`,
+          )
           return `task-${Date.now()}`
         }
       : undefined

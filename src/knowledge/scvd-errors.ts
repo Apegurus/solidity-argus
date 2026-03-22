@@ -102,6 +102,11 @@ const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504])
 export function isRetryableError(outcome: SyncOutcome): boolean {
   if (outcome.status !== "error") return false
   if (outcome.reason === "network") return true
-  if (outcome.reason === "api" && outcome.httpStatus && RETRYABLE_HTTP_STATUSES.has(outcome.httpStatus)) return true
+  if (
+    outcome.reason === "api" &&
+    outcome.httpStatus &&
+    RETRYABLE_HTTP_STATUSES.has(outcome.httpStatus)
+  )
+    return true
   return false
 }

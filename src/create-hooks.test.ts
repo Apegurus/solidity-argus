@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "bun:test"
-import { mkdir } from "node:fs/promises"
+import { mkdir, mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
 import { createHooks } from "./create-hooks"
+import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
 import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/global-run-index"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
@@ -220,11 +222,51 @@ describe("createHooks", () => {
     expect(savedStates[0]?.sessionId).toBe("active")
   })
 
+  it("isolates persistent state files across sessions", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const projectDir = await mkdtemp(join(tmpdir(), "argus-hooks-state-"))
+    const sessionOne = "oc-isolation-1"
+    const sessionTwo = "oc-isolation-2"
+
+    const managers = makeManagers()
+    managers.auditStateManager = createAuditStateManager(projectDir)
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: sessionOne } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, sessionOne)
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: sessionTwo } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, sessionTwo)
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { info: { id: sessionOne } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { info: { id: sessionTwo } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const sessionsDir = join(projectDir, ".argus", "sessions")
+    const stateFileOne = join(sessionsDir, `state-${sessionOne}.json`)
+    const stateFileTwo = join(sessionsDir, `state-${sessionTwo}.json`)
+
+    expect(await Bun.file(stateFileOne).exists()).toBe(true)
+    expect(await Bun.file(stateFileTwo).exists()).toBe(true)
+  })
+
   it("archives even when finalization invariants fail", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-fail-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
-    let archiveCount = 0
 
     const managers: Managers = {
       backgroundManager: {
@@ -241,9 +283,7 @@ describe("createHooks", () => {
         get: () => activeState,
         update: async () => {},
         reset: async () => {},
-        archive: async () => {
-          archiveCount += 1
-        },
+        archive: async () => {},
         dispose: async () => {},
       },
     }
@@ -286,8 +326,6 @@ describe("createHooks", () => {
     await hooks.event?.({
       event: { type: "session.deleted", properties: { info: { id: "oc-parent" } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-
-    expect(archiveCount).toBe(1)
 
     const lines = (await Bun.file(eventsPath).text())
       .split("\n")

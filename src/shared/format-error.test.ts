@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { formatError } from "./format-error"
 
 test("formats Error instances", () => {

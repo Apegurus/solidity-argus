@@ -19,7 +19,7 @@ export interface LifecycleStatus {
 
 let soloditChild: SoloditChildProcess | null = null
 let monitorTimer: ReturnType<typeof setInterval> | null = null
-let restartPromise: Promise<boolean | void> | null = null
+let restartPromise: Promise<boolean | undefined> | null = null
 let startupPromise: Promise<void> | null = null
 
 /** Whether the Solodit MCP server is currently available for tool calls. */

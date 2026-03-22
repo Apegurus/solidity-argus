@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type ToolContext } from "@opencode-ai/plugin"
+import type { ToolContext } from "@opencode-ai/plugin"
 import { classifyForgeError, FOUNDRY_NOT_FOUND_MESSAGE } from "./forge-errors"
 
 function createContext(aborted = false): ToolContext {

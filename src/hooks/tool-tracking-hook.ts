@@ -34,6 +34,7 @@ type ToolHookInput = {
 type ToolExecutionMetadata = {
   tool: string
   findingsCount: number
+  sessionId?: string
 }
 
 export type ToolTrackingOptions = {
@@ -215,141 +216,97 @@ const SLITHER_REQUIRED = ["check", "description", "file", "lines"] as const
 const PATTERN_REQUIRED = ["pattern", "description", "file", "lines"] as const
 const MANUAL_REQUIRED = ["check", "description", "file", "lines"] as const
 
-function processSlitherResult(
+type ProcessorConfig = {
+  toolLabel: string
+  arrayKey: string
+  nestedArrayKey?: string
+  primaryIdField: string
+  requiredFields: readonly string[]
+  sourceLabel: string | "dynamic"
+  confidenceMode: "read" | "fixed"
+  confidenceDefault?: string
+  extractOptionalFields: boolean
+  allowReportedByOverride: boolean
+}
+
+const SLITHER_CONFIG: ProcessorConfig = {
+  toolLabel: "Slither",
+  arrayKey: "findings",
+  primaryIdField: "check",
+  requiredFields: SLITHER_REQUIRED,
+  sourceLabel: "slither",
+  confidenceMode: "read",
+  extractOptionalFields: false,
+  allowReportedByOverride: false,
+}
+
+const PATTERN_CONFIG: ProcessorConfig = {
+  toolLabel: "Pattern",
+  arrayKey: "sources",
+  nestedArrayKey: "matches",
+  primaryIdField: "pattern",
+  requiredFields: PATTERN_REQUIRED,
+  sourceLabel: "pattern",
+  confidenceMode: "fixed",
+  confidenceDefault: "Medium",
+  extractOptionalFields: false,
+  allowReportedByOverride: false,
+}
+
+const RECORDED_CONFIG: ProcessorConfig = {
+  toolLabel: "Recorded",
+  arrayKey: "findings",
+  primaryIdField: "check",
+  requiredFields: MANUAL_REQUIRED,
+  sourceLabel: "dynamic",
+  confidenceMode: "read",
+  extractOptionalFields: true,
+  allowReportedByOverride: true,
+}
+
+function processToolResult(
   parsed: Record<string, unknown>,
   store: FindingStore,
   diag: DropDiagnosticsCollector,
   metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
+  config: ProcessorConfig,
 ): number {
-  const findings = parsed.findings
-  if (!Array.isArray(findings)) return 0
-
-  let count = 0
-  for (const raw of findings) {
-    const finding = toRecord(raw)
-    if (!finding) continue
-
-    const check = finding.check
-    const description = finding.description
-    const file = finding.file
-    const lines = toLines(finding.lines)
-
-    if (
-      typeof check !== "string" ||
-      typeof description !== "string" ||
-      typeof file !== "string" ||
-      !lines
-    ) {
-      const missing = identifyMissingFields(finding, SLITHER_REQUIRED)
+  const topLevel = parsed[config.arrayKey]
+  if (!Array.isArray(topLevel)) {
+    if (config.toolLabel === "Recorded") {
       diag.error(
         "MISSING_REQUIRED_FIELD",
-        `Slither finding skipped: missing ${missing.join(", ")}`,
-        missing[0],
+        "argus_record_finding result missing findings array",
+        "findings",
       )
-      continue
     }
-
-    store.addFinding({
-      check,
-      severity: toSeverity(finding.severity),
-      confidence: toConfidence(finding.confidence),
-      description,
-      file,
-      lines,
-      source: "slither",
-      reported_by_agent: metadata.reportedByAgent,
-      reported_by_session_id: metadata.reportedBySessionId,
-    })
-    count++
-  }
-
-  return count
-}
-
-function processPatternResult(
-  parsed: Record<string, unknown>,
-  store: FindingStore,
-  diag: DropDiagnosticsCollector,
-  metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
-): number {
-  const sources = parsed.sources
-  if (!Array.isArray(sources)) return 0
-
-  let count = 0
-  for (const rawSource of sources) {
-    const source = toRecord(rawSource)
-    if (!source) continue
-
-    const matches = source.matches
-    if (!Array.isArray(matches)) continue
-
-    for (const rawMatch of matches) {
-      const match = toRecord(rawMatch)
-      if (!match) continue
-
-      const pattern = match.pattern
-      const description = match.description
-      const file = match.file
-      const lines = toLines(match.lines)
-
-      if (
-        typeof pattern !== "string" ||
-        typeof description !== "string" ||
-        typeof file !== "string" ||
-        !lines
-      ) {
-        const missing = identifyMissingFields(match, PATTERN_REQUIRED)
-        diag.error(
-          "MISSING_REQUIRED_FIELD",
-          `Pattern finding skipped: missing ${missing.join(", ")}`,
-          missing[0],
-        )
-        continue
-      }
-
-      store.addFinding({
-        check: pattern,
-        severity: toSeverity(match.severity),
-        confidence: "Medium",
-        description,
-        file,
-        lines,
-        source: "pattern",
-        reported_by_agent: metadata.reportedByAgent,
-        reported_by_session_id: metadata.reportedBySessionId,
-      })
-      count++
-    }
-  }
-
-  return count
-}
-
-function processRecordedFindingResult(
-  parsed: Record<string, unknown>,
-  store: FindingStore,
-  diag: DropDiagnosticsCollector,
-  metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
-): number {
-  const findings = parsed.findings
-  if (!Array.isArray(findings)) {
-    diag.error(
-      "MISSING_REQUIRED_FIELD",
-      "argus_record_finding result missing findings array",
-      "findings",
-    )
     return 0
   }
 
-  let count = 0
-  for (const raw of findings) {
-    const finding = toRecord(raw)
-    if (!finding) continue
+  const items: unknown[] = []
+  if (config.nestedArrayKey) {
+    for (const rawOuter of topLevel) {
+      const outer = toRecord(rawOuter)
+      if (!outer) continue
 
-    const check = finding.check
-    const description = finding.description
-    const file = finding.file
-    const lines = toLines(finding.lines)
+      const nested = outer[config.nestedArrayKey]
+      if (!Array.isArray(nested)) continue
+
+      items.push(...nested)
+    }
+  } else {
+    items.push(...topLevel)
+  }
+
+  let count = 0
+  for (const rawItem of items) {
+    const item = toRecord(rawItem)
+    if (!item) continue
+
+    const check = item[config.primaryIdField]
+    const description = item.description
+    const file = item.file
+    const lines = toLines(item.lines)
 
     if (
       typeof check !== "string" ||
@@ -357,51 +314,63 @@ function processRecordedFindingResult(
       typeof file !== "string" ||
       !lines
     ) {
-      const missing = identifyMissingFields(finding, MANUAL_REQUIRED)
+      const missing = identifyMissingFields(item, config.requiredFields)
       diag.error(
         "MISSING_REQUIRED_FIELD",
-        `Recorded finding skipped: missing ${missing.join(", ")}`,
+        `${config.toolLabel} finding skipped: missing ${missing.join(", ")}`,
         missing[0],
       )
       continue
     }
 
-    const reportedByAgentRaw = finding.reported_by_agent
+    const reportedByAgentRaw = item.reported_by_agent
     const reportedByAgent =
-      reportedByAgentRaw === "argus" ||
-      reportedByAgentRaw === "sentinel" ||
-      reportedByAgentRaw === "pythia" ||
-      reportedByAgentRaw === "scribe" ||
-      reportedByAgentRaw === "unknown"
+      config.allowReportedByOverride &&
+      (reportedByAgentRaw === "argus" ||
+        reportedByAgentRaw === "sentinel" ||
+        reportedByAgentRaw === "pythia" ||
+        reportedByAgentRaw === "scribe" ||
+        reportedByAgentRaw === "unknown")
         ? (reportedByAgentRaw as ArgusAgentName)
         : metadata.reportedByAgent
 
-    store.addFinding({
+    const findingPayload: Parameters<FindingStore["addFinding"]>[0] = {
       check,
-      severity: toSeverity(finding.severity),
-      confidence: toConfidence(finding.confidence),
+      severity: toSeverity(item.severity),
+      confidence:
+        config.confidenceMode === "read"
+          ? toConfidence(item.confidence)
+          : toConfidence(config.confidenceDefault),
       description,
       file,
       lines,
-      source: toFindingSource(finding.source),
-      remediation: typeof finding.remediation === "string" ? finding.remediation : undefined,
-      exploitReference:
-        typeof finding.exploitReference === "string" ? finding.exploitReference : undefined,
+      source:
+        config.sourceLabel === "dynamic"
+          ? toFindingSource(item.source)
+          : toFindingSource(config.sourceLabel),
       reported_by_agent: reportedByAgent,
       reported_by_session_id:
-        typeof finding.reported_by_session_id === "string" &&
-        finding.reported_by_session_id.length > 0
-          ? finding.reported_by_session_id
+        config.allowReportedByOverride &&
+        typeof item.reported_by_session_id === "string" &&
+        item.reported_by_session_id.length > 0
+          ? item.reported_by_session_id
           : metadata.reportedBySessionId,
-      issue_fingerprint:
-        typeof finding.issue_fingerprint === "string" ? finding.issue_fingerprint : undefined,
-      observation_fingerprint:
-        typeof finding.observation_fingerprint === "string"
-          ? finding.observation_fingerprint
-          : undefined,
-      observation_id:
-        typeof finding.observation_id === "string" ? finding.observation_id : undefined,
-    })
+    }
+
+    if (config.extractOptionalFields) {
+      findingPayload.remediation =
+        typeof item.remediation === "string" ? item.remediation : undefined
+      findingPayload.exploitReference =
+        typeof item.exploitReference === "string" ? item.exploitReference : undefined
+      findingPayload.issue_fingerprint =
+        typeof item.issue_fingerprint === "string" ? item.issue_fingerprint : undefined
+      findingPayload.observation_fingerprint =
+        typeof item.observation_fingerprint === "string" ? item.observation_fingerprint : undefined
+      findingPayload.observation_id =
+        typeof item.observation_id === "string" ? item.observation_id : undefined
+    }
+
+    store.addFinding(findingPayload)
     count++
   }
 
@@ -648,7 +617,7 @@ export function createToolTrackingHook(
 
       if (resolved) {
         recordToolExecution(resolved.state, "task", 0)
-        onStateChanged?.({ tool: "task", findingsCount: 0 })
+        onStateChanged?.({ tool: "task", findingsCount: 0, sessionId: input.sessionID })
       }
 
       return
@@ -812,7 +781,7 @@ export function createToolTrackingHook(
 
         switch (input.tool) {
           case "argus_slither_analyze": {
-            findingsCount = processSlitherResult(record, store, diag, findingMetadata)
+            findingsCount = processToolResult(record, store, diag, findingMetadata, SLITHER_CONFIG)
             if (auditState.scope.length === 0 && findingsCount > 0) {
               const slitherFindings = Array.isArray(record.findings) ? record.findings : []
               const files = [
@@ -829,13 +798,13 @@ export function createToolTrackingHook(
             break
           }
           case "argus_check_patterns":
-            findingsCount = processPatternResult(record, store, diag, findingMetadata)
+            findingsCount = processToolResult(record, store, diag, findingMetadata, PATTERN_CONFIG)
             if (typeof record.patternVersion === "string") {
               auditState.patternVersion = record.patternVersion
             }
             break
           case "argus_record_finding":
-            findingsCount = processRecordedFindingResult(record, store, diag, findingMetadata)
+            findingsCount = processToolResult(record, store, diag, findingMetadata, RECORDED_CONFIG)
             break
           case "argus_analyze_contract": {
             processContractAnalyzerResult(record, auditState)
@@ -981,7 +950,7 @@ export function createToolTrackingHook(
         }
       }
 
-      onStateChanged?.({ tool: input.tool, findingsCount })
+      onStateChanged?.({ tool: input.tool, findingsCount, sessionId: input.sessionID })
     } catch (error) {
       completionError = error instanceof Error ? error.message : String(error)
       throw error

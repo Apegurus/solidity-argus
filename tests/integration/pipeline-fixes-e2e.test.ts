@@ -132,6 +132,17 @@ function makeManagers(overrides?: Partial<Managers>): Managers {
   }
 }
 
+async function writeSessionState(sessionId: string, state: AuditState): Promise<void> {
+  const sessionsDir = join(FIXTURE_DIR, ".argus", "sessions")
+  await mkdir(sessionsDir, { recursive: true })
+  const filePath = join(sessionsDir, `state-${sessionId}.json`)
+
+  await Bun.write(
+    filePath,
+    `${JSON.stringify({ ...state, savedAt: Date.now(), version: "2", filePath }, null, 2)}\n`,
+  )
+}
+
 async function waitForRunId(sessionID: string): Promise<string> {
   const timeoutMs = 1_500
   const pollMs = 10
@@ -278,6 +289,7 @@ describe("Pipeline fixes E2E", () => {
 
   describe("Fix #4: stale/completed state is discarded on session.created", () => {
     test("recovered state with reportGenerated=true is discarded", async () => {
+      const sessionId = "oc-new-session"
       const staleState = makeAuditState({
         sessionId: "old-completed-run",
         findings: [
@@ -299,22 +311,8 @@ describe("Pipeline fixes E2E", () => {
         startTime: Date.now(),
       })
 
-      let loadCallCount = 0
-      const managers = makeManagers({
-        auditStateManager: {
-          bindSession: () => {},
-          load: async () => {
-            loadCallCount++
-            return staleState
-          },
-          save: async () => {},
-          get: () => staleState,
-          update: async () => {},
-          reset: async () => {},
-          archive: async () => {},
-          dispose: async () => {},
-        },
-      })
+      await writeSessionState(sessionId, staleState)
+      const managers = makeManagers()
 
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
@@ -324,18 +322,16 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await hooks.event?.({
-        event: { type: "session.created", properties: { info: { id: "oc-new-session" } } },
+        event: { type: "session.created", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-      await activateArgusSession(hooks, "oc-new-session")
+      await activateArgusSession(hooks, sessionId)
 
-      expect(loadCallCount).toBe(1)
-
-      const freshRunId = await waitForRunId("oc-new-session")
+      const freshRunId = await waitForRunId(sessionId)
       const eventsPath = join(RUNS_DIR, freshRunId, "events.jsonl")
       expect(existsSync(eventsPath)).toBe(true)
 
       await hooks.event?.({
-        event: { type: "session.idle", properties: { info: { id: "oc-new-session" } } },
+        event: { type: "session.idle", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
       const journalEvents = await readEvents(freshRunId, FIXTURE_DIR)
@@ -346,6 +342,7 @@ describe("Pipeline fixes E2E", () => {
     })
 
     test("recovered state older than 24h is discarded", async () => {
+      const sessionId = "oc-fresh-session"
       const TWENTY_FIVE_HOURS_AGO = Date.now() - 25 * 60 * 60 * 1000
 
       const staleState = makeAuditState({
@@ -365,18 +362,8 @@ describe("Pipeline fixes E2E", () => {
         startTime: TWENTY_FIVE_HOURS_AGO,
       })
 
-      const managers = makeManagers({
-        auditStateManager: {
-          bindSession: () => {},
-          load: async () => staleState,
-          save: async () => {},
-          get: () => staleState,
-          update: async () => {},
-          reset: async () => {},
-          archive: async () => {},
-          dispose: async () => {},
-        },
-      })
+      await writeSessionState(sessionId, staleState)
+      const managers = makeManagers()
 
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
@@ -386,14 +373,14 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await hooks.event?.({
-        event: { type: "session.created", properties: { info: { id: "oc-fresh-session" } } },
+        event: { type: "session.created", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-      await activateArgusSession(hooks, "oc-fresh-session")
+      await activateArgusSession(hooks, sessionId)
 
-      const freshRunId = await waitForRunId("oc-fresh-session")
+      const freshRunId = await waitForRunId(sessionId)
 
       await hooks.event?.({
-        event: { type: "session.idle", properties: { info: { id: "oc-fresh-session" } } },
+        event: { type: "session.idle", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
       const journalEvents = await readEvents(freshRunId, FIXTURE_DIR)
@@ -403,6 +390,7 @@ describe("Pipeline fixes E2E", () => {
     })
 
     test("fresh recovered state is preserved (not discarded)", async () => {
+      const sessionId = "oc-continue-session"
       const freshState = makeAuditState({
         sessionId: "recent-active-run",
         findings: [
@@ -420,18 +408,8 @@ describe("Pipeline fixes E2E", () => {
         startTime: Date.now() - 60_000,
       })
 
-      const managers = makeManagers({
-        auditStateManager: {
-          bindSession: () => {},
-          load: async () => freshState,
-          save: async () => {},
-          get: () => freshState,
-          update: async () => {},
-          reset: async () => {},
-          archive: async () => {},
-          dispose: async () => {},
-        },
-      })
+      await writeSessionState(sessionId, freshState)
+      const managers = makeManagers()
 
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
@@ -441,14 +419,14 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await hooks.event?.({
-        event: { type: "session.created", properties: { info: { id: "oc-continue-session" } } },
+        event: { type: "session.created", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-      await activateArgusSession(hooks, "oc-continue-session")
+      await activateArgusSession(hooks, sessionId)
 
-      const freshRunId = await waitForRunId("oc-continue-session")
+      const freshRunId = await waitForRunId(sessionId)
 
       await hooks.event?.({
-        event: { type: "session.idle", properties: { info: { id: "oc-continue-session" } } },
+        event: { type: "session.idle", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
       const journalEvents = await readEvents(freshRunId, FIXTURE_DIR)

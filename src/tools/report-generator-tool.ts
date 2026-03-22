@@ -1020,7 +1020,10 @@ export async function executeReportGeneration(
 
   // Hard gate: refuse to generate a report if key audit tools have not been executed
   if (toolCoveragePolicy !== "skip") {
-    const missingTools = computeMissingKeyTools(reportInput.toolsExecuted, reportInput.unavailableTools)
+    const missingTools = computeMissingKeyTools(
+      reportInput.toolsExecuted,
+      reportInput.unavailableTools,
+    )
     if (missingTools.length > 0) {
       const toolList = missingTools.join(", ")
       if (toolCoveragePolicy === "enforce") {
