@@ -751,6 +751,8 @@ export function createHooks(args: {
           createToolTrackingHook(
             (sessionId?: string) => getAuditState(sessionId),
             ({ tool, findingsCount, sessionId }) => {
+              if (sessionId && !activatedSessions.has(sessionId)) return
+
               const currentState = getAuditState(sessionId)
               if (currentState) {
                 if (sessionId && sessionManagers.has(sessionId)) {
