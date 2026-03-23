@@ -348,28 +348,3 @@ export function normalizeToCanonicalFinding(
 
   return { data: canonical, diagnostics }
 }
-
-export function normalizeLegacyFindingsArray(
-  raw: unknown[],
-  runId: string,
-): { findings: CanonicalFinding[]; diagnostics: Diagnostic[] } {
-  const findings: CanonicalFinding[] = []
-  const diagnostics: Diagnostic[] = []
-
-  for (const [index, item] of raw.entries()) {
-    const normalized = normalizeToCanonicalFinding(isRecord(item) ? item : {}, runId, index + 1)
-    diagnostics.push(
-      ...normalized.diagnostics.map((d) => ({
-        ...d,
-        message: `[index:${index}] ${d.message}`,
-      })),
-    )
-
-    const hasErrors = normalized.diagnostics.some((d) => d.level === "error")
-    if (!hasErrors) {
-      findings.push(normalized.data)
-    }
-  }
-
-  return { findings, diagnostics }
-}

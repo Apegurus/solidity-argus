@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeLegacyFindingsArray, normalizeToCanonicalFinding } from "./adapters"
+import { normalizeToCanonicalFinding } from "./adapters"
 import {
   type CanonicalFinding,
   SCHEMA_VERSION,
@@ -201,53 +201,6 @@ describe("normalizeToCanonicalFinding", () => {
     const result = normalizeToCanonicalFinding(raw, "run-snake", 1)
     expect(result.data.proofOfConcept).toBe("Call setOwner from non-owner account")
     expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
-  })
-})
-
-describe("normalizeLegacyFindingsArray", () => {
-  test("returns canonical findings and diagnostics for mixed payloads", () => {
-    const mixed = [
-      {
-        check: "valid-finding",
-        severity: "High",
-        confidence: "High",
-        description: "Valid finding",
-        file: "src/A.sol",
-        lines: [1, 2],
-        source: "manual",
-      },
-      {
-        detector: "missing-file",
-        severity: "Medium",
-        confidence: "Low",
-        impact: "No file alias either",
-        lines: [8, 9],
-        source: "slither",
-      },
-      {
-        check: "extra-field",
-        severity: "Low",
-        confidence: "Low",
-        description: "Has unknown field",
-        file: "src/B.sol",
-        lines: [3, 3],
-        source: "manual",
-        unknown_payload: true,
-      },
-    ]
-
-    const result = normalizeLegacyFindingsArray(mixed, "run-batch")
-    expect(result.findings).toHaveLength(2)
-    expect(result.findings[0]?.seq).toBe(1)
-    expect(result.findings[1]?.seq).toBe(3)
-    expect(
-      result.diagnostics.some((d) => d.level === "error" && d.message.includes("index:1")),
-    ).toBe(true)
-    expect(
-      result.diagnostics.some(
-        (d) => d.level === "warn" && d.code === "field.dropped" && d.message.includes("index:2"),
-      ),
-    ).toBe(true)
   })
 })
 

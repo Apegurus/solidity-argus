@@ -3,9 +3,7 @@ import type { ArgusConfig } from "./config/types"
 import { createAuditEnforcer } from "./features/audit-enforcer/audit-enforcer"
 import { createContextMonitor, createToolOutputTruncator } from "./features/context-monitor"
 import { createToolErrorRecoveryHandler } from "./features/error-recovery"
-import { getMigrationMode } from "./features/migration"
-import { adaptLegacyFindings } from "./features/migration/migration-adapter"
-import { computeParityMetrics, formatParityReport } from "./features/migration/parity-telemetry"
+
 import {
   createAuditStateManager,
   createDebouncedSave,
@@ -177,9 +175,6 @@ export function createHooks(args: {
   const agentTracker = createAgentTracker()
   _agentTrackerRef = agentTracker
 
-  const migrationMode = getMigrationMode(config)
-  logger.debug(`Migration mode: ${migrationMode}`)
-
   const contextMonitor = createContextMonitor()
   const debouncedSave = createDebouncedSave(auditStateManager.save)
 
@@ -322,18 +317,25 @@ export function createHooks(args: {
       // try inheriting the parent's run ID via audit state → eventSinksByRunId.
       // This handles the timing race where the child's activateSession fires before
       // the parent's sink is registered in eventSinksByOpencodeSession.
-      const coalescedSink = existingSink ?? (() => {
-        const parentSessionId = agentTracker.getParentSession(sessionId)
-        if (!parentSessionId) return null
-        const parentState = getAuditState(parentSessionId)
-        if (!parentState || parentState.sessionId.length === 0) return null
-        const parentSink = eventSinksByRunId.get(parentState.sessionId)
-        return parentSink && !parentSink.isFinalized ? parentSink : null
-      })()
+      const coalescedSink =
+        existingSink ??
+        (() => {
+          const parentSessionId = agentTracker.getParentSession(sessionId)
+          if (!parentSessionId) return null
+          const parentState = getAuditState(parentSessionId)
+          if (!parentState || parentState.sessionId.length === 0) return null
+          const parentSink = eventSinksByRunId.get(parentState.sessionId)
+          return parentSink && !parentSink.isFinalized ? parentSink : null
+        })()
 
       if (coalescedSink) {
         setEventSink(coalescedSink, sessionId)
-        setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, coalescedSink)
+        setBoundedSink(
+          eventSinksByOpencodeSession,
+          sinkCreatedAtBySession,
+          sessionId,
+          coalescedSink,
+        )
         setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, coalescedSink.runId, coalescedSink)
 
         const existingResolver = createAuditArtifactResolver(coalescedSink.runId, projectDir)
@@ -640,21 +642,6 @@ export function createHooks(args: {
           }
         }
 
-        if (migrationMode !== "legacy") {
-          try {
-            const { legacyFindings, canonicalFindings } = adaptLegacyFindings(
-              auditState,
-              migrationMode,
-              auditState.sessionId,
-            )
-            const parityMetrics = computeParityMetrics(legacyFindings, canonicalFindings)
-            logger.debug(formatParityReport(parityMetrics))
-          } catch (error) {
-            logger.warn(
-              `Migration parity check failed: ${error instanceof Error ? error.message : String(error)}`,
-            )
-          }
-        }
         return
       }
 
