@@ -183,7 +183,7 @@ export function createHooks(args: {
   const contextMonitor = createContextMonitor()
   const debouncedSave = createDebouncedSave(auditStateManager.save)
 
-  process.on("exit", () => {
+  const exitHandler = () => {
     try {
       debouncedSave.dispose()
       for (const sessionDebouncedSave of debouncedSavesBySession.values()) {
@@ -192,7 +192,14 @@ export function createHooks(args: {
     } catch {
       /* noop */
     }
-  })
+  }
+  process.on("exit", exitHandler)
+
+  const fullDispose = () => {
+    _agentTrackerRef = undefined
+    process.removeListener("exit", exitHandler)
+    releaseInstanceLock()
+  }
 
   const runJournal = createRunJournal(projectDir)
   let auditStateGetter: (() => AuditState | null) | undefined
@@ -1139,6 +1146,6 @@ export function createHooks(args: {
         }
       : undefined,
     event: safeEventHook,
-    dispose: releaseInstanceLock,
+    dispose: fullDispose,
   }
 }

@@ -779,4 +779,23 @@ describe("createHooks", () => {
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     expect(await Bun.file(findingsPath).exists()).toBe(true)
   })
+
+  it("dispose removes process exit handler", () => {
+    const config = ArgusConfigSchema.parse({})
+    const listenersBefore = process.listenerCount("exit")
+
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+
+    const listenersAfter = process.listenerCount("exit")
+    expect(listenersAfter).toBe(listenersBefore + 1)
+
+    hooks.dispose?.()
+    const listenersAfterDispose = process.listenerCount("exit")
+    expect(listenersAfterDispose).toBe(listenersBefore)
+  })
 })
