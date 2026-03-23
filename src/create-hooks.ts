@@ -296,6 +296,9 @@ export function createHooks(args: {
     if (!auditState) return
 
     pendingActivations.add(sessionId)
+    // Must be set BEFORE the try block — if two concurrent activateSession calls race,
+    // the second must see this guard immediately to prevent duplicate sink creation.
+    pendingSinkCreations.add(sessionId)
     let sessionActivated = false
     try {
       const timestamp = Date.now()
@@ -341,12 +344,6 @@ export function createHooks(args: {
         sessionActivated = true
         return
       }
-
-      if (pendingSinkCreations.has(sessionId)) {
-        runJournal.log({ type: "state.loaded", timestamp, success: false, findingsCount: 0 })
-        return
-      }
-      pendingSinkCreations.add(sessionId)
 
       let recoveredState: AuditState | null = null
       try {
