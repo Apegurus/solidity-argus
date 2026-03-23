@@ -6,6 +6,7 @@ import type {
   DropPolicy,
 } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
+import { isArgusFamily } from "../shared/agent-names"
 import { createLogger } from "../shared/logger"
 import { PHASE_ORDER } from "../shared/audit-phases"
 import { normalizeToCanonicalFinding } from "../state/adapters"
@@ -327,11 +328,8 @@ function processToolResult(
     const reportedByAgentRaw = item.reported_by_agent
     const reportedByAgent =
       config.allowReportedByOverride &&
-      (reportedByAgentRaw === "argus" ||
-        reportedByAgentRaw === "sentinel" ||
-        reportedByAgentRaw === "pythia" ||
-        reportedByAgentRaw === "scribe" ||
-        reportedByAgentRaw === "unknown")
+      typeof reportedByAgentRaw === "string" &&
+      (isArgusFamily(reportedByAgentRaw) || reportedByAgentRaw === "unknown")
         ? (reportedByAgentRaw as ArgusAgentName)
         : metadata.reportedByAgent
 
