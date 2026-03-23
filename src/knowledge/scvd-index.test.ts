@@ -175,6 +175,16 @@ describe("saveIndex/loadIndex", () => {
     expect(loaded).toBeNull()
   })
 
+  test("loadIndex returns null for corrupted JSON", async () => {
+    mkdirSync(tempDir, { recursive: true })
+    const indexPath = join(tempDir, "corrupted-index.json")
+    const { writeFileSync } = await import("node:fs")
+    writeFileSync(indexPath, '{"version": 1, CORRUPTED')
+
+    const result = await loadIndex(indexPath)
+    expect(result).toBeNull()
+  })
+
   test("uses atomic write with temp file then rename", async () => {
     mkdirSync(tempDir, { recursive: true })
     const filePath = join(tempDir, "atomic-index.json")

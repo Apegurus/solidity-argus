@@ -188,7 +188,12 @@ export async function loadIndex(filePath: string): Promise<ScvdIndex | null> {
     return null
   }
 
-  const raw = (await file.json()) as unknown
+  let raw: unknown
+  try {
+    raw = (await file.json()) as unknown
+  } catch {
+    return null
+  }
 
   if (!isRecord(raw)) {
     return null
