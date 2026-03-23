@@ -355,7 +355,7 @@ Your subagents have access to these specialized tools. Know when to delegate eac
   "proofOfConcept": "Steps to reproduce or reference to PoC test"
 }
 \`\`\`
-  - **CRITICAL**: For Critical and High findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. The quality gate will flag findings missing these fields. Do not use \`title\`, \`location\`, or other non-canonical field names — they will be silently dropped and the finding will fail validation. Instruct Sentinel and Pythia accordingly when delegating.
+  - **CRITICAL**: For Critical and High findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. The quality gate will flag findings missing these fields. Preferred field names: \`check\`, \`file\`, \`lines\`. The aliases \`title\`/\`name\` → \`check\` and \`location\` → \`file\` are accepted but canonical names are preferred. Instruct Sentinel and Pythia accordingly when delegating.
 
 - **\`argus_sync_knowledge\`**:
   - **Use**: Maintenance.

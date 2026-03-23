@@ -182,7 +182,7 @@ export const recordFindingTool = tool({
       .string()
       .optional()
       .describe(
-        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Do NOT use title, location, or other non-canonical field names.",
+        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Aliases title/name → check and location → file are accepted but canonical names are preferred.",
       ),
   },
   async execute(args, context) {
