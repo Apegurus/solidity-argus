@@ -75,6 +75,25 @@ export function createEventHook(
   const logger = createLogger()
   const statesBySessionId = new Map<string, AuditState>()
   const sinksBySessionId = new Map<string, EventSink>()
+
+  const MAX_SESSION_STATES = 500
+
+  function setSessionState(sessionId: string, state: AuditState): void {
+    if (statesBySessionId.size >= MAX_SESSION_STATES && !statesBySessionId.has(sessionId)) {
+      const oldest = statesBySessionId.keys().next().value
+      if (oldest) statesBySessionId.delete(oldest)
+    }
+    statesBySessionId.set(sessionId, state)
+  }
+
+  function setSessionSink(sessionId: string, sink: EventSink): void {
+    if (sinksBySessionId.size >= MAX_SESSION_STATES && !sinksBySessionId.has(sessionId)) {
+      const oldest = sinksBySessionId.keys().next().value
+      if (oldest) sinksBySessionId.delete(oldest)
+    }
+    sinksBySessionId.set(sessionId, sink)
+  }
+
   let fallbackAuditState: AuditState | null = null
   let fallbackEventSink: EventSink | null = null
   let activeSessionId = ""
@@ -100,7 +119,7 @@ export function createEventHook(
   const setAuditState = (state: AuditState | null, sessionId?: string): void => {
     if (sessionId && sessionId.length > 0) {
       if (state) {
-        statesBySessionId.set(sessionId, state)
+        setSessionState(sessionId, state)
         activeSessionId = sessionId
       } else {
         statesBySessionId.delete(sessionId)
@@ -130,7 +149,7 @@ export function createEventHook(
   const setEventSink = (sink: EventSink | null, sessionId?: string): void => {
     if (sessionId && sessionId.length > 0) {
       if (sink) {
-        sinksBySessionId.set(sessionId, sink)
+        setSessionSink(sessionId, sink)
       } else {
         sinksBySessionId.delete(sessionId)
       }
@@ -179,7 +198,7 @@ export function createEventHook(
         const dir = projectDir ?? process.cwd()
         const { state } = createAuditState(dir)
         if (sessionId && sessionId.length > 0) {
-          statesBySessionId.set(sessionId, state)
+          setSessionState(sessionId, state)
           activeSessionId = sessionId
         } else {
           fallbackAuditState = state
