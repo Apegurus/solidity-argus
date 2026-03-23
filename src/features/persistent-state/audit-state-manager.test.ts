@@ -16,7 +16,8 @@ import { resetLoggerSink } from "../../shared/logger"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import type { AuditState, Finding } from "../../state/types"
-import { createAsyncMutex, createAuditStateManager } from "./audit-state-manager"
+import { createAsyncMutex, createAuditStateManager, migrateLegacyFindingIds } from "./audit-state-manager"
+import { normalizeText } from "../../state/finding-fingerprint"
 
 const WRITE_DIR = ".argus"
 const LEGACY_DIR = ".opencode"
@@ -681,7 +682,7 @@ describe("createAuditStateManager", () => {
       const loaded = await manager.load()
 
       const expectedId = createHash("sha256")
-        .update("reentrancy-eth:Vault.sol:10-15")
+        .update("reentrancy-eth:vault.sol:10-15")
         .digest("hex")
         .substring(0, 16)
 
@@ -1061,5 +1062,42 @@ describe("createAuditStateManager", () => {
 
     expect(existsSync(staleTmpA)).toBe(false)
     expect(existsSync(staleTmpB)).toBe(false)
+  })
+
+  test("migrated finding IDs match finding-store IDs for same input", () => {
+    const check = " Reentrancy-Eth "
+    const file = " Src/Vault.sol "
+    const lines: [number, number] = [10, 20]
+
+    const normalizedHash = createHash("sha256")
+      .update(`${normalizeText(check)}:${normalizeText(file)}:${lines[0]}-${lines[1]}`)
+      .digest("hex")
+      .substring(0, 16)
+
+    const state: AuditState = {
+      sessionId: "test-session",
+      projectDir: "/tmp",
+      contractsReviewed: [],
+      findings: [
+        {
+          id: "obs-1",
+          check,
+          file,
+          lines,
+          severity: "High",
+          confidence: "High",
+          description: "test",
+          source: "slither",
+        },
+      ],
+      toolsExecuted: [],
+      currentPhase: "reconnaissance",
+      scope: [],
+      startTime: 1,
+    }
+
+    const migratedCount = migrateLegacyFindingIds(state)
+    expect(migratedCount).toBe(1)
+    expect(state.findings[0]?.id).toBe(normalizedHash)
   })
 })

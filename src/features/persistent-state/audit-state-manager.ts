@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { normalizeText } from "../../state/finding-fingerprint"
 import { mkdirSync } from "node:fs"
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
@@ -37,12 +38,12 @@ function generateDeterministicFindingId(
   lines: [number, number],
 ): string {
   return createHash("sha256")
-    .update(`${check}:${file}:${lines[0]}-${lines[1]}`)
+    .update(`${normalizeText(check)}:${normalizeText(file)}:${lines[0]}-${lines[1]}`)
     .digest("hex")
     .substring(0, 16)
 }
 
-function migrateLegacyFindingIds(state: AuditState): number {
+export function migrateLegacyFindingIds(state: AuditState): number {
   let migratedCount = 0
 
   state.findings = state.findings.map((finding) => {
