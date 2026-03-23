@@ -318,14 +318,27 @@ export function createHooks(args: {
         return activeSinks.length === 1 ? (activeSinks[0] ?? null) : null
       })()
 
-      if (existingSink) {
-        setEventSink(existingSink, sessionId)
-        setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, existingSink)
-        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, existingSink.runId, existingSink)
+      // Fallback: if no existing sink found via direct/parent/heuristic lookup,
+      // try inheriting the parent's run ID via audit state → eventSinksByRunId.
+      // This handles the timing race where the child's activateSession fires before
+      // the parent's sink is registered in eventSinksByOpencodeSession.
+      const coalescedSink = existingSink ?? (() => {
+        const parentSessionId = agentTracker.getParentSession(sessionId)
+        if (!parentSessionId) return null
+        const parentState = getAuditState(parentSessionId)
+        if (!parentState || parentState.sessionId.length === 0) return null
+        const parentSink = eventSinksByRunId.get(parentState.sessionId)
+        return parentSink && !parentSink.isFinalized ? parentSink : null
+      })()
 
-        const existingResolver = createAuditArtifactResolver(existingSink.runId, projectDir)
+      if (coalescedSink) {
+        setEventSink(coalescedSink, sessionId)
+        setBoundedSink(eventSinksByOpencodeSession, sinkCreatedAtBySession, sessionId, coalescedSink)
+        setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, coalescedSink.runId, coalescedSink)
+
+        const existingResolver = createAuditArtifactResolver(coalescedSink.runId, projectDir)
         recordRun({
-          runId: existingSink.runId,
+          runId: coalescedSink.runId,
           opencodeSessionId: sessionId,
           projectDir: auditState?.projectDir ?? projectDir,
           statePath: existingResolver.paths().stateFile,
@@ -338,7 +351,7 @@ export function createHooks(args: {
         )
 
         if (auditState) {
-          setAuditState({ ...auditState, sessionId: existingSink.runId }, sessionId)
+          setAuditState({ ...auditState, sessionId: coalescedSink.runId }, sessionId)
         }
         runJournal.log({ type: "state.loaded", timestamp, success: true, findingsCount: 0 })
         sessionActivated = true
