@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto"
 import type { EventSink } from "../features/persistent-state/event-sink"
+import { isArgusFamily } from "../shared/agent-names"
+import { PHASE_ORDER } from "../shared/audit-phases"
 import type {
   DropDiagnostic,
   DropDiagnosticsCollector,
   DropPolicy,
 } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
-import { isArgusFamily } from "../shared/agent-names"
 import { createLogger } from "../shared/logger"
 import { safeEmitToSink } from "../shared/safe-emit"
-import { PHASE_ORDER } from "../shared/audit-phases"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import type { FindingStore } from "../state/finding-store"
 import { createFindingStore } from "../state/finding-store"
@@ -463,7 +463,6 @@ const TOOL_PHASE_MAP: Record<string, AuditState["currentPhase"]> = {
   argus_gas_analysis: "testing",
   argus_generate_report: "reporting",
 }
-
 
 function inferPhaseAdvancement(
   state: AuditState,

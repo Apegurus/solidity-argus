@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto"
-import { normalizeText } from "../../state/finding-fingerprint"
 import { mkdirSync } from "node:fs"
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
@@ -7,6 +6,7 @@ import type { AuditStateManager } from "../../managers/types"
 import { createLogger } from "../../shared/logger"
 import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
 import { createAuditState } from "../../state/audit-state"
+import { normalizeText } from "../../state/finding-fingerprint"
 import { projectAuditState, stableHash } from "../../state/projectors"
 import type { AuditState, PersistentAuditState } from "../../state/types"
 import { readEvents } from "./event-sink"
@@ -198,7 +198,11 @@ export function createDebouncedSave(
     }
 
     // Only the latest state matters — each write replaces the file
-    const latestState = pendingStates[pendingStates.length - 1]!
+    const latestState = pendingStates[pendingStates.length - 1]
+    if (!latestState) {
+      pendingStates.length = 0
+      return
+    }
     pendingStates.length = 0
 
     try {

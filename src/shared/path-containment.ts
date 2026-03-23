@@ -1,4 +1,4 @@
-import { resolve, relative } from "node:path"
+import { relative, resolve } from "node:path"
 
 export function isContained(child: string, root: string): boolean {
   const resolvedChild = resolve(root, child)
@@ -10,9 +10,7 @@ export function isContained(child: string, root: string): boolean {
 export function assertContained(child: string, root: string): string {
   const resolvedChild = resolve(root, child)
   if (!isContained(resolvedChild, root)) {
-    throw new Error(
-      `Path "${child}" resolves outside project root "${root}"`,
-    )
+    throw new Error(`Path "${child}" resolves outside project root "${root}"`)
   }
   return resolvedChild
 }

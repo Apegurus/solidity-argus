@@ -280,9 +280,8 @@ function parseCoverage(payload: CoveragePayload): { files: ForgeCoverageFile[] }
 
 function normalizeArgs(args: ForgeTestArgs, context: ToolContext): NormalizedForgeTestArgs {
   const projectRoot = resolveProjectDir(context)
-  const target = args.target && args.target !== "."
-    ? assertContained(args.target, projectRoot)
-    : projectRoot
+  const target =
+    args.target && args.target !== "." ? assertContained(args.target, projectRoot) : projectRoot
 
   if (args.fork_url && !validateUrlScheme(args.fork_url)) {
     throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)

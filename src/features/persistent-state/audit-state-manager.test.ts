@@ -13,11 +13,16 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
 import { resetLoggerSink } from "../../shared/logger"
+import { normalizeText } from "../../state/finding-fingerprint"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import type { AuditState, Finding } from "../../state/types"
-import { createAsyncMutex, createAuditStateManager, createDebouncedSave, migrateLegacyFindingIds } from "./audit-state-manager"
-import { normalizeText } from "../../state/finding-fingerprint"
+import {
+  createAsyncMutex,
+  createAuditStateManager,
+  createDebouncedSave,
+  migrateLegacyFindingIds,
+} from "./audit-state-manager"
 
 const WRITE_DIR = ".argus"
 const LEGACY_DIR = ".opencode"

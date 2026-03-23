@@ -164,11 +164,11 @@ test("forgeFuzzTool.execute returns JSON string payload", async () => {
 test("executeForgeFuzz rejects path traversal in target", async () => {
   const { context } = createContext()
 
-  const result = await executeForgeFuzz(
-    { target: "../../etc", runs: 1 },
-    context,
-    async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-  )
+  const result = await executeForgeFuzz({ target: "../../etc", runs: 1 }, context, async () => ({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  }))
   expect(result.success).toBe(false)
   expect(result.error).toContain("outside")
 })

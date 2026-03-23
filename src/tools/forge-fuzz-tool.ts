@@ -58,9 +58,8 @@ function normalizeArgs(args: ForgeFuzzArgs, context: ToolContext): NormalizedFor
     typeof args.runs === "number" && Number.isFinite(args.runs) ? args.runs : 256
   const clampedRuns = Math.max(1, Math.min(10000, Math.floor(requestedRuns)))
   const projectRoot = resolveProjectDir(context)
-  const target = args.target && args.target !== "."
-    ? assertContained(args.target, projectRoot)
-    : projectRoot
+  const target =
+    args.target && args.target !== "." ? assertContained(args.target, projectRoot) : projectRoot
 
   if (args.fork_url && !validateUrlScheme(args.fork_url)) {
     throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)

@@ -238,11 +238,11 @@ test("executeForgeTest runs coverage command and parses report", async () => {
 test("executeForgeTest rejects path traversal in target", async () => {
   const { context } = createContext()
 
-  const result = await executeForgeTest(
-    { target: "../../etc" },
-    context,
-    async () => ({ stdout: "{}", stderr: "", exitCode: 0 }),
-  )
+  const result = await executeForgeTest({ target: "../../etc" }, context, async () => ({
+    stdout: "{}",
+    stderr: "",
+    exitCode: 0,
+  }))
   expect(result.success).toBe(false)
   expect(result.error).toContain("outside")
 })

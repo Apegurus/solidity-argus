@@ -1,7 +1,7 @@
-import { createLogger } from "./logger"
-import { formatError } from "./format-error"
-import type { AuditEvent } from "../state/schemas"
 import type { EventSink } from "../features/persistent-state/event-sink"
+import type { AuditEvent } from "../state/schemas"
+import { formatError } from "./format-error"
+import { createLogger } from "./logger"
 
 const logger = createLogger()
 

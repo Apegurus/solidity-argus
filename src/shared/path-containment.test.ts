@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { assertContained, isContained, validateUrlScheme } from "./path-containment"
 
 test("isContained allows subdirectories", () => {

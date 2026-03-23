@@ -1,6 +1,6 @@
 import crypto from "node:crypto"
-import type { AuditState, Finding, FindingSeverity } from "./types"
 import { normalizeText } from "./finding-fingerprint"
+import type { AuditState, Finding, FindingSeverity } from "./types"
 
 export interface FindingStore {
   addFinding(finding: Omit<Finding, "id">): Finding
