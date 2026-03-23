@@ -7,6 +7,7 @@ import type {
 } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
+import { PHASE_ORDER } from "../shared/audit-phases"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import type { FindingStore } from "../state/finding-store"
 import { createFindingStore } from "../state/finding-store"
@@ -479,16 +480,6 @@ const TOOL_PHASE_MAP: Record<string, AuditState["currentPhase"]> = {
   argus_generate_report: "reporting",
 }
 
-const PHASE_ORDER: readonly AuditState["currentPhase"][] = [
-  "reconnaissance",
-  "scanning",
-  "manual-review",
-  "attack-surface",
-  "research",
-  "testing",
-  "reporting",
-  "complete",
-]
 
 function inferPhaseAdvancement(
   state: AuditState,

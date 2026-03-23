@@ -1,15 +1,5 @@
 import type { AuditPhase, AuditState } from "../../state/types"
-
-const PHASE_ORDER: AuditPhase[] = [
-  "reconnaissance",
-  "scanning",
-  "manual-review",
-  "attack-surface",
-  "research",
-  "testing",
-  "reporting",
-  "complete",
-]
+import { PHASE_ORDER } from "../../shared/audit-phases"
 
 const REPORTING_PHASES: AuditPhase[] = ["reporting", "complete"]
 
