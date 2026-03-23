@@ -485,8 +485,8 @@ describe("v0.4.0 hardening verification", () => {
     await fireEvent(plugin, "session.idle", sessionID)
     const persisted = sessionStateJson(sessionID)
     const findings = (persisted.findings ?? []) as Array<Record<string, unknown>>
-    expect(findings).toHaveLength(2)
-    expect(findings[0]?.issue_fingerprint).toBe(findings[1]?.issue_fingerprint)
+    // Same check+file+lines from repeated tool calls are deduplicated
+    expect(findings).toHaveLength(1)
     expect(String(findings[0]?.id)).not.toMatch(/^obs-/)
   })
 
