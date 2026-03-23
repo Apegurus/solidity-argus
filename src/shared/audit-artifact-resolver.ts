@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { defaultRootResolver } from "./path-root-resolver"
 
 export class ArtifactResolverError extends Error {
@@ -68,10 +68,10 @@ export function createAuditArtifactResolver(
       return cachedPaths
     },
     reportFilePath(filename: string): string {
-      return join(cachedPaths.reportDir, filename)
+      return join(cachedPaths.reportDir, basename(filename))
     },
     evidenceFilePath(filename: string): string {
-      return join(cachedPaths.evidenceDir, filename)
+      return join(cachedPaths.evidenceDir, basename(filename))
     },
   }
 }

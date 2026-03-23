@@ -1,6 +1,7 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
+import { assertContained, validateUrlScheme } from "../shared/path-containment"
 import { resolveProjectDir } from "../shared/project-utils"
 import { extractJson } from "../utils/solidity-parser"
 
@@ -278,7 +279,15 @@ function parseCoverage(payload: CoveragePayload): { files: ForgeCoverageFile[] }
 }
 
 function normalizeArgs(args: ForgeTestArgs, context: ToolContext): NormalizedForgeTestArgs {
-  const target = args.target && args.target !== "." ? args.target : resolveProjectDir(context)
+  const projectRoot = resolveProjectDir(context)
+  const target = args.target && args.target !== "."
+    ? assertContained(args.target, projectRoot)
+    : projectRoot
+
+  if (args.fork_url && !validateUrlScheme(args.fork_url)) {
+    throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)
+  }
+
   return {
     target,
     match_test: args.match_test,
@@ -318,8 +327,6 @@ export async function executeForgeTest(
   runCommand: RunForgeCommand = runForgeCommand,
 ): Promise<ForgeTestResult> {
   const startedAt = Date.now()
-  const normalizedArgs = normalizeArgs(args, context)
-  context.metadata({ title: `Run forge test: ${normalizedArgs.target}` })
 
   const fail = (error: string): ForgeTestResult => ({
     success: false,
@@ -330,6 +337,8 @@ export async function executeForgeTest(
   })
 
   try {
+    const normalizedArgs = normalizeArgs(args, context)
+    context.metadata({ title: `Run forge test: ${normalizedArgs.target}` })
     const testResult = await runCommand(buildForgeTestCommand(normalizedArgs), {
       signal: context.abort,
       cwd: normalizedArgs.target,

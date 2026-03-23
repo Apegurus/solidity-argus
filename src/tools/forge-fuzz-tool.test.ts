@@ -161,6 +161,30 @@ test("forgeFuzzTool.execute returns JSON string payload", async () => {
   expect(parsed).toHaveProperty("executionTime")
 })
 
+test("executeForgeFuzz rejects path traversal in target", async () => {
+  const { context } = createContext()
+
+  const result = await executeForgeFuzz(
+    { target: "../../etc", runs: 1 },
+    context,
+    async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+  )
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("outside")
+})
+
+test("executeForgeFuzz rejects non-http fork_url", async () => {
+  const { context } = createContext()
+
+  const result = await executeForgeFuzz(
+    { target: ".", runs: 1, fork_url: "file:///etc/passwd" },
+    context,
+    async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+  )
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("fork_url must use http:// or https://")
+})
+
 test("executeForgeFuzz handles ENOENT, timeout, and abort", async () => {
   const { context } = createContext()
 

@@ -213,7 +213,7 @@ test("executeForgeTest runs coverage command and parses report", async () => {
     ],
     ["forge", "coverage", "--report", "json"],
   ])
-  expect(cwdCalls).toEqual(["contracts", "contracts"])
+  expect(cwdCalls).toEqual(["/tmp/project/contracts", "/tmp/project/contracts"])
   expect(result.success).toBe(true)
   expect(result.coverageReport).toEqual({
     files: [
@@ -233,6 +233,30 @@ test("executeForgeTest runs coverage command and parses report", async () => {
       },
     ],
   })
+})
+
+test("executeForgeTest rejects path traversal in target", async () => {
+  const { context } = createContext()
+
+  const result = await executeForgeTest(
+    { target: "../../etc" },
+    context,
+    async () => ({ stdout: "{}", stderr: "", exitCode: 0 }),
+  )
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("outside")
+})
+
+test("executeForgeTest rejects non-http fork_url", async () => {
+  const { context } = createContext()
+
+  const result = await executeForgeTest(
+    { target: ".", fork_url: "file:///etc/passwd" },
+    context,
+    async () => ({ stdout: "{}", stderr: "", exitCode: 0 }),
+  )
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("fork_url must use http:// or https://")
 })
 
 test("executeForgeTest handles ENOENT when forge is missing", async () => {

@@ -1,6 +1,7 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
+import { assertContained, validateUrlScheme } from "../shared/path-containment"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeFuzzArgs = {
@@ -56,7 +57,14 @@ function normalizeArgs(args: ForgeFuzzArgs, context: ToolContext): NormalizedFor
   const requestedRuns =
     typeof args.runs === "number" && Number.isFinite(args.runs) ? args.runs : 256
   const clampedRuns = Math.max(1, Math.min(10000, Math.floor(requestedRuns)))
-  const target = args.target && args.target !== "." ? args.target : resolveProjectDir(context)
+  const projectRoot = resolveProjectDir(context)
+  const target = args.target && args.target !== "."
+    ? assertContained(args.target, projectRoot)
+    : projectRoot
+
+  if (args.fork_url && !validateUrlScheme(args.fork_url)) {
+    throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)
+  }
 
   return {
     target,
@@ -183,8 +191,6 @@ export async function executeForgeFuzz(
   runCommand: RunForgeFuzzCommand = runForgeCommand,
 ): Promise<ForgeFuzzResult> {
   const startedAt = Date.now()
-  const normalized = normalizeArgs(args, context)
-  context.metadata({ title: `Run forge fuzz: ${normalized.target}` })
 
   const fail = (error: string): ForgeFuzzResult => ({
     success: false,
@@ -196,6 +202,8 @@ export async function executeForgeFuzz(
   })
 
   try {
+    const normalized = normalizeArgs(args, context)
+    context.metadata({ title: `Run forge fuzz: ${normalized.target}` })
     const runResult = await runCommand(buildForgeFuzzCommand(normalized), {
       signal: context.abort,
       cwd: normalized.target,
