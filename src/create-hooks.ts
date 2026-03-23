@@ -173,7 +173,7 @@ export function createHooks(args: {
   globals[INSTANCE_LOCK] = true
 
   const { config, managers, projectDir, isHookEnabled } = args
-  const { auditStateManager, backgroundManager } = managers
+  const { auditStateManager } = managers
   const agentTracker = createAgentTracker()
   _agentTrackerRef = agentTracker
 
@@ -691,11 +691,7 @@ export function createHooks(args: {
         )
       }
     },
-    async ({ type }) => {
-      if (type === "session.idle") {
-        backgroundManager.getActiveCount()
-      }
-    },
+    async () => {},
   ])
 
   auditStateGetter = () => getAuditState()
