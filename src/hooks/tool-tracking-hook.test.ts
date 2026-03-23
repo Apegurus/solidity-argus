@@ -200,7 +200,7 @@ describe("createToolTrackingHook", () => {
     expect(sink.events.some((event) => event.type === "finding.added")).toBe(true)
   })
 
-  test("cross-tool observations are both retained", async () => {
+  test("cross-tool observations with same check+file+lines are deduplicated", async () => {
     const slitherResult = {
       success: true,
       findingsCount: 1,
@@ -251,9 +251,9 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
-    expect(auditState.findings).toHaveLength(2)
+    // Same check+file+lines from different tools are deduplicated by finding-store
+    expect(auditState.findings).toHaveLength(1)
     expect(auditState.findings.at(0)?.source).toBe("slither")
-    expect(auditState.findings.at(1)?.source).toBe("pattern")
   })
 
   test("contract analyzer updates contractsReviewed", async () => {
@@ -1370,7 +1370,7 @@ Content...`
       expect(startPayload.tool).toBe("argus_skill_load")
     })
 
-    test("keeps repeated observations and emits finding.added for each", async () => {
+    test("deduplicates repeated observations — emits finding.added only for first", async () => {
       const sink = createMockSink()
       const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
         getEventSink: () => sink,
@@ -1422,8 +1422,9 @@ Content...`
         result: JSON.stringify(patternResult),
       })
 
+      // Same check+file+lines deduped — no new finding.added event
       const findingsAfter = sink.events.filter((e) => e.type === "finding.added").length
-      expect(findingsAfter).toBe(2)
+      expect(findingsAfter).toBe(1)
     })
 
     test("does not emit to sink for non-argus tools", async () => {
