@@ -3,6 +3,7 @@ import { updateRunStatus } from "../features/persistent-state/global-run-index"
 import type { FinalizationResult } from "../features/persistent-state/run-finalizer"
 import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
+import { safeEmitToSink } from "../shared/safe-emit"
 import { ARGUS_PLUGIN_VERSION } from "../shared/plugin-metadata"
 import { createAuditState } from "../state/audit-state"
 import type { AuditEvent } from "../state/schemas"
@@ -167,22 +168,16 @@ export function createEventHook(
     payload: unknown,
   ): Promise<void> {
     if (!sink) return
-    try {
-      await sink.append({
-        type,
-        run_id: runId,
-        seq: 0, // auto-assigned by sink
-        session_id: sessionId ?? "",
-        source: "event-hook",
-        schema_version: SCHEMA_VERSION,
-        timestamp: Date.now(),
-        payload,
-      })
-    } catch (error) {
-      logger.error(
-        `Failed to emit ${type} event to sink: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
+    await safeEmitToSink(sink, {
+      type,
+      run_id: runId,
+      seq: 0, // auto-assigned by sink
+      session_id: sessionId ?? "",
+      source: "event-hook",
+      schema_version: SCHEMA_VERSION,
+      timestamp: Date.now(),
+      payload,
+    })
   }
 
   const hook: EventHookFn = async (input): Promise<void> => {

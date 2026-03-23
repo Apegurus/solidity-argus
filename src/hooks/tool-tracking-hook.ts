@@ -8,6 +8,7 @@ import type {
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { isArgusFamily } from "../shared/agent-names"
 import { createLogger } from "../shared/logger"
+import { safeEmitToSink } from "../shared/safe-emit"
 import { PHASE_ORDER } from "../shared/audit-phases"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import type { FindingStore } from "../state/finding-store"
@@ -109,22 +110,7 @@ function toFindingSource(value: unknown): Finding["source"] {
   return "manual"
 }
 
-async function emitToSink(
-  sink: EventSink,
-  event: AuditEvent,
-  options?: { failFast?: boolean },
-): Promise<void> {
-  try {
-    await sink.append(event)
-  } catch (error) {
-    const message = `Failed to emit ${event.type} event to sink: ${error instanceof Error ? error.message : String(error)}`
-    logger.error(message)
-
-    if (options?.failFast) {
-      throw new Error(message)
-    }
-  }
-}
+const emitToSink = safeEmitToSink
 
 function buildEvent(
   type: AuditEvent["type"],
