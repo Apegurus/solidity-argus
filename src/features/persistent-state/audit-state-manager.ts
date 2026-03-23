@@ -197,18 +197,14 @@ export function createDebouncedSave(
       return
     }
 
-    const statesToPersist = pendingStates.splice(0, pendingStates.length)
+    // Only the latest state matters — each write replaces the file
+    const latestState = pendingStates[pendingStates.length - 1]!
+    pendingStates.length = 0
 
-    for (const state of statesToPersist) {
-      try {
-        await saveState(state)
-      } catch {
-        createLogger().debug("Debounced state persistence failed")
-      }
-    }
-
-    if (pendingStates.length > 0) {
-      await persistPendingStateQueue()
+    try {
+      await saveState(latestState)
+    } catch {
+      createLogger().debug("Debounced state persistence failed")
     }
   }
 

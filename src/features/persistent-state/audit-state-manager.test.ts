@@ -16,7 +16,7 @@ import { resetLoggerSink } from "../../shared/logger"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import type { AuditState, Finding } from "../../state/types"
-import { createAsyncMutex, createAuditStateManager, migrateLegacyFindingIds } from "./audit-state-manager"
+import { createAsyncMutex, createAuditStateManager, createDebouncedSave, migrateLegacyFindingIds } from "./audit-state-manager"
 import { normalizeText } from "../../state/finding-fingerprint"
 
 const WRITE_DIR = ".argus"
@@ -1099,5 +1099,34 @@ describe("createAuditStateManager", () => {
     const migratedCount = migrateLegacyFindingIds(state)
     expect(migratedCount).toBe(1)
     expect(state.findings[0]?.id).toBe(normalizedHash)
+  })
+
+  test("createDebouncedSave only persists the latest state on flush", async () => {
+    const saved: AuditState[] = []
+    const debounced = createDebouncedSave(async (state) => {
+      saved.push(structuredClone(state))
+    }, 100)
+
+    const state1: AuditState = {
+      sessionId: "s1",
+      projectDir: "/tmp",
+      contractsReviewed: [],
+      findings: [],
+      toolsExecuted: [],
+      currentPhase: "reconnaissance",
+      scope: [],
+      startTime: Date.now(),
+    }
+    const state2: AuditState = { ...state1, currentPhase: "scanning" }
+    const state3: AuditState = { ...state1, currentPhase: "testing" }
+
+    debounced.save(state1)
+    debounced.save(state2)
+    debounced.save(state3)
+
+    await debounced.flush()
+
+    expect(saved).toHaveLength(1)
+    expect(saved[0]?.currentPhase).toBe("testing")
   })
 })
