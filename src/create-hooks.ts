@@ -809,6 +809,7 @@ export function createHooks(args: {
                   return null
                 })(),
               getEventSinkForRun: (runId: string) => eventSinksByRunId.get(runId) ?? null,
+              projectDir,
               getActiveRunSinks: () =>
                 Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized),
               getAgentNameForSession: (sessionId: string) => {

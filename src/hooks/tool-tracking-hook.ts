@@ -50,6 +50,7 @@ export type ToolTrackingOptions = {
   getAgentNameForSession?: (sessionId: string) => ArgusAgentName | undefined
   dropPolicy?: DropPolicy
   onChildSessionDetected?: (parentSessionId: string, childSessionId: string) => void
+  projectDir?: string
 }
 
 const VALID_SEVERITIES: ReadonlySet<string> = new Set([
@@ -498,6 +499,7 @@ export function createToolTrackingHook(
   onStateChanged?: (metadata: ToolExecutionMetadata) => void,
   options?: ToolTrackingOptions,
 ): ToolTrackingHook {
+  const projectDir = options?.projectDir
   const storesByState = new WeakMap<AuditState, FindingStore>()
   let lastDiagnostics: DropDiagnostic[] = []
   const orphanBuffer = new Map<string, OrphanEvent[]>()
@@ -896,7 +898,7 @@ export function createToolTrackingHook(
               reportedBySessionId: sessionId,
               toolCallId,
               observationId: `${toolCallId}:${index + 1}`,
-            })
+            }, projectDir)
             await emitToSink(
               sink,
               buildEvent("finding.added", runId, sessionId, toolCallId, canonical),

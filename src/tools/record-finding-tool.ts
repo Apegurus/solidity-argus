@@ -98,6 +98,7 @@ export async function executeRecordFinding(
   const reportedByAgent = normalizeAgent(context.agent)
   const reportedBySessionId = context.sessionID
   const runId = "tool-local"
+  const projectDir = context.directory ?? process.cwd()
 
   const findings: ReturnType<typeof normalizeToCanonicalFinding>["data"][] = []
   const errors: string[] = []
@@ -107,7 +108,7 @@ export async function executeRecordFinding(
       reportedByAgent,
       reportedBySessionId,
       observationId: `${reportedBySessionId}:${index + 1}`,
-    })
+    }, projectDir)
 
     const diagnosticsErrors = normalized.diagnostics.filter((diag) => diag.level === "error")
     if (diagnosticsErrors.length > 0) {
