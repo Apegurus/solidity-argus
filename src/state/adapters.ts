@@ -28,6 +28,8 @@ const KNOWN_INPUT_FIELDS = new Set([
   "id",
   "check",
   "detector",
+  "title",
+  "name",
   "severity",
   "confidence",
   "description",
@@ -61,6 +63,7 @@ const KNOWN_INPUT_FIELDS = new Set([
   "observationFingerprint",
   "issueFingerprint",
   "elements",
+  "location",
 ])
 
 export interface NormalizeFindingOptions {
@@ -119,6 +122,17 @@ function normalizeLines(
   return undefined
 }
 
+function extractFileFromLocation(location: string): string {
+  const colonIndex = location.lastIndexOf(":")
+  if (colonIndex > 0) {
+    const afterColon = location.substring(colonIndex + 1)
+    if (/^\d+(-\d+)?$/.test(afterColon)) {
+      return location.substring(0, colonIndex)
+    }
+  }
+  return location
+}
+
 function slitherElementFileAlias(input: Record<string, unknown>): string | undefined {
   if (!Array.isArray(input.elements) || input.elements.length === 0) {
     return undefined
@@ -169,7 +183,11 @@ export function normalizeToCanonicalFinding(
       ? input.check
       : typeof input.detector === "string" && input.detector.length > 0
         ? input.detector
-        : ""
+        : typeof input.title === "string" && input.title.length > 0
+          ? input.title
+          : typeof input.name === "string" && input.name.length > 0
+            ? input.name
+            : ""
 
   const description =
     typeof input.description === "string" && input.description.length > 0
@@ -184,10 +202,20 @@ export function normalizeToCanonicalFinding(
   const rawFile =
     typeof input.file === "string" && input.file.length > 0
       ? input.file
-      : (slitherElementFileAlias(input) ?? "")
+      : typeof input.location === "string" && input.location.length > 0
+        ? extractFileFromLocation(input.location)
+        : (slitherElementFileAlias(input) ?? "")
   const file = projectDir ? normalizeFilePath(rawFile, projectDir) : rawFile
 
-  const lines = normalizeLines(input.lines, input)
+  let lines = normalizeLines(input.lines, input)
+  if (!lines && typeof input.location === "string") {
+    const match = input.location.match(/:(\d+)(?:-(\d+))?$/)
+    if (match) {
+      const start = parseInt(match[1]!, 10)
+      const end = match[2] ? parseInt(match[2], 10) : start
+      lines = [start, end] as [number, number]
+    }
+  }
   const severity = normalizeSeverity(input.severity)
   const confidence = normalizeConfidence(input.confidence)
   const source =

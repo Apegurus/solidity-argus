@@ -325,3 +325,80 @@ describe("validateReportInput", () => {
     }
   })
 })
+
+describe("normalizeToCanonicalFinding field aliases", () => {
+  test("normalizes title alias to check", () => {
+    const raw = {
+      title: "reentrancy-eth",
+      severity: "High",
+      confidence: "High",
+      description: "Reentrancy in withdraw",
+      file: "src/Vault.sol",
+      lines: [10, 20],
+      source: "manual",
+    }
+    const result = normalizeToCanonicalFinding(raw, "run-title", 1)
+    expect(result.data.check).toBe("reentrancy-eth")
+    expect(
+      result.diagnostics.filter((d) => d.code === "field.dropped" && d.field === "title"),
+    ).toHaveLength(0)
+  })
+
+  test("normalizes name alias to check", () => {
+    const raw = {
+      name: "unchecked-transfer",
+      severity: "Medium",
+      confidence: "Medium",
+      description: "Unchecked return value",
+      file: "src/Token.sol",
+      lines: [5, 10],
+      source: "manual",
+    }
+    const result = normalizeToCanonicalFinding(raw, "run-name", 1)
+    expect(result.data.check).toBe("unchecked-transfer")
+    expect(
+      result.diagnostics.filter((d) => d.code === "field.dropped" && d.field === "name"),
+    ).toHaveLength(0)
+  })
+
+  test("check field takes precedence over title alias", () => {
+    const raw = {
+      check: "the-real-check",
+      title: "should-be-ignored",
+      severity: "Low",
+      confidence: "Low",
+      description: "test",
+      file: "src/A.sol",
+      lines: [1, 2],
+      source: "manual",
+    }
+    const result = normalizeToCanonicalFinding(raw, "run-precedence", 1)
+    expect(result.data.check).toBe("the-real-check")
+  })
+
+  test("normalizes location alias to file and lines", () => {
+    const raw = {
+      check: "reentrancy",
+      description: "State after call",
+      location: "src/Vault.sol:10-15",
+      severity: "High",
+    }
+    const result = normalizeToCanonicalFinding(raw, "run-loc", 1)
+    expect(result.data.file).toBe("src/Vault.sol")
+    expect(result.data.lines).toEqual([10, 15])
+    expect(
+      result.diagnostics.filter((d) => d.code === "field.dropped" && d.field === "location"),
+    ).toHaveLength(0)
+  })
+
+  test("location without line numbers uses full string as file", () => {
+    const raw = {
+      check: "test",
+      description: "test",
+      location: "src/Token.sol",
+      severity: "Low",
+    }
+    const result = normalizeToCanonicalFinding(raw, "run-loc2", 1)
+    expect(result.data.file).toBe("src/Token.sol")
+  })
+})
