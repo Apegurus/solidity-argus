@@ -38,6 +38,11 @@ export function createFindingStore(state: AuditState): FindingStore {
   function addFinding(finding: Omit<Finding, "id">): Finding {
     const id = generateObservationId(finding.check, finding.file, finding.lines)
 
+    const existing = hydratedFindings.find((f) => f.id === id)
+    if (existing) {
+      return existing
+    }
+
     const newFinding: Finding = {
       ...finding,
       id,

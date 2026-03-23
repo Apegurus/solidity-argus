@@ -55,7 +55,7 @@ describe("FindingStore", () => {
       source: "manual",
     })
 
-    expect(state.findings.length).toBe(2)
+    expect(state.findings.length).toBe(1)
     expect(first.id).toBe(second.id)
   })
 
@@ -178,6 +178,28 @@ describe("FindingStore", () => {
     expect(lower.id).toBe(upper.id)
   })
 
+  test("addFinding deduplicates by check+file+lines", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+
+    const finding = {
+      check: "reentrancy-eth",
+      severity: "High" as const,
+      confidence: "High" as const,
+      description: "Reentrancy in withdraw()",
+      file: "src/Vault.sol",
+      lines: [10, 20] as [number, number],
+      source: "slither" as const,
+    }
+
+    const first = store.addFinding(finding)
+    const second = store.addFinding(finding)
+
+    expect(second.id).toBe(first.id)
+    expect(store.getFindings()).toHaveLength(1)
+    expect(state.findings).toHaveLength(1)
+  })
+
   test("serialize reflects observation counts", () => {
     const state = createBaseState()
     const store = createFindingStore(state)
@@ -202,6 +224,6 @@ describe("FindingStore", () => {
       source: "manual",
     })
 
-    expect(store.serialize()).toContain("Findings: 2")
+    expect(store.serialize()).toContain("Findings: 1")
   })
 })
