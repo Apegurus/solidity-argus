@@ -9,6 +9,7 @@ import type {
 } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
+import { normalizeFilePath } from "../shared/path-utils"
 import { safeEmitToSink } from "../shared/safe-emit"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import type { FindingStore } from "../state/finding-store"
@@ -259,6 +260,7 @@ function processToolResult(
   diag: DropDiagnosticsCollector,
   metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
   config: ProcessorConfig,
+  projectDir?: string,
 ): number {
   const topLevel = parsed[config.arrayKey]
   if (!Array.isArray(topLevel)) {
@@ -294,7 +296,9 @@ function processToolResult(
 
     const check = item[config.primaryIdField]
     const description = item.description
-    const file = item.file
+    const rawFile = item.file
+    const file =
+      typeof rawFile === "string" && projectDir ? normalizeFilePath(rawFile, projectDir) : rawFile
     const lines = toLines(item.lines)
 
     if (
@@ -757,7 +761,14 @@ export function createToolTrackingHook(
 
         switch (input.tool) {
           case "argus_slither_analyze": {
-            findingsCount = processToolResult(record, store, diag, findingMetadata, SLITHER_CONFIG)
+            findingsCount = processToolResult(
+              record,
+              store,
+              diag,
+              findingMetadata,
+              SLITHER_CONFIG,
+              projectDir,
+            )
             if (auditState.scope.length === 0 && findingsCount > 0) {
               const slitherFindings = Array.isArray(record.findings) ? record.findings : []
               const files = [
@@ -774,13 +785,27 @@ export function createToolTrackingHook(
             break
           }
           case "argus_check_patterns":
-            findingsCount = processToolResult(record, store, diag, findingMetadata, PATTERN_CONFIG)
+            findingsCount = processToolResult(
+              record,
+              store,
+              diag,
+              findingMetadata,
+              PATTERN_CONFIG,
+              projectDir,
+            )
             if (typeof record.patternVersion === "string") {
               auditState.patternVersion = record.patternVersion
             }
             break
           case "argus_record_finding":
-            findingsCount = processToolResult(record, store, diag, findingMetadata, RECORDED_CONFIG)
+            findingsCount = processToolResult(
+              record,
+              store,
+              diag,
+              findingMetadata,
+              RECORDED_CONFIG,
+              projectDir,
+            )
             break
           case "argus_analyze_contract": {
             processContractAnalyzerResult(record, auditState)
@@ -893,12 +918,18 @@ export function createToolTrackingHook(
           const failFast = input.tool === "argus_record_finding"
           const newFindings = auditState.findings.slice(findingsCountBefore)
           for (const [index, finding] of newFindings.entries()) {
-            const { data: canonical } = normalizeToCanonicalFinding(finding, runId, 0, {
-              reportedByAgent,
-              reportedBySessionId: sessionId,
-              toolCallId,
-              observationId: `${toolCallId}:${index + 1}`,
-            }, projectDir)
+            const { data: canonical } = normalizeToCanonicalFinding(
+              finding,
+              runId,
+              0,
+              {
+                reportedByAgent,
+                reportedBySessionId: sessionId,
+                toolCallId,
+                observationId: `${toolCallId}:${index + 1}`,
+              },
+              projectDir,
+            )
             await emitToSink(
               sink,
               buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
