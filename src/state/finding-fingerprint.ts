@@ -21,7 +21,7 @@ function hash(parts: string[]): string {
   return createHash("sha256").update(parts.join("|"), "utf8").digest("hex")
 }
 
-function normalizeText(value: string): string {
+export function normalizeText(value: string): string {
   return value.trim().toLowerCase()
 }
 

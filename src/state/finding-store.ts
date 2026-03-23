@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import type { AuditState, Finding, FindingSeverity } from "./types"
+import { normalizeText } from "./finding-fingerprint"
 
 export interface FindingStore {
   addFinding(finding: Omit<Finding, "id">): Finding
@@ -21,10 +22,6 @@ function isValidHydrationFinding(f: unknown): f is Finding {
     typeof obj.lines[0] === "number" &&
     typeof obj.lines[1] === "number"
   )
-}
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase()
 }
 
 export function createFindingStore(state: AuditState): FindingStore {
