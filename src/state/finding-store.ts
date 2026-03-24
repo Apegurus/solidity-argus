@@ -1,6 +1,15 @@
 import crypto from "node:crypto"
+import { isAbsolute, normalize, relative } from "node:path"
 import { normalizeText } from "./finding-fingerprint"
 import type { AuditState, Finding, FindingSeverity } from "./types"
+
+function normalizeStorePath(filePath: string, projectDir: string): string {
+  if (!filePath || !projectDir) return filePath
+  const n = normalize(filePath)
+  if (!isAbsolute(n)) return n.replace(/^\.\//, "")
+  const rel = relative(projectDir, n)
+  return rel.startsWith("..") ? n : rel
+}
 
 export interface FindingStore {
   addFinding(finding: Omit<Finding, "id">): Finding
@@ -25,6 +34,8 @@ function isValidHydrationFinding(f: unknown): f is Finding {
 }
 
 export function createFindingStore(state: AuditState): FindingStore {
+  const projectDir = state.projectDir
+
   function generateObservationId(check: string, file: string, lines: [number, number]): string {
     return crypto
       .createHash("sha256")
@@ -36,7 +47,10 @@ export function createFindingStore(state: AuditState): FindingStore {
   const hydratedFindings = state.findings.filter(isValidHydrationFinding)
 
   function addFinding(finding: Omit<Finding, "id">): Finding {
-    const id = generateObservationId(finding.check, finding.file, finding.lines)
+    const normalizedFile = normalizeStorePath(finding.file, projectDir)
+    const normalized =
+      normalizedFile !== finding.file ? { ...finding, file: normalizedFile } : finding
+    const id = generateObservationId(normalized.check, normalized.file, normalized.lines)
 
     const existing = hydratedFindings.find((f) => f.id === id)
     if (existing) {
@@ -44,7 +58,7 @@ export function createFindingStore(state: AuditState): FindingStore {
     }
 
     const newFinding: Finding = {
-      ...finding,
+      ...normalized,
       id,
     }
 

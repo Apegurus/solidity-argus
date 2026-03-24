@@ -95,12 +95,26 @@ export async function executeRecordFinding(
     return errorResponse("Provide at least one finding via finding or findings")
   }
 
-  if (rawFindings.length > 0) {
-    const sample = rawFindings[0]
-    const keys = sample ? Object.keys(sample) : []
-    console.error(
-      `[argus-record-finding] ${rawFindings.length} findings, sample keys: ${keys.join(",")}`,
-    )
+  for (const f of rawFindings) {
+    if (!f.check && typeof f.title === "string") f.check = f.title
+    if (!f.check && typeof f.name === "string") f.check = f.name
+    if (!f.file && typeof f.location === "string") {
+      const loc = f.location as string
+      const colonIdx = loc.lastIndexOf(":")
+      if (colonIdx > 0 && /^\d+(-\d+)?$/.test(loc.substring(colonIdx + 1))) {
+        f.file = loc.substring(0, colonIdx)
+        if (!f.lines) {
+          const match = loc.substring(colonIdx + 1).match(/^(\d+)(?:-(\d+))?$/)
+          if (match)
+            f.lines = [
+              Number.parseInt(match[1] ?? "0", 10),
+              Number.parseInt(match[2] ?? match[1] ?? "0", 10),
+            ]
+        }
+      } else {
+        f.file = loc
+      }
+    }
   }
 
   const reportedByAgent = normalizeAgent(context.agent)
