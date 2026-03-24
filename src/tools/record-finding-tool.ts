@@ -95,6 +95,14 @@ export async function executeRecordFinding(
     return errorResponse("Provide at least one finding via finding or findings")
   }
 
+  if (rawFindings.length > 0) {
+    const sample = rawFindings[0]
+    const keys = sample ? Object.keys(sample) : []
+    console.error(
+      `[argus-record-finding] ${rawFindings.length} findings, sample keys: ${keys.join(",")}`,
+    )
+  }
+
   const reportedByAgent = normalizeAgent(context.agent)
   const reportedBySessionId = context.sessionID
   const runId = "tool-local"
@@ -104,11 +112,17 @@ export async function executeRecordFinding(
   const errors: string[] = []
 
   for (const [index, rawFinding] of rawFindings.entries()) {
-    const normalized = normalizeToCanonicalFinding(rawFinding, runId, index + 1, {
-      reportedByAgent,
-      reportedBySessionId,
-      observationId: `${reportedBySessionId}:${index + 1}`,
-    }, projectDir)
+    const normalized = normalizeToCanonicalFinding(
+      rawFinding,
+      runId,
+      index + 1,
+      {
+        reportedByAgent,
+        reportedBySessionId,
+        observationId: `${reportedBySessionId}:${index + 1}`,
+      },
+      projectDir,
+    )
 
     const diagnosticsErrors = normalized.diagnostics.filter((diag) => diag.level === "error")
     if (diagnosticsErrors.length > 0) {
