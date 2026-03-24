@@ -310,7 +310,20 @@ export function createHooks(args: {
         }
 
         const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
-        return activeSinks.length === 1 ? (activeSinks[0] ?? null) : null
+        if (activeSinks.length === 1) return activeSinks[0] ?? null
+        if (activeSinks.length > 1) {
+          // Multiple active sinks — pick the most recently created one.
+          // This handles the case where a stale run's sink was never finalized.
+          const sorted = [...sinkCreatedAtByRunId.entries()]
+            .filter(([rid]) => {
+              const s = eventSinksByRunId.get(rid)
+              return s != null && !s.isFinalized
+            })
+            .sort((a, b) => b[1] - a[1])
+          const newest = sorted[0]
+          return newest ? (eventSinksByRunId.get(newest[0]) ?? null) : null
+        }
+        return null
       })()
 
       // Fallback: if no existing sink found via direct/parent/heuristic lookup,

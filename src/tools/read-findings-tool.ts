@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { dirname, join } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
-import { materializeReportInput } from "../features/persistent-state/findings-materializer"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
+import { createLogger } from "../shared/logger"
+import { defaultRootResolver } from "../shared/path-root-resolver"
 import { resolveProjectDir } from "../shared/project-utils"
 import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../state/schemas"
+import { SCHEMA_VERSION } from "../state/schemas"
+import type { AuditState } from "../state/types"
 
 type ReadFindingsArgs = {
   run_id: string
@@ -155,6 +159,68 @@ function buildTopFindings(
   })
 }
 
+function readAuditStateAsReportInput(projectDir: string, runId: string): ReportInput {
+  const logger = createLogger()
+  const argusRoot = defaultRootResolver.writeRoot(projectDir)
+
+  // Try flat report-input file first (written by create-hooks before Scribe invocation)
+  const flatFile = join(argusRoot, "report-input.json")
+  try {
+    const data = JSON.parse(readFileSync(flatFile, "utf8")) as ReportInput
+    if (data.findings && data.findings.length > 0) {
+      return data
+    }
+  } catch (_readErr) {
+    logger.debug(`No flat report-input at ${flatFile}, falling back to audit state`)
+  }
+
+  // Fallback: read audit state and convert to ReportInput
+  const stateFile = join(argusRoot, "argus-state.json")
+  try {
+    const state = JSON.parse(readFileSync(stateFile, "utf8")) as AuditState
+    const findings: CanonicalFinding[] = (state.findings ?? []).map((f, i) => ({
+      ...f,
+      run_id: state.sessionId ?? runId,
+      seq: i + 1,
+      session_id: "audit",
+      tool_call_id: "",
+      source: f.source ?? ("unknown" as const),
+      schema_version: SCHEMA_VERSION,
+      issue_fingerprint: f.id ?? "",
+      observation_fingerprint: f.id ?? "",
+      observation_id: f.id ?? "",
+      reported_by_agent: f.reported_by_agent ?? ("unknown" as const),
+      reported_by_session_id: f.reported_by_session_id ?? "",
+    }))
+
+    return {
+      run_id: state.sessionId ?? runId,
+      seq: findings.length,
+      session_id: "audit",
+      tool_call_id: "",
+      source: "audit-state",
+      schema_version: SCHEMA_VERSION,
+      projectDir: state.projectDir ?? projectDir,
+      findings,
+      toolsExecuted: (state.toolsExecuted ?? []).map((t) => ({
+        ...t,
+        run_id: state.sessionId ?? runId,
+        schema_version: SCHEMA_VERSION,
+      })),
+      scope: state.scope?.length
+        ? state.scope
+        : [...new Set(findings.map((f) => f.file).filter(Boolean))],
+      soloditResults: state.soloditResults,
+      fuzzCounterexamples: state.fuzzCounterexamples,
+      coverageReport: state.coverageReport,
+      gasHotspots: state.gasHotspots,
+      proxyContracts: state.proxyContracts,
+    }
+  } catch (err) {
+    throw new Error(`Cannot read audit state: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
 export async function executeReadFindings(
   args: ReadFindingsArgs,
   context: ToolContext,
@@ -165,7 +231,7 @@ export async function executeReadFindings(
   }
 
   const projectDir = resolveProjectDir(context)
-  const reportInput = await materializeReportInput(runId, projectDir)
+  const reportInput = readAuditStateAsReportInput(projectDir, runId)
   const compactInput = buildCompactInput(reportInput)
 
   const inlineJson = JSON.stringify({

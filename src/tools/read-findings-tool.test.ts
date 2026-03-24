@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
-import { SCHEMA_VERSION } from "../state/schemas"
 import type { ReadFindingsResult } from "./read-findings-tool"
 import { executeReadFindings } from "./read-findings-tool"
 
@@ -38,43 +37,64 @@ function createContext(dir: string): ToolContext {
   }
 }
 
-async function writeEventsJournal(
-  dir: string,
-  runId: string,
-  events: Record<string, unknown>[],
-): Promise<void> {
-  const journalDir = join(dir, ".argus", "runs", runId)
-  await mkdir(journalDir, { recursive: true })
-  const lines = `${events.map((e) => JSON.stringify(e)).join("\n")}\n`
-  await writeFile(join(journalDir, "events.jsonl"), lines)
+async function writeAuditState(dir: string, state: Record<string, unknown>): Promise<void> {
+  const argusDir = join(dir, ".argus")
+  await mkdir(argusDir, { recursive: true })
+  await writeFile(join(argusDir, "argus-state.json"), JSON.stringify(state))
+}
+
+function makeAuditState(overrides: Record<string, unknown> = {}) {
+  return {
+    sessionId: "run-test",
+    projectDir: "/tmp/project",
+    contractsReviewed: [],
+    findings: [],
+    toolsExecuted: [],
+    currentPhase: "reporting",
+    scope: ["src/Vault.sol"],
+    startTime: Date.now(),
+    ...overrides,
+  }
+}
+
+function makeFinding(index: number, overrides: Record<string, unknown> = {}) {
+  const severities = ["Critical", "High", "Medium", "Low", "Informational"] as const
+  return {
+    id: `FIND-${index}`,
+    check: "reentrancy-eth",
+    severity: severities[index % 5],
+    confidence: "High",
+    description: `Finding ${index}: vulnerability description.`,
+    file: `src/Contract${index}.sol`,
+    lines: [index * 10, index * 10 + 5],
+    source: "manual",
+    reported_by_agent: "sentinel",
+    reported_by_session_id: "ses-test",
+    impact: `Impact for finding ${index}`,
+    recommendation: `Recommendation for finding ${index}`,
+    ...overrides,
+  }
 }
 
 test("returns inline result with truncated=false for small output", async () => {
   const dir = await makeTempDir()
-  const runId = "run-read-findings-ok"
+  await writeAuditState(
+    dir,
+    makeAuditState({
+      findings: [makeFinding(0)],
+      toolsExecuted: [{ tool: "slither", startTime: Date.now(), success: true, findingsCount: 1 }],
+    }),
+  )
 
-  await writeEventsJournal(dir, runId, [
-    {
-      type: "session.created",
-      run_id: runId,
-      seq: 1,
-      session_id: "ses-test",
-      source: "test",
-      schema_version: SCHEMA_VERSION,
-      timestamp: Date.now(),
-      payload: { scope: ["src/Vault.sol"] },
-    },
-  ])
-
-  const payload = await executeReadFindings({ run_id: runId }, createContext(dir))
+  const payload = await executeReadFindings({ run_id: "run-test" }, createContext(dir))
   const parsed = JSON.parse(payload) as ReadFindingsResult
 
   expect(parsed.success).toBe(true)
   expect(parsed.truncated).toBe(false)
   expect(parsed.source).toBe("report-input.json")
   if (!parsed.truncated) {
-    expect(parsed.reportInput.run_id).toBe(runId)
     expect(Array.isArray(parsed.reportInput.findings)).toBe(true)
+    expect(parsed.reportInput.findings.length).toBe(1)
     expect(Array.isArray(parsed.reportInput.toolsExecuted)).toBe(true)
     expect(Array.isArray(parsed.reportInput.scope)).toBe(true)
   }
@@ -82,56 +102,15 @@ test("returns inline result with truncated=false for small output", async () => 
 
 test("returns file reference with truncated=true when output exceeds threshold", async () => {
   const dir = await makeTempDir()
-  const runId = "run-read-findings-large"
+  const findings = Array.from({ length: 200 }, (_, i) => ({
+    ...makeFinding(i),
+    description: `Finding ${i}: ${"X".repeat(200)} vulnerability description padding.`,
+    recommendation: `Recommendation for finding ${i}. ${"Y".repeat(100)}`,
+  }))
 
-  const bulkFindings: Record<string, unknown>[] = []
-  const severities = ["Critical", "High", "Medium", "Low", "Informational"] as const
-  for (let i = 0; i < 200; i++) {
-    bulkFindings.push({
-      type: "finding.added",
-      run_id: runId,
-      seq: i + 2,
-      session_id: "ses-test",
-      source: "test",
-      schema_version: SCHEMA_VERSION,
-      timestamp: Date.now(),
-      payload: {
-        id: `FIND-${i}`,
-        check: "reentrancy-eth",
-        severity: severities[i % 5],
-        confidence: "High",
-        description: `Finding ${i}: ${"X".repeat(200)} vulnerability description padding.`,
-        file: `src/Contract${i}.sol`,
-        lines: [i * 10, i * 10 + 5],
-        source: "manual",
-        run_id: runId,
-        seq: i + 2,
-        schema_version: SCHEMA_VERSION,
-        observation_id: `obs-${i}`,
-        issue_fingerprint: `fp-issue-${i}`,
-        observation_fingerprint: `fp-obs-${i}`,
-        reported_by_agent: "sentinel",
-        impact: `Impact description for finding ${i}`,
-        recommendation: `Recommendation for finding ${i}. ${"Y".repeat(100)}`,
-      },
-    })
-  }
+  await writeAuditState(dir, makeAuditState({ findings }))
 
-  await writeEventsJournal(dir, runId, [
-    {
-      type: "session.created",
-      run_id: runId,
-      seq: 1,
-      session_id: "ses-test",
-      source: "test",
-      schema_version: SCHEMA_VERSION,
-      timestamp: Date.now(),
-      payload: { scope: ["src/Vault.sol"] },
-    },
-    ...bulkFindings,
-  ])
-
-  const payload = await executeReadFindings({ run_id: runId }, createContext(dir))
+  const payload = await executeReadFindings({ run_id: "run-test" }, createContext(dir))
   const parsed = JSON.parse(payload) as ReadFindingsResult
 
   expect(parsed.success).toBe(true)
@@ -141,10 +120,7 @@ test("returns file reference with truncated=true when output exceeds threshold",
   if (parsed.truncated) {
     expect(parsed.compactReportInputFile).toContain("compact-report-input.json")
     expect(existsSync(parsed.compactReportInputFile)).toBe(true)
-    expect(parsed.summary.run_id).toBe(runId)
     expect(parsed.summary.findingsCount).toBe(200)
-    expect(parsed.summary.toolsExecutedCount).toBeGreaterThanOrEqual(0)
-    expect(parsed.summary.scope).toEqual(["src/Vault.sol"])
     expect(Object.keys(parsed.summary.severityDistribution).length).toBeGreaterThan(0)
     expect(parsed.summary.topFindings.length).toBeLessThanOrEqual(10)
     expect(parsed.summary.topFindings.length).toBeGreaterThan(0)
@@ -155,16 +131,14 @@ test("returns file reference with truncated=true when output exceeds threshold",
     const compactFileContent = await readFile(parsed.compactReportInputFile, "utf-8")
     const compactData = JSON.parse(compactFileContent)
     expect(compactData.findings.length).toBe(200)
-    expect(compactData.run_id).toBe(runId)
   }
 })
 
-test("throws when no events exist for run", async () => {
+test("throws when no audit state exists", async () => {
   const dir = await makeTempDir()
-  const runId = "run-read-findings-missing"
 
-  await expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
-    "No events found for run",
+  await expect(executeReadFindings({ run_id: "run-missing" }, createContext(dir))).rejects.toThrow(
+    "Cannot read audit state",
   )
 })
 
@@ -176,14 +150,58 @@ test("throws when run_id is empty", async () => {
   )
 })
 
-test("throws on malformed events.jsonl", async () => {
+test("prefers flat report-input.json over audit state", async () => {
   const dir = await makeTempDir()
-  const runId = "run-read-findings-corrupt"
+  const argusDir = join(dir, ".argus")
+  await mkdir(argusDir, { recursive: true })
 
-  await writeEventsJournal(dir, runId, [])
-  await writeFile(join(dir, ".argus", "runs", runId, "events.jsonl"), "not json\nnope\n")
+  const flatInput = {
+    run_id: "flat-run",
+    findings: [
+      {
+        check: "from-flat",
+        severity: "High",
+        file: "src/A.sol",
+        lines: [1, 2],
+        description: "flat",
+        source: "manual",
+        confidence: "High",
+      },
+    ],
+    toolsExecuted: [],
+    scope: ["src/A.sol"],
+    projectDir: dir,
+  }
+  await writeFile(join(argusDir, "report-input.json"), JSON.stringify(flatInput))
+  await writeAuditState(dir, makeAuditState({ findings: [makeFinding(0)] }))
 
-  await expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
-    "No events found",
+  const payload = await executeReadFindings({ run_id: "any" }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  if (!parsed.truncated) {
+    expect(parsed.reportInput.findings[0]?.check).toBe("from-flat")
+  }
+})
+
+test("derives scope from findings when state scope is empty", async () => {
+  const dir = await makeTempDir()
+  await writeAuditState(
+    dir,
+    makeAuditState({
+      scope: [],
+      findings: [
+        makeFinding(0, { file: "src/Vault.sol" }),
+        makeFinding(1, { file: "src/Token.sol" }),
+      ],
+    }),
   )
+
+  const payload = await executeReadFindings({ run_id: "run-test" }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  if (!parsed.truncated) {
+    expect(parsed.reportInput.scope).toContain("src/Vault.sol")
+    expect(parsed.reportInput.scope).toContain("src/Token.sol")
+  }
 })
