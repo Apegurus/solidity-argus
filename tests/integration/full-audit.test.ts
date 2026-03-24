@@ -24,6 +24,7 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
     sentinel: {},
     pythia: {},
     scribe: {},
+    themis: {},
   },
   tools: {},
   knowledge: {
@@ -95,7 +96,7 @@ describe("full audit integration", () => {
     const plugin = await ArgusPlugin(pluginContext)
 
     const toolNames = Object.keys(plugin.tool ?? {})
-    expect(toolNames).toHaveLength(14)
+    expect(toolNames).toHaveLength(15)
     expect(toolNames).toContain("argus_slither_analyze")
     expect(toolNames).toContain("argus_forge_test")
     expect(toolNames).toContain("argus_gas_analysis")

@@ -10,6 +10,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
       sentinel: {},
       pythia: {},
       scribe: {},
+      themis: {},
     },
     tools: {},
     knowledge: {

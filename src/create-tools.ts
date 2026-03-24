@@ -7,6 +7,7 @@ import { forgeFuzzTool } from "./tools/forge-fuzz-tool"
 import { forgeTestTool } from "./tools/forge-test-tool"
 import { gasAnalysisTool } from "./tools/gas-analysis-tool"
 import { patternCheckerTool } from "./tools/pattern-checker-tool"
+import { persistDedupedTool } from "./tools/persist-deduped-tool"
 import { proxyDetectionTool } from "./tools/proxy-detection-tool"
 import { readFindingsTool } from "./tools/read-findings-tool"
 import { recordFindingTool } from "./tools/record-finding-tool"
@@ -28,6 +29,7 @@ export function createTools(config: ArgusConfig): Record<string, ToolDefinition>
     argus_skill_load: argusSkillLoadTool,
     argus_record_finding: recordFindingTool,
     argus_read_findings: readFindingsTool,
+    argus_persist_deduped: persistDedupedTool,
     argus_generate_report: reportGeneratorTool,
     argus_sync_knowledge: syncKnowledgeTool,
   }

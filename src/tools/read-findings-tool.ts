@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
@@ -159,66 +159,140 @@ function buildTopFindings(
   })
 }
 
+function convertAuditStateToReportInput(
+  state: AuditState,
+  runId: string,
+  projectDir: string,
+): ReportInput {
+  const findings: CanonicalFinding[] = (state.findings ?? []).map((f, i) => ({
+    ...f,
+    run_id: state.sessionId ?? runId,
+    seq: i + 1,
+    session_id: "audit",
+    tool_call_id: "",
+    source: f.source ?? ("unknown" as const),
+    schema_version: SCHEMA_VERSION,
+    issue_fingerprint: f.id ?? "",
+    observation_fingerprint: f.id ?? "",
+    observation_id: f.id ?? "",
+    reported_by_agent: f.reported_by_agent ?? ("unknown" as const),
+    reported_by_session_id: f.reported_by_session_id ?? "",
+  }))
+
+  return {
+    run_id: state.sessionId ?? runId,
+    seq: findings.length,
+    session_id: "audit",
+    tool_call_id: "",
+    source: "audit-state",
+    schema_version: SCHEMA_VERSION,
+    projectDir: state.projectDir ?? projectDir,
+    findings,
+    toolsExecuted: (state.toolsExecuted ?? []).map((t) => ({
+      ...t,
+      run_id: state.sessionId ?? runId,
+      schema_version: SCHEMA_VERSION,
+    })),
+    scope: state.scope?.length
+      ? state.scope
+      : [...new Set(findings.map((f) => f.file).filter(Boolean))],
+    soloditResults: state.soloditResults,
+    fuzzCounterexamples: state.fuzzCounterexamples,
+    coverageReport: state.coverageReport,
+    gasHotspots: state.gasHotspots,
+    proxyContracts: state.proxyContracts,
+  }
+}
+
+/**
+ * Scan .argus/sessions/ for the newest state file with findings.
+ * Mirrors the fallback logic in audit-state-manager.ts load().
+ */
+function readNewestSessionState(argusRoot: string): AuditState | null {
+  const sessionsDir = join(argusRoot, "sessions")
+  try {
+    const entries = readdirSync(sessionsDir)
+    const stateFiles = entries.filter((e) => e.startsWith("state-") && e.endsWith(".json"))
+    if (stateFiles.length === 0) return null
+
+    const ranked = stateFiles
+      .map((name) => {
+        const filePath = join(sessionsDir, name)
+        try {
+          return { name, path: filePath, mtime: statSync(filePath).mtimeMs }
+        } catch {
+          return null
+        }
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((a, b) => b.mtime - a.mtime)
+
+    for (const entry of ranked) {
+      try {
+        const state = JSON.parse(readFileSync(entry.path, "utf8")) as AuditState
+        if (state.findings && state.findings.length > 0) {
+          return state
+        }
+      } catch {
+        /* skip unreadable files */
+      }
+    }
+  } catch {
+    /* sessions dir doesn't exist */
+  }
+  return null
+}
+
 function readAuditStateAsReportInput(projectDir: string, runId: string): ReportInput {
   const logger = createLogger()
   const argusRoot = defaultRootResolver.writeRoot(projectDir)
 
-  // Try flat report-input file first (written by create-hooks before Scribe invocation)
+  // 1. Per-run report-input artifact (materialized by findings-materializer into runs/{runId}/)
+  const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
+  try {
+    const data = JSON.parse(readFileSync(perRunFile, "utf8")) as ReportInput
+    if (data.findings && data.findings.length > 0) {
+      logger.debug(`Loaded report-input from per-run artifact: ${perRunFile}`)
+      return data
+    }
+  } catch {
+    logger.debug(`No per-run report-input at ${perRunFile}`)
+  }
+
+  // 2. Flat report-input at argus root (legacy location)
   const flatFile = join(argusRoot, "report-input.json")
   try {
     const data = JSON.parse(readFileSync(flatFile, "utf8")) as ReportInput
     if (data.findings && data.findings.length > 0) {
+      logger.debug(`Loaded report-input from flat file: ${flatFile}`)
       return data
     }
-  } catch (_readErr) {
-    logger.debug(`No flat report-input at ${flatFile}, falling back to audit state`)
+  } catch {
+    logger.debug(`No flat report-input at ${flatFile}`)
   }
 
-  // Fallback: read audit state and convert to ReportInput
-  const stateFile = join(argusRoot, "argus-state.json")
+  // 3. Per-session state files (per-session managers write to sessions/state-{sessionId}.json)
+  const sessionState = readNewestSessionState(argusRoot)
+  if (sessionState) {
+    logger.debug("Loaded audit state from newest session state file")
+    return convertAuditStateToReportInput(sessionState, runId, projectDir)
+  }
+
+  // 4. Shared audit state (legacy fallback)
+  const sharedStateFile = join(argusRoot, "argus-state.json")
   try {
-    const state = JSON.parse(readFileSync(stateFile, "utf8")) as AuditState
-    const findings: CanonicalFinding[] = (state.findings ?? []).map((f, i) => ({
-      ...f,
-      run_id: state.sessionId ?? runId,
-      seq: i + 1,
-      session_id: "audit",
-      tool_call_id: "",
-      source: f.source ?? ("unknown" as const),
-      schema_version: SCHEMA_VERSION,
-      issue_fingerprint: f.id ?? "",
-      observation_fingerprint: f.id ?? "",
-      observation_id: f.id ?? "",
-      reported_by_agent: f.reported_by_agent ?? ("unknown" as const),
-      reported_by_session_id: f.reported_by_session_id ?? "",
-    }))
-
-    return {
-      run_id: state.sessionId ?? runId,
-      seq: findings.length,
-      session_id: "audit",
-      tool_call_id: "",
-      source: "audit-state",
-      schema_version: SCHEMA_VERSION,
-      projectDir: state.projectDir ?? projectDir,
-      findings,
-      toolsExecuted: (state.toolsExecuted ?? []).map((t) => ({
-        ...t,
-        run_id: state.sessionId ?? runId,
-        schema_version: SCHEMA_VERSION,
-      })),
-      scope: state.scope?.length
-        ? state.scope
-        : [...new Set(findings.map((f) => f.file).filter(Boolean))],
-      soloditResults: state.soloditResults,
-      fuzzCounterexamples: state.fuzzCounterexamples,
-      coverageReport: state.coverageReport,
-      gasHotspots: state.gasHotspots,
-      proxyContracts: state.proxyContracts,
+    const state = JSON.parse(readFileSync(sharedStateFile, "utf8")) as AuditState
+    if (state.findings && state.findings.length > 0) {
+      logger.debug(`Loaded audit state from shared file: ${sharedStateFile}`)
+      return convertAuditStateToReportInput(state, runId, projectDir)
     }
-  } catch (err) {
-    throw new Error(`Cannot read audit state: ${err instanceof Error ? err.message : String(err)}`)
+  } catch {
+    /* shared state not available */
   }
+
+  throw new Error(
+    `Cannot read findings from any source for run ${runId}. Checked: per-run artifact (${perRunFile}), flat file (${flatFile}), session state files, shared state (${sharedStateFile})`,
+  )
 }
 
 export async function executeReadFindings(

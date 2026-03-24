@@ -68,7 +68,7 @@ describe("E2E A: Plugin Load", () => {
     expect(typeof result.event).toBe("function")
   })
 
-  test("tool map contains all 14 argus tools", async () => {
+  test("tool map contains all 15 argus tools", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
@@ -81,6 +81,7 @@ describe("E2E A: Plugin Load", () => {
       "argus_forge_test",
       "argus_gas_analysis",
       "argus_generate_report",
+      "argus_persist_deduped",
       "argus_proxy_detection",
       "argus_read_findings",
       "argus_record_finding",
@@ -101,7 +102,7 @@ describe("E2E A: Plugin Load", () => {
     }
   })
 
-  test("config hook registers 4 agents and Solodit MCP", async () => {
+  test("config hook registers 5 agents and Solodit MCP", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
@@ -110,7 +111,7 @@ describe("E2E A: Plugin Load", () => {
     await result.config?.(config)
 
     const agentNames = Object.keys(config.agent ?? {}).sort()
-    expect(agentNames).toEqual(["argus", "pythia", "scribe", "sentinel"])
+    expect(agentNames).toEqual(["argus", "pythia", "scribe", "sentinel", "themis"])
     expect(config.mcp?.["solodit-mcp"]).toBeDefined()
   })
 
@@ -121,7 +122,7 @@ describe("E2E A: Plugin Load", () => {
       const result = await ArgusPlugin(ctx)
 
       expect(result.tool).toBeDefined()
-      expect(Object.keys(result.tool ?? {})).toHaveLength(14)
+      expect(Object.keys(result.tool ?? {})).toHaveLength(15)
       expect(typeof result.config).toBe("function")
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
@@ -423,7 +424,7 @@ describe("E2E D: Hook Lifecycle", () => {
 
     expect(iface.config).toBeDefined()
     expect(iface["tool.execute.after"]).toBeDefined()
-    expect(Object.keys(iface.tool)).toHaveLength(14)
+    expect(Object.keys(iface.tool)).toHaveLength(15)
   })
 
   test("config hook is always present even with all feature hooks disabled", async () => {

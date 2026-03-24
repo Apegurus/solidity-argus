@@ -41,6 +41,10 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
     const base = sortedObservations[0]
     if (!base) continue
 
+    const highestSeverityObservation = sortedObservations.reduce((best, obs) =>
+      SEVERITY_RANK[obs.severity] < SEVERITY_RANK[best.severity] ? obs : best,
+    )
+
     const reportedByAgents = uniqueSorted(
       sortedObservations.map((finding) => finding.reported_by_agent),
     )
@@ -51,6 +55,7 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
 
     merged.push({
       ...base,
+      severity: highestSeverityObservation.severity,
       id: issueFingerprint,
       sources,
       reported_by_agents: reportedByAgents,

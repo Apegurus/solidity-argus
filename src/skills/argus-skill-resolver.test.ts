@@ -56,7 +56,7 @@ describe("skill precedence", () => {
 
   function makeConfig(precedence: "bundled-first" | "custom-first"): ArgusConfig {
     return {
-      agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+      agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
       tools: {},
       knowledge: {
         scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },

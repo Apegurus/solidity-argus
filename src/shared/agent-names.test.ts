@@ -8,8 +8,8 @@ import {
   isSubagent,
 } from "./agent-names"
 
-test("ARGUS_FAMILY contains all 4 agents", () => {
-  expect(ARGUS_FAMILY).toEqual(new Set(["argus", "sentinel", "pythia", "scribe"]))
+test("ARGUS_FAMILY contains all 5 agents", () => {
+  expect(ARGUS_FAMILY).toEqual(new Set(["argus", "sentinel", "pythia", "scribe", "themis"]))
 })
 
 test("ARGUS_ORCHESTRATOR is argus", () => {
@@ -17,7 +17,7 @@ test("ARGUS_ORCHESTRATOR is argus", () => {
 })
 
 test("ARGUS_SUBAGENTS excludes argus", () => {
-  expect(ARGUS_SUBAGENTS).toEqual(new Set(["sentinel", "pythia", "scribe"]))
+  expect(ARGUS_SUBAGENTS).toEqual(new Set(["sentinel", "pythia", "scribe", "themis"]))
 })
 
 test("isArgusFamily checks membership", () => {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
@@ -404,14 +404,62 @@ function resolveExpectedRunId(
     }
   }
 
-  // 3. Deterministic fallback: read argus-state.json directly.
-  //    Eliminates LLM-in-the-loop dependency for run_id resolution.
-  //    Scribe's child session may not be in the global run index.
+  // When caller provides inline report_input, skip filesystem discovery —
+  // the caller already has their data and filesystem state may belong to a different run.
+  if (isNonEmptyString(args.report_input)) {
+    return undefined
+  }
+
+  // 3. Per-session state files (per-session managers write to sessions/state-{sessionId}.json)
   const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
+  const sessionsDir = path.join(projectDir, ".argus", "sessions")
   try {
-    const stateFilePath = path.join(projectDir, ".argus", "argus-state.json")
-    if (existsSync(stateFilePath)) {
-      const stateRaw = JSON.parse(readFileSync(stateFilePath, "utf-8")) as Record<string, unknown>
+    const entries = readdirSync(sessionsDir)
+    const stateFiles = entries.filter((e) => e.startsWith("state-") && e.endsWith(".json"))
+    const ranked = stateFiles
+      .map((name) => {
+        const filePath = path.join(sessionsDir, name)
+        try {
+          return { name, path: filePath, mtime: statSync(filePath).mtimeMs }
+        } catch {
+          return null
+        }
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((a, b) => b.mtime - a.mtime)
+
+    for (const entry of ranked) {
+      try {
+        const stateRaw = JSON.parse(readFileSync(entry.path, "utf-8")) as Record<string, unknown>
+        const stateSessionId = stateRaw.sessionId
+        const savedAt = typeof stateRaw.savedAt === "number" ? stateRaw.savedAt : 0
+        const isFresh = Date.now() - savedAt < STALE_STATE_TTL_MS
+        if (
+          typeof stateSessionId === "string" &&
+          stateSessionId.trim().length > 0 &&
+          !stateSessionId.startsWith("ses_") &&
+          isFresh
+        ) {
+          const resolver = createAuditArtifactResolver(stateSessionId, projectDir)
+          const hasArtifacts =
+            existsSync(resolver.paths().reportInputFile) || existsSync(resolver.paths().journalFile)
+          if (hasArtifacts) {
+            return stateSessionId
+          }
+        }
+      } catch {
+        /* skip unreadable session file */
+      }
+    }
+  } catch {
+    /* sessions dir doesn't exist */
+  }
+
+  // 4. Shared audit state (legacy fallback)
+  try {
+    const sharedStatePath = path.join(projectDir, ".argus", "argus-state.json")
+    if (existsSync(sharedStatePath)) {
+      const stateRaw = JSON.parse(readFileSync(sharedStatePath, "utf-8")) as Record<string, unknown>
       const stateSessionId = stateRaw.sessionId
       const savedAt = typeof stateRaw.savedAt === "number" ? stateRaw.savedAt : 0
       const isFresh = Date.now() - savedAt < STALE_STATE_TTL_MS
@@ -522,6 +570,41 @@ function parseReportInputPayload(
   if (isNonEmptyString(effectiveRunId)) {
     const projectDir = resolveProjectDir(context)
     const resolver = createAuditArtifactResolver(effectiveRunId, projectDir)
+
+    const dedupedFile = resolver.paths().dedupedFindingsFile
+    if (existsSync(dedupedFile)) {
+      try {
+        const dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as {
+          findings?: unknown[]
+        }
+        if (Array.isArray(dedupedArtifact.findings) && dedupedArtifact.findings.length > 0) {
+          const reportInputFile = resolver.paths().reportInputFile
+          let baseInput: Record<string, unknown> = {}
+          if (existsSync(reportInputFile)) {
+            try {
+              baseInput = JSON.parse(readFileSync(reportInputFile, "utf-8")) as Record<
+                string,
+                unknown
+              >
+            } catch {
+              /* use empty base */
+            }
+          }
+          const merged = {
+            ...baseInput,
+            run_id: effectiveRunId,
+            findings: dedupedArtifact.findings,
+          }
+          const validation = validateReportInput(merged)
+          if (validation.success) {
+            return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
+          }
+        }
+      } catch {
+        /* deduped file unreadable — fall through to report-input.json */
+      }
+    }
+
     const reportInputFile = resolver.paths().reportInputFile
     if (existsSync(reportInputFile)) {
       diagnostics.warn(
@@ -1265,7 +1348,7 @@ export const reportGeneratorTool = tool({
     include_executive_summary: tool.schema.boolean().default(true),
     severity_threshold: tool.schema
       .enum(["critical", "high", "medium", "low", "informational"])
-      .default("low"),
+      .default("informational"),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
     tool_coverage_policy: tool.schema
       .enum(["enforce", "warn", "skip"])

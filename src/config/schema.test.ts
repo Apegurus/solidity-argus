@@ -56,6 +56,7 @@ describe("ArgusConfigSchema", () => {
         sentinel: {},
         pythia: {},
         scribe: {},
+        themis: {},
       })
       expect(result.data.tools).toEqual({})
       expect(result.data.disabled_hooks).toEqual([])

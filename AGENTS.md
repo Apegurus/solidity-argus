@@ -11,7 +11,7 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 ## argus
 
 **Role**: Primary security audit orchestrator
-**Description**: Argus Panoptes, the All-Seeing Guardian. Coordinates full Solidity security audits by dispatching Sentinel (analysis), Pythia (research), and Scribe (reporting). Follows a rigorous 7-step methodology: Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, and Reporting.
+**Description**: Argus Panoptes, the All-Seeing Guardian. Coordinates full Solidity security audits by dispatching Sentinel (analysis), Pythia (research), Scribe (reporting), and Themis (validation). Follows a rigorous 7-step methodology: Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, and Reporting.
 **Model**: anthropic/claude-opus-4-6
 **Tools**: All 14 argus_* tools (argus_slither_analyze, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_solodit_search, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_skill_load, argus_generate_report, argus_record_finding, argus_read_findings, argus_sync_knowledge)
 
@@ -34,4 +34,11 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 **Role**: Audit report writer
 **Description**: Transforms raw findings into professional markdown audit reports. Produces structured output with severity classifications (Critical/High/Medium/Low/Informational), impact assessments, proof-of-concept steps, and actionable recommendations. Dispatched by Argus only after all analysis is complete.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_read_findings, argus_generate_report, skill
+**Tools**: argus_read_findings, argus_persist_deduped, argus_generate_report, skill
+
+## themis
+
+**Role**: Audit quality gate
+**Description**: Independent cross-validation agent running on GPT-5.4-pro (different LLM provider for reasoning diversity). Validates pipeline integrity: compares raw findings against Scribe's deduped output and the final report. Performs second-opinion research via Solodit and vulnerability skill checklists. Returns a structured verdict to Argus who makes the final decision. Dispatched by Argus after Scribe completes.
+**Model**: openai/gpt-5.4-pro
+**Tools**: argus_read_findings, argus_solodit_search, argus_check_patterns, argus_skill_load, skill

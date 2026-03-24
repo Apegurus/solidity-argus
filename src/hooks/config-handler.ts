@@ -5,6 +5,7 @@ import { ARGUS_PROMPT } from "../agents/argus-prompt"
 import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
 import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
+import { THEMIS_PROMPT } from "../agents/themis-prompt"
 import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
@@ -127,6 +128,7 @@ export function createConfigHandler(
             sentinel: "allow",
             pythia: "allow",
             scribe: "allow",
+            themis: "allow",
           },
           skill: "allow",
         },
@@ -174,6 +176,21 @@ export function createConfigHandler(
         permission: {
           argus_read_findings: "allow",
           argus_generate_report: "allow",
+          argus_persist_deduped: "allow",
+          argus_skill_load: "allow",
+          skill: "allow",
+        },
+      },
+      themis: {
+        mode: "subagent",
+        model: argusConfig.agents?.themis?.model ?? DEFAULT_MODELS.themis,
+        steps: argusConfig.agents?.themis?.steps ?? DEFAULT_STEPS,
+        description: "Audit quality gate — independent cross-validation (GPT-5.4)",
+        prompt: THEMIS_PROMPT,
+        permission: {
+          argus_read_findings: "allow",
+          argus_solodit_search: "allow",
+          argus_check_patterns: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },

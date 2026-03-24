@@ -14,6 +14,7 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
       sentinel: {},
       pythia: {},
       scribe: {},
+      themis: {},
       ...overrides?.agents,
     },
     tools: {
@@ -92,6 +93,7 @@ describe("createConfigHandler", () => {
         sentinel: "allow",
         pythia: "allow",
         scribe: "allow",
+        themis: "allow",
       },
       skill: "allow",
     })
@@ -118,6 +120,7 @@ describe("createConfigHandler", () => {
     expect(config.agent?.scribe?.permission).toEqual({
       argus_read_findings: "allow",
       argus_generate_report: "allow",
+      argus_persist_deduped: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -146,6 +149,7 @@ describe("createConfigHandler", () => {
           sentinel: {},
           pythia: {},
           scribe: {},
+          themis: {},
         },
       }),
     )

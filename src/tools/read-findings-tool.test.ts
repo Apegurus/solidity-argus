@@ -138,7 +138,7 @@ test("throws when no audit state exists", async () => {
   const dir = await makeTempDir()
 
   await expect(executeReadFindings({ run_id: "run-missing" }, createContext(dir))).rejects.toThrow(
-    "Cannot read audit state",
+    "Cannot read findings from any source",
   )
 })
 

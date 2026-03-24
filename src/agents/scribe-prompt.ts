@@ -49,36 +49,30 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
 
 2. **Deduplicate** (MANDATORY):
    - Group findings by code location (same file, overlapping lines) AND vulnerability class (reentrancy, access control, oracle, etc.)
-   - For each group: keep ONE finding, use highest severity, synthesize the best description from all observations
+   - For each group: keep ONE finding, use the HIGHEST severity among all observations, synthesize the best description
    - Add "**Detected by:**" listing all tools/checks that flagged it
    - Example: reentrancy-eth + reentrancy-cei-violation + reentrancy-eth-withdraw-state-after-call at VulnerableVault.sol:18-23 → ONE finding
+   - **PRESERVATION RULE**: Every raw finding MUST map to exactly one deduped finding. Only merge findings that are genuinely the SAME vulnerability at the SAME location. Different vulnerability classes (e.g., default-visibility vs dos-revert) are SEPARATE findings even if both are Informational. NEVER drop findings during deduplication.
 
 3. **Enrich** (MANDATORY for Critical/High):
    - Write specific \`impact\` (concrete consequence, not "could be exploited")
    - Write specific \`recommendation\` (exact fix, not "fix the code")
    - NEVER output "Impact details were not provided" — write it yourself
 
-4. **Generate report**: Call \`argus_generate_report\` with:
+4. **Persist deduped findings**: Call \`argus_persist_deduped\` with:
+   - \`run_id\`: the run ID from Argus
+   - \`deduped_findings\`: JSON array of your deduped and enriched findings
+
+   This writes the source-of-truth JSON to disk at \`.argus/runs/{run_id}/deduped-findings.json\`.
+
+5. **Generate report**: Call \`argus_generate_report\` with:
    - \`project_name\`: the project name
    - \`scope\`: list of audited files
-   - \`report_input\`: JSON string containing your **deduped and enriched** findings
+   - \`run_id\`: the run ID (the tool reads your persisted deduped findings from disk)
 
-   The \`report_input\` JSON must follow this structure:
-   \`\`\`json
-   {
-     "run_id": "{run-id}",
-     "findings": [... your deduped/enriched findings ...],
-     "toolsExecuted": [... from argus_read_findings ...],
-     "scope": [... audited files ...],
-     "projectDir": "{project dir}"
-   }
-   \`\`\`
+6. **Limitations disclosure**: If any tool failed or was absent, add a \`## Limitations\` section.
 
-   **You MUST pass \`report_input\` with your clean deduped findings.** The tool renders consistent markdown from your data.
-
-5. **Limitations disclosure**: If any tool failed or was absent, add a \`## Limitations\` section.
-
-6. Confirm: "Report generated via argus_generate_report: {filePath}".
+7. Confirm: "Report generated via argus_generate_report: {filePath}".
 
 ## SINGLE-WRITER POLICY
 

@@ -29,7 +29,7 @@ describe("argusSkillLoadTool", () => {
   it("loads skill by canonical name", async () => {
     const content = await executeArgusSkillLoad({ name: "reentrancy" }, createContext(), {
       loadConfig: () => ({
-        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
         tools: {},
         knowledge: {
           scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -120,7 +120,7 @@ describe("argusSkillLoadTool", () => {
   it("includes trust tier as [Source: ...] in output header", async () => {
     const content = await executeArgusSkillLoad({ name: "reentrancy" }, createContext(), {
       loadConfig: () => ({
-        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
         tools: {},
         knowledge: {
           scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -183,7 +183,7 @@ describe("argusSkillLoadTool", () => {
   it("includes provenance section when source_url and source_license are present", async () => {
     const content = await executeArgusSkillLoad({ name: "reentrancy" }, createContext(), {
       loadConfig: () => ({
-        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
         tools: {},
         knowledge: {
           scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -228,7 +228,7 @@ describe("argusSkillLoadTool", () => {
   it("omits provenance section when no provenance fields are present", async () => {
     const content = await executeArgusSkillLoad({ name: "reentrancy" }, createContext(), {
       loadConfig: () => ({
-        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
         tools: {},
         knowledge: {
           scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -268,7 +268,7 @@ describe("argusSkillLoadTool", () => {
   it("shows partial provenance when only some fields are present", async () => {
     const content = await executeArgusSkillLoad({ name: "reentrancy" }, createContext(), {
       loadConfig: () => ({
-        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+        agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
         tools: {},
         knowledge: {
           scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },

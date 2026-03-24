@@ -16,6 +16,8 @@ export interface AuditArtifactPaths {
   /** {projectDir}/.argus/runs/{runId}/findings.json */
   findingsFile: string
   reportInputFile: string
+  /** {projectDir}/.argus/runs/{runId}/deduped-findings.json */
+  dedupedFindingsFile: string
   /** {projectDir}/.argus/reports */
   reportDir: string
   /** {projectDir}/.argus/runs/{runId}/evidence */
@@ -55,6 +57,7 @@ export function createAuditArtifactResolver(
     journalFile: join(runDir, "events.jsonl"),
     findingsFile: join(runDir, "findings.json"),
     reportInputFile: join(runDir, "report-input.json"),
+    dedupedFindingsFile: join(runDir, "deduped-findings.json"),
     reportDir: join(writeRoot, "reports"),
     evidenceDir: join(runDir, "evidence"),
     archiveDir: join(writeRoot, "archives"),

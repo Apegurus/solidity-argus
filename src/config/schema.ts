@@ -52,12 +52,14 @@ export const ArgusConfigSchema = z
         sentinel: AgentConfigSchema.default({}),
         pythia: AgentConfigSchema.default({}),
         scribe: AgentConfigSchema.default({}),
+        themis: AgentConfigSchema.optional().default({}),
       })
       .default({
         argus: {},
         sentinel: {},
         pythia: {},
         scribe: {},
+        themis: {},
       }),
     tools: ToolsConfigSchema.default({}),
     knowledge: KnowledgeConfigSchema.default({
