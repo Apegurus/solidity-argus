@@ -111,8 +111,8 @@ export function createConfigHandler(
   const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
 
   return async (config: Config): Promise<void> => {
-    config.agent = {
-      ...config.agent,
+    config.agent ??= {}
+    Object.assign(config.agent, {
       argus: {
         mode: "primary",
         model: argusConfig.agents?.argus?.model ?? DEFAULT_MODELS.argus,
@@ -195,17 +195,15 @@ export function createConfigHandler(
           skill: "allow",
         },
       },
-    }
+    })
 
     if (argusConfig.solodit?.enabled !== false) {
       const port = argusConfig.solodit?.port ?? 54173
-      config.mcp = {
-        ...(config.mcp ?? {}),
-        "solodit-mcp": {
-          type: "remote",
-          url: `http://localhost:${port}/mcp`,
-          enabled: true,
-        },
+      config.mcp ??= {}
+      config.mcp["solodit-mcp"] = {
+        type: "remote",
+        url: `http://localhost:${port}/mcp`,
+        enabled: true,
       }
     }
 
@@ -225,10 +223,8 @@ export function createConfigHandler(
     const tobSkillDirs = ensureTrailOfBitsSkills()
     if (tobSkillDirs.length > 0) skillsPaths.push(...tobSkillDirs)
 
-    config.skills = {
-      ...(config.skills ?? {}),
-      paths: skillsPaths,
-    }
+    config.skills ??= {}
+    config.skills.paths = skillsPaths
 
     if (argusConfig.knowledge?.autoSync !== false) {
       triggerKnowledgeSync()
