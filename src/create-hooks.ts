@@ -1043,46 +1043,47 @@ export function createHooks(args: {
       : undefined,
     "tool.execute.after": toolTrackingHook
       ? async (input, output) => {
-          // Only intercept argus tools and the task tool (for child session tracking).
-          // Non-argus tools (read, grep, MCP calls, etc.) must pass through untouched.
-          if (!input.tool.startsWith("argus_") && input.tool !== "task") {
+          const toolName = typeof input.tool === "string" ? input.tool : ""
+          if (!toolName.startsWith("argus_") && toolName !== "task") {
             return
           }
 
-          if (input.tool.startsWith("argus_") && input.sessionID) {
+          if (toolName.startsWith("argus_") && input.sessionID) {
             await activateSession(input.sessionID)
           }
 
+          const toolOutput = typeof output.output === "string" ? output.output : ""
+
           const recoveryHint = toolErrorRecoveryHandler({
-            tool: input.tool,
-            result: output.output,
+            tool: toolName,
+            result: toolOutput,
           })
 
           await toolTrackingHook({
-            tool: input.tool,
+            tool: toolName,
             args: input.args,
-            result: output.output,
+            result: toolOutput,
             sessionID: input.sessionID,
             callID: input.callID,
           })
 
-          if (input.tool === "argus_generate_report") {
+          if (toolName === "argus_generate_report") {
             const state = getAuditState(input.sessionID)
             if (!state || state.sessionId.length === 0) {
               throw new Error("argus_generate_report completed without active audit state")
             }
 
-            const reportedError = extractReportErrorFromToolOutput(output.output)
+            const reportedError = extractReportErrorFromToolOutput(toolOutput)
             if (reportedError) {
               throw new Error(`argus_generate_report failed: ${reportedError}`)
             }
 
-            const reportFilePath = extractReportFilePathFromToolOutput(output.output)
+            const reportFilePath = extractReportFilePathFromToolOutput(toolOutput)
             if (!reportFilePath) {
               throw new Error("argus_generate_report completed without report filePath")
             }
 
-            const extractedRunId = extractRunIdFromReportToolOutput(output.output)
+            const extractedRunId = extractRunIdFromReportToolOutput(toolOutput)
             if (!extractedRunId) {
               throw new Error("argus_generate_report completed without run_id")
             }
@@ -1148,7 +1149,7 @@ export function createHooks(args: {
             }
           }
 
-          const outputWithHint = recoveryHint ? `${output.output}${recoveryHint}` : output.output
+          const outputWithHint = recoveryHint ? `${toolOutput}${recoveryHint}` : toolOutput
           output.output = outputTruncator(outputWithHint)
         }
       : undefined,
