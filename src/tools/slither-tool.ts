@@ -437,6 +437,7 @@ function parseFindings(payload: SlitherPayload): Finding[] {
       id: createFindingID(check, file, lines),
       check,
       severity: mapSeverity(detector.impact),
+      impact: detector.impact,
       confidence: mapConfidence(detector.confidence),
       description: detector.description ?? "",
       file,

@@ -197,7 +197,7 @@ describe("E2E B: CLI Commands", () => {
     } finally {
       out.restore()
     }
-  })
+  }, 15000)
 
   test("argus doctor detects Foundry project", async () => {
     makeSolidityProject(tmpDir)

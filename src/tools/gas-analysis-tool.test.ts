@@ -44,6 +44,23 @@ const SAMPLE_GAS_REPORT = `
 ╰─────────────────────────────────────────┴─────────────────┴────────┴────────┴────────┴─────────╯
 `
 
+const SAMPLE_GAS_REPORT_ASCII = `
+| src/VulnerableVault.sol:VulnerableVault Contract |                 |       |        |       |         |
++==================================================+=================+=======+========+=======+=========+
+| Deployment Cost                                  | Deployment Size |       |        |       |         |
+|--------------------------------------------------+-----------------+-------+--------+-------+---------|
+| 455645                                           | 1853            |       |        |       |         |
+|--------------------------------------------------+-----------------+-------+--------+-------+---------|
+| Function Name                                    | Min             | Avg   | Median | Max   | # Calls |
+|--------------------------------------------------+-----------------+-------+--------+-------+---------|
+| balances                                         | 779             | 2750  | 2779   | 2779  | 1056    |
+|--------------------------------------------------+-----------------+-------+--------+-------+---------|
+| deposit                                          | 43602           | 43602 | 43602  | 43602 | 20      |
+|--------------------------------------------------+-----------------+-------+--------+-------+---------|
+| withdraw                                         | 24790           | 30046 | 31390  | 32613 | 4       |
++--------------------------------------------------+-----------------+-------+--------+-------+---------+
+`
+
 test("gas-analysis tool uses tool() helper contract", () => {
   expect(gasAnalysisTool.description.length).toBeGreaterThan(0)
   expect(gasAnalysisTool.args).toBeDefined()
@@ -96,6 +113,28 @@ test("gas-analysis identifies high-gas hotspots above threshold", async () => {
   expect(result.hotspots).toEqual([
     { contract: "src/Vault.sol:Vault", function: "withdraw", avgGas: 128410 },
     { contract: "src/Vault.sol:Vault", function: "deposit", avgGas: 46292 },
+  ])
+})
+
+test("gas-analysis parses ASCII pipe gas report from Foundry 1.2.2", async () => {
+  const { context } = createContext()
+
+  const result = await executeGasAnalysis({ target: "." }, context, async () => {
+    return { stdout: SAMPLE_GAS_REPORT_ASCII, stderr: "", exitCode: 0 }
+  })
+
+  expect(result.success).toBe(true)
+  expect(result.contracts).toEqual([
+    {
+      name: "src/VulnerableVault.sol:VulnerableVault",
+      deploymentCost: 455645,
+      deploymentSize: 1853,
+      functions: [
+        { name: "balances", min: 779, avg: 2750, median: 2779, max: 2779, calls: 1056 },
+        { name: "deposit", min: 43602, avg: 43602, median: 43602, max: 43602, calls: 20 },
+        { name: "withdraw", min: 24790, avg: 30046, median: 31390, max: 32613, calls: 4 },
+      ],
+    },
   ])
 })
 

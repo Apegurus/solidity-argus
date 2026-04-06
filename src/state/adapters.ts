@@ -211,7 +211,7 @@ export function normalizeToCanonicalFinding(
   if (!lines && typeof input.location === "string") {
     const match = input.location.match(/:(\d+)(?:-(\d+))?$/)
     if (match) {
-      const start = parseInt(match[1]!, 10)
+      const start = parseInt(match[1] ?? "0", 10)
       const end = match[2] ? parseInt(match[2], 10) : start
       lines = [start, end] as [number, number]
     }

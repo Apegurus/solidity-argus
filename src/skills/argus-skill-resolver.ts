@@ -54,6 +54,9 @@ function parseSkillDescriptionFromFrontmatter(content: string): string {
   return raw.replace(/^"|"$/g, "")
 }
 
+/** Filenames that are never skills — exclude from resolution and health checks. */
+const NON_SKILL_FILENAMES = new Set(["README.md", "INVENTORY.md", "CHANGELOG.md", "LICENSE.md"])
+
 function collectMarkdownFiles(root: string, maxDepth = 8): string[] {
   if (!existsSync(root)) return []
 
@@ -81,6 +84,7 @@ function collectMarkdownFiles(root: string, maxDepth = 8): string[] {
 
       if (!entry.isFile()) continue
       if (extname(entry.name).toLowerCase() !== ".md") continue
+      if (NON_SKILL_FILENAMES.has(entry.name)) continue
       files.push(fullPath)
     }
   }

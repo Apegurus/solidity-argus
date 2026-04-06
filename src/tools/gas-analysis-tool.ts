@@ -59,7 +59,7 @@ function toNumber(value: string): number {
 
 function parseCells(line: string): string[] {
   return line
-    .split(/[│┆]/)
+    .split(/[│┆|]/)
     .map((cell) => cell.trim())
     .filter((cell) => cell.length > 0)
 }
@@ -76,7 +76,7 @@ function parseGasReport(stdout: string): ContractGasReport[] {
   let inFunctionSection = false
 
   for (const line of lines) {
-    if (!line.includes("│") && !line.includes("┆")) {
+    if (!line.includes("│") && !line.includes("┆") && !line.includes("|")) {
       continue
     }
 

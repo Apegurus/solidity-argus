@@ -152,7 +152,7 @@ async function spawnForgeInspect(
   })
 
   const timeout = 15_000
-  let timerId: ReturnType<typeof setTimeout>
+  let timerId: ReturnType<typeof setTimeout> | undefined
   const timer = new Promise<never>((_, reject) => {
     timerId = setTimeout(() => {
       proc.kill()
@@ -166,7 +166,7 @@ async function spawnForgeInspect(
     const stderr = await new Response(proc.stderr).text()
     return { success: exitCode === 0, stdout, stderr }
   } finally {
-    clearTimeout(timerId!)
+    if (timerId !== undefined) clearTimeout(timerId)
   }
 }
 

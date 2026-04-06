@@ -22,9 +22,12 @@ const RED = "\x1b[31m"
 const YELLOW = "\x1b[33m"
 const RESET = "\x1b[0m"
 
-function checkBinary(name: string): { found: boolean; version: string | null } {
+function checkBinary(
+  name: string,
+  versionArgs: string[] = ["--version"],
+): { found: boolean; version: string | null } {
   try {
-    const result = Bun.spawnSync([name, "--version"], {
+    const result = Bun.spawnSync([name, ...versionArgs], {
       stdout: "pipe",
       stderr: "pipe",
       timeout: 5000,
@@ -130,6 +133,8 @@ export function buildSkillHealthReport(
   }
 }
 
+const NON_SKILL_FILENAMES = new Set(["README.md", "INVENTORY.md", "CHANGELOG.md", "LICENSE.md"])
+
 function scanMarkdownFiles(dir: string, maxDepth = 8): string[] {
   if (!existsSync(dir)) return []
   const files: string[] = []
@@ -143,7 +148,11 @@ function scanMarkdownFiles(dir: string, maxDepth = 8): string[] {
         const fullPath = join(current.path, entry.name)
         if (entry.isDirectory()) {
           stack.push({ path: fullPath, depth: current.depth + 1 })
-        } else if (entry.isFile() && extname(entry.name).toLowerCase() === ".md") {
+        } else if (
+          entry.isFile() &&
+          extname(entry.name).toLowerCase() === ".md" &&
+          !NON_SKILL_FILENAMES.has(entry.name)
+        ) {
           files.push(fullPath)
         }
       }
@@ -212,7 +221,7 @@ export const doctorCommand: CliCommand = {
       hasFailure = true
     }
 
-    const solcSelect = checkBinary("solc-select")
+    const solcSelect = checkBinary("solc-select", ["versions"])
     if (solcSelect.found) {
       cliOutput.log(`${GREEN}✓${RESET} solc-select: installed (${solcSelect.version})`)
     } else {

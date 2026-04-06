@@ -1,6 +1,7 @@
 ---
 name: report-template
 description: Reusable smart contract audit report structure with severity IDs, finding sections, and appendices.
+category: methodology
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 
