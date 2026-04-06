@@ -39,6 +39,6 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 ## themis
 
 **Role**: Audit quality gate
-**Description**: Independent cross-validation agent running on GPT-5.4-pro (different LLM provider for reasoning diversity). Validates pipeline integrity: compares raw findings against Scribe's deduped output and the final report. Performs second-opinion research via Solodit and vulnerability skill checklists. Returns a structured verdict to Argus who makes the final decision. Dispatched by Argus after Scribe completes.
-**Model**: openai/gpt-5.4-pro
+**Description**: Independent cross-validation agent running on GPT-5.4 (different LLM provider for reasoning diversity). Validates pipeline integrity: compares raw findings against Scribe's deduped output and the final report. Performs second-opinion research via Solodit and vulnerability skill checklists. Returns a structured verdict to Argus who makes the final decision. Dispatched by Argus after Scribe completes.
+**Model**: openai/gpt-5.4
 **Tools**: argus_read_findings, argus_solodit_search, argus_check_patterns, argus_skill_load, skill
