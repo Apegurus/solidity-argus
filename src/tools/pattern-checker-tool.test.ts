@@ -25,12 +25,13 @@ function expectedPatternsChecked(categories?: string[]): number {
 }
 
 function createContext(): ToolContext {
+  const projectDir = process.cwd()
   return {
     sessionID: "session-1",
     messageID: "message-1",
     agent: "argus",
-    directory: "/tmp/project",
-    worktree: "/tmp/project",
+    directory: projectDir,
+    worktree: projectDir,
     abort: new AbortController().signal,
     metadata() {
       return

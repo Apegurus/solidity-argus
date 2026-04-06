@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { dirname, extname, join, resolve } from "node:path"
+import { dirname, extname, isAbsolute, join, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import {
   loadIndex,
@@ -10,6 +10,7 @@ import {
 import { getScvdIndexPath } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 import { normalizeFilePath } from "../shared/path-utils"
+import { resolveProjectDir } from "../shared/project-utils"
 import { extractDetectionRulesFromSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
 
@@ -324,7 +325,11 @@ export async function executePatternCheck(
   ]
 
   const selectedPatterns = selectPatterns(allPatterns, args.patterns)
-  const solidityFiles = collectSolidityFiles(args.target)
+  const baseProjectDir = resolveProjectDir(context)
+  const resolvedTarget = isAbsolute(args.target)
+    ? args.target
+    : resolve(baseProjectDir, args.target)
+  const solidityFiles = collectSolidityFiles(resolvedTarget)
   if (solidityFiles.length === 0) {
     return {
       success: false,
@@ -339,18 +344,18 @@ export async function executePatternCheck(
     }
   }
 
-  const absoluteTarget = resolve(args.target)
+  const absoluteTarget = resolvedTarget
   let targetStat: ReturnType<typeof statSync> | undefined
   try {
     targetStat = statSync(absoluteTarget)
   } catch {}
-  const projectDir = targetStat?.isFile() ? dirname(absoluteTarget) : absoluteTarget
+  const normalizedProjectDir = targetStat?.isFile() ? dirname(absoluteTarget) : absoluteTarget
   const sourceMatches: Match[] = []
   for (const solidityFile of solidityFiles) {
     if (context.abort.aborted) {
       throw new Error("pattern check aborted")
     }
-    sourceMatches.push(...findMatches(solidityFile, selectedPatterns, projectDir))
+    sourceMatches.push(...findMatches(solidityFile, selectedPatterns, normalizedProjectDir))
   }
 
   const sources: MatchSource[] = [

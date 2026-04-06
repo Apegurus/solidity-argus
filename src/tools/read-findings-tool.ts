@@ -247,6 +247,39 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   const logger = createLogger()
   const argusRoot = defaultRootResolver.writeRoot(projectDir)
 
+  const dedupedFile = createAuditArtifactResolver(runId, projectDir).paths().dedupedFindingsFile
+  try {
+    const dedupedRaw = JSON.parse(readFileSync(dedupedFile, "utf8")) as {
+      findings?: unknown[]
+      run_id?: string
+    }
+    if (Array.isArray(dedupedRaw.findings) && dedupedRaw.findings.length > 0) {
+      logger.debug(`Loaded deduped findings from: ${dedupedFile}`)
+
+      const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
+      let baseReportInput: Partial<ReportInput> = {}
+      try {
+        baseReportInput = JSON.parse(readFileSync(perRunFile, "utf8")) as Partial<ReportInput>
+      } catch {}
+
+      return {
+        ...baseReportInput,
+        run_id: dedupedRaw.run_id ?? runId,
+        findings: dedupedRaw.findings as CanonicalFinding[],
+        toolsExecuted: baseReportInput.toolsExecuted ?? [],
+        scope: baseReportInput.scope ?? [],
+        projectDir: baseReportInput.projectDir ?? projectDir,
+        seq: 0,
+        session_id: "audit",
+        tool_call_id: "",
+        source: "deduped-findings",
+        schema_version: SCHEMA_VERSION,
+      } as ReportInput
+    }
+  } catch {
+    logger.debug(`No deduped findings at ${dedupedFile}`)
+  }
+
   // 1. Per-run report-input artifact (materialized by findings-materializer into runs/{runId}/)
   const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
   try {

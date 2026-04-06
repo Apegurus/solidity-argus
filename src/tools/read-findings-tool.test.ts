@@ -43,6 +43,17 @@ async function writeAuditState(dir: string, state: Record<string, unknown>): Pro
   await writeFile(join(argusDir, "argus-state.json"), JSON.stringify(state))
 }
 
+async function writeRunArtifact(
+  dir: string,
+  runId: string,
+  fileName: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const runDir = join(dir, ".argus", "runs", runId)
+  await mkdir(runDir, { recursive: true })
+  await writeFile(join(runDir, fileName), JSON.stringify(data))
+}
+
 function makeAuditState(overrides: Record<string, unknown> = {}) {
   return {
     sessionId: "run-test",
@@ -137,17 +148,23 @@ test("returns file reference with truncated=true when output exceeds threshold",
 test("throws when no audit state exists", async () => {
   const dir = await makeTempDir()
 
-  await expect(executeReadFindings({ run_id: "run-missing" }, createContext(dir))).rejects.toThrow(
-    "Cannot read findings from any source",
-  )
+  try {
+    await executeReadFindings({ run_id: "run-missing" }, createContext(dir))
+    throw new Error("Expected executeReadFindings to throw")
+  } catch (error) {
+    expect((error as Error).message).toContain("Cannot read findings from any source")
+  }
 })
 
 test("throws when run_id is empty", async () => {
   const dir = await makeTempDir()
 
-  await expect(executeReadFindings({ run_id: "" }, createContext(dir))).rejects.toThrow(
-    "run_id is required",
-  )
+  try {
+    await executeReadFindings({ run_id: "" }, createContext(dir))
+    throw new Error("Expected executeReadFindings to throw")
+  } catch (error) {
+    expect((error as Error).message).toContain("run_id is required")
+  }
 })
 
 test("prefers flat report-input.json over audit state", async () => {
@@ -203,5 +220,66 @@ test("derives scope from findings when state scope is empty", async () => {
   if (!parsed.truncated) {
     expect(parsed.reportInput.scope).toContain("src/Vault.sol")
     expect(parsed.reportInput.scope).toContain("src/Token.sol")
+  }
+})
+
+test("prefers deduped-findings.json over per-run report-input and state", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "report-input.json", {
+    run_id: runId,
+    findings: [
+      {
+        check: "from-per-run-report-input",
+        severity: "High",
+        file: "src/PerRun.sol",
+        lines: [1, 2],
+        description: "per-run",
+        source: "manual",
+        confidence: "High",
+      },
+    ],
+    toolsExecuted: [],
+    scope: ["src/PerRun.sol"],
+    projectDir: dir,
+  })
+
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: runId,
+    findings: [
+      {
+        id: "DEDUPED-1",
+        check: "from-deduped",
+        severity: "Critical",
+        file: "src/Deduped.sol",
+        lines: [10, 12],
+        description: "deduped finding",
+        source: "manual",
+        confidence: "High",
+        impact: "deduped impact",
+        recommendation: "deduped recommendation",
+      },
+    ],
+  })
+
+  await writeAuditState(
+    dir,
+    makeAuditState({
+      findings: [makeFinding(0, { check: "from-state" })],
+      scope: ["src/State.sol"],
+    }),
+  )
+
+  const payload = await executeReadFindings({ run_id: runId }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  if (!parsed.truncated) {
+    const finding = parsed.reportInput.findings[0]
+    expect(finding?.check).toBe("from-deduped")
+    expect(finding?.impact).toBe("deduped impact")
+    expect(finding?.recommendation).toBe("deduped recommendation")
+    expect(parsed.reportInput.scope).toEqual(["src/PerRun.sol"])
   }
 })

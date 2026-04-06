@@ -948,17 +948,17 @@ function formatDuration(ms: number): string {
 export function buildProvenanceAppendix(
   state: AuditState,
   threshold: SeverityThreshold,
-  includedCount: number,
+  reportFindings: Finding[],
 ): string {
   const lines: string[] = ["## Appendix: Data Provenance"]
 
   lines.push("- Data source: `report_input` payload")
   lines.push(`- Severity threshold applied: ${threshold}`)
-  lines.push(`- Findings included in report: ${includedCount}`)
+  lines.push(`- Findings included in report: ${reportFindings.length}`)
 
-  if (state.findings.length > 0) {
+  if (reportFindings.length > 0) {
     const sourceCounts: Record<string, number> = {}
-    for (const f of state.findings) {
+    for (const f of reportFindings) {
       sourceCounts[f.source] = (sourceCounts[f.source] ?? 0) + 1
     }
     lines.push("")
@@ -1269,7 +1269,7 @@ export async function executeReportGeneration(
     sections.push(preflightWarningSection)
   }
 
-  sections.push(buildProvenanceAppendix(state, threshold, findings.length))
+  sections.push(buildProvenanceAppendix(state, threshold, findings))
 
   // Embed report metadata for single-writer policy enforcement
   const runId = expectedRunId ?? reportInput.run_id
