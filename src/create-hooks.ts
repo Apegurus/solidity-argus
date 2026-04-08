@@ -1149,8 +1149,10 @@ export function createHooks(args: {
             }
           }
 
-          const outputWithHint = recoveryHint ? `${toolOutput}${recoveryHint}` : toolOutput
-          output.output = outputTruncator(outputWithHint)
+          if (toolName.startsWith("argus_")) {
+            const outputWithHint = recoveryHint ? `${toolOutput}${recoveryHint}` : toolOutput
+            output.output = outputTruncator(outputWithHint)
+          }
         }
       : undefined,
     event: safeEventHook,
