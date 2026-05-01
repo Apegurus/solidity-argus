@@ -149,4 +149,3 @@ export function createFindingStore(state: AuditState): FindingStore {
     serialize,
   }
 }
-

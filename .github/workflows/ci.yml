@@ -124,7 +124,7 @@ jobs:
         run: bun test tests/integration/report-quality-gates.test.ts
 
       - name: Migration modes tests
-        run: bun test tests/integration/migration-modes.test.ts
+        run: bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
 
       - name: Single writer policy tests
         run: bun test tests/integration/single-writer-policy.test.ts
