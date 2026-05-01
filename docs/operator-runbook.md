@@ -122,7 +122,7 @@ Expected output:
 ✓ Config: valid
 ✓ Skills: required audit skills resolvable
 ✓ SCVD API: reachable
-✓ Solodit MCP: reachable on port 3000
+✓ Solodit MCP: reachable on port 54173
 ```
 
 If any check fails, resolve before proceeding.
@@ -142,7 +142,7 @@ bun test tests/integration/determinism-replay.test.ts
 bun test tests/integration/subagent-telemetry-capture.test.ts
 bun test tests/integration/report-contract.test.ts
 bun test tests/integration/report-quality-gates.test.ts
-bun test tests/integration/migration-modes.test.ts
+bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
 bun test tests/integration/single-writer-policy.test.ts
 ```
 
@@ -206,10 +206,10 @@ Only proceed if dual-mode parity validation passed (Step 5.1).
    }
    ```
 
-2. Run the migration modes test to confirm strict mode works:
-   ```bash
-   bun test tests/integration/migration-modes.test.ts
-   ```
+2. Run the config and plugin migration checks to confirm compatibility behavior works:
+    ```bash
+    bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
+    ```
 
 3. Run a full audit to confirm end-to-end behavior.
 
@@ -279,7 +279,7 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 2. Verify the system is healthy:
    ```bash
    argus doctor
-   bun test tests/integration/migration-modes.test.ts
+    bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
    ```
 
 ### 7.2 Rollback from Dual to Legacy
@@ -393,12 +393,12 @@ bun test tests/integration/report-quality-gates.test.ts --verbose
 **Diagnosis**:
 ```bash
 argus doctor
-# Check: ✓ Solodit MCP: reachable on port 3000
+# Check: ✓ Solodit MCP: reachable on port 54173
 ```
 
 **Remediation**:
 - If Solodit MCP is unreachable, the HTTP fallback will be used automatically.
-- Check if Solodit MCP server is running: `lsof -i :3000`
+- Check if Solodit MCP server is running: `lsof -i :54173`
 - If port conflict (EADDRINUSE): kill the conflicting process or change the Solodit port in config.
 - The search tool always attempts HTTP fallback — no manual intervention needed for degraded mode.
 
@@ -423,7 +423,7 @@ bun test src/utils/solodit-health.test.ts --verbose
 
 **Diagnosis**:
 ```bash
-bun test tests/integration/migration-modes.test.ts --verbose
+bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts --verbose
 ```
 
 **Remediation**:
@@ -552,7 +552,7 @@ Use this checklist when a background retrieval incident occurs during an audit:
 | `tests/integration/subagent-telemetry-capture.test.ts` | Parent/child session telemetry correlation |
 | `tests/integration/report-contract.test.ts` | Structured ReportInput contract compliance |
 | `tests/integration/report-quality-gates.test.ts` | Critical/High finding completeness gates |
-| `tests/integration/migration-modes.test.ts` | Migration mode behavior (legacy/dual/strict) |
+| `src/config/loader.test.ts` + `src/config/loader-partial-validation.test.ts` + `tests/e2e/plugin-e2e.test.ts` | Config precedence, `.argus`/`.opencode` fallback, and plugin compatibility behavior |
 | `tests/integration/single-writer-policy.test.ts` | No duplicate report artifacts per run_id |
 
 **All production-readiness tests are blocking** — a failure prevents merge to main.
@@ -575,7 +575,7 @@ Evidence artifacts from CI runs are uploaded to the `production-readiness-eviden
   },
   "solodit": {
     "enabled": true,
-    "port": 3000
+    "port": 54173
   }
 }
 ```

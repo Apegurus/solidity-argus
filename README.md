@@ -10,7 +10,7 @@
 
 **solidity-argus** is a security auditing plugin for [OpenCode](https://opencode.ai) that brings professional-grade Solidity smart contract auditing directly into your AI coding workflow.
 
-Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 4 specialized AI agents to conduct comprehensive security audits: static analysis, vulnerability research, dynamic testing, and professional report generation.
+Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 5 specialized AI agents to conduct comprehensive security audits: static analysis, vulnerability research, dynamic testing, professional report generation, and independent validation.
 
 **What it does:**
 - Runs Slither static analysis and Foundry tests automatically
@@ -42,6 +42,8 @@ Or install via npm/bun:
 bun add solidity-argus
 ```
 
+`solidity-argus` is Bun/OpenCode-native. The package entrypoints and CLI bins intentionally point at TypeScript source executed by Bun/OpenCode, so use `bun` or `bunx` for CLI commands rather than Node-only runners.
+
 ---
 
 ## Quick Start
@@ -67,9 +69,10 @@ Argus will automatically:
 | `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
 | `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
 | `@scribe` | Audit report writer | claude-sonnet-4-6 |
+| `@themis` | Independent audit quality gate | gpt-5.4 |
 
 ### @argus — The Orchestrator
-Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, and Scribe as needed.
+Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Scribe, and Themis as needed.
 
 ### @sentinel — The Executor
 Runs Slither, writes and executes Foundry tests, performs fuzz testing. Your tactical executor for all dynamic and static analysis tasks.
@@ -79,6 +82,9 @@ Searches Solodit and SCVD for historical exploits, checks vulnerability pattern 
 
 ### @scribe — The Reporter
 Transforms raw findings into professional, structured markdown audit reports with severity classifications, impact assessments, and actionable recommendations.
+
+### @themis — The Quality Gate
+Validates the completed audit by comparing raw findings, deduped findings, and the generated report. Themis challenges false positives, severity choices, and dropped findings before final delivery.
 
 ---
 
@@ -95,6 +101,10 @@ Transforms raw findings into professional, structured markdown audit reports wit
 | `argus_gas_analysis` | Sentinel | Runs forge gas report analysis, parses per-function gas metrics, and identifies high-gas hotspots above configurable threshold |
 | `argus_forge_fuzz` | Sentinel | Fuzzes specific functions with random inputs to find edge cases and invariant violations |
 | `argus_forge_coverage` | Sentinel | Runs forge coverage analysis and returns structured per-file coverage metrics (lines, statements, branches, functions) |
+| `argus_skill_load` | Pythia, Themis | Loads curated SKILL.md knowledge files on demand for vulnerability patterns, protocol guidance, methodology, and case studies |
+| `argus_record_finding` | Sentinel, Pythia | Records verified manual, static-analysis, research, or testing findings into durable audit state |
+| `argus_read_findings` | Scribe, Themis | Reads persisted findings and audit artifacts for report generation and validation |
+| `argus_persist_deduped` | Scribe | Persists deduplicated findings before final report generation and validation |
 | `argus_generate_report` | Scribe | Generates the final structured audit report in professional markdown format |
 | `argus_sync_knowledge` | Argus | Syncs the local vulnerability database from SCVD (api.scvd.dev) |
 
@@ -277,7 +287,8 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
     "argus": { "model": "anthropic/claude-opus-4-6" },
     "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
     "pythia": { "model": "anthropic/claude-sonnet-4-6" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-6" }
+    "scribe": { "model": "anthropic/claude-sonnet-4-6" },
+    "themis": { "model": "openai/gpt-5.4" }
   },
 
   "tools": {
@@ -300,7 +311,7 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 
   "solodit": {
     "enabled": true,
-    "port": 3000
+    "port": 54173
   },
 
   "disabled_hooks": [],
@@ -327,12 +338,13 @@ Argus uses a **three-channel context delivery system** to inject dynamic audit s
 
 ### Prompt Channel (Static Identity)
 
-Each of the 4 Argus agents has a static prompt file defining its role, methodology, and tool instructions:
+Each of the 5 Argus agents has a static prompt file defining its role, methodology, and tool instructions:
 
 - `src/agents/argus-prompt.ts` — Orchestrator methodology (7-step audit framework)
 - `src/agents/sentinel-prompt.ts` — Static analysis & testing instructions
 - `src/agents/pythia-prompt.ts` — Vulnerability research methodology
 - `src/agents/scribe-prompt.ts` — Report generation format and structure
+- `src/agents/themis-prompt.ts` — Independent validation and quality gate logic
 
 These prompts **never change at runtime** and establish the agent's core identity and decision-making framework.
 
@@ -345,7 +357,7 @@ The `experimental.chat.system.transform` hook injects dynamic audit state into t
 - Tools executed and their results
 - Session-specific audit state (contract under review, scope, etc.)
 
-**Critical Rule:** This hook is **Argus-family gated**. Only agents in `{argus, sentinel, pythia, scribe}` receive injected context. All other agents receive `undefined` (no injection).
+**Critical Rule:** This hook is **Argus-family gated**. Only agents in `{argus, sentinel, pythia, scribe, themis}` receive injected context. All other agents receive `undefined` (no injection).
 
 **Session→Agent Mapping Pattern:**
 1. `chat.params` hook captures `(sessionID, agentName)` pairs during each turn
