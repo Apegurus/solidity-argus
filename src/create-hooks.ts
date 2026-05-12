@@ -15,6 +15,7 @@ import {
 } from "./features/persistent-state/event-sink"
 import {
   materializeFindings,
+  materializeFindingsForRun,
   materializeReportInput,
 } from "./features/persistent-state/findings-materializer"
 import { recordRun, updateRunStatus } from "./features/persistent-state/global-run-index"
@@ -874,34 +875,17 @@ export function createHooks(args: {
       )
     : undefined
 
-  const materializeFindingsForRun = async (
+  const runMaterializeFindings = (
     runId: string,
     projectDirForRun: string,
     sessionIdForRun: string | undefined,
     trigger: "session.idle" | "session.deleted" | "tool.execute.after",
     failFast = false,
-  ): Promise<void> => {
-    if (!runId || runId.length === 0) {
-      return
-    }
-
-    try {
-      await materializeFindings(runId, projectDirForRun, sessionIdForRun, {
-        validateSessionId: false,
-        requireEvents: true,
-      })
-    } catch (error) {
-      if (failFast) {
-        throw new Error(
-          `Failed to materialize findings artifact on ${trigger} for run ${runId}: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-
-      logger.warn(
-        `Failed to materialize findings artifact on ${trigger} for run ${runId}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-  }
+  ): Promise<void> =>
+    materializeFindingsForRun(runId, projectDirForRun, sessionIdForRun, trigger, {
+      failFast,
+      warn: (msg) => logger.warn(msg),
+    })
 
   const safeEventHook = isHookEnabled("event")
     ? safeCreateHook(
@@ -920,7 +904,7 @@ export function createHooks(args: {
 
               if (hasNewFinalization && finalizationResult.runId.length > 0) {
                 try {
-                  await materializeFindingsForRun(
+                  await runMaterializeFindings(
                     finalizationResult.runId,
                     projectDir,
                     eventSessionId,
@@ -1093,12 +1077,12 @@ export function createHooks(args: {
               )
             }
 
-            await materializeFindingsForRun(
+            await runMaterializeFindings(
               state.sessionId,
               state.projectDir,
               input.sessionID,
               "tool.execute.after",
-              true,
+              false,
             )
 
             try {

@@ -65,10 +65,12 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
 
    This writes the source-of-truth JSON to disk at \`.argus/runs/{run_id}/deduped-findings.json\`.
 
-5. **Generate report**: Call \`argus_generate_report\` with:
+5. **Generate report**: Call \`argus_generate_report\` with EXACTLY these arguments (and nothing else):
    - \`project_name\`: the project name
    - \`scope\`: list of audited files
-   - \`run_id\`: the run ID (the tool reads your persisted deduped findings from disk)
+   - \`run_id\`: the run ID (the tool reads your persisted deduped findings from disk and resolves the canonical envelope automatically)
+
+   **DO NOT** pass \`report_input\`, \`findings\`, \`toolsExecuted\`, \`session_id\`, or any other field — the tool reads them from durable state on disk. Passing them risks contract-mismatch failures.
 
 6. **Limitations disclosure**: If any tool failed or was absent, add a \`## Limitations\` section.
 

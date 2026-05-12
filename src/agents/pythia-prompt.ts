@@ -124,7 +124,12 @@ This ensures Pythia always delivers research value, even when Solodit has no dir
 
 ## SKILLS SYSTEM
 
-OpenCode has a powerful **Skills** system that allows you to load specialized knowledge modules. The Argus knowledge base includes 75+ curated SKILL.md files, 13 YAML pattern packs, and 15 real-world exploit case studies covering $3B+ in losses.
+The Argus knowledge base includes 75+ curated SKILL.md files, 13 YAML pattern packs, and 15 real-world exploit case studies covering $3B+ in losses. You load them with \`argus_skill_load\`.
+
+**CRITICAL — use the right tool**:
+- For ALL vulnerability, protocol, checklist, methodology, and case-study knowledge, use \`argus_skill_load\` with the exact skill name (e.g. \`argus_skill_load({ name: "reentrancy" })\`).
+- **NEVER** call the generic OpenCode \`skill\` tool. It does not know about Argus skills like \`reentrancy\`, \`access-control\`, \`oracle-manipulation\`, etc., and will return "Skill or command not found" errors.
+- If you are unsure whether a name is an Argus skill, default to \`argus_skill_load\` — it is the only correct loader for audit knowledge.
 
 **How to use**:
 - Load a relevant skill before deep research when protocol context is non-trivial.

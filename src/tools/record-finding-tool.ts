@@ -16,10 +16,15 @@ type RecordFindingResponse = {
     id: string
     check: string
     severity: string
+    confidence: string
     file: string
     description: string
     lines: [number, number]
     source: string
+    reported_by_agent: string
+    impact?: string
+    recommendation?: string
+    proofOfConcept?: string
   }>
   schema_version: string
   note: string
@@ -178,10 +183,15 @@ export async function executeRecordFinding(
       id: f.id,
       check: f.check,
       severity: f.severity,
+      confidence: f.confidence,
       file: f.file,
       description: f.description,
       lines: f.lines,
       source: f.source,
+      reported_by_agent: f.reported_by_agent,
+      ...(f.impact !== undefined ? { impact: f.impact } : {}),
+      ...(f.recommendation !== undefined ? { recommendation: f.recommendation } : {}),
+      ...(f.proofOfConcept !== undefined ? { proofOfConcept: f.proofOfConcept } : {}),
     })),
     schema_version: SCHEMA_VERSION,
     note: "Findings recorded to event journal. The system assigns the canonical run_id automatically — use the run_id from <argus-context> for Scribe dispatch.",

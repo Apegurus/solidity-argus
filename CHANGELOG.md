@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.7 (2026-05-12)
+
+### Fixes (audit reporting pipeline)
+- `argus_record_finding` — preserve `impact`, `recommendation`, `proofOfConcept` fields end-to-end through the event-capture path. Previously, the `tool-tracking-hook` processor stripped these fields when constructing the FindingStore payload, leaving every `finding.added` event with empty enrichment and rendering reports with placeholder "Impact details were not provided" text for all findings. Also include these fields in the tool's JSON response so the calling agent (Sentinel/Pythia) sees what was persisted. (Bug #3 in v0.5.6 smoke test)
+- `argus_generate_report` — `tool.execute.after` materialization is no longer fail-fast. When a report is written successfully but the post-render `findings.json` materialization fails (e.g. due to a synthetic vs canonical `run_id` mismatch in the event stream), the tool now logs a warning instead of returning `error`. This unblocks the orchestrator's completion signal and lets Themis dispatch correctly. (Bug #2)
+- `argus_generate_report` — Scribe-style deduped findings (high-level fields only — check, severity, impact, recommendation, etc.) are now normalized to canonical form at report time via `normalizeToCanonicalFinding`. Previously the merge step in `parseReportInputPayload` validated raw deduped findings against the strict canonical schema, failing with ~300 `REPORT_INPUT_DEDUPED_VALIDATION_FAILED` errors on Scribe's first attempt. (Bug #1)
+- Scribe prompt — explicitly forbid passing `report_input`, `findings`, `toolsExecuted`, `session_id`, or any other field to `argus_generate_report`. Only `project_name`, `scope`, and `run_id` are valid arguments; the tool resolves the rest from durable state.
+- Pythia prompt — explicit prohibition against the generic OpenCode `skill` tool. All audit knowledge MUST load via `argus_skill_load` (Pythia previously called the wrong tool twice during v0.5.6 smoke test, recovering itself but burning two turns). (Bug #4)
+- `argus install` CLI — added `--global` flag. Running `argus install` without the flag in a directory with no project-local `opencode.json` now warns and asks for confirmation (default: no), instead of silently falling through to `~/.config/opencode/opencode.json` and loading the plugin in every OpenCode session globally. (Bug #5)
+
+### Internal
+- Extracted `materializeFindingsForRun` from `create-hooks.ts` into `findings-materializer.ts` for direct unit-testability (previously a closure-scoped helper).
+- New end-to-end test `tests/e2e/audit-reporting-pipeline.test.ts` exercises the full `record_finding → persist_deduped → generate_report` flow against a temp project, asserting non-placeholder impact/recommendation content in the rendered report.
+- Net test delta: +16 tests, 1408 passing / 0 failing.
+
 ## 0.5.6 (2026-05-01)
 
 ### Fixes

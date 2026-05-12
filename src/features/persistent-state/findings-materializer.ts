@@ -12,6 +12,16 @@ import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../.
 import { SCHEMA_VERSION } from "../../state/schemas"
 import { readEvents } from "./event-sink"
 
+export type MaterializeFindingsTrigger =
+  | "session.idle"
+  | "session.deleted"
+  | "tool.execute.after"
+
+export interface MaterializeFindingsForRunOptions {
+  failFast?: boolean
+  warn?: (message: string) => void
+}
+
 export interface FindingsArtifact {
   run_id: string
   session_id: string
@@ -76,6 +86,30 @@ export async function materializeFindings(
   await writeFile(findingsFile, JSON.stringify(artifact, null, 2))
 
   return artifact
+}
+
+export async function materializeFindingsForRun(
+  runId: string,
+  projectDir: string,
+  sessionId: string | undefined,
+  trigger: MaterializeFindingsTrigger,
+  options: MaterializeFindingsForRunOptions = {},
+): Promise<void> {
+  if (!runId || runId.length === 0) return
+
+  const { failFast = false, warn } = options
+  try {
+    await materializeFindings(runId, projectDir, sessionId, {
+      validateSessionId: false,
+      requireEvents: true,
+    })
+  } catch (error) {
+    const message = `Failed to materialize findings artifact on ${trigger} for run ${runId}: ${error instanceof Error ? error.message : String(error)}`
+    if (failFast) {
+      throw new Error(message)
+    }
+    warn?.(message)
+  }
 }
 
 export async function materializeReportInput(

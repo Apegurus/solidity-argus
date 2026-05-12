@@ -190,6 +190,44 @@ test("executeRecordFinding has no enrichment warnings when fields are present", 
   expect(parsed.enrichment_warnings).toBeUndefined()
 })
 
+test("executeRecordFinding response echoes impact/recommendation/proofOfConcept/reported_by_agent (Task 1 / Bug #3)", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "reentrancy-drain",
+        severity: "Critical",
+        confidence: "High",
+        description: "Vault is vulnerable to reentrancy",
+        file: "src/Vault.sol",
+        lines: [42, 58],
+        source: "slither",
+        impact: "Complete vault drain via cross-function reentrancy",
+        recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
+        proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    findings: Array<{
+      impact?: string
+      recommendation?: string
+      proofOfConcept?: string
+      reported_by_agent?: string
+    }>
+  }
+
+  expect(parsed.success).toBe(true)
+  const f = parsed.findings[0]
+  expect(f).toBeDefined()
+  expect(f?.impact).toBe("Complete vault drain via cross-function reentrancy")
+  expect(f?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
+  expect(f?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
+  expect(f?.reported_by_agent).toBe("sentinel")
+})
+
 test("executeRecordFinding skips enrichment warnings for Low/Medium findings", async () => {
   const payload = await executeRecordFinding(
     {

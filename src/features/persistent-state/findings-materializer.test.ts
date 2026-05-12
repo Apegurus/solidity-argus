@@ -5,7 +5,11 @@ import { join } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
 import type { AuditEvent, CanonicalFinding } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
-import { materializeFindings, materializeReportInput } from "./findings-materializer"
+import {
+  materializeFindings,
+  materializeFindingsForRun,
+  materializeReportInput,
+} from "./findings-materializer"
 
 function makeFinding(runId: string, seq: number, id: string): CanonicalFinding {
   return {
@@ -251,5 +255,75 @@ describe("materializeReportInput", () => {
     const secondBytes = await readFile(reportInputFile, "utf8")
 
     expect(firstBytes).toBe(secondBytes)
+  })
+})
+
+describe("materializeFindingsForRun (Task 2 / Bug #2)", () => {
+  const tempDirs: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })))
+    tempDirs.length = 0
+  })
+
+  async function makeTempDir(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "argus-materialize-for-run-"))
+    tempDirs.push(dir)
+    return dir
+  }
+
+  test("does not throw when no events exist and failFast=false (default tool.execute.after behavior)", async () => {
+    const orphanRunId = "orphan-run-no-events"
+    const projectDir = await makeTempDir()
+    const warnings: string[] = []
+
+    await materializeFindingsForRun(orphanRunId, projectDir, undefined, "tool.execute.after", {
+      failFast: false,
+      warn: (msg) => warnings.push(msg),
+    })
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain("Failed to materialize findings artifact on tool.execute.after")
+    expect(warnings[0]).toContain(orphanRunId)
+  })
+
+  test("throws when no events exist and failFast=true (session.deleted behavior)", async () => {
+    const orphanRunId = "orphan-run-no-events-strict"
+    const projectDir = await makeTempDir()
+
+    await expect(
+      materializeFindingsForRun(orphanRunId, projectDir, undefined, "session.deleted", {
+        failFast: true,
+      }),
+    ).rejects.toThrow(`Failed to materialize findings artifact on session.deleted for run ${orphanRunId}`)
+  })
+
+  test("succeeds and writes findings.json when events exist", async () => {
+    const runId = "run-with-events"
+    const projectDir = await makeTempDir()
+    const sessionId = "session-with-events"
+    await writeEventsJsonl(projectDir, runId, makeEvents(runId, sessionId))
+
+    const warnings: string[] = []
+    await materializeFindingsForRun(runId, projectDir, sessionId, "tool.execute.after", {
+      failFast: false,
+      warn: (msg) => warnings.push(msg),
+    })
+
+    expect(warnings).toHaveLength(0)
+    const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
+    expect(await readFile(findingsFile, "utf8")).toContain(runId)
+  })
+
+  test("returns early without throwing or warning when runId is empty", async () => {
+    const projectDir = await makeTempDir()
+    const warnings: string[] = []
+
+    await materializeFindingsForRun("", projectDir, undefined, "tool.execute.after", {
+      failFast: true,
+      warn: (msg) => warnings.push(msg),
+    })
+
+    expect(warnings).toHaveLength(0)
   })
 })

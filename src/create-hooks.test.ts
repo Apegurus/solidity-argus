@@ -780,6 +780,66 @@ describe("createHooks", () => {
     expect(await Bun.file(findingsPath).exists()).toBe(true)
   })
 
+  it("returns success when report.md is written even if materialization has no events (Task 2 / Bug #2)", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const initialRunId = `run-orphan-init-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: initialRunId, reportGenerated: false })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+        dispose: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-orphan" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-orphan")
+
+    const orphanRunId = `run-no-events-DOES-NOT-EXIST-${Date.now()}`
+    activeState.sessionId = orphanRunId
+
+    await expect(
+      hooks["tool.execute.after"]?.(
+        {
+          tool: "argus_generate_report",
+          args: { target: FIXTURE_DIR },
+          sessionID: "oc-orphan",
+        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+        {
+          title: "argus_generate_report",
+          output: JSON.stringify({
+            run_id: orphanRunId,
+            filePath: ".argus/reports/orphan.md",
+            report: "ok",
+          }),
+          metadata: {},
+        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+      ),
+    ).resolves.toBeUndefined()
+  })
+
   it("dispose removes process exit handler", () => {
     const config = ArgusConfigSchema.parse({})
     const listenersBefore = process.listenerCount("exit")

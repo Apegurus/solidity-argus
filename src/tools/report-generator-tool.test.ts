@@ -1644,3 +1644,74 @@ test("executeReportGeneration falls back to run_id disk report-input.json", asyn
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
+
+test("executeReportGeneration accepts Scribe-style deduped findings without canonical envelope (Task 3 / Bug #1)", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-deduped-task3-"))
+  const runId = "run-deduped-task3"
+
+  try {
+    const resolver = createAuditArtifactResolver(runId, tempDir)
+    const dedupedPath = resolver.paths().dedupedFindingsFile
+    mkdirSync(path.dirname(dedupedPath), { recursive: true })
+    writeFileSync(
+      dedupedPath,
+      JSON.stringify({
+        run_id: runId,
+        schema_version: SCHEMA_VERSION,
+        deduped_at: Date.now(),
+        deduped_by: "scribe",
+        findings_count: 2,
+        findings: [
+          {
+            check: "reentrancy-drain",
+            severity: "Critical",
+            confidence: "High",
+            description: "Cross-function reentrancy enables vault drain",
+            file: "src/Vault.sol",
+            lines: [42, 58],
+            source: "slither",
+            impact: "Complete loss of all deposited funds via reentrant withdraw",
+            recommendation: "Add nonReentrant modifier and switch to checks-effects-interactions",
+            proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
+          },
+          {
+            check: "missing-access-control",
+            severity: "High",
+            confidence: "High",
+            description: "withdraw() lacks authorization check",
+            file: "src/Vault.sol",
+            lines: [60, 65],
+            source: "manual",
+            impact: "Any address can drain other users' balances",
+            recommendation: "Add onlyOwner modifier or require(msg.sender == owner)",
+          },
+        ],
+      }),
+    )
+
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+    }
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "DedupedTask3",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+
+    expect(result.run_id).toBe(runId)
+    expect(result.findingsCount.critical).toBe(1)
+    expect(result.findingsCount.high).toBe(1)
+    expect(result.report).toContain("Complete loss of all deposited funds via reentrant withdraw")
+    expect(result.report).toContain("Add nonReentrant modifier")
+    expect(result.report).not.toContain("Impact details were not provided")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})

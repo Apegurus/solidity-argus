@@ -8,6 +8,7 @@ describe("CliProgram", () => {
   let output: string[]
   let errorOutput: string[]
   let originalLog: typeof cliOutput.log
+  let originalWarn: typeof cliOutput.warn
   let originalError: typeof console.error
 
   beforeEach(() => {
@@ -16,10 +17,15 @@ describe("CliProgram", () => {
     errorOutput = []
 
     originalLog = cliOutput.log
+    originalWarn = cliOutput.warn
     originalError = console.error
 
     cliOutput.log = (...args: unknown[]) => {
       output.push(args.join(" "))
+    }
+
+    cliOutput.warn = (...args: unknown[]) => {
+      errorOutput.push(args.join(" "))
     }
 
     console.error = (...args: unknown[]) => {
@@ -29,6 +35,7 @@ describe("CliProgram", () => {
 
   afterEach(() => {
     cliOutput.log = originalLog
+    cliOutput.warn = originalWarn
     console.error = originalError
   })
 

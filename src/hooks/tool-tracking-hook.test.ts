@@ -200,6 +200,69 @@ describe("createToolTrackingHook", () => {
     expect(sink.events.some((event) => event.type === "finding.added")).toBe(true)
   })
 
+  test("argus_record_finding preserves impact/recommendation/proofOfConcept through to event payload (Task 1 / Bug #3)", async () => {
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-impact-test",
+      getAgentName: () => "sentinel",
+    })
+
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {
+        findings: JSON.stringify([
+          {
+            check: "reentrancy-drain",
+            severity: "Critical",
+            confidence: "High",
+            description: "Vault drain via reentrancy",
+            file: "src/Vault.sol",
+            lines: [42, 58],
+            source: "slither",
+            impact: "Complete vault drain via cross-function reentrancy",
+            recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
+            proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
+          },
+        ]),
+      },
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "reentrancy-drain",
+            severity: "Critical",
+            confidence: "High",
+            description: "Vault drain via reentrancy",
+            file: "src/Vault.sol",
+            lines: [42, 58],
+            source: "slither",
+            reported_by_agent: "sentinel",
+            impact: "Complete vault drain via cross-function reentrancy",
+            recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
+            proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(1)
+    const stored = auditState.findings.at(0)
+    expect(stored?.impact).toBe("Complete vault drain via cross-function reentrancy")
+    expect(stored?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
+    expect(stored?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
+
+    const findingEvent = sink.events.find((e) => e.type === "finding.added")
+    expect(findingEvent).toBeDefined()
+    const payload = findingEvent?.payload as Record<string, unknown> | undefined
+    expect(payload?.impact).toBe("Complete vault drain via cross-function reentrancy")
+    expect(payload?.recommendation).toBe(
+      "Add OpenZeppelin nonReentrant modifier on withdraw()",
+    )
+    expect(payload?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
+  })
+
   test("cross-tool observations with same check+file+lines are deduplicated", async () => {
     const slitherResult = {
       success: true,

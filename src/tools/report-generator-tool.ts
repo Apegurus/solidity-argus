@@ -14,13 +14,14 @@ import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
 import { isNonEmptyString } from "../shared/type-guards"
 import { SEVERITY_RANK } from "../shared/validation-constants"
+import { normalizeToCanonicalFinding } from "../state/adapters"
 import {
   compareIssueFingerprintSets,
   dedupeFindingsForFinalOutput,
 } from "../state/finding-aggregation"
 import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
-import type { AuditState, Finding, FindingSeverity } from "../state/types"
+import type { ArgusAgentName, AuditState, Finding, FindingSeverity } from "../state/types"
 import { checkReportPreflight } from "./report-preflight"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
@@ -304,6 +305,37 @@ type ParseReportInputResult = {
   diagnostics: DropDiagnostic[]
 }
 
+const VALID_AGENT_VALUES = new Set<ArgusAgentName>([
+  "argus",
+  "sentinel",
+  "pythia",
+  "scribe",
+  "unknown",
+])
+
+function normalizeDedupedFindings(
+  rawFindings: unknown[],
+  runId: string,
+  projectDir: string,
+  dedupedBy: string,
+): Record<string, unknown>[] {
+  const reportedByAgent: ArgusAgentName = VALID_AGENT_VALUES.has(dedupedBy as ArgusAgentName)
+    ? (dedupedBy as ArgusAgentName)
+    : "scribe"
+  return rawFindings.map((raw, index) => {
+    const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
+    const normalized = normalizeRawFinding(input)
+    const result = normalizeToCanonicalFinding(
+      normalized,
+      runId,
+      index + 1,
+      { reportedByAgent },
+      projectDir,
+    )
+    return result.data as unknown as Record<string, unknown>
+  })
+}
+
 function diagnosticsSummary(diagnostics: DropDiagnostic[]): string {
   return diagnostics.map((diag) => `${diag.reason.code}:${diag.reason.message}`).join("; ")
 }
@@ -576,6 +608,7 @@ function parseReportInputPayload(
       try {
         const dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as {
           findings?: unknown[]
+          deduped_by?: string
         }
         if (Array.isArray(dedupedArtifact.findings) && dedupedArtifact.findings.length > 0) {
           const reportInputFile = resolver.paths().reportInputFile
@@ -590,14 +623,63 @@ function parseReportInputPayload(
               /* use empty base */
             }
           }
-          const merged = {
+          const normalizedFindings = normalizeDedupedFindings(
+            dedupedArtifact.findings,
+            effectiveRunId,
+            projectDir,
+            typeof dedupedArtifact.deduped_by === "string"
+              ? dedupedArtifact.deduped_by
+              : "scribe",
+          )
+          const merged: Record<string, unknown> = {
             ...baseInput,
             run_id: effectiveRunId,
-            findings: dedupedArtifact.findings,
+            findings: normalizedFindings,
+          }
+          normalizeToolsExecutedDefaults(merged, effectiveRunId, diagnostics)
+          if (typeof merged.seq !== "number" || (merged.seq as number) < 0) {
+            merged.seq = 0
+          }
+          if (typeof merged.session_id !== "string" || (merged.session_id as string).length === 0) {
+            merged.session_id = "unknown"
+          }
+          if (
+            typeof merged.tool_call_id !== "string" ||
+            (merged.tool_call_id as string).length === 0
+          ) {
+            merged.tool_call_id = `deduped:${effectiveRunId}`
+          }
+          if (typeof merged.source !== "string" || (merged.source as string).length === 0) {
+            merged.source = "deduped-findings"
+          }
+          if (
+            typeof merged.schema_version !== "string" ||
+            merged.schema_version !== SCHEMA_VERSION
+          ) {
+            merged.schema_version = SCHEMA_VERSION
+          }
+          if (
+            typeof merged.projectDir !== "string" ||
+            (merged.projectDir as string).length === 0
+          ) {
+            merged.projectDir = projectDir
+          }
+          if (!Array.isArray(merged.scope)) {
+            merged.scope = []
+          }
+          if (!Array.isArray(merged.toolsExecuted)) {
+            merged.toolsExecuted = []
           }
           const validation = validateReportInput(merged)
           if (validation.success) {
             return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
+          }
+          for (const error of validation.errors) {
+            diagnostics.warn(
+              "REPORT_INPUT_DEDUPED_VALIDATION_FAILED",
+              `${error.field}: ${error.message}`,
+              error.field,
+            )
           }
         }
       } catch {

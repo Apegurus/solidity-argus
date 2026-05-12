@@ -348,6 +348,11 @@ function processToolResult(
     }
 
     if (config.extractOptionalFields) {
+      findingPayload.impact = typeof item.impact === "string" ? item.impact : undefined
+      findingPayload.recommendation =
+        typeof item.recommendation === "string" ? item.recommendation : undefined
+      findingPayload.proofOfConcept =
+        typeof item.proofOfConcept === "string" ? item.proofOfConcept : undefined
       findingPayload.remediation =
         typeof item.remediation === "string" ? item.remediation : undefined
       findingPayload.exploitReference =
