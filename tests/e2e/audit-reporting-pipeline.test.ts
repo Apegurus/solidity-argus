@@ -143,9 +143,7 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
     expect(reportResult.report).toContain("Add OpenZeppelin nonReentrant modifier")
     expect(reportResult.report).toContain("Anyone can swap the price feed pool")
     expect(reportResult.report).not.toContain("Impact details were not provided")
-    expect(reportResult.report).not.toContain(
-      "Recommendation details were not provided",
-    )
+    expect(reportResult.report).not.toContain("Recommendation details were not provided")
     expect(elapsed).toBeLessThan(60_000)
 
     expect(reportResult.error).toBeUndefined()

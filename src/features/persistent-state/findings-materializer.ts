@@ -12,10 +12,7 @@ import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../.
 import { SCHEMA_VERSION } from "../../state/schemas"
 import { readEvents } from "./event-sink"
 
-export type MaterializeFindingsTrigger =
-  | "session.idle"
-  | "session.deleted"
-  | "tool.execute.after"
+export type MaterializeFindingsTrigger = "session.idle" | "session.deleted" | "tool.execute.after"
 
 export interface MaterializeFindingsForRunOptions {
   failFast?: boolean

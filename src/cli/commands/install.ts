@@ -64,7 +64,8 @@ function addPluginToConfig(configPath: string): { added: boolean; ok: boolean } 
 
 export const installCommand: CliCommand = {
   name: "install",
-  description: "Register solidity-argus in your OpenCode config (use --global for ~/.config/opencode)",
+  description:
+    "Register solidity-argus in your OpenCode config (use --global for ~/.config/opencode)",
   async execute(args: string[]): Promise<number> {
     const isGlobal = args.includes("--global") || args.includes("-g")
     const local = localConfigPath()
@@ -85,7 +86,9 @@ export const installCommand: CliCommand = {
       `  Installing globally would write to ${global} and load solidity-argus in EVERY OpenCode session.`,
     )
     cliOutput.warn(`  To install globally on purpose, re-run with: argus install --global`)
-    cliOutput.warn(`  To install for this project, first create an opencode.json in this directory.`)
+    cliOutput.warn(
+      `  To install for this project, first create an opencode.json in this directory.`,
+    )
 
     const proceed = await confirm("Install globally anyway?", false)
     if (!proceed) {

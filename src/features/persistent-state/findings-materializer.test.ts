@@ -295,7 +295,9 @@ describe("materializeFindingsForRun (Task 2 / Bug #2)", () => {
       materializeFindingsForRun(orphanRunId, projectDir, undefined, "session.deleted", {
         failFast: true,
       }),
-    ).rejects.toThrow(`Failed to materialize findings artifact on session.deleted for run ${orphanRunId}`)
+    ).rejects.toThrow(
+      `Failed to materialize findings artifact on session.deleted for run ${orphanRunId}`,
+    )
   })
 
   test("succeeds and writes findings.json when events exist", async () => {

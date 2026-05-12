@@ -257,9 +257,7 @@ describe("createToolTrackingHook", () => {
     expect(findingEvent).toBeDefined()
     const payload = findingEvent?.payload as Record<string, unknown> | undefined
     expect(payload?.impact).toBe("Complete vault drain via cross-function reentrancy")
-    expect(payload?.recommendation).toBe(
-      "Add OpenZeppelin nonReentrant modifier on withdraw()",
-    )
+    expect(payload?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
     expect(payload?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
   })
 

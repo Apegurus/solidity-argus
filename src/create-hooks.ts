@@ -14,7 +14,6 @@ import {
   releaseEventSink,
 } from "./features/persistent-state/event-sink"
 import {
-  materializeFindings,
   materializeFindingsForRun,
   materializeReportInput,
 } from "./features/persistent-state/findings-materializer"

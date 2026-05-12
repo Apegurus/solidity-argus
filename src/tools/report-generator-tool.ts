@@ -627,9 +627,7 @@ function parseReportInputPayload(
             dedupedArtifact.findings,
             effectiveRunId,
             projectDir,
-            typeof dedupedArtifact.deduped_by === "string"
-              ? dedupedArtifact.deduped_by
-              : "scribe",
+            typeof dedupedArtifact.deduped_by === "string" ? dedupedArtifact.deduped_by : "scribe",
           )
           const merged: Record<string, unknown> = {
             ...baseInput,
@@ -658,10 +656,7 @@ function parseReportInputPayload(
           ) {
             merged.schema_version = SCHEMA_VERSION
           }
-          if (
-            typeof merged.projectDir !== "string" ||
-            (merged.projectDir as string).length === 0
-          ) {
+          if (typeof merged.projectDir !== "string" || (merged.projectDir as string).length === 0) {
             merged.projectDir = projectDir
           }
           if (!Array.isArray(merged.scope)) {
