@@ -1,6 +1,7 @@
 ---
 name: cyfrin-best-practices-runtime
 description: Cyfrin best-practice checklist focused on runtime heuristics, cross-chain concerns, and timelock controls
+category: checklist
 ---
 <!-- Source: Cyfrin/audit-checklist -->
 <!-- Auto-generated from https://github.com/Cyfrin/audit-checklist -->

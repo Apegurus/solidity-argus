@@ -1,6 +1,7 @@
 ---
 name: cyfrin-defi-integrations
 description: Cyfrin DeFi checklist covering integrations, token standards, and ecosystem-specific risks
+category: checklist
 ---
 <!-- Source: Cyfrin/audit-checklist -->
 <!-- Auto-generated from https://github.com/Cyfrin/audit-checklist -->

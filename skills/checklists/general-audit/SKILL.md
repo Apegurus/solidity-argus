@@ -1,6 +1,7 @@
 ---
 name: general-audit
 description: Comprehensive Solidity audit checklist spanning access control, reentrancy, oracles, and integrations.
+category: checklist
 ---
 
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->

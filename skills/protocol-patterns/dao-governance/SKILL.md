@@ -1,6 +1,7 @@
 ---
 name: dao-governance
 description: Governance security patterns for voting, timelocks, proposal execution, and quorum safety.
+category: protocol-pattern
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 

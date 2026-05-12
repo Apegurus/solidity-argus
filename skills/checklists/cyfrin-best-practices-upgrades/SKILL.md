@@ -1,6 +1,7 @@
 ---
 name: cyfrin-best-practices-upgrades
 description: Cyfrin best-practice checklist focused on proxy, upgradeability, and versioning concerns
+category: checklist
 ---
 <!-- Source: Cyfrin/audit-checklist -->
 <!-- Auto-generated from https://github.com/Cyfrin/audit-checklist -->

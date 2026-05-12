@@ -1,6 +1,7 @@
 ---
 name: cyfrin-gas
 description: Cyfrin audit checklist — gas optimization and efficiency items for Solidity smart contracts
+category: checklist
 ---
 <!-- Source: Cyfrin/audit-checklist -->
 <!-- Auto-generated from https://github.com/Cyfrin/audit-checklist -->

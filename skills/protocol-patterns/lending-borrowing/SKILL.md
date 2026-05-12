@@ -1,6 +1,7 @@
 ---
 name: lending-borrowing
 description: Security review framework for lending and borrowing systems including liquidations and accounting.
+category: protocol-pattern
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 
