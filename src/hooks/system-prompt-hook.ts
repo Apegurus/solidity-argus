@@ -1,13 +1,17 @@
-import type { AuditState, FindingSeverity } from "../state/types"
+import { computeMissingKeyTools, KEY_TOOLS, TOOL_SHORT_NAMES } from "../shared/key-tools"
+import { estimateTokens } from "../shared/token-utils"
+import { countBySeverity } from "../shared/validation-constants"
+import type { AuditState } from "../state/types"
+
+export { estimateTokens }
 
 const DEFAULT_TOKEN_BUDGET = 2000
-const TOKENS_PER_CHAR = 4
 
 export interface SystemPromptHookDeps {
-  getAuditState: () => AuditState | null
+  getAuditState: (sessionId?: string) => AuditState | null
   getAgentForSession: (sessionID: string) => string | undefined
   isArgusAgent: (sessionID: string) => boolean
-  getContextPressure?: (systemText: string) => number
+  getContextPressure?: (systemText: string, sessionId?: string) => number
   getTokenBudget?: (agent: string, contextPressure: number) => number
   getEnforcerReminder?: (state: AuditState) => string | null
   getReconBlock?: () => string | null
@@ -31,35 +35,35 @@ export function buildFallbackDirectives(unavailableTools: string[]): string[] {
   return directives
 }
 
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / TOKENS_PER_CHAR)
-}
-
 export function buildDynamicContext(
   auditState: AuditState,
   agent: string,
   tokenBudget: number = DEFAULT_TOKEN_BUDGET,
 ): string {
-  const severityCounts: Record<FindingSeverity, number> = {
-    Critical: 0,
-    High: 0,
-    Medium: 0,
-    Low: 0,
-    Informational: 0,
-  }
+  const severityCounts = countBySeverity(auditState.findings)
 
-  for (const finding of auditState.findings) {
-    severityCounts[finding.severity]++
-  }
-
+  const executedToolNames = new Set(
+    auditState.toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
+  )
   const tools = auditState.toolsExecuted.map((tool) => tool.tool).join(", ") || "none"
+  const taskStatus = KEY_TOOLS.map(
+    (t) => `${t}=${executedToolNames.has(t) ? "done" : "pending"}`,
+  ).join(" ")
   const unavailable = auditState.unavailableTools ?? []
+  const pendingKeyTools = computeMissingKeyTools(auditState.toolsExecuted, unavailable)
+  const gateStatus =
+    pendingKeyTools.length > 0
+      ? `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
+      : "REPORTING GATE: ALLOWED"
   const lines: string[] = [
     `<argus-context agent="${agent}">`,
+    ...(auditState.sessionId ? [`run_id: ${auditState.sessionId}`] : []),
+    gateStatus,
     `Phase: ${auditState.currentPhase}`,
     `Contracts: ${auditState.contractsReviewed.length} reviewed`,
     `Findings: Critical=${severityCounts.Critical} High=${severityCounts.High} Medium=${severityCounts.Medium} Low=${severityCounts.Low} Info=${severityCounts.Informational}`,
     `Tools: ${tools}`,
+    `Tasks: ${taskStatus}`,
   ]
 
   if (unavailable.length > 0) {
@@ -67,14 +71,23 @@ export function buildDynamicContext(
     lines.push(...buildFallbackDirectives(unavailable))
   }
 
+  if (auditState.currentPhase === "reporting" && !auditState.reportGenerated) {
+    lines.push(
+      "REPORT GENERATION: INCOMPLETE — Scribe was dispatched but argus_generate_report was not called. Re-dispatch Scribe or call argus_generate_report directly.",
+    )
+  }
+
   lines.push("</argus-context>")
 
   let summary = lines.join("\n")
 
   if (estimateTokens(summary) > tokenBudget) {
+    const doneCount = KEY_TOOLS.filter((t) => executedToolNames.has(t)).length
     summary = [
       `<argus-context agent="${agent}">`,
-      `Phase: ${auditState.currentPhase} | Findings: ${auditState.findings.length} | Contracts: ${auditState.contractsReviewed.length}`,
+      ...(auditState.sessionId ? [`run_id: ${auditState.sessionId}`] : []),
+      gateStatus,
+      `Phase: ${auditState.currentPhase} | Findings: ${auditState.findings.length} | Contracts: ${auditState.contractsReviewed.length} | Tasks: ${doneCount}/${KEY_TOOLS.length} done`,
       "</argus-context>",
     ].join("\n")
   }
@@ -95,7 +108,7 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
       return
     }
 
-    const auditState = deps.getAuditState()
+    const auditState = deps.getAuditState(input.sessionID)
     if (!auditState) {
       return
     }
@@ -106,7 +119,7 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
     }
 
     const currentSystem = output.system.join("\n")
-    const pressure = deps.getContextPressure?.(currentSystem) ?? 0
+    const pressure = deps.getContextPressure?.(currentSystem, input.sessionID) ?? 0
     const budget = deps.getTokenBudget?.(agent, pressure) ?? DEFAULT_TOKEN_BUDGET
 
     output.system.push(buildDynamicContext(auditState, agent, budget))

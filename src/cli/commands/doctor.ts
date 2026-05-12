@@ -1,35 +1,41 @@
-import { execSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { basename, dirname, extname, join } from "node:path"
-import type { CliCommand } from "../types"
-import type { ArgusConfig } from "../../config/types"
 import { loadArgusConfig } from "../../config/loader"
+import type { ArgusConfig } from "../../config/types"
+import { createLogger } from "../../shared/logger"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
+  type ResolvedSkill,
   resolveArgusSkills,
   resolveSkillRoots,
-  type ResolvedSkill,
 } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
 import { detectViaIr } from "../../tools/slither-tool"
-import { checkSoloditHealth } from "../../utils/solodit-health"
 import { cliOutput } from "../cli-output"
+import type { CliCommand } from "../types"
+
+const logger = createLogger()
 
 const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
 const YELLOW = "\x1b[33m"
 const RESET = "\x1b[0m"
 
-function checkBinary(name: string): { found: boolean; version: string | null } {
+function checkBinary(
+  name: string,
+  versionArgs: string[] = ["--version"],
+): { found: boolean; version: string | null } {
   try {
-    const version = execSync(`${name} --version`, {
+    const result = Bun.spawnSync([name, ...versionArgs], {
+      stdout: "pipe",
+      stderr: "pipe",
       timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
     })
-      .toString()
-      .trim()
-      .split("\n")[0] ?? null
+    if (result.exitCode !== 0) {
+      return { found: false, version: null }
+    }
+    const version = new TextDecoder().decode(result.stdout).trim().split("\n")[0] ?? null
     return { found: true, version }
   } catch {
     return { found: false, version: null }
@@ -70,7 +76,8 @@ export function findDuplicateSkills(
   const nameToSources = new Map<string, Set<string>>()
   for (const { name, source } of entries) {
     if (!nameToSources.has(name)) nameToSources.set(name, new Set())
-    nameToSources.get(name)!.add(source)
+    const sources = nameToSources.get(name)
+    if (sources) sources.add(source)
   }
   return Array.from(nameToSources)
     .filter(([, sources]) => sources.size > 1)
@@ -112,9 +119,7 @@ export function buildSkillHealthReport(
   }
 
   const duplicates = duplicateEntries ? findDuplicateSkills(duplicateEntries) : []
-  const missingCategories = REQUIRED_CATEGORIES.filter(
-    (cat) => (categoryBreakdown[cat] ?? 0) === 0,
-  )
+  const missingCategories = REQUIRED_CATEGORIES.filter((cat) => (categoryBreakdown[cat] ?? 0) === 0)
 
   return {
     categoryBreakdown,
@@ -127,6 +132,8 @@ export function buildSkillHealthReport(
     missingCategories,
   }
 }
+
+const NON_SKILL_FILENAMES = new Set(["README.md", "INVENTORY.md", "CHANGELOG.md", "LICENSE.md"])
 
 function scanMarkdownFiles(dir: string, maxDepth = 8): string[] {
   if (!existsSync(dir)) return []
@@ -141,11 +148,16 @@ function scanMarkdownFiles(dir: string, maxDepth = 8): string[] {
         const fullPath = join(current.path, entry.name)
         if (entry.isDirectory()) {
           stack.push({ path: fullPath, depth: current.depth + 1 })
-        } else if (entry.isFile() && extname(entry.name).toLowerCase() === ".md") {
+        } else if (
+          entry.isFile() &&
+          extname(entry.name).toLowerCase() === ".md" &&
+          !NON_SKILL_FILENAMES.has(entry.name)
+        ) {
           files.push(fullPath)
         }
       }
     } catch {
+      logger.debug("Failed to read directory during skill scan")
     }
   }
   return files
@@ -175,6 +187,7 @@ function collectAllSkillNames(
         const name = normalizeSkillName(rawName)
         if (name) entries.push({ name, source: root.source })
       } catch {
+        logger.debug("Failed to parse skill file frontmatter")
       }
     }
   }
@@ -184,7 +197,7 @@ function collectAllSkillNames(
 export const doctorCommand: CliCommand = {
   name: "doctor",
   description: "Check tool dependencies and configuration",
-  async execute(args: string[]): Promise<number> {
+  async execute(_args: string[]): Promise<number> {
     const cwd = process.cwd()
     let hasFailure = false
 
@@ -202,15 +215,19 @@ export const doctorCommand: CliCommand = {
     if (forge.found) {
       cliOutput.log(`${GREEN}✓${RESET} Forge: installed (${forge.version})`)
     } else {
-      cliOutput.log(`${RED}✗${RESET} Forge: not found — curl -L https://foundry.paradigm.xyz | bash`)
+      cliOutput.log(
+        `${RED}✗${RESET} Forge: not found — curl -L https://foundry.paradigm.xyz | bash`,
+      )
       hasFailure = true
     }
 
-    const solcSelect = checkBinary("solc-select")
+    const solcSelect = checkBinary("solc-select", ["versions"])
     if (solcSelect.found) {
       cliOutput.log(`${GREEN}✓${RESET} solc-select: installed (${solcSelect.version})`)
     } else {
-      cliOutput.log(`${YELLOW}⚠${RESET} solc-select: not found — pipx install solc-select (needed for via_ir flatten fallback)`)
+      cliOutput.log(
+        `${YELLOW}⚠${RESET} solc-select: not found — pipx install solc-select (needed for via_ir flatten fallback)`,
+      )
     }
 
     const projectType = checkSolidityProject(cwd)
@@ -221,9 +238,13 @@ export const doctorCommand: CliCommand = {
     }
 
     if (projectType === "foundry" && detectViaIr(cwd)) {
-      cliOutput.log(`${YELLOW}⚠${RESET} via_ir: enabled in foundry.toml — Slither will use flatten fallback`)
+      cliOutput.log(
+        `${YELLOW}⚠${RESET} via_ir: enabled in foundry.toml — Slither will use flatten fallback`,
+      )
       if (!forge.found) {
-        cliOutput.log(`${RED}✗${RESET}   forge is required for via_ir flatten fallback but is missing`)
+        cliOutput.log(
+          `${RED}✗${RESET}   forge is required for via_ir flatten fallback but is missing`,
+        )
         hasFailure = true
       }
       if (!solcSelect.found) {
@@ -241,9 +262,13 @@ export const doctorCommand: CliCommand = {
       const missingSkills = requiredSkills.filter((skillName) => !resolvedSkills.has(skillName))
 
       if (missingSkills.length === 0) {
-        cliOutput.log(`${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`)
+        cliOutput.log(
+          `${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`,
+        )
       } else {
-        cliOutput.log(`${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`)
+        cliOutput.log(
+          `${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`,
+        )
         hasFailure = true
       }
     } catch {
@@ -254,15 +279,21 @@ export const doctorCommand: CliCommand = {
       const missingSkills = requiredSkills.filter((skillName) => !resolvedSkills.has(skillName))
 
       if (missingSkills.length === 0) {
-        cliOutput.log(`${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`)
+        cliOutput.log(
+          `${GREEN}✓${RESET} Skills: required audit skills resolvable (${requiredSkills.join(", ")})`,
+        )
       } else {
-        cliOutput.log(`${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`)
+        cliOutput.log(
+          `${RED}✗${RESET} Skills: missing required skills (${missingSkills.join(", ")})`,
+        )
         hasFailure = true
       }
     }
 
     try {
-      const response = await fetch("https://api.scvd.dev/stats", { signal: AbortSignal.timeout(5000) })
+      const response = await fetch("https://api.scvd.dev/stats", {
+        signal: AbortSignal.timeout(5000),
+      })
       if (response.ok) {
         cliOutput.log(`${GREEN}✓${RESET} SCVD API: reachable`)
       } else {
@@ -272,22 +303,26 @@ export const doctorCommand: CliCommand = {
       cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: unreachable`)
     }
 
-    // Solodit MCP check
-    const soloditConfig = config?.solodit ?? { enabled: true, port: 3000 }
-    const soloditEnabled = soloditConfig.enabled !== false
-    const soloditPort = soloditConfig.port ?? 3000
-
+    const soloditEnabled = config?.solodit?.enabled !== false
     if (soloditEnabled) {
-      const health = await checkSoloditHealth(soloditPort, true)
-      if (health.reachable) {
-        cliOutput.log(`${GREEN}✓${RESET} Solodit MCP: reachable on port ${soloditPort}`)
-      } else {
-        cliOutput.log(
-          `${YELLOW}⚠${RESET} Solodit MCP: unreachable on port ${soloditPort} (start with: npx @lyuboslavlyubenov/solodit-mcp)`,
+      try {
+        const response = await fetch(
+          "https://solodit.cyfrin.io/api/trpc/findings.get?batch=1&input=" +
+            encodeURIComponent(JSON.stringify({ 0: "[]" })),
+          {
+            signal: AbortSignal.timeout(5000),
+          },
         )
+        if (response.ok) {
+          cliOutput.log(`${GREEN}✓${RESET} Solodit API: reachable`)
+        } else {
+          cliOutput.log(`${YELLOW}⚠${RESET} Solodit API: returned ${response.status}`)
+        }
+      } catch {
+        cliOutput.log(`${YELLOW}⚠${RESET} Solodit API: unreachable`)
       }
     } else {
-      cliOutput.log(`${YELLOW}⚠${RESET} Solodit MCP: disabled in config`)
+      cliOutput.log(`${YELLOW}⚠${RESET} Solodit: disabled in config`)
     }
 
     cliOutput.log("\nSkill Health")
@@ -296,9 +331,7 @@ export const doctorCommand: CliCommand = {
       const allEntries = collectAllSkillNames(cwd, config)
       const report = buildSkillHealthReport(healthSkills, allEntries)
 
-      const catParts = ALL_CATEGORIES.map(
-        (cat) => `${cat}: ${report.categoryBreakdown[cat] ?? 0}`,
-      )
+      const catParts = ALL_CATEGORIES.map((cat) => `${cat}: ${report.categoryBreakdown[cat] ?? 0}`)
       cliOutput.log(`${GREEN}✓${RESET} Categories: ${catParts.join(", ")}`)
 
       const tierParts = Object.entries(report.trustTierBreakdown).map(
@@ -334,6 +367,7 @@ export const doctorCommand: CliCommand = {
       }
     } catch {
       cliOutput.log(`${RED}✗${RESET} Could not analyze skill health`)
+      hasFailure = true
     }
 
     return hasFailure ? 1 : 0

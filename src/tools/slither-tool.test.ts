@@ -1,20 +1,23 @@
-import { test, expect } from "bun:test";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { writeFileSync, rmSync, mkdirSync } from "node:fs";
-import type { ToolContext } from "@opencode-ai/plugin";
+import { expect, test } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import type { ToolContext } from "@opencode-ai/plugin"
 import {
-  slitherTool,
-  executeSlitherAnalyze,
-  flattenFallback,
   detectViaIr,
-  type SlitherRunResult,
+  executeSlitherAnalyze,
   type FlattenFallbackDeps,
-} from "./slither-tool";
+  flattenFallback,
+  type SlitherRunResult,
+  slitherTool,
+} from "./slither-tool"
 
-function createContext(overrides?: Partial<ToolContext>): { context: ToolContext; metadataCalls: Array<{ title?: string }> } {
-  const metadataCalls: Array<{ title?: string }> = [];
-  const abortController = new AbortController();
+function createContext(overrides?: Partial<ToolContext>): {
+  context: ToolContext
+  metadataCalls: Array<{ title?: string }>
+} {
+  const metadataCalls: Array<{ title?: string }> = []
+  const abortController = new AbortController()
 
   const context: ToolContext = {
     sessionID: "session-1",
@@ -24,22 +27,22 @@ function createContext(overrides?: Partial<ToolContext>): { context: ToolContext
     worktree: "/tmp/project",
     abort: abortController.signal,
     metadata(input) {
-      metadataCalls.push({ title: input.title });
+      metadataCalls.push({ title: input.title })
     },
     async ask() {
-      return;
+      return
     },
     ...overrides,
-  };
+  }
 
-  return { context, metadataCalls };
+  return { context, metadataCalls }
 }
 
 test("slitherTool uses tool() helper contract", () => {
-  expect(slitherTool.description.length).toBeGreaterThan(0);
-  expect(slitherTool.args).toBeDefined();
-  expect(typeof slitherTool.execute).toBe("function");
-});
+  expect(slitherTool.description.length).toBeGreaterThan(0)
+  expect(slitherTool.args).toBeDefined()
+  expect(typeof slitherTool.execute).toBe("function")
+})
 
 test("executeSlitherAnalyze parses detector JSON and maps findings", async () => {
   const slitherJSON = JSON.stringify({
@@ -63,8 +66,8 @@ test("executeSlitherAnalyze parses detector JSON and maps findings", async () =>
         },
       ],
     },
-  });
-  const { context, metadataCalls } = createContext();
+  })
+  const { context, metadataCalls } = createContext()
 
   const result = await executeSlitherAnalyze(
     { target: "." },
@@ -73,34 +76,38 @@ test("executeSlitherAnalyze parses detector JSON and maps findings", async () =>
       stdout: slitherJSON,
       stderr: "",
       exitCode: 0,
-    })
-  );
+    }),
+  )
 
-  expect(result.success).toBe(true);
-  expect(result.findingsCount).toBe(1);
-  expect(result.findings[0]?.check).toBe("reentrancy-eth");
-  expect(result.findings[0]?.severity).toBe("High");
-  expect(result.findings[0]?.confidence).toBe("Medium");
-  expect(result.findings[0]?.file).toBe("src/Vault.sol");
-  expect(result.findings[0]?.lines).toEqual([10, 15]);
-  expect(result.findings[0]?.source).toBe("slither");
-  expect(result.findings[0]?.id.length).toBeGreaterThan(0);
-  expect(metadataCalls.length).toBe(1);
-  expect(metadataCalls[0]?.title).toContain("Slither");
-});
+  expect(result.success).toBe(true)
+  expect(result.findingsCount).toBe(1)
+  expect(result.findings[0]?.check).toBe("reentrancy-eth")
+  expect(result.findings[0]?.severity).toBe("High")
+  expect(result.findings[0]?.confidence).toBe("Medium")
+  expect(result.findings[0]?.file).toBe("src/Vault.sol")
+  expect(result.findings[0]?.lines).toEqual([10, 15])
+  expect(result.findings[0]?.source).toBe("slither")
+  expect(result.findings[0]?.id.length).toBeGreaterThan(0)
+  expect(metadataCalls.length).toBe(1)
+  expect(metadataCalls[0]?.title).toContain("Slither")
+})
 
 test("executeSlitherAnalyze handles ENOENT when slither is missing", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
 
-  const result = await executeSlitherAnalyze({ target: "." }, context, async (_command, _signal, _cwd) => {
-    const error = new Error("slither not found") as Error & { code?: string };
-    error.code = "ENOENT";
-    throw error;
-  });
+  const result = await executeSlitherAnalyze(
+    { target: "." },
+    context,
+    async (_command, _signal, _cwd) => {
+      const error = new Error("slither not found") as Error & { code?: string }
+      error.code = "ENOENT"
+      throw error
+    },
+  )
 
-  expect(result.success).toBe(false);
-  expect(result.error).toBe("Slither not found. Install with: pip install slither-analyzer");
-});
+  expect(result.success).toBe(false)
+  expect(result.error).toBe("Slither not found. Install with: pip install slither-analyzer")
+})
 
 test("executeSlitherAnalyze parses partial findings from non-zero exit JSON", async () => {
   const slitherJSON = JSON.stringify({
@@ -124,8 +131,8 @@ test("executeSlitherAnalyze parses partial findings from non-zero exit JSON", as
         },
       ],
     },
-  });
-  const { context } = createContext();
+  })
+  const { context } = createContext()
 
   const result = await executeSlitherAnalyze(
     { target: "." },
@@ -134,21 +141,21 @@ test("executeSlitherAnalyze parses partial findings from non-zero exit JSON", as
       stdout: slitherJSON,
       stderr: "stderr compile warning",
       exitCode: 1,
-    })
-  );
+    }),
+  )
 
-  expect(result.success).toBe(true);
-  expect(result.findingsCount).toBe(1);
-  expect(result.findings[0]?.severity).toBe("Low");
-  expect(result.findings[0]?.lines).toEqual([22, 22]);
-  expect(result.errors.length).toBe(3);
-  expect(result.errors.some((item) => item.includes("code 1"))).toBe(true);
-  expect(result.errors.some((item) => item.includes("Compilation failed"))).toBe(true);
-  expect(result.errors.some((item) => item.includes("stderr compile warning"))).toBe(true);
-});
+  expect(result.success).toBe(true)
+  expect(result.findingsCount).toBe(1)
+  expect(result.findings[0]?.severity).toBe("Low")
+  expect(result.findings[0]?.lines).toEqual([22, 22])
+  expect(result.errors.length).toBe(3)
+  expect(result.errors.some((item) => item.includes("code 1"))).toBe(true)
+  expect(result.errors.some((item) => item.includes("Compilation failed"))).toBe(true)
+  expect(result.errors.some((item) => item.includes("stderr compile warning"))).toBe(true)
+})
 
 test("executeSlitherAnalyze returns parse error for non-JSON output", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
 
   const result = await executeSlitherAnalyze(
     { target: "." },
@@ -157,16 +164,16 @@ test("executeSlitherAnalyze returns parse error for non-JSON output", async () =
       stdout: "plain text error output",
       stderr: "",
       exitCode: 2,
-    })
-  );
+    }),
+  )
 
-  expect(result.success).toBe(false);
-  expect(result.error).toContain("Slither output parse error:");
-});
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("Slither output parse error:")
+})
 
 test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async () => {
-  const calls: SlitherRunResult[] = [];
-  const { context } = createContext();
+  const calls: SlitherRunResult[] = []
+  const { context } = createContext()
 
   const result = await executeSlitherAnalyze(
     {
@@ -190,106 +197,127 @@ test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async
         "unused-state",
         "--solc",
         "solc:0.8.24",
-      ]);
-      expect(signal).toBe(context.abort);
-      const response: SlitherRunResult = { stdout: "{\"success\":true,\"results\":{\"detectors\":[]}}", stderr: "", exitCode: 0 };
-      calls.push(response);
-      return response;
-    }
-  );
+      ])
+      expect(signal).toBe(context.abort)
+      const response: SlitherRunResult = {
+        stdout: '{"success":true,"results":{"detectors":[]}}',
+        stderr: "",
+        exitCode: 0,
+      }
+      calls.push(response)
+      return response
+    },
+  )
 
-  expect(calls.length).toBe(1);
-  expect(result.success).toBe(true);
-  expect(result.findingsCount).toBe(0);
-});
+  expect(calls.length).toBe(1)
+  expect(result.success).toBe(true)
+  expect(result.findingsCount).toBe(0)
+})
 
 function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): FlattenFallbackDeps {
   return {
-    runCommand: async (_command, _signal, _cwd) => ({ stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }),
+    runCommand: async (_command, _signal, _cwd) => ({
+      stdout: '{"success":true,"results":{"detectors":[]}}',
+      stderr: "",
+      exitCode: 0,
+    }),
     hasBinary: () => true,
-    ensureSolc: () => true,
+    ensureSolc: async () => true,
     parseSolcVersion: () => "0.8.20",
     extractContractNames: () => ["Vault"],
-    execSyncFn: (() => "") as unknown as typeof import("node:child_process").execSync,
+    spawnFn: async () => ({ stdout: "", exitCode: 0 }),
     cwd: "/tmp/project",
     ...overrides,
-  };
+  }
 }
 
 test("flattenFallback returns structured error when forge is missing", async () => {
-  const { context } = createContext();
-  const deps = createFlattenDeps({ hasBinary: (name) => name !== "forge" });
+  const { context } = createContext()
+  const deps = createFlattenDeps({ hasBinary: (name) => name !== "forge" })
 
-  const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
-  expect(result).toBeDefined();
-  expect(result!.success).toBe(false);
-  expect(result!.error).toContain("forge binary not found");
-});
+  const result = await flattenFallback({ target: "/tmp/project" }, context, deps)
+  expect(result).toBeDefined()
+  expect(result?.success).toBe(false)
+  expect(result?.error).toContain("forge binary not found")
+})
 
 test("flattenFallback returns structured error when no solc version found", async () => {
-  const { context } = createContext();
-  const deps = createFlattenDeps({ parseSolcVersion: () => undefined });
+  const { context } = createContext()
+  const deps = createFlattenDeps({ parseSolcVersion: () => undefined })
 
-  const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
-  expect(result).toBeDefined();
-  expect(result!.success).toBe(false);
-  expect(result!.error).toContain("Could not determine solc version");
-});
+  const result = await flattenFallback({ target: "/tmp/project" }, context, deps)
+  expect(result).toBeDefined()
+  expect(result?.success).toBe(false)
+  expect(result?.error).toContain("Could not determine solc version")
+})
 
 test("flattenFallback returns error when solc unavailable and solc-select missing", async () => {
-  const { context } = createContext();
-  const deps = createFlattenDeps({ ensureSolc: () => false });
+  const { context } = createContext()
+  const deps = createFlattenDeps({ ensureSolc: async () => false })
 
-  const result = await flattenFallback({ target: "/tmp/project" }, context, deps);
-  expect(result).toBeDefined();
-  expect(result!.success).toBe(false);
-  expect(result!.error).toContain("Flatten fallback requires solc on PATH");
-  expect(result!.error).toContain("solc-select install 0.8.20");
-});
+  const result = await flattenFallback({ target: "/tmp/project" }, context, deps)
+  expect(result).toBeDefined()
+  expect(result?.success).toBe(false)
+  expect(result?.error).toContain("Flatten fallback requires solc on PATH")
+  expect(result?.error).toContain("solc-select install 0.8.20")
+})
 
 test("flattenFallback processes flattened files and returns findings", async () => {
-  const { context } = createContext();
-  const tmpFile = join(tmpdir(), `argus-test-${Date.now()}.sol`);
-  writeFileSync(tmpFile, "pragma solidity ^0.8.20;\ncontract Vault { function withdraw() external {} }");
+  const { context } = createContext()
+  const tmpFile = join(tmpdir(), `argus-test-${Date.now()}.sol`)
+  writeFileSync(
+    tmpFile,
+    "pragma solidity ^0.8.20;\ncontract Vault { function withdraw() external {} }",
+  )
 
   const slitherJSON = JSON.stringify({
     success: true,
     results: {
-      detectors: [{
-        check: "reentrancy-eth",
-        impact: "High",
-        confidence: "High",
-        description: "Reentrancy in Vault.withdraw()",
-        elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [10, 20] } }],
-      }],
+      detectors: [
+        {
+          check: "reentrancy-eth",
+          impact: "High",
+          confidence: "High",
+          description: "Reentrancy in Vault.withdraw()",
+          elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [10, 20] } }],
+        },
+      ],
     },
-  });
+  })
 
   const deps = createFlattenDeps({
-    runCommand: async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
-    execSyncFn: ((cmd: string) => {
-      if (typeof cmd === "string" && cmd.startsWith("forge flatten")) return "// flattened content";
-      return "";
-    }) as unknown as typeof import("node:child_process").execSync,
+    runCommand: async (_command, _signal, _cwd) => ({
+      stdout: slitherJSON,
+      stderr: "",
+      exitCode: 0,
+    }),
+    spawnFn: async (command) => {
+      if (command[0] === "forge" && command[1] === "flatten")
+        return { stdout: "// flattened content", exitCode: 0 }
+      return { stdout: "", exitCode: 0 }
+    },
     extractContractNames: () => ["Vault"],
-  });
+  })
 
   try {
-    const result = await flattenFallback({ target: tmpFile }, context, deps);
-    expect(result).toBeDefined();
-    expect(result!.success).toBe(true);
-    expect(result!.findingsCount).toBe(1);
-    expect(result!.findings[0]?.check).toBe("reentrancy-eth");
-    expect(result!.errors[0]).toContain("[flatten-fallback]");
+    const result = await flattenFallback({ target: tmpFile }, context, deps)
+    expect(result).toBeDefined()
+    expect(result?.success).toBe(true)
+    expect(result?.findingsCount).toBe(1)
+    expect(result?.findings.at(0)?.check).toBe("reentrancy-eth")
+    expect(result?.errors.at(0)).toContain("[flatten-fallback]")
   } finally {
-    rmSync(tmpFile, { force: true });
+    rmSync(tmpFile, { force: true })
   }
-});
+})
 
 test("flattenFallback filters findings to original contract names", async () => {
-  const { context } = createContext();
-  const tmpFile = join(tmpdir(), `argus-filter-test-${Date.now()}.sol`);
-  writeFileSync(tmpFile, "pragma solidity ^0.8.20;\ncontract Vault { function deposit() external {} }");
+  const { context } = createContext()
+  const tmpFile = join(tmpdir(), `argus-filter-test-${Date.now()}.sol`)
+  writeFileSync(
+    tmpFile,
+    "pragma solidity ^0.8.20;\ncontract Vault { function deposit() external {} }",
+  )
 
   const slitherJSON = JSON.stringify({
     success: true,
@@ -311,183 +339,196 @@ test("flattenFallback filters findings to original contract names", async () => 
         },
       ],
     },
-  });
+  })
 
   const deps = createFlattenDeps({
-    runCommand: async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
-    execSyncFn: ((cmd: string) => {
-      if (typeof cmd === "string" && cmd.startsWith("forge flatten")) return "// flattened";
-      return "";
-    }) as unknown as typeof import("node:child_process").execSync,
+    runCommand: async (_command, _signal, _cwd) => ({
+      stdout: slitherJSON,
+      stderr: "",
+      exitCode: 0,
+    }),
+    spawnFn: async (command) => {
+      if (command[0] === "forge" && command[1] === "flatten")
+        return { stdout: "// flattened", exitCode: 0 }
+      return { stdout: "", exitCode: 0 }
+    },
     extractContractNames: () => ["Vault"],
-  });
+  })
 
   try {
-    const result = await flattenFallback({ target: tmpFile }, context, deps);
-    expect(result).toBeDefined();
-    expect(result!.findingsCount).toBe(1);
-    expect(result!.findings[0]?.description).toContain("Vault");
+    const result = await flattenFallback({ target: tmpFile }, context, deps)
+    expect(result).toBeDefined()
+    expect(result?.findingsCount).toBe(1)
+    expect(result?.findings.at(0)?.description).toContain("Vault")
   } finally {
-    rmSync(tmpFile, { force: true });
+    rmSync(tmpFile, { force: true })
   }
-});
+})
 
 test("executeSlitherAnalyze triggers flatten fallback on parse error with crytic_compile stderr", async () => {
-  const { context } = createContext();
-  let callCount = 0;
+  const { context } = createContext()
+  let callCount = 0
   const slitherJSON = JSON.stringify({
     success: true,
     results: {
-      detectors: [{
-        check: "unchecked-transfer",
-        impact: "Medium",
-        confidence: "High",
-        description: "Unchecked return in Vault.deposit()",
-        elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [5] } }],
-      }],
+      detectors: [
+        {
+          check: "unchecked-transfer",
+          impact: "Medium",
+          confidence: "High",
+          description: "Unchecked return in Vault.deposit()",
+          elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [5] } }],
+        },
+      ],
     },
-  });
+  })
 
   const result = await executeSlitherAnalyze(
     { target: "/tmp/project" },
     context,
     async (_command, _signal, _cwd) => {
-      callCount++;
+      callCount++
       if (callCount === 1) {
-        return { stdout: "not json", stderr: "crytic_compile error: Contract not found", exitCode: 1 };
+        return {
+          stdout: "not json",
+          stderr: "crytic_compile error: Contract not found",
+          exitCode: 1,
+        }
       }
-      return { stdout: slitherJSON, stderr: "", exitCode: 0 };
-    }
-  );
+      return { stdout: slitherJSON, stderr: "", exitCode: 0 }
+    },
+  )
 
   // flattenFallback now returns a structured error (forge not found) instead of undefined,
   // so the result comes from the fallback, not the parse error path
-  expect(result.success).toBe(false);
-  expect(result.error).toBeDefined();
-});
+  expect(result.success).toBe(false)
+  expect(result.error).toBeDefined()
+})
 
 test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with findings", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
   const slitherJSON = JSON.stringify({
     success: true,
     results: {
-      detectors: [{
-        check: "reentrancy-eth",
-        impact: "High",
-        confidence: "High",
-        description: "Reentrancy vulnerability",
-        elements: [{ source_mapping: { filename_relative: "src/Vault.sol", lines: [10, 15] } }],
-      }],
+      detectors: [
+        {
+          check: "reentrancy-eth",
+          impact: "High",
+          confidence: "High",
+          description: "Reentrancy vulnerability",
+          elements: [{ source_mapping: { filename_relative: "src/Vault.sol", lines: [10, 15] } }],
+        },
+      ],
     },
-  });
+  })
 
   const result = await executeSlitherAnalyze(
     { target: "." },
     context,
-    async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 })
-  );
+    async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
+  )
 
-  expect(result.success).toBe(true);
-  expect(result.findingsCount).toBe(1);
-  expect(result.findings[0]?.check).toBe("reentrancy-eth");
-});
+  expect(result.success).toBe(true)
+  expect(result.findingsCount).toBe(1)
+  expect(result.findings[0]?.check).toBe("reentrancy-eth")
+})
 
 test("executeSlitherAnalyze skips primary run and uses flatten fallback when via_ir is true", async () => {
-  const { context } = createContext();
-  let primaryCalled = false;
+  const { context } = createContext()
+  let primaryCalled = false
 
   const result = await executeSlitherAnalyze(
     { target: "/tmp/project", via_ir: true },
     context,
     async (command, _signal, _cwd) => {
-      if (command.includes("slither") && !command.some(c => c.includes(".flat.sol"))) {
-        primaryCalled = true;
+      if (command.includes("slither") && !command.some((c) => c.includes(".flat.sol"))) {
+        primaryCalled = true
       }
-      return { stdout: "{}", stderr: "", exitCode: 1 };
-    }
-  );
+      return { stdout: "{}", stderr: "", exitCode: 1 }
+    },
+  )
 
-  expect(primaryCalled).toBe(false);
-  expect(result.success).toBe(false);
+  expect(primaryCalled).toBe(false)
+  expect(result.success).toBe(false)
   // flattenFallback returns structured error (forge not found or solc version missing)
-  expect(result.error).toBeDefined();
-});
+  expect(result.error).toBeDefined()
+})
 
 test("executeSlitherAnalyze runs primary when via_ir is false", async () => {
-  const { context } = createContext();
+  const { context } = createContext()
   const slitherJSON = JSON.stringify({
     success: true,
     results: { detectors: [] },
-  });
+  })
 
   const result = await executeSlitherAnalyze(
     { target: "/tmp/project", via_ir: false },
     context,
-    async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 })
-  );
+    async (_command, _signal, _cwd) => ({ stdout: slitherJSON, stderr: "", exitCode: 0 }),
+  )
 
-  expect(result.success).toBe(true);
-});
+  expect(result.success).toBe(true)
+})
 
 test("detectViaIr returns true for foundry.toml with via_ir = true", () => {
-  const tmpDir = join(tmpdir(), `argus-via-ir-${Date.now()}`);
-  mkdirSync(tmpDir, { recursive: true });
-  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia_ir = true\nsolc = "0.8.20"\n`);
+  const tmpDir = join(tmpdir(), `argus-via-ir-${Date.now()}`)
+  mkdirSync(tmpDir, { recursive: true })
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia_ir = true\nsolc = "0.8.20"\n`)
 
   try {
-    expect(detectViaIr(tmpDir)).toBe(true);
+    expect(detectViaIr(tmpDir)).toBe(true)
   } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true })
   }
-});
+})
 
 test("detectViaIr returns false when no foundry.toml exists", () => {
-  expect(detectViaIr("/tmp/nonexistent-dir-" + Date.now())).toBe(false);
-});
+  expect(detectViaIr(`/tmp/nonexistent-dir-${Date.now()}`)).toBe(false)
+})
 
 test("detectViaIr returns false for foundry.toml without via_ir", () => {
-  const tmpDir = join(tmpdir(), `argus-via-ir-no-${Date.now()}`);
-  mkdirSync(tmpDir, { recursive: true });
-  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nsolc = "0.8.20"\n`);
+  const tmpDir = join(tmpdir(), `argus-via-ir-no-${Date.now()}`)
+  mkdirSync(tmpDir, { recursive: true })
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nsolc = "0.8.20"\n`)
 
   try {
-    expect(detectViaIr(tmpDir)).toBe(false);
+    expect(detectViaIr(tmpDir)).toBe(false)
   } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true })
   }
-});
+})
 
 test("detectViaIr detects via-ir (hyphenated) in foundry.toml", () => {
-  const tmpDir = join(tmpdir(), `argus-via-ir-hyph-${Date.now()}`);
-  mkdirSync(tmpDir, { recursive: true });
-  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia-ir = true\n`);
+  const tmpDir = join(tmpdir(), `argus-via-ir-hyph-${Date.now()}`)
+  mkdirSync(tmpDir, { recursive: true })
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia-ir = true\n`)
 
   try {
-    expect(detectViaIr(tmpDir)).toBe(true);
+    expect(detectViaIr(tmpDir)).toBe(true)
   } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true })
   }
-});
+})
 
 test("detectViaIr walks up from subdirectory to find foundry.toml at project root", () => {
-  const tmpDir = join(tmpdir(), `argus-via-ir-walk-${Date.now()}`);
-  const subDir = join(tmpDir, "src", "contracts");
-  mkdirSync(subDir, { recursive: true });
-  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia_ir = true\n`);
+  const tmpDir = join(tmpdir(), `argus-via-ir-walk-${Date.now()}`)
+  const subDir = join(tmpDir, "src", "contracts")
+  mkdirSync(subDir, { recursive: true })
+  writeFileSync(join(tmpDir, "foundry.toml"), `[profile.default]\nvia_ir = true\n`)
 
   try {
-    expect(detectViaIr(subDir)).toBe(true);
+    expect(detectViaIr(subDir)).toBe(true)
   } finally {
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true })
   }
-});
+})
 
 test("slitherTool.execute resolves relative target against context.directory", async () => {
-  const tmpDir = join(tmpdir(), `argus-resolve-${Date.now()}`);
-  mkdirSync(tmpDir, { recursive: true });
+  const tmpDir = join(tmpdir(), `argus-resolve-${Date.now()}`)
+  mkdirSync(tmpDir, { recursive: true })
 
-  const { context } = createContext({ directory: tmpDir });
-  let capturedCommand: string[] | undefined;
+  const { context } = createContext({ directory: tmpDir })
+  let capturedCommand: string[] | undefined
 
   // Patch executeSlitherAnalyze indirectly by calling slitherTool.execute
   // which resolves the target. We can verify by checking the result contains the resolved path.
@@ -495,53 +536,71 @@ test("slitherTool.execute resolves relative target against context.directory", a
     { target: join(tmpDir, "contracts") },
     context,
     async (command, _signal, _cwd) => {
-      capturedCommand = command;
-      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 };
-    }
-  );
+      capturedCommand = command
+      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }
+    },
+  )
 
-  expect(capturedCommand).toBeDefined();
-  expect(capturedCommand![1]).toBe(join(tmpDir, "contracts"));
-  expect(result.success).toBe(true);
+  expect(capturedCommand).toBeDefined()
+  expect(capturedCommand?.at(1)).toBe(join(tmpDir, "contracts"))
+  expect(result.success).toBe(true)
 
-  rmSync(tmpDir, { recursive: true, force: true });
-});
+  rmSync(tmpDir, { recursive: true, force: true })
+})
 
 test("manual via_ir: true override bypasses auto-detection", async () => {
-  const { context } = createContext();
-  let primaryRunCalled = false;
+  const { context } = createContext()
+  let primaryRunCalled = false
   // Target has no foundry.toml, but via_ir is manually set to true
   const result = await executeSlitherAnalyze(
-    { target: "/tmp/nonexistent-project-" + Date.now(), via_ir: true },
+    { target: `/tmp/nonexistent-project-${Date.now()}`, via_ir: true },
     context,
     async (command, _signal, _cwd) => {
       // If primary slither run is called (not flatten), mark it
-      if (!command.some(c => c.includes(".flat.sol"))) {
-        primaryRunCalled = true;
+      if (!command.some((c) => c.includes(".flat.sol"))) {
+        primaryRunCalled = true
       }
-      return { stdout: "{}", stderr: "", exitCode: 1 };
-    }
-  );
+      return { stdout: "{}", stderr: "", exitCode: 1 }
+    },
+  )
 
   // Should have gone through the via_ir path (flatten fallback), not primary
-  expect(primaryRunCalled).toBe(false);
-  expect(result.success).toBe(false);
-  expect(result.error).toBeDefined();
-});
+  expect(primaryRunCalled).toBe(false)
+  expect(result.success).toBe(false)
+  expect(result.error).toBeDefined()
+})
 
 test("executeSlitherAnalyze passes cwd to runCommand", async () => {
-  const { context } = createContext();
-  let capturedCwd: string | undefined;
+  const { context } = createContext()
+  let capturedCwd: string | undefined
 
   await executeSlitherAnalyze(
     { target: "." },
     context,
     async (_command, _signal, cwd) => {
-      capturedCwd = cwd;
-      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 };
+      capturedCwd = cwd
+      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }
     },
-    "/custom/project/dir"
-  );
+    "/custom/project/dir",
+  )
 
-  expect(capturedCwd).toBe("/custom/project/dir");
-});
+  expect(capturedCwd).toBe("/custom/project/dir")
+})
+
+test("executeSlitherAnalyze rejects solcVersion with shell metacharacters", async () => {
+  const { context } = createContext()
+  let commandExecuted = false
+
+  const result = await executeSlitherAnalyze(
+    { target: ".", solc_version: "0.8.0; rm -rf /" },
+    context,
+    async (_command, _signal, _cwd) => {
+      commandExecuted = true
+      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }
+    },
+  )
+
+  expect(commandExecuted).toBe(false)
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("solc_version")
+})

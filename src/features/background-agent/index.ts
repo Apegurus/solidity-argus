@@ -1,1 +1,1 @@
-export * from "./background-manager";
+export * from "./background-manager"

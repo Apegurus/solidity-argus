@@ -37,6 +37,9 @@ export const PatternDefinitionSchema = z.object({
   description: z.string().min(1),
   exploit_ref: z.string().url().optional(),
   remediation: z.string().optional(),
+  context: z.enum(["function-body", "contract-body", "file-level"]).optional(),
+  applies_to: z.array(z.string()).optional(),
+  exclude_if: z.array(z.string()).optional(),
 })
 
 export type PatternDefinition = z.infer<typeof PatternDefinitionSchema>

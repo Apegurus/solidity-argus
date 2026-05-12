@@ -1,6 +1,5 @@
-import { appendFileSync, mkdirSync, existsSync } from "node:fs"
-import { join } from "node:path"
-import { homedir } from "node:os"
+import { appendFileSync, existsSync, mkdirSync } from "node:fs"
+import { getArgusLogDir, getArgusLogFile } from "./cache-paths"
 
 export interface LoggerConfig {
   debug?: boolean
@@ -15,12 +14,13 @@ export interface Logger {
 
 type LogSink = (line: string) => void
 
-const LOG_DIR = join(homedir(), ".cache", "solidity-argus")
-const LOG_FILE = join(LOG_DIR, "argus.log")
+const LOG_DIR = getArgusLogDir()
+const LOG_FILE = getArgusLogFile()
 
 function ensureLogDir(): void {
-  if (!existsSync(LOG_DIR)) {
-    mkdirSync(LOG_DIR, { recursive: true })
+  const logDir = getArgusLogDir()
+  if (!existsSync(logDir)) {
+    mkdirSync(logDir, { recursive: true })
   }
 }
 
@@ -51,7 +51,7 @@ function createFileSink(): LogSink {
       dirReady = true
     }
     try {
-      appendFileSync(LOG_FILE, line)
+      appendFileSync(getArgusLogFile(), line)
     } catch {
       // if we can't write logs, we don't crash the plugin
     }

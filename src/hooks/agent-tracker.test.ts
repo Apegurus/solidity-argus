@@ -7,12 +7,13 @@ function makeChatParamsInput(
   return {
     sessionID: "session-1",
     agent: "argus",
-    model:
-      {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["model"],
-    provider:
-      {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["provider"],
-    message:
-      {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["message"],
+    model: {} as Parameters<ReturnType<typeof createAgentTracker>["chatParamsHook"]>[0]["model"],
+    provider: {} as Parameters<
+      ReturnType<typeof createAgentTracker>["chatParamsHook"]
+    >[0]["provider"],
+    message: {} as Parameters<
+      ReturnType<typeof createAgentTracker>["chatParamsHook"]
+    >[0]["message"],
     ...overrides,
   }
 }
@@ -60,7 +61,9 @@ describe("createAgentTracker", () => {
   it('isArgusAgent returns true for "sentinel"', () => {
     const tracker = createAgentTracker()
 
-    tracker.chatParamsHook(makeChatParamsInput({ sessionID: "sentinel-session", agent: "sentinel" }))
+    tracker.chatParamsHook(
+      makeChatParamsInput({ sessionID: "sentinel-session", agent: "sentinel" }),
+    )
 
     expect(tracker.isArgusAgent("sentinel-session")).toBe(true)
   })
@@ -75,7 +78,7 @@ describe("createAgentTracker", () => {
     expect(tracker.isArgusAgent("scribe-session")).toBe(true)
   })
 
-  it('isArgusAgent returns false for non-argus and unknown agents', () => {
+  it("isArgusAgent returns false for non-argus and unknown agents", () => {
     const tracker = createAgentTracker()
 
     tracker.chatParamsHook(makeChatParamsInput({ sessionID: "build-session", agent: "build" }))
@@ -114,5 +117,15 @@ describe("createAgentTracker", () => {
     expect(tracker.getAgentForSession("s5")).toBe("argus")
     expect(tracker.getAgentForSession("s6")).toBe("sentinel")
     expect(tracker.getAgentForSession("s7")).toBe("pythia")
+  })
+
+  it("tracks child session relationships", () => {
+    const tracker = createAgentTracker()
+
+    tracker.trackChildSession("parent-1", "child-1")
+    tracker.trackChildSession("parent-1", "child-2")
+
+    expect(tracker.getChildSessions("parent-1").sort()).toEqual(["child-1", "child-2"])
+    expect(tracker.getParentSession("child-1")).toBe("parent-1")
   })
 })

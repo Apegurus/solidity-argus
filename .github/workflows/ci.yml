@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Biome
+        uses: biomejs/setup-biome@v2
+        with:
+          version: "2.4.4"
+
+      - name: Run Biome
+        run: biome ci .
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: bun test
+
+  e2e:
+    name: E2E Tests
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.1
+
+      - name: Install Slither
+        run: pip install slither-analyzer==0.11.5
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run full test suite
+        run: bun test
+
+  production-readiness:
+    name: Production Readiness
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Determinism replay tests
+        run: bun test tests/integration/determinism-replay.test.ts
+
+      - name: Subagent telemetry capture tests
+        run: bun test tests/integration/subagent-telemetry-capture.test.ts
+
+      - name: Report contract tests
+        run: bun test tests/integration/report-contract.test.ts
+
+      - name: Report preflight tests
+        run: bun test src/tools/report-preflight.test.ts
+
+      - name: Report quality gates tests
+        run: bun test tests/integration/report-quality-gates.test.ts
+
+      - name: Migration modes tests
+        run: bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
+
+      - name: Single writer policy tests
+        run: bun test tests/integration/single-writer-policy.test.ts
+
+      - name: Docs migration contract checks
+        run: |
+          grep -q "\.argus" docs/operator-runbook.md
+          grep -q "\.opencode" docs/operator-runbook.md
+          grep -qi "fallback" docs/operator-runbook.md
+          grep -qi "precedence" docs/operator-runbook.md
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-readiness-evidence
+          path: .sisyphus/evidence/
+          retention-days: 90
+          if-no-files-found: ignore

@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs"
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
+import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 import { parseFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
@@ -21,8 +22,6 @@ const OMO_PROJECT_SKILLS_DIR = [".opencode", "skills"]
 const OMO_GLOBAL_SKILLS_DIR = [".config", "opencode", "skills"]
 const CLAUDE_PROJECT_SKILLS_DIR = [".claude", "skills"]
 const CLAUDE_GLOBAL_SKILLS_DIR = [".claude", "skills"]
-const TOB_CACHE_DIR = join(homedir(), ".cache", "solidity-argus", "trailofbits-skills")
-
 const SKILL_NAME_ALIASES: Record<string, string> = {
   "vulnerability-patterns/reentrancy": "reentrancy",
   "vulnerability-patterns/oracle-manipulation": "oracle-manipulation",
@@ -55,6 +54,9 @@ function parseSkillDescriptionFromFrontmatter(content: string): string {
   return raw.replace(/^"|"$/g, "")
 }
 
+/** Filenames that are never skills — exclude from resolution and health checks. */
+const NON_SKILL_FILENAMES = new Set(["README.md", "INVENTORY.md", "CHANGELOG.md", "LICENSE.md"])
+
 function collectMarkdownFiles(root: string, maxDepth = 8): string[] {
   if (!existsSync(root)) return []
 
@@ -82,6 +84,7 @@ function collectMarkdownFiles(root: string, maxDepth = 8): string[] {
 
       if (!entry.isFile()) continue
       if (extname(entry.name).toLowerCase() !== ".md") continue
+      if (NON_SKILL_FILENAMES.has(entry.name)) continue
       files.push(fullPath)
     }
   }
@@ -90,7 +93,7 @@ function collectMarkdownFiles(root: string, maxDepth = 8): string[] {
 }
 
 function getTrailOfBitsRoots(): string[] {
-  const pluginsDir = join(TOB_CACHE_DIR, "plugins")
+  const pluginsDir = join(getTrailOfBitsCacheDir(), "plugins")
   if (!existsSync(pluginsDir)) return []
 
   let entries: Dirent[]
@@ -137,9 +140,14 @@ function resolveCustomSkillsRoot(projectDir: string, argusConfig?: ArgusConfig):
 export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig): SkillRoot[] {
   const precedence = argusConfig?.knowledge?.skillPrecedence ?? "bundled-first"
 
-  const bundledRoot: SkillRoot = { path: resolve(import.meta.dir, "../../skills"), source: "bundled" }
+  const bundledRoot: SkillRoot = {
+    path: resolve(import.meta.dir, "../../skills"),
+    source: "bundled",
+  }
   const customRoot = resolveCustomSkillsRoot(projectDir, argusConfig)
-  const customSkillRoot: SkillRoot | null = customRoot ? { path: customRoot, source: "custom" } : null
+  const customSkillRoot: SkillRoot | null = customRoot
+    ? { path: customRoot, source: "custom" }
+    : null
 
   const roots: SkillRoot[] = []
 
@@ -169,7 +177,10 @@ export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig)
   })
 }
 
-export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig): Map<string, ResolvedSkill> {
+export function resolveArgusSkills(
+  projectDir: string,
+  argusConfig?: ArgusConfig,
+): Map<string, ResolvedSkill> {
   const resolved = new Map<string, ResolvedSkill>()
   const roots = resolveSkillRoots(projectDir, argusConfig)
   const logger = createLogger()
@@ -188,7 +199,9 @@ export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig
       if (frontmatter) {
         const validation = validateSkillFrontmatter(frontmatter)
         if (!validation.success) {
-          logger.warn(`Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`)
+          logger.warn(
+            `Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`,
+          )
           continue
         }
       }
@@ -209,7 +222,8 @@ export function resolveArgusSkills(projectDir: string, argusConfig?: ArgusConfig
 
       if (frontmatter) {
         if (typeof frontmatter.source_url === "string") skill.source_url = frontmatter.source_url
-        if (typeof frontmatter.source_license === "string") skill.source_license = frontmatter.source_license
+        if (typeof frontmatter.source_license === "string")
+          skill.source_license = frontmatter.source_license
         if (typeof frontmatter.imported_at === "string") skill.imported_at = frontmatter.imported_at
         if (typeof frontmatter.source_hash === "string") skill.source_hash = frontmatter.source_hash
       }

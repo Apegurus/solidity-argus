@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { CliCommand } from "../types"
 import { cliOutput } from "../cli-output"
+import type { CliCommand } from "../types"
 
 const GREEN = "\x1b[32m"
 const YELLOW = "\x1b[33m"
@@ -18,13 +18,15 @@ const DEFAULT_CONFIG = {
 export const initCommand: CliCommand = {
   name: "init",
   description: "Initialize Argus configuration for this project",
-  async execute(args: string[]): Promise<number> {
+  async execute(_args: string[]): Promise<number> {
     const cwd = process.cwd()
-    const configDir = join(cwd, ".opencode")
+    const configDir = join(cwd, ".argus")
     const configPath = join(configDir, "solidity-argus.json")
 
     if (existsSync(configPath)) {
-      cliOutput.error(`${YELLOW}⚠${RESET} Config already exists: ${configPath} — remove it first if you want to reinitialize.`)
+      cliOutput.error(
+        `${YELLOW}⚠${RESET} Config already exists: ${configPath} — remove it first if you want to reinitialize.`,
+      )
       return 1
     }
 

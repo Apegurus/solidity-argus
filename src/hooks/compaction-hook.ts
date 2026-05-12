@@ -1,28 +1,19 @@
-import type { AuditState, FindingSeverity } from "../state/types"
+import { countBySeverity } from "../shared/validation-constants"
+import type { AuditState } from "../state/types"
 import type { ReconContext } from "./recon-context-builder"
 import { buildReconContextBlock } from "./recon-context-builder"
 
 export function createCompactionHook(
-  getAuditState: () => AuditState | null,
+  getAuditState: (sessionId?: string) => AuditState | null,
   getReconContext?: () => ReconContext | null,
-): (input: { summary: string }) => Promise<string | null> {
-  return async (_input: { summary: string }): Promise<string | null> => {
-    const state = getAuditState()
+): (input: { summary: string; sessionId?: string }) => Promise<string | null> {
+  return async (input: { summary: string; sessionId?: string }): Promise<string | null> => {
+    const state = getAuditState(input.sessionId)
 
     const parts: string[] = []
 
     if (state) {
-      const severityCounts: Record<FindingSeverity, number> = {
-        Critical: 0,
-        High: 0,
-        Medium: 0,
-        Low: 0,
-        Informational: 0,
-      }
-
-      for (const finding of state.findings) {
-        severityCounts[finding.severity]++
-      }
+      const severityCounts = countBySeverity(state.findings)
 
       const toolNames = state.toolsExecuted.map((t) => t.tool).join(", ")
       const contracts = state.contractsReviewed.join(", ")

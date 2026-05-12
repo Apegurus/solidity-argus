@@ -5,7 +5,5 @@
   "license": "Apache-2.0",
   "updateCadence": "per-release",
   "lastVerified": "2026-02-19",
-  "files": [
-    "references/smartbugs-examples/SKILL.md"
-  ]
+  "files": ["references/smartbugs-examples/SKILL.md"]
 }

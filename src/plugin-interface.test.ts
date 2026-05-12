@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test"
-import { createPluginInterface } from "./plugin-interface"
-import { createTools } from "./create-tools"
-import { createHooks } from "./create-hooks"
 import { ArgusConfigSchema } from "./config/schema"
-import type { Managers } from "./managers/types"
 import type { Hooks } from "./create-hooks"
+import { createHooks } from "./create-hooks"
+import { createTools } from "./create-tools"
+import type { Managers } from "./managers/types"
+import { createPluginInterface } from "./plugin-interface"
 
 function makeManagers(): Managers {
   return {
@@ -16,11 +16,14 @@ function makeManagers(): Managers {
       getActiveCount: () => 0,
     },
     auditStateManager: {
+      bindSession: () => {},
       load: async () => null,
       save: async () => {},
       get: () => null,
       update: async () => {},
       reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     },
   }
 }
@@ -38,15 +41,15 @@ describe("createPluginInterface", () => {
 
     const result = createPluginInterface({ tools, hooks })
 
-     expect(result.tool).toBeDefined()
-     expect(result.config).toBeDefined()
-     expect(result["experimental.chat.system.transform"]).toBeDefined()
-     expect(result["experimental.session.compacting"]).toBeDefined()
-     expect(result["tool.execute.after"]).toBeDefined()
-     expect(result.event).toBeDefined()
+    expect(result.tool).toBeDefined()
+    expect(result.config).toBeDefined()
+    expect(result["experimental.chat.system.transform"]).toBeDefined()
+    expect(result["experimental.session.compacting"]).toBeDefined()
+    expect(result["tool.execute.after"]).toBeDefined()
+    expect(result.event).toBeDefined()
   })
 
-  it("tool map has 9 entries", () => {
+  it("tool map has 15 entries", () => {
     const config = ArgusConfigSchema.parse({})
     const tools = createTools(config)
     const hooks = createHooks({
@@ -57,7 +60,7 @@ describe("createPluginInterface", () => {
     })
 
     const result = createPluginInterface({ tools, hooks })
-    expect(Object.keys(result.tool)).toHaveLength(9)
+    expect(Object.keys(result.tool)).toHaveLength(15)
   })
 
   it("omits disabled hooks from interface", () => {
@@ -67,7 +70,7 @@ describe("createPluginInterface", () => {
       config,
       managers: makeManagers(),
       projectDir: "/tmp/test-project",
-       isHookEnabled: (name) => name !== "compaction" && name !== "event",
+      isHookEnabled: (name) => name !== "compaction" && name !== "event",
     })
 
     const result = createPluginInterface({ tools, hooks })
@@ -104,7 +107,7 @@ describe("createPluginInterface", () => {
         projectDir: "/tmp/test-project",
         isHookEnabled: () => true,
       }).config,
-      "chat.params": chatParamsHook as any,
+      "chat.params": chatParamsHook as unknown as Hooks["chat.params"],
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
@@ -151,7 +154,7 @@ describe("createPluginInterface", () => {
         isHookEnabled: () => true,
       }).config,
       "chat.params": undefined,
-      "chat.message": chatMessageHook as any,
+      "chat.message": chatMessageHook as unknown as Hooks["chat.message"],
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
       "tool.execute.after": undefined,

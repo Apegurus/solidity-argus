@@ -1,6 +1,7 @@
 ---
 name: severity-classification
 description: Impact-versus-likelihood rubric to classify Solidity findings from informational through critical severity.
+category: methodology
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 

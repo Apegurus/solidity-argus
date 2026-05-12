@@ -1,7 +1,7 @@
-import { describe, expect, it, afterEach, beforeEach } from "bun:test"
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { lintSkillFiles, lintSkillsCommand } from "./lint-skills"
 
 describe("lintSkillFiles", () => {
@@ -227,17 +227,18 @@ describe("lintSkillsCommand", () => {
     mkdirSync(join(dir, ".opencode"), { recursive: true })
     process.cwd = () => dir
     const exitCode = await lintSkillsCommand.execute([])
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(0)
   })
 
   it("detects invalid project skills", async () => {
     const dir = makeTempDir()
-    const skillsDir = join(dir, ".opencode", "skills")
-    mkdirSync(skillsDir, { recursive: true })
+    const skillDir = join(dir, ".opencode", "skills", "bad-skill")
+    mkdirSync(skillDir, { recursive: true })
     writeFileSync(
-      join(skillsDir, "invalid.md"),
+      join(skillDir, "SKILL.md"),
       `---
-name: "Invalid Name"
+name: Bad Skill Name!
+description: This has an invalid name
 ---
 # Content`,
     )
@@ -248,19 +249,20 @@ name: "Invalid Name"
 
   it("validates project skills correctly", async () => {
     const dir = makeTempDir()
-    const skillsDir = join(dir, ".opencode", "skills")
-    mkdirSync(skillsDir, { recursive: true })
+    const skillDir = join(dir, ".opencode", "skills", "test-skill")
+    mkdirSync(skillDir, { recursive: true })
     writeFileSync(
-      join(skillsDir, "test.md"),
+      join(skillDir, "SKILL.md"),
       `---
 name: test-skill
+description: "A valid test skill"
 category: vulnerability-pattern
 ---
 # Content`,
     )
     process.cwd = () => dir
     const exitCode = await lintSkillsCommand.execute([])
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(0)
   })
 
   it("handles nested skill directories", async () => {
@@ -268,15 +270,16 @@ category: vulnerability-pattern
     const nestedDir = join(dir, ".opencode", "skills", "patterns", "nested")
     mkdirSync(nestedDir, { recursive: true })
     writeFileSync(
-      join(nestedDir, "test.md"),
+      join(nestedDir, "SKILL.md"),
       `---
 name: nested-skill
+description: "A nested skill"
 ---
 # Content`,
     )
     process.cwd = () => dir
     const exitCode = await lintSkillsCommand.execute([])
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(0)
   })
 
   it("skips non-markdown files", async () => {
@@ -287,22 +290,23 @@ name: nested-skill
     writeFileSync(join(skillsDir, "test.json"), '{"not": "markdown"}')
     process.cwd = () => dir
     const exitCode = await lintSkillsCommand.execute([])
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(0)
   })
 
   it("continues on unreadable files", async () => {
     const dir = makeTempDir()
-    const skillsDir = join(dir, ".opencode", "skills")
-    mkdirSync(skillsDir, { recursive: true })
+    const skillDir = join(dir, ".opencode", "skills", "valid-skill")
+    mkdirSync(skillDir, { recursive: true })
     writeFileSync(
-      join(skillsDir, "valid.md"),
+      join(skillDir, "SKILL.md"),
       `---
 name: valid-skill
+description: "A valid skill"
 ---
 # Content`,
     )
     process.cwd = () => dir
     const exitCode = await lintSkillsCommand.execute([])
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(0)
   })
 })

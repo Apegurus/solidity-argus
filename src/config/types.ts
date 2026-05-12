@@ -1,4 +1,4 @@
-import { z } from "zod"
-import { ArgusConfigSchema } from "./schema"
+import type { z } from "zod"
+import type { ArgusConfigSchema } from "./schema"
 
 export type ArgusConfig = z.infer<typeof ArgusConfigSchema>

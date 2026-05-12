@@ -2,17 +2,18 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import type { Config } from "@opencode-ai/sdk"
 import type { ArgusConfig } from "../../src/config/types"
-import ArgusPlugin from "../../src/index"
-import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createCompactionHook } from "../../src/hooks/compaction-hook"
+import { createConfigHandler } from "../../src/hooks/config-handler"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
+import ArgusPlugin from "../../src/index"
 import { createAuditState } from "../../src/state/audit-state"
+import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { Finding } from "../../src/state/types"
-import { slitherTool } from "../../src/tools/slither-tool"
-import { forgeTestTool } from "../../src/tools/forge-test-tool"
 import { contractAnalyzerTool } from "../../src/tools/contract-analyzer-tool"
+import { forgeTestTool } from "../../src/tools/forge-test-tool"
 import { patternCheckerTool } from "../../src/tools/pattern-checker-tool"
 import { reportGeneratorTool } from "../../src/tools/report-generator-tool"
+import { slitherTool } from "../../src/tools/slither-tool"
 
 const FIXTURE_DIR = path.join(import.meta.dir, "../fixtures/vulnerable-vault")
 const FIXTURE_CONTRACT = path.join(FIXTURE_DIR, "src/VulnerableVault.sol")
@@ -23,6 +24,7 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
     sentinel: {},
     pythia: {},
     scribe: {},
+    themis: {},
   },
   tools: {},
   knowledge: {
@@ -37,10 +39,11 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
     format: "markdown",
     severityThreshold: "low",
     gasAnalysis: false,
+    output_dir: ".argus/reports/",
   },
   solodit: {
     enabled: true,
-    port: 3000,
+    port: 54173,
   },
   disabled_hooks: [],
   hooks: {},
@@ -93,12 +96,17 @@ describe("full audit integration", () => {
     const plugin = await ArgusPlugin(pluginContext)
 
     const toolNames = Object.keys(plugin.tool ?? {})
-    expect(toolNames).toHaveLength(9)
+    expect(toolNames).toHaveLength(15)
     expect(toolNames).toContain("argus_slither_analyze")
     expect(toolNames).toContain("argus_forge_test")
+    expect(toolNames).toContain("argus_gas_analysis")
     expect(toolNames).toContain("argus_forge_fuzz")
+    expect(toolNames).toContain("argus_forge_coverage")
     expect(toolNames).toContain("argus_analyze_contract")
     expect(toolNames).toContain("argus_check_patterns")
+    expect(toolNames).toContain("argus_proxy_detection")
+    expect(toolNames).toContain("argus_read_findings")
+    expect(toolNames).toContain("argus_record_finding")
     expect(toolNames).toContain("argus_solodit_search")
     expect(toolNames).toContain("argus_generate_report")
     expect(toolNames).toContain("argus_skill_load")
@@ -115,7 +123,7 @@ describe("full audit integration", () => {
 
     expect(config.agent).toBeDefined()
     expect(config.agent && Object.keys(config.agent)).toEqual(
-      expect.arrayContaining(["argus", "sentinel", "pythia", "scribe"])
+      expect.arrayContaining(["argus", "sentinel", "pythia", "scribe"]),
     )
     expect(config.agent?.argus?.mode).toBe("primary")
     expect(config.mcp?.["solodit-mcp"]).toBeDefined()
@@ -127,7 +135,7 @@ describe("full audit integration", () => {
         file_path: FIXTURE_CONTRACT,
         project_dir: FIXTURE_DIR,
       },
-      createMockContext()
+      createMockContext(),
     )
 
     const result = JSON.parse(payload) as {
@@ -149,7 +157,7 @@ describe("full audit integration", () => {
         patterns: ["reentrancy", "access-control"],
         include_scvd: true,
       },
-      createMockContext()
+      createMockContext(),
     )
 
     const result = JSON.parse(payload) as {
@@ -195,21 +203,45 @@ describe("full audit integration", () => {
         scope: ["VulnerableVault.sol"],
         include_executive_summary: true,
         severity_threshold: "low",
-        audit_state: JSON.stringify({ findings }),
-      },
-      createMockContext()
+        preflight_policy: "warn",
+        tool_coverage_policy: "warn",
+        report_input: JSON.stringify({
+          run_id: "test-run-1",
+          seq: findings.length,
+          session_id: "session-1",
+          tool_call_id: "tc-report",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          projectDir: "/tmp/project",
+          findings: findings.map((f, i) => ({
+            ...f,
+            run_id: "test-run-1",
+            seq: i + 1,
+            session_id: "session-1",
+            tool_call_id: "tc-1",
+            source: f.source ?? "slither",
+            schema_version: SCHEMA_VERSION,
+            observation_id: `obs-${i + 1}`,
+            issue_fingerprint: `ifp-${i + 1}`,
+            observation_fingerprint: `ofp-${i + 1}`,
+            reported_by_agent: "sentinel",
+          })),
+          toolsExecuted: [],
+          scope: ["VulnerableVault.sol"],
+        }),
+      } as Parameters<typeof reportGeneratorTool.execute>[0],
+      createMockContext(),
     )
 
     const result = JSON.parse(payload) as {
-      report: string
+      reportSummary: string
       findingsCount: {
         critical: number
         high: number
       }
     }
 
-    expect(result.report).toContain("# ")
-    expect(result.report.includes("Critical") || result.report.includes("High")).toBe(true)
+    expect(result.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
     expect(result.findingsCount.critical).toBeGreaterThanOrEqual(1)
   })
 
@@ -280,7 +312,7 @@ describe("full audit integration", () => {
         {
           target: FIXTURE_DIR,
         },
-        createMockContext()
+        createMockContext(),
       )
 
       const result = JSON.parse(payload) as {
@@ -305,7 +337,7 @@ describe("full audit integration", () => {
           verbosity: 3,
           coverage: false,
         },
-        createMockContext()
+        createMockContext(),
       )
 
       const result = JSON.parse(payload) as {

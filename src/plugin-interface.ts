@@ -25,13 +25,11 @@ export function createPluginInterface(args: {
   }
 
   if (hooks["experimental.chat.system.transform"]) {
-    result["experimental.chat.system.transform"] =
-      hooks["experimental.chat.system.transform"]
+    result["experimental.chat.system.transform"] = hooks["experimental.chat.system.transform"]
   }
 
   if (hooks["experimental.session.compacting"]) {
-    result["experimental.session.compacting"] =
-      hooks["experimental.session.compacting"]
+    result["experimental.session.compacting"] = hooks["experimental.session.compacting"]
   }
 
   if (hooks["tool.execute.after"]) {

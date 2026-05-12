@@ -6,8 +6,8 @@ type ChatParamsInput = Parameters<ChatParamsHook>[0]
 type SystemTransformHook = NonNullable<Hooks["experimental.chat.system.transform"]>
 type SystemTransformInput = Parameters<SystemTransformHook>[0]
 
-type IsRequiredKey<T, K extends keyof T> = {} extends Pick<T, K> ? false : true
-type IsOptionalKey<T, K extends keyof T> = {} extends Pick<T, K> ? true : false
+type IsRequiredKey<T, K extends keyof T> = Record<string, never> extends Pick<T, K> ? false : true
+type IsOptionalKey<T, K extends keyof T> = Record<string, never> extends Pick<T, K> ? true : false
 type AssertTrue<T extends true> = T
 
 const typeAssertions = {
@@ -55,9 +55,9 @@ function makeChatParamsInput(overrides: Partial<ChatParamsInput> = {}): ChatPara
   return {
     sessionID: "session-1",
     agent: "argus",
-    model: {} as ChatParamsInput["model"],
-    provider: {} as ChatParamsInput["provider"],
-    message: {} as ChatParamsInput["message"],
+    model: {} as unknown as ChatParamsInput["model"],
+    provider: {} as unknown as ChatParamsInput["provider"],
+    message: {} as unknown as ChatParamsInput["message"],
     ...overrides,
   }
 }
@@ -82,9 +82,9 @@ describe("OpenCode hook firing order assumptions", () => {
     await hooks["experimental.chat.system.transform"]?.(
       {
         sessionID: "session-1",
-        model: {} as SystemTransformInput["model"],
+        model: {} as unknown as SystemTransformInput["model"],
       },
-      systemOutput
+      systemOutput,
     )
 
     expect(events.map((event) => event.hookName)).toEqual([
@@ -102,9 +102,9 @@ describe("OpenCode hook firing order assumptions", () => {
     await hooks["experimental.chat.system.transform"]?.(
       {
         sessionID: "session-unknown",
-        model: {} as SystemTransformInput["model"],
+        model: {} as unknown as SystemTransformInput["model"],
       },
-      firstSystemOutput
+      firstSystemOutput,
     )
 
     expect(firstSystemOutput.system).toEqual(["argus-context:generic"])

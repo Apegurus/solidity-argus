@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { existsSync } from "node:fs"
-import type { AuditState } from "../../src/state/types"
 import { createAgentTracker } from "../../src/hooks/agent-tracker"
+import type { AuditState } from "../../src/state/types"
 
 type AgentTracker = ReturnType<typeof createAgentTracker>
 type ChatParamsInput = Parameters<AgentTracker["chatParamsHook"]>[0]
@@ -226,13 +226,19 @@ if (existsSync(systemPromptHookPath)) {
         isArgusAgent: tracker.isArgusAgent,
       })
       const outputBeforeCleanup = { system: [] as string[] }
-      await hook({ sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-6" }, outputBeforeCleanup)
+      await hook(
+        { sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-6" },
+        outputBeforeCleanup,
+      )
       expect(outputBeforeCleanup.system.length).toBeGreaterThan(0)
 
       tracker.clearSession("ses_cleanup_system")
 
       const outputAfterCleanup = { system: [] as string[] }
-      await hook({ sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-6" }, outputAfterCleanup)
+      await hook(
+        { sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-6" },
+        outputAfterCleanup,
+      )
       expect(outputAfterCleanup.system).toEqual([])
     })
   })

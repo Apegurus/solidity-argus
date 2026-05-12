@@ -1,6 +1,7 @@
 ---
 name: staking-vesting
 description: Staking security guidance for reward accounting, lock periods, timing attacks, and withdrawals.
+category: protocol-pattern
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 

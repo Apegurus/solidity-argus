@@ -1,13 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach, mock } from "bun:test"
-import {
-  doctorCommand,
-  buildSkillHealthReport,
-  findDuplicateSkills,
-  ALL_CATEGORIES,
-  REQUIRED_CATEGORIES,
-  type SkillHealthReport,
-} from "./doctor"
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
 import type { ResolvedSkill } from "../../skills/argus-skill-resolver"
+import {
+  ALL_CATEGORIES,
+  buildSkillHealthReport,
+  doctorCommand,
+  findDuplicateSkills,
+} from "./doctor"
 
 function makeSkill(
   name: string,
@@ -27,7 +25,13 @@ function makeInvalidSkill(name: string, source: ResolvedSkill["source"]): Resolv
 }
 
 function makeNoFrontmatterSkill(name: string, source: ResolvedSkill["source"]): ResolvedSkill {
-  return { name, description: "", filePath: `/fake/${source}/${name}.md`, source, content: `# ${name}\nNo frontmatter.` }
+  return {
+    name,
+    description: "",
+    filePath: `/fake/${source}/${name}.md`,
+    source,
+    content: `# ${name}\nNo frontmatter.`,
+  }
 }
 
 describe("doctorCommand", () => {
@@ -65,10 +69,10 @@ describe("buildSkillHealthReport", () => {
     ])
     const report = buildSkillHealthReport(skills)
     expect(report.categoryBreakdown["vulnerability-pattern"]).toBe(2)
-    expect(report.categoryBreakdown["methodology"]).toBe(1)
+    expect(report.categoryBreakdown.methodology).toBe(1)
     expect(report.categoryBreakdown["protocol-pattern"]).toBe(1)
-    expect(report.categoryBreakdown["checklist"]).toBe(0)
-    expect(report.categoryBreakdown["reference"]).toBe(0)
+    expect(report.categoryBreakdown.checklist).toBe(0)
+    expect(report.categoryBreakdown.reference).toBe(0)
   })
 
   it("counts trust tiers correctly", () => {
@@ -79,9 +83,9 @@ describe("buildSkillHealthReport", () => {
       ["d", makeSkill("d", "trailofbits", { category: "reference" })],
     ])
     const report = buildSkillHealthReport(skills)
-    expect(report.trustTierBreakdown["bundled"]).toBe(2)
-    expect(report.trustTierBreakdown["custom"]).toBe(1)
-    expect(report.trustTierBreakdown["trailofbits"]).toBe(1)
+    expect(report.trustTierBreakdown.bundled).toBe(2)
+    expect(report.trustTierBreakdown.custom).toBe(1)
+    expect(report.trustTierBreakdown.trailofbits).toBe(1)
   })
 
   it("detects duplicate skills from entries", () => {
@@ -95,9 +99,9 @@ describe("buildSkillHealthReport", () => {
     ]
     const report = buildSkillHealthReport(skills, allEntries)
     expect(report.duplicates).toHaveLength(1)
-    expect(report.duplicates[0]!.name).toBe("reentrancy")
-    expect(report.duplicates[0]!.sources).toContain("bundled")
-    expect(report.duplicates[0]!.sources).toContain("custom")
+    expect(report.duplicates.at(0)?.name).toBe("reentrancy")
+    expect(report.duplicates.at(0)?.sources).toContain("bundled")
+    expect(report.duplicates.at(0)?.sources).toContain("custom")
   })
 
   it("reports no duplicates when entries are unique", () => {
@@ -141,7 +145,7 @@ describe("buildSkillHealthReport", () => {
     expect(report.schemaInvalid).toBe(1)
     expect(report.schemaSkipped).toBe(1)
     expect(report.invalidSkills).toHaveLength(1)
-    expect(report.invalidSkills[0]!.name).toBe("bad")
+    expect(report.invalidSkills.at(0)?.name).toBe("bad")
   })
 
   it("initializes all category keys to 0", () => {
@@ -170,8 +174,8 @@ describe("findDuplicateSkills", () => {
     ]
     const dupes = findDuplicateSkills(entries)
     expect(dupes).toHaveLength(1)
-    expect(dupes[0]!.name).toBe("reentrancy")
-    expect(dupes[0]!.sources).toHaveLength(3)
+    expect(dupes.at(0)?.name).toBe("reentrancy")
+    expect(dupes.at(0)?.sources).toHaveLength(3)
   })
 
   it("ignores same-source duplicate entries", () => {

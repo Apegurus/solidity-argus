@@ -1,8 +1,8 @@
-import type { AuditState } from "../../state/types"
 import { createLogger } from "../../shared/logger"
+import type { AuditState } from "../../state/types"
 
 const DEFAULT_MAX_TOKENS = 200_000
-const REMINDER_THRESHOLD = 0.70
+const REMINDER_THRESHOLD = 0.7
 const COMPACTION_THRESHOLD = 0.85
 
 export interface ContextMonitorConfig {
@@ -19,7 +19,7 @@ export function createContextMonitor(config: ContextMonitorConfig = {}) {
 
   function getContextStatus(
     systemText: string,
-    auditState: AuditState | null,
+    _auditState: AuditState | null,
   ): { usage: number; reminder: string | null; shouldCompact: boolean } {
     const tokens = estimateTokens(systemText)
     const usage = tokens / maxTokens

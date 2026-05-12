@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test"
-import { readdir, readFile } from "fs/promises"
-import { join } from "path"
+import { expect, test } from "bun:test"
+import { readdir, readFile } from "node:fs/promises"
+import { join } from "node:path"
 import type { SourceManifest } from "../../src/knowledge/source-manifest"
 import { createDefaultRegistry } from "../../src/knowledge/source-manifest"
 
@@ -45,13 +45,14 @@ test("each manifest conforms to SourceManifest type", async () => {
 
   for (const file of jsonFiles) {
     const content = await readFile(join(MANIFESTS_DIR, file), "utf-8")
-    const manifest: any = JSON.parse(content)
+    const manifest = JSON.parse(content) as Record<string, unknown>
 
     expect(manifest.name).toBeDefined()
     expect(typeof manifest.name).toBe("string")
 
     expect(manifest.mode).toBeDefined()
-    expect(["baked-in", "on-demand", "hybrid"]).toContain(manifest.mode)
+    const mode = manifest.mode as string
+    expect(["baked-in", "on-demand", "hybrid"]).toContain(mode)
 
     expect(manifest.url).toBeDefined()
     expect(typeof manifest.url).toBe("string")
@@ -92,11 +93,12 @@ test("baked-in sources have files array", async () => {
 
   for (const source of bakedInSources) {
     const content = await readFile(join(MANIFESTS_DIR, `${source}.json`), "utf-8")
-    const manifest: any = JSON.parse(content)
+    const manifest = JSON.parse(content) as Record<string, unknown>
 
     expect(manifest.mode).toBe("baked-in")
     expect(Array.isArray(manifest.files || [])).toBe(true)
-    expect((manifest.files || []).length).toBeGreaterThan(0)
+    const files = manifest.files as unknown[] | undefined
+    expect((files || []).length).toBeGreaterThan(0)
   }
 })
 
@@ -142,9 +144,9 @@ test("manifest URLs are valid", async () => {
 
   for (const file of jsonFiles) {
     const content = await readFile(join(MANIFESTS_DIR, file), "utf-8")
-    const manifest: any = JSON.parse(content)
+    const manifest = JSON.parse(content) as Record<string, unknown>
 
-    expect(manifest.url).toMatch(/^https?:\/\//)
+    expect(manifest.url as string).toMatch(/^https?:\/\//)
   }
 })
 
@@ -195,7 +197,7 @@ test("registry can filter sources by mode", () => {
   const bakedIn = registry.getByMode("baked-in")
   expect(bakedIn.length).toBe(5)
   expect(bakedIn.map((s) => s.name).sort()).toEqual(
-    ["cyfrin", "defifofum", "kadenzipfel", "smartbugs", "sunweb3sec"].sort()
+    ["cyfrin", "defifofum", "kadenzipfel", "smartbugs", "sunweb3sec"].sort(),
   )
 
   const hybrid = registry.getByMode("hybrid")
@@ -213,7 +215,7 @@ test("manifest files have lastVerified field", async () => {
 
   for (const file of jsonFiles) {
     const content = await readFile(join(MANIFESTS_DIR, file), "utf-8")
-    const manifest: any = JSON.parse(content)
+    const manifest = JSON.parse(content) as Record<string, unknown>
 
     expect(manifest.lastVerified || manifest.lastUpdated).toBeDefined()
   }

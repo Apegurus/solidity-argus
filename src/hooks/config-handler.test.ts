@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
-import { createConfigHandler } from "./config-handler"
-import { DEFAULT_MODELS } from "../constants/defaults"
 import type { ArgusConfig } from "../config/types"
+import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
+import { createConfigHandler } from "./config-handler"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
   return {
@@ -14,6 +14,7 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
       sentinel: {},
       pythia: {},
       scribe: {},
+      themis: {},
       ...overrides?.agents,
     },
     tools: {
@@ -33,11 +34,17 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
       format: "markdown",
       severityThreshold: "low",
       gasAnalysis: false,
-      ...overrides?.reporting,
+      output_dir: ".opencode/reports/",
+      ...(overrides?.reporting ?? {}),
+    } as unknown as {
+      format: "markdown"
+      severityThreshold: "critical" | "high" | "medium" | "low" | "informational"
+      gasAnalysis: boolean
+      output_dir: string
     },
     solodit: {
       enabled: true,
-      port: 3000,
+      port: 54173,
       ...overrides?.solodit,
     },
     disabled_hooks: overrides?.disabled_hooks ?? [],
@@ -86,26 +93,34 @@ describe("createConfigHandler", () => {
         sentinel: "allow",
         pythia: "allow",
         scribe: "allow",
+        themis: "allow",
       },
       skill: "allow",
     })
     expect(config.agent?.sentinel?.permission).toEqual({
       argus_slither_analyze: "allow",
       argus_forge_test: "allow",
+      argus_gas_analysis: "allow",
       argus_forge_fuzz: "allow",
       argus_analyze_contract: "allow",
       argus_check_patterns: "allow",
+      argus_proxy_detection: "allow",
+      argus_forge_coverage: "allow",
+      argus_record_finding: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
     expect(config.agent?.pythia?.permission).toEqual({
       argus_solodit_search: "allow",
       argus_check_patterns: "allow",
+      argus_record_finding: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
     expect(config.agent?.scribe?.permission).toEqual({
+      argus_read_findings: "allow",
       argus_generate_report: "allow",
+      argus_persist_deduped: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -134,8 +149,9 @@ describe("createConfigHandler", () => {
           sentinel: {},
           pythia: {},
           scribe: {},
+          themis: {},
         },
-      })
+      }),
     )
     const config: Config = {}
 
@@ -177,6 +193,18 @@ describe("createConfigHandler", () => {
     expect(config.agent?.scribe?.model).toBe(DEFAULT_MODELS.scribe)
   })
 
+  test("sets default steps for all Argus agents", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.argus?.steps).toBe(DEFAULT_STEPS)
+    expect(config.agent?.sentinel?.steps).toBe(DEFAULT_STEPS)
+    expect(config.agent?.pythia?.steps).toBe(DEFAULT_STEPS)
+    expect(config.agent?.scribe?.steps).toBe(DEFAULT_STEPS)
+  })
+
   test("registers Solodit MCP server when enabled", async () => {
     const handler = createConfigHandler(createArgusConfig())
     const config: Config = {}
@@ -188,7 +216,7 @@ describe("createConfigHandler", () => {
       | undefined
     expect(solodit).toBeDefined()
     expect(solodit?.type).toBe("remote")
-    expect(solodit?.url).toBe("http://localhost:3000/mcp")
+    expect(solodit?.url).toBe("http://localhost:54173/mcp")
     expect(solodit?.enabled).toBe(true)
   })
 
@@ -197,9 +225,9 @@ describe("createConfigHandler", () => {
       createArgusConfig({
         solodit: {
           enabled: false,
-          port: 3000,
+          port: 54173,
         },
-      })
+      }),
     )
     const config: Config = {}
 
@@ -258,17 +286,17 @@ describe("createConfigHandler", () => {
 
     try {
       const handler = createConfigHandler(
-         createArgusConfig({
-           knowledge: {
-             scvd: {
-               enabled: true,
-               apiUrl: "https://api.scvd.dev",
-             },
-             autoSync: true,
-             skillPrecedence: "bundled-first" as const,
-             customSkillsDir: customDir,
-           },
-         })
+        createArgusConfig({
+          knowledge: {
+            scvd: {
+              enabled: true,
+              apiUrl: "https://api.scvd.dev",
+            },
+            autoSync: true,
+            skillPrecedence: "bundled-first" as const,
+            customSkillsDir: customDir,
+          },
+        }),
       )
       const config: Config = {}
 
@@ -294,7 +322,7 @@ describe("createConfigHandler", () => {
           skillPrecedence: "bundled-first" as const,
           customSkillsDir: missingDir,
         },
-      })
+      }),
     )
     const config: Config = {}
 
@@ -310,14 +338,10 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     const tobPaths =
-      config.skills?.paths?.filter((path) =>
-        path.includes("trailofbits-skills/plugins/")
-      ) ?? []
+      config.skills?.paths?.filter((path) => path.includes("trailofbits-skills/plugins/")) ?? []
 
     if (tobPaths.length > 0) {
-      expect(
-        tobPaths.every((path) => path.endsWith("/skills"))
-      ).toBe(true)
+      expect(tobPaths.every((path) => path.endsWith("/skills"))).toBe(true)
     }
   })
 })

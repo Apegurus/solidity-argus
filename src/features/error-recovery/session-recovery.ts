@@ -1,10 +1,8 @@
-import type { AuditState } from "../../state/types"
 import type { AuditStateManager } from "../../managers/types"
 import { createLogger } from "../../shared/logger"
+import type { AuditState } from "../../state/types"
 
-export function createSessionRecoveryHandler(
-  auditStateManager: AuditStateManager,
-) {
+export function createSessionRecoveryHandler(auditStateManager: AuditStateManager) {
   const logger = createLogger()
 
   return async (event: {

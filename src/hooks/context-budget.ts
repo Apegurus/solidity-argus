@@ -8,13 +8,12 @@
  * Decoupled from system-prompt-hook.ts — consumed by the hook when available.
  */
 
+import { ARGUS_ORCHESTRATOR, ARGUS_SUBAGENTS } from "../shared/agent-names"
+
 const ARGUS_BUDGET = 2000
 const SUBAGENT_BUDGET = 1000
-const PRESSURE_THRESHOLD = 0.70
+const PRESSURE_THRESHOLD = 0.7
 const PRESSURE_REDUCTION = 0.5
-
-const ARGUS_AGENTS = new Set(["argus"])
-const SUBAGENTS = new Set(["sentinel", "pythia", "scribe"])
 
 /**
  * Returns the token budget for a given agent, adjusted for context pressure.
@@ -23,15 +22,12 @@ const SUBAGENTS = new Set(["sentinel", "pythia", "scribe"])
  * @param contextPressure - Current context usage ratio (0.0–1.0), from ContextMonitor
  * @returns Token budget in tokens. 0 for non-Argus agents.
  */
-export function getTokenBudgetForAgent(
-  agent: string,
-  contextPressure: number = 0,
-): number {
+export function getTokenBudgetForAgent(agent: string, contextPressure: number = 0): number {
   let budget: number
 
-  if (ARGUS_AGENTS.has(agent)) {
+  if (ARGUS_ORCHESTRATOR.has(agent)) {
     budget = ARGUS_BUDGET
-  } else if (SUBAGENTS.has(agent)) {
+  } else if (ARGUS_SUBAGENTS.has(agent)) {
     budget = SUBAGENT_BUDGET
   } else {
     return 0

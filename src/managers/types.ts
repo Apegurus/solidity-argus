@@ -1,4 +1,4 @@
-import type { AuditState } from "../state/types";
+import type { AuditState } from "../state/types"
 
 /**
  * BackgroundManager interface
@@ -12,32 +12,32 @@ export interface BackgroundManager {
    * @param options - Optional configuration (priority, timeout, etc.)
    * @returns taskId - Unique identifier for tracking this task
    */
-  dispatch(agentName: string, prompt: string, options?: { priority?: number }): string;
+  dispatch(agentName: string, prompt: string, options?: { priority?: number }): string
 
   /**
    * Cancel a running background task
    * @param taskId - The task ID to cancel
    */
-  cancel(taskId: string): void;
+  cancel(taskId: string): void
 
   /**
    * Get the result of a completed background task
    * @param taskId - The task ID to retrieve results for
    * @returns Promise resolving to the task result
    */
-  getResult(taskId: string): Promise<unknown>;
+  getResult(taskId: string): Promise<unknown>
 
   /**
    * Register a callback to be invoked when a task completes
    * @param callback - Function called with (taskId, result) when task finishes
    */
-  onComplete(callback: (taskId: string, result: unknown) => void): void;
+  onComplete(callback: (taskId: string, result: unknown) => void): void
 
   /**
    * Get the number of currently active/running tasks
    * @returns Number of active tasks
    */
-  getActiveCount(): number;
+  getActiveCount(): number
 }
 
 /**
@@ -46,33 +46,56 @@ export interface BackgroundManager {
  */
 export interface AuditStateManager {
   /**
-   * Load audit state from persistent storage
-   * @returns Promise resolving to AuditState or null if not found
+   * Bind this manager to a specific OpenCode session.
+   * After binding, save/load operate on a session-scoped state file
+   * (.argus/sessions/state-{sessionId}.json) instead of the shared file.
+   * This prevents multi-instance contamination.
+   * @param sessionId - The OpenCode session ID (e.g., "ses_abc123")
    */
-  load(): Promise<AuditState | null>;
+  bindSession(sessionId: string): void
 
   /**
-   * Save audit state to persistent storage
+   * Load audit state from persistent storage.
+   * If bound to a session, tries the session-scoped file first,
+   * then falls back to the most recent state file from any session.
+   * @returns Promise resolving to AuditState or null if not found
+   */
+  load(): Promise<AuditState | null>
+
+  /**
+   * Save audit state to persistent storage.
+   * Writes to the session-scoped file if bound, otherwise the shared file.
    * @param state - The AuditState to persist
    */
-  save(state: AuditState): Promise<void>;
+  save(state: AuditState): Promise<void>
 
   /**
    * Get the current in-memory audit state
    * @returns The current AuditState or null if not loaded
    */
-  get(): AuditState | null;
+  get(): AuditState | null
 
   /**
    * Update the audit state with a partial patch
    * @param patch - Partial AuditState object with fields to update
    */
-  update(patch: Partial<AuditState>): Promise<void>;
+  update(patch: Partial<AuditState>): Promise<void>
 
   /**
    * Reset the audit state (clear all data)
    */
-  reset(): Promise<void>;
+  reset(): Promise<void>
+
+  /**
+   * Archive current state (if meaningful) then reset
+   */
+  archive(): Promise<void>
+
+  /**
+   * Dispose the state manager, flushing pending state to disk and releasing resources.
+   * Safe to call multiple times; subsequent calls are no-ops.
+   */
+  dispose(): Promise<void>
 }
 
 /**
@@ -80,6 +103,6 @@ export interface AuditStateManager {
  * Container for all manager instances
  */
 export type Managers = {
-  backgroundManager: BackgroundManager;
-  auditStateManager: AuditStateManager;
-};
+  backgroundManager: BackgroundManager
+  auditStateManager: AuditStateManager
+}

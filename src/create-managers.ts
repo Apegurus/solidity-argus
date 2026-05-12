@@ -1,8 +1,8 @@
 import type { ArgusConfig } from "./config/types"
-import type { Managers } from "./managers/types"
-import { createBackgroundManager } from "./features/background-agent/background-manager"
 import type { Dispatcher } from "./features/background-agent/background-manager"
+import { createBackgroundManager } from "./features/background-agent/background-manager"
 import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
+import type { Managers } from "./managers/types"
 import { createLogger } from "./shared/logger"
 
 export function createManagers(args: {
@@ -14,12 +14,13 @@ export function createManagers(args: {
   const logger = createLogger()
 
   const backgroundManager = createBackgroundManager(
-    backgroundDispatcher ?? (async (agentName: string, prompt: string) => {
-      logger.warn(
-        `Background dispatch not wired: ${agentName} (${prompt.slice(0, 50)}...)`,
-      )
-      return `noop-${Date.now()}`
-    }),
+    backgroundDispatcher ??
+      (async (agentName: string, prompt: string) => {
+        logger.warn(
+          `Background dispatcher not configured — task will not be executed: ${agentName} (${prompt.slice(0, 50)}...)`,
+        )
+        return ""
+      }),
     { maxConcurrent: config.background?.max_concurrent ?? 3 },
   )
 

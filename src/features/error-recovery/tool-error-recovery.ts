@@ -10,17 +10,17 @@ const TOOL_FALLBACKS: Record<string, ToolFallbackEntry> = {
   slither: {
     install: "pip install slither-analyzer",
     fallback:
-      "Slither is unavailable. PROCEED with the audit using `argus_analyze_contract` for structural profiling and `argus_check_patterns` for vulnerability scanning. Note in the final report: \"Automated static analysis (Slither) was unavailable; manual review intensity increased.\"",
+      'Slither is unavailable. PROCEED with the audit using `argus_analyze_contract` for structural profiling and `argus_check_patterns` for vulnerability scanning. Note in the final report: "Automated static analysis (Slither) was unavailable; manual review intensity increased."',
   },
   forge: {
     install: "curl -L https://foundry.paradigm.xyz | bash && foundryup",
     fallback:
-      "Foundry/Forge is unavailable. SKIP automated testing and fuzzing. Verify findings through manual code tracing and static analysis. Note in the final report: \"Dynamic testing (Forge) was unavailable; findings verified via manual analysis.\"",
+      'Foundry/Forge is unavailable. SKIP automated testing and fuzzing. Verify findings through manual code tracing and static analysis. Note in the final report: "Dynamic testing (Forge) was unavailable; findings verified via manual analysis."',
   },
   solodit: {
     install: "",
     fallback:
-      "Solodit API is unreachable. PROCEED using `argus_check_patterns` with local vulnerability rules. Note in the final report: \"External vulnerability databases were inaccessible; research limited to local patterns.\"",
+      'Solodit API is unreachable. PROCEED using `argus_check_patterns` with local vulnerability rules. Note in the final report: "External vulnerability databases were inaccessible; research limited to local patterns."',
   },
   scvd: {
     install: "",
@@ -60,6 +60,7 @@ export function createToolErrorRecoveryHandler(
 
   return (toolResult: { tool: string; result: string }): string | null => {
     const { tool, result } = toolResult
+    if (!result || typeof result !== "string") return null
     const lowerResult = result.toLowerCase()
 
     const isViaIr =

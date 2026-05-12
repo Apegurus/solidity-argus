@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test"
+import { describe, expect, it } from "bun:test"
 import { ArgusConfigSchema } from "./schema"
 
 describe("ArgusConfigSchema", () => {
@@ -29,7 +29,7 @@ describe("ArgusConfigSchema", () => {
       },
       solodit: {
         enabled: true,
-        port: 3000,
+        port: 54173,
       },
       disabled_hooks: ["hook1", "hook2"],
       hooks: { custom: { enabled: true } },
@@ -41,7 +41,7 @@ describe("ArgusConfigSchema", () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.agents.argus.model).toBe("anthropic/claude-opus-4-6")
-      expect(result.data.solodit.port).toBe(3000)
+      expect(result.data.solodit.enabled).toBe(true)
     }
   })
 
@@ -56,10 +56,11 @@ describe("ArgusConfigSchema", () => {
         sentinel: {},
         pythia: {},
         scribe: {},
+        themis: {},
       })
       expect(result.data.tools).toEqual({})
       expect(result.data.disabled_hooks).toEqual([])
-      expect(result.data.solodit.port).toBe(3000)
+      expect(result.data.solodit.enabled).toBe(true)
       expect(result.data.background.max_concurrent).toBe(3)
     }
   })
@@ -80,14 +81,14 @@ describe("ArgusConfigSchema", () => {
       expect(result.data.agents.argus.model).toBe("custom-model")
       expect(result.data.agents.sentinel).toEqual({})
       expect(result.data.solodit.enabled).toBe(false)
-      expect(result.data.solodit.port).toBe(3000)
+      expect(result.data.solodit.enabled).toBe(false)
     }
   })
 
   it("rejects invalid severity threshold", () => {
     const config = {
       reporting: {
-        severityThreshold: "invalid" as any,
+        severityThreshold: "invalid" as unknown as string,
       },
     }
 
@@ -98,7 +99,7 @@ describe("ArgusConfigSchema", () => {
   it("rejects invalid format", () => {
     const config = {
       reporting: {
-        format: "json" as any,
+        format: "json" as unknown as string,
       },
     }
 
@@ -141,10 +142,7 @@ describe("ArgusConfigSchema", () => {
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.disabled_hooks).toEqual([
-        "knowledge-sync",
-        "config-validation",
-      ])
+      expect(result.data.disabled_hooks).toEqual(["knowledge-sync", "config-validation"])
     }
   })
 
@@ -248,18 +246,17 @@ describe("ArgusConfigSchema", () => {
     expect(result.success).toBe(false)
   })
 
-  it("validates solodit port configuration", () => {
+  it("validates solodit enabled configuration", () => {
     const config = {
       solodit: {
-        enabled: true,
-        port: 8080,
+        enabled: false,
       },
     }
 
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.solodit.port).toBe(8080)
+      expect(result.data.solodit.enabled).toBe(false)
     }
   })
 
@@ -273,5 +270,28 @@ describe("ArgusConfigSchema", () => {
     expect(() => {
       ArgusConfigSchema.safeParse(config)
     }).not.toThrow()
+  })
+
+  it("rejects unknown top-level keys (strict mode)", () => {
+    const config = {
+      disbled_hooks: ["hook1"],
+    }
+
+    const result = ArgusConfigSchema.safeParse(config)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const hasUnrecognizedKey = result.error.issues.some((i) => i.code === "unrecognized_keys")
+      expect(hasUnrecognizedKey).toBe(true)
+    }
+  })
+
+  it("rejects multiple unknown top-level keys", () => {
+    const config = {
+      unknownField: true,
+      anotherBadKey: "value",
+    }
+
+    const result = ArgusConfigSchema.safeParse(config)
+    expect(result.success).toBe(false)
   })
 })

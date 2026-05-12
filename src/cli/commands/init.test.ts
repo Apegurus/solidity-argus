@@ -1,7 +1,7 @@
-import { describe, expect, it, afterEach } from "bun:test"
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, describe, expect, it } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { initCommand } from "./init"
 
 describe("initCommand", () => {
@@ -29,12 +29,12 @@ describe("initCommand", () => {
     const exitCode = await initCommand.execute([])
 
     expect(exitCode).toBe(0)
-    expect(existsSync(join(dir, ".opencode", "solidity-argus.json"))).toBe(true)
+    expect(existsSync(join(dir, ".argus", "solidity-argus.json"))).toBe(true)
   })
 
   it("refuses to overwrite existing config", async () => {
     const dir = makeTempDir()
-    const configDir = join(dir, ".opencode")
+    const configDir = join(dir, ".argus")
     mkdirSync(configDir, { recursive: true })
     writeFileSync(join(configDir, "solidity-argus.json"), "{}")
     process.cwd = () => dir
@@ -50,8 +50,8 @@ describe("initCommand", () => {
 
     await initCommand.execute([])
 
-    const content = require("fs").readFileSync(
-      join(dir, ".opencode", "solidity-argus.json"),
+    const content = require("node:fs").readFileSync(
+      join(dir, ".argus", "solidity-argus.json"),
       "utf-8",
     )
     const parsed = JSON.parse(content)

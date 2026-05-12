@@ -7,12 +7,13 @@ The Argus knowledge base provides a structured collection of Solidity security p
 ```
 OpenCode Skills System
 ├── skills/ (bundled with plugin)
-│   ├── vulnerability-patterns/ (37 patterns from kadenzipfel + DeFiFoFum)
+│   ├── vulnerability-patterns/ (51 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
 │   ├── methodology/ (3 files from DeFiFoFum)
 │   ├── protocol-patterns/ (5 files from DeFiFoFum)
 │   ├── checklists/ (6 files from DeFiFoFum + Cyfrin)
-│   └── references/ (2 files: SmartBugs + DeFiHackLabs)
-├── SCVD Local Index (~/.cache/opencode-argus/scvd-index.json)
+│   ├── references/ (2 files: SmartBugs + DeFiHackLabs)
+│   └── case-studies/ (15 case studies from DeFiFoFum)
+├── SCVD Local Index (~/.cache/solidity-argus/scvd-index.json)
 │   └── 7,769+ findings, auto-synced from api.scvd.dev
 └── Companion Plugins (installed separately)
     ├── Trail of Bits Skills (trailofbits/skills)
@@ -29,11 +30,12 @@ All sources in the table below must include the following metadata in their SKIL
 
 | Source | License | URL | What Was Imported |
 |--------|---------|-----|-------------------|
-| DeFiFoFum/fofum-solidity-skills | MIT | https://github.com/DeFiFoFum/fofum-solidity-skills | 15 SKILL.md files: methodology, vulnerability patterns, protocol patterns |
+| DeFiFoFum/fofum-solidity-skills | MIT | https://github.com/DeFiFoFum/fofum-solidity-skills | 15 SKILL.md files: methodology, vulnerability patterns, protocol patterns, case studies |
 | kadenzipfel/smart-contract-vulnerabilities | MIT | https://github.com/kadenzipfel/smart-contract-vulnerabilities | 37 vulnerability reference files with Detection Heuristics |
 | Cyfrin/audit-checklist | Unspecified (attributed) | https://github.com/Cyfrin/audit-checklist | 221 structured checklist items organized by category |
 | smartbugs/smartbugs-curated | Apache-2.0 | https://github.com/smartbugs/smartbugs-curated | 143 annotated vulnerable contract references |
 | SunWeb3Sec/DeFiHackLabs | Reference only | https://github.com/SunWeb3Sec/DeFiHackLabs | 15 exploit PoC GitHub URL references |
+| BailSec | CC0 | https://github.com/bailsec/BailSec | Vulnerability patterns extracted from professional audit PDFs |
 | SCVD (api.scvd.dev) | CC0 | https://api.scvd.dev | 7,769+ findings via local index (auto-synced) |
 
 ## SKILL.md Format Specification
@@ -78,25 +80,27 @@ By default, built-in skills take priority. You can change this behavior using th
 
 When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields.
 
-## Pattern Pack Authoring
+## Detection Rules
 
-Pattern packs are YAML files that define collections of regex-based vulnerability detectors.
+Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered and loaded by the pattern checker.
 
-### Structure
+### Adding Detection Rules to a Skill
 
 ```yaml
-pack_name: "My Security Pack"
-pack_version: "1.1"
-patterns:
-  - name: "Unprotected Selfdestruct"
-    category: "access-control"
-    severity: "Critical"
-    regex: "selfdestruct\\("
-    description: "Detects use of selfdestruct which may be unprotected"
-    swc: "SWC-106"
+---
+name: my-vulnerability
+description: Description of the vulnerability
+pattern_category: reentrancy
+detection_rules:
+  - regex: '\\.call\\{value:'
+    severity: High
+    confidence: High
+    swc: SWC-107
+    description: External value transfer via low-level call
+---
 ```
 
-### Available Categories
+### Available Pattern Categories
 
 - `reentrancy`
 - `oracle-manipulation`
@@ -115,4 +119,4 @@ patterns:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 55 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 82 SKILL.md files currently bundled with Argus.

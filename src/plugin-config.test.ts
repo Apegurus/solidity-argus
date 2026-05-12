@@ -1,18 +1,21 @@
-import { test, expect, beforeEach, afterEach } from "bun:test"
-import { writeFileSync, mkdirSync, rmSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, expect, test } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { loadArgusConfig } from "./config/loader"
-import type { ArgusConfig } from "./config/types"
 
 const testDir = "/tmp/argus-config-test"
 
 beforeEach(() => {
-  try { rmSync(testDir, { recursive: true, force: true }) } catch {}
+  try {
+    rmSync(testDir, { recursive: true, force: true })
+  } catch {}
   mkdirSync(testDir, { recursive: true })
 })
 
 afterEach(() => {
-  try { rmSync(testDir, { recursive: true, force: true }) } catch {}
+  try {
+    rmSync(testDir, { recursive: true, force: true })
+  } catch {}
 })
 
 test("loadArgusConfig returns default config when no file exists", () => {
@@ -48,7 +51,7 @@ test("loadArgusConfig merges partial config with defaults", () => {
     JSON.stringify({
       agents: { argus: { model: "anthropic/claude-opus-4-6" } },
       reporting: { gasAnalysis: true },
-    })
+    }),
   )
 
   const config = loadArgusConfig(testDir)
@@ -65,7 +68,9 @@ test("loadArgusConfig handles JSONC comments", () => {
   const configDir = join(testDir, ".opencode")
   mkdirSync(configDir, { recursive: true })
 
-  writeFileSync(join(configDir, "solidity-argus.jsonc"), `{
+  writeFileSync(
+    join(configDir, "solidity-argus.jsonc"),
+    `{
     // This is a comment
     "agents": {
       "argus": {
@@ -76,7 +81,8 @@ test("loadArgusConfig handles JSONC comments", () => {
     "reporting": {
       "format": "markdown"
     }
-  }`)
+  }`,
+  )
 
   const config = loadArgusConfig(testDir)
 
@@ -90,7 +96,7 @@ test("loadArgusConfig falls back to defaults for invalid config", () => {
 
   writeFileSync(
     join(configDir, "solidity-argus.jsonc"),
-    JSON.stringify({ agents: { argus: { model: 123 } } })
+    JSON.stringify({ agents: { argus: { model: 123 } } }),
   )
 
   const config = loadArgusConfig(testDir)
@@ -111,10 +117,19 @@ test("loadArgusConfig accepts valid full config", () => {
         scribe: { model: "anthropic/claude-sonnet-4-5-20250929" },
       },
       tools: { slitherPath: "/usr/local/bin/slither", forgePath: "/usr/local/bin/forge" },
-      knowledge: { scvd: { enabled: true, apiUrl: "https://api.scvd.dev" }, autoSync: true, customSkillsDir: "/path/to/skills" },
-      reporting: { format: "markdown", severityThreshold: "high", gasAnalysis: true },
+      knowledge: {
+        scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+        autoSync: true,
+        customSkillsDir: "/path/to/skills",
+      },
+      reporting: {
+        format: "markdown",
+        severityThreshold: "high",
+        gasAnalysis: true,
+        output_dir: ".opencode/reports/",
+      },
       solodit: { enabled: true },
-    })
+    }),
   )
 
   const config = loadArgusConfig(testDir)

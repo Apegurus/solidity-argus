@@ -31,24 +31,24 @@ describe("getTokenBudgetForAgent", () => {
   })
 
   it("reduces subagent budget by 50% when pressure exceeds 70%", () => {
-    expect(getTokenBudgetForAgent("sentinel", 0.80)).toBe(500)
+    expect(getTokenBudgetForAgent("sentinel", 0.8)).toBe(500)
     expect(getTokenBudgetForAgent("pythia", 0.85)).toBe(500)
     expect(getTokenBudgetForAgent("scribe", 0.99)).toBe(500)
   })
 
   it("returns full budget when pressure is at exactly 70%", () => {
-    expect(getTokenBudgetForAgent("argus", 0.70)).toBe(2000)
-    expect(getTokenBudgetForAgent("sentinel", 0.70)).toBe(1000)
+    expect(getTokenBudgetForAgent("argus", 0.7)).toBe(2000)
+    expect(getTokenBudgetForAgent("sentinel", 0.7)).toBe(1000)
   })
 
   it("returns full budget when pressure is below threshold", () => {
-    expect(getTokenBudgetForAgent("argus", 0.50)).toBe(2000)
-    expect(getTokenBudgetForAgent("sentinel", 0.10)).toBe(1000)
+    expect(getTokenBudgetForAgent("argus", 0.5)).toBe(2000)
+    expect(getTokenBudgetForAgent("sentinel", 0.1)).toBe(1000)
   })
 
   it("returns 0 for non-argus agent regardless of pressure", () => {
-    expect(getTokenBudgetForAgent("build", 0.90)).toBe(0)
-    expect(getTokenBudgetForAgent("code", 0.50)).toBe(0)
+    expect(getTokenBudgetForAgent("build", 0.9)).toBe(0)
+    expect(getTokenBudgetForAgent("code", 0.5)).toBe(0)
   })
 
   it("defaults contextPressure to 0 when omitted", () => {

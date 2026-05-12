@@ -1,1 +1,1 @@
-export type { BackgroundManager, AuditStateManager, Managers } from "./types";
+export type { AuditStateManager, BackgroundManager, Managers } from "./types"

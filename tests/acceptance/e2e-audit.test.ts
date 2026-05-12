@@ -6,6 +6,7 @@ import { createCompactionHook } from "../../src/hooks/compaction-hook"
 import { createSystemPromptHook } from "../../src/hooks/system-prompt-hook"
 import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
 import { createAuditState } from "../../src/state/audit-state"
+import { SCHEMA_VERSION } from "../../src/state/schemas"
 import { executeReportGeneration } from "../../src/tools/report-generator-tool"
 
 type AgentTracker = ReturnType<typeof createAgentTracker>
@@ -281,7 +282,7 @@ describe("full audit lifecycle simulation", () => {
     expect(state.contractsReviewed).toEqual(["src/Vault.sol"])
   })
 
-  it("cross-tool deduplication across slither and patterns", async () => {
+  it("cross-tool observations with same check+file+lines are deduplicated", async () => {
     const { state, toolHook } = createHarness()
 
     await toolHook({
@@ -329,6 +330,7 @@ describe("full audit lifecycle simulation", () => {
       }),
     })
 
+    // Same check+file+lines from different tools are deduplicated
     expect(state.findings).toHaveLength(1)
     expect(state.findings[0]?.source).toBe("slither")
   })
@@ -355,7 +357,9 @@ describe("full audit lifecycle simulation", () => {
     expect(output.system[0]).toContain('<argus-context agent="argus">')
     expect(output.system[0]).toContain("Contracts: 1 reviewed")
     expect(output.system[0]).toContain("Findings: Critical=0 High=1 Medium=1 Low=0 Info=0")
-    expect(output.system[0]).toContain("Tools: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract")
+    expect(output.system[0]).toContain(
+      "Tools: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract",
+    )
   })
 
   it("enforcer produces phase reminder for argus during audit", async () => {
@@ -391,7 +395,43 @@ describe("full audit lifecycle simulation", () => {
         project_name: "E2EAcceptance",
         scope: ["src/Vault.sol", "src/Oracle.sol"],
         severity_threshold: "low",
-        audit_state: JSON.stringify(state),
+        report_input: JSON.stringify({
+          run_id: state.sessionId ?? "test-run-1",
+          seq: state.findings.length,
+          session_id: state.sessionId ?? "session-1",
+          tool_call_id: "tc-report",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          projectDir: state.projectDir ?? "/tmp/project",
+          findings: state.findings.map((f, i) => ({
+            ...f,
+            run_id: state.sessionId ?? "test-run-1",
+            seq: i + 1,
+            session_id: state.sessionId ?? "session-1",
+            tool_call_id: "tc-1",
+            source: f.source ?? "slither",
+            schema_version: SCHEMA_VERSION,
+            observation_id: `obs-${f.id ?? i}`,
+            issue_fingerprint: `issue-${f.id ?? i}`,
+            observation_fingerprint: `obs-fp-${f.id ?? i}`,
+            reported_by_agent: (f.reported_by_agent ?? "sentinel") as
+              | "argus"
+              | "sentinel"
+              | "pythia"
+              | "scribe"
+              | "unknown",
+            reported_by_session_id: f.reported_by_session_id || undefined,
+          })),
+          toolsExecuted: (state.toolsExecuted ?? []).map((t) => ({
+            ...t,
+            run_id: state.sessionId ?? "test-run-1",
+            schema_version: SCHEMA_VERSION,
+          })),
+          scope: state.scope ?? ["src/Vault.sol", "src/Oracle.sol"],
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+        }),
+        tool_coverage_policy: "skip",
       },
       createContext(),
     )
@@ -404,7 +444,7 @@ describe("full audit lifecycle simulation", () => {
     expect(result.report).toContain("argus_slither_analyze")
     expect(result.report).toContain("argus_forge_fuzz")
     expect(result.report).toContain("### Solodit Cross-References")
-    expect(result.report).toContain("\"reentrancy withdraw\" — 1 results")
+    expect(result.report).toContain('"reentrancy withdraw" — 1 results')
     expect(result.report).toContain("### Fuzz Evidence")
     expect(result.report).toContain("testFuzzWithdraw")
   })
@@ -414,14 +454,19 @@ describe("full audit lifecycle simulation", () => {
     await runCoreToolSequence(toolHook)
     state.currentPhase = "testing"
 
-    const compactionHook = createCompactionHook(() => state, () => null)
+    const compactionHook = createCompactionHook(
+      () => state,
+      () => null,
+    )
     const compacted = await compactionHook({ summary: "Large prior context" })
 
     expect(compacted).not.toBeNull()
     expect(compacted).toContain("<argus-audit-state>")
     expect(compacted).toContain("Phase: testing")
     expect(compacted).toContain("Contracts Reviewed: src/Vault.sol")
-    expect(compacted).toContain("Tools Executed: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract")
+    expect(compacted).toContain(
+      "Tools Executed: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract",
+    )
   })
 
   it("full pipeline: tools -> state -> context -> report", async () => {
@@ -444,7 +489,10 @@ describe("full audit lifecycle simulation", () => {
     const systemOutput = { system: [] as string[] }
     await systemHook({ sessionID: "ses-pipeline", model: "test-model" }, systemOutput)
 
-    const compactionHook = createCompactionHook(() => state, () => null)
+    const compactionHook = createCompactionHook(
+      () => state,
+      () => null,
+    )
     const compacted = await compactionHook({ summary: "Audit context to compact" })
 
     const report = await executeReportGeneration(
@@ -452,7 +500,43 @@ describe("full audit lifecycle simulation", () => {
         project_name: "PipelineProject",
         scope: ["src/Vault.sol", "src/Oracle.sol"],
         severity_threshold: "informational",
-        audit_state: JSON.stringify(state),
+        report_input: JSON.stringify({
+          run_id: state.sessionId ?? "test-run-1",
+          seq: state.findings.length,
+          session_id: state.sessionId ?? "session-1",
+          tool_call_id: "tc-report",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          projectDir: state.projectDir ?? "/tmp/project",
+          findings: state.findings.map((f, i) => ({
+            ...f,
+            run_id: state.sessionId ?? "test-run-1",
+            seq: i + 1,
+            session_id: state.sessionId ?? "session-1",
+            tool_call_id: "tc-1",
+            source: f.source ?? "slither",
+            schema_version: SCHEMA_VERSION,
+            observation_id: `obs-${f.id ?? i}`,
+            issue_fingerprint: `issue-${f.id ?? i}`,
+            observation_fingerprint: `obs-fp-${f.id ?? i}`,
+            reported_by_agent: (f.reported_by_agent ?? "sentinel") as
+              | "argus"
+              | "sentinel"
+              | "pythia"
+              | "scribe"
+              | "unknown",
+            reported_by_session_id: f.reported_by_session_id || undefined,
+          })),
+          toolsExecuted: (state.toolsExecuted ?? []).map((t) => ({
+            ...t,
+            run_id: state.sessionId ?? "test-run-1",
+            schema_version: SCHEMA_VERSION,
+          })),
+          scope: state.scope ?? ["src/Vault.sol", "src/Oracle.sol"],
+          soloditResults: state.soloditResults,
+          fuzzCounterexamples: state.fuzzCounterexamples,
+        }),
+        tool_coverage_policy: "skip",
       },
       createContext(),
     )

@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import {
-  DetectionRuleSchema,
-  type SkillFrontmatter,
-  SkillFrontmatterSchema,
-  parseFrontmatter,
-  validateSkillFrontmatter,
-} from "./skill-schema"
+import { DetectionRuleSchema, parseFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
 describe("skill-schema", () => {
   describe("validateSkillFrontmatter", () => {
@@ -17,7 +11,9 @@ describe("skill-schema", () => {
       expect(result.success).toBe(true)
       if (result.success) {
         expect(result.data.name).toBe("reentrancy")
-        expect(result.data.description).toBe("Reentrancy attack patterns and defensive coding checks")
+        expect(result.data.description).toBe(
+          "Reentrancy attack patterns and defensive coding checks",
+        )
       }
     })
 
@@ -119,7 +115,9 @@ describe("skill-schema", () => {
       })
       expect(result.success).toBe(true)
       if (result.success) {
-        expect(result.data.source_url).toBe("https://github.com/kadenzipfel/smart-contract-vulnerabilities")
+        expect(result.data.source_url).toBe(
+          "https://github.com/kadenzipfel/smart-contract-vulnerabilities",
+        )
         expect(result.data.source_license).toBe("MIT")
         expect(result.data.imported_at).toBe("2025-01-15T00:00:00Z")
         expect(result.data.source_hash).toBe("abc123def456")
@@ -207,7 +205,9 @@ source_hash: abc123def456
 # Content here`
       const result = parseFrontmatter(content)
       expect(result).not.toBeNull()
-      expect(result?.source_url).toBe("https://github.com/kadenzipfel/smart-contract-vulnerabilities")
+      expect(result?.source_url).toBe(
+        "https://github.com/kadenzipfel/smart-contract-vulnerabilities",
+      )
       expect(result?.source_license).toBe("MIT")
       expect(result?.imported_at).toBe("2025-01-15T00:00:00Z")
       expect(result?.source_hash).toBe("abc123def456")

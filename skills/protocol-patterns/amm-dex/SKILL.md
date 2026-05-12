@@ -1,6 +1,7 @@
 ---
 name: amm-dex
 description: AMM and DEX security patterns covering pricing, LP accounting, MEV, and swap invariants.
+category: protocol-pattern
 source_url: https://github.com/DeFiFoFum/fofum-solidity-skills
 source_license: MIT
 imported_at: "2025-01-15T00:00:00Z"

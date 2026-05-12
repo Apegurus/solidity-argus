@@ -1,6 +1,6 @@
-import { describe, it, expect } from "bun:test"
-import type { SourceMode, SourceManifest } from "./source-manifest"
-import { IngestionRegistry, createDefaultRegistry } from "./source-manifest"
+import { describe, expect, it } from "bun:test"
+import type { SourceManifest } from "./source-manifest"
+import { createDefaultRegistry, IngestionRegistry } from "./source-manifest"
 
 describe("SourceManifest", () => {
   it("should have all required fields in SourceManifest type", () => {
@@ -85,8 +85,8 @@ describe("IngestionRegistry", () => {
     const list = registry.list()
 
     expect(list.length).toBe(2)
-    expect(list[0]!.name).toBe("source-1")
-    expect(list[1]!.name).toBe("source-2")
+    expect(list.at(0)?.name).toBe("source-1")
+    expect(list.at(1)?.name).toBe("source-2")
   })
 
   it("should filter manifests by mode", () => {
@@ -122,13 +122,13 @@ describe("IngestionRegistry", () => {
     const hybridList = registry.getByMode("hybrid")
 
     expect(bakedInList.length).toBe(1)
-    expect(bakedInList[0]!.name).toBe("baked-in-source")
+    expect(bakedInList.at(0)?.name).toBe("baked-in-source")
 
     expect(onDemandList.length).toBe(1)
-    expect(onDemandList[0]!.name).toBe("on-demand-source")
+    expect(onDemandList.at(0)?.name).toBe("on-demand-source")
 
     expect(hybridList.length).toBe(1)
-    expect(hybridList[0]!.name).toBe("hybrid-source")
+    expect(hybridList.at(0)?.name).toBe("hybrid-source")
   })
 })
 

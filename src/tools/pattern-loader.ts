@@ -1,63 +1,10 @@
-import { readdirSync, readFileSync, existsSync } from "node:fs"
-import { join, extname } from "node:path"
-import { parse as parseYaml } from "yaml"
-import { PatternPackSchema, type PatternDefinition } from "./pattern-schema"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import { createLogger } from "../shared/logger"
 import { parseFrontmatter, SkillFrontmatterSchema } from "../skills/skill-schema"
+import type { PatternDefinition } from "./pattern-schema"
 
 const logger = createLogger()
-
-const YAML_EXTENSIONS = new Set([".yaml", ".yml"])
-
-const SKILL_NAME_TO_PATTERN_CATEGORY: Record<string, PatternDefinition["category"]> = {
-  "reentrancy": "reentrancy",
-  "access-control": "access-control",
-  "oracle-manipulation": "oracle-manipulation",
-  "flash-loan-attacks": "flash-loan",
-  "delegatecall-untrusted-callee": "proxy",
-  "authorization-txorigin": "access-control",
-  "unchecked-return-values": "logic-error",
-  "dos-revert": "dos",
-  "overflow-underflow": "logic-error",
-  "signature-malleability": "signature",
-}
-
-export function loadPatternPacks(patternsDir: string): PatternDefinition[] {
-  if (!existsSync(patternsDir)) {
-    logger.warn(`Patterns directory does not exist: ${patternsDir}`)
-    return []
-  }
-
-  const entries = readdirSync(patternsDir).filter((f) =>
-    YAML_EXTENSIONS.has(extname(f).toLowerCase())
-  )
-
-  const allPatterns: PatternDefinition[] = []
-
-  for (const filename of entries) {
-    const filePath = join(patternsDir, filename)
-    try {
-      const raw = readFileSync(filePath, "utf-8")
-      const parsed = parseYaml(raw)
-      const result = PatternPackSchema.safeParse(parsed)
-
-      if (!result.success) {
-        logger.warn(
-          `Skipping ${filename}: schema validation failed — ${result.error.issues[0]?.message ?? "unknown"}`
-        )
-        continue
-      }
-
-      allPatterns.push(...result.data.patterns)
-    } catch (err) {
-      logger.warn(
-        `Skipping ${filename}: ${err instanceof Error ? err.message : "parse error"}`
-      )
-    }
-  }
-
-  return allPatterns
-}
 
 function listSkillMarkdownFiles(skillsDir: string): string[] {
   if (!existsSync(skillsDir)) {
@@ -89,9 +36,15 @@ function listSkillMarkdownFiles(skillsDir: string): string[] {
   return files
 }
 
-export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefinition[] {
+export interface PatternLoaderResult {
+  patterns: PatternDefinition[]
+  errors: string[]
+}
+
+export function extractDetectionRulesFromSkills(skillsDir: string): PatternLoaderResult {
   const skillFiles = listSkillMarkdownFiles(skillsDir)
   const extracted: PatternDefinition[] = []
+  const errors: string[] = []
 
   for (const filePath of skillFiles) {
     try {
@@ -100,10 +53,16 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefin
       if (!frontmatter) continue
 
       const parsed = SkillFrontmatterSchema.safeParse(frontmatter)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        const reason = parsed.error.issues.map((i) => i.message).join("; ")
+        const msg = `Failed to parse ${filePath}: ${reason}`
+        logger.warn(msg)
+        errors.push(msg)
+        continue
+      }
 
       const skillName = parsed.data.name
-      const category = SKILL_NAME_TO_PATTERN_CATEGORY[skillName]
+      const category = parsed.data.pattern_category
       if (!category) continue
 
       const rules = parsed.data.detection_rules
@@ -122,62 +81,11 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternDefin
         })
       }
     } catch (err) {
-      logger.warn(
-        `Skipping ${filePath}: ${err instanceof Error ? err.message : "parse error"}`
-      )
+      const msg = `Failed to parse ${filePath}: ${err instanceof Error ? err.message : "parse error"}`
+      logger.warn(msg)
+      errors.push(msg)
     }
   }
 
-  return extracted
-}
-
-type BuiltinPattern = {
-  name: string
-  category: string
-  severity: string
-  regex: RegExp
-  description: string
-  exploitReference?: string
-}
-
-function isValidUrl(s: string): boolean {
-  try {
-    new URL(s)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function builtinToDefinition(b: BuiltinPattern): PatternDefinition {
-  return {
-    name: b.name,
-    category: b.category as PatternDefinition["category"],
-    severity: b.severity as PatternDefinition["severity"],
-    confidence: "Medium",
-    version: "1.0",
-    regex: b.regex.source,
-    description: b.description,
-    ...(b.exploitReference && isValidUrl(b.exploitReference)
-      ? { exploit_ref: b.exploitReference }
-      : {}),
-  }
-}
-
-export function mergeWithBuiltins(
-  yamlPatterns: PatternDefinition[],
-  builtins: BuiltinPattern[],
-  skillDetectionRules: PatternDefinition[] = []
-): PatternDefinition[] {
-  const mergedInputs = [...yamlPatterns, ...skillDetectionRules]
-  const yamlByName = new Map(mergedInputs.map((p) => [p.name, p]))
-  const merged: PatternDefinition[] = [...mergedInputs]
-
-  for (const builtin of builtins) {
-    if (!yamlByName.has(builtin.name)) {
-      merged.push(builtinToDefinition(builtin))
-    }
-  }
-
-  return merged
+  return { patterns: extracted, errors }
 }

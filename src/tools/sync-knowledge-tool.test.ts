@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "../config/types"
+import { getScvdIndexPath } from "../shared/cache-paths"
 import {
   executeSyncKnowledge,
-  syncKnowledgeTool,
   type SyncKnowledgeDependencies,
+  syncKnowledgeTool,
 } from "./sync-knowledge-tool"
 
 function createContext(): {
@@ -39,6 +40,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
       sentinel: {},
       pythia: {},
       scribe: {},
+      themis: {},
     },
     tools: {},
     knowledge: {
@@ -53,10 +55,11 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
       format: "markdown",
       severityThreshold: "low",
       gasAnalysis: false,
+      output_dir: ".opencode/reports/",
     },
     solodit: {
       enabled: true,
-      port: 3000,
+      port: 54173,
     },
     disabled_hooks: [],
     hooks: {},
@@ -112,7 +115,7 @@ test("executeSyncKnowledge runs full sync when force=true", async () => {
   expect(calls.some((call) => call.startsWith("syncAll:"))).toBe(true)
   expect(calls.includes("syncIncremental")).toBe(false)
   expect(calls[0]).toContain("client:https://api.scvd.dev:true")
-  expect(calls[1]).toContain(".cache/solidity-argus/scvd-index.json")
+  expect(calls[1]).toContain(getScvdIndexPath())
   expect(metadataCalls[0]?.title).toBe("Syncing SCVD knowledge index...")
 })
 

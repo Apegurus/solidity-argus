@@ -1,6 +1,7 @@
 ---
 name: bridges-cross-chain
 description: Cross-chain bridge security guidance for message verification, replay prevention, and validator risk.
+category: protocol-pattern
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 

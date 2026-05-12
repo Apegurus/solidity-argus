@@ -1,25 +1,18 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test"
-import { mkdirSync, writeFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-
-import {
-  SkillFrontmatterSchema,
-  validateSkillFrontmatter,
-} from "../../src/skills/skill-schema"
-import {
-  resolveArgusSkills,
-  resolveSkillRoots,
-} from "../../src/skills/argus-skill-resolver"
-import { lintSkillFiles, type LintResult } from "../../src/cli/commands/lint-skills"
+import { join } from "node:path"
+import { type LintResult, lintSkillFiles } from "../../src/cli/commands/lint-skills"
 import type { ArgusConfig } from "../../src/config/types"
+import { resolveArgusSkills, resolveSkillRoots } from "../../src/skills/argus-skill-resolver"
+import { SkillFrontmatterSchema, validateSkillFrontmatter } from "../../src/skills/skill-schema"
 
 function makeConfig(
   precedence: "bundled-first" | "custom-first",
   customSkillsDir: string,
 ): ArgusConfig {
   return {
-    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
     tools: {},
     knowledge: {
       scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -27,8 +20,13 @@ function makeConfig(
       customSkillsDir,
       skillPrecedence: precedence,
     },
-    reporting: { format: "markdown", severityThreshold: "low", gasAnalysis: false },
-    solodit: { enabled: true, port: 3000 },
+    reporting: {
+      format: "markdown",
+      severityThreshold: "low",
+      gasAnalysis: false,
+      output_dir: ".opencode/reports/",
+    },
+    solodit: { enabled: true, port: 54173 },
     disabled_hooks: [],
     hooks: {},
     cli: {},
@@ -36,10 +34,7 @@ function makeConfig(
   }
 }
 
-function buildSkillMd(
-  frontmatter: Record<string, unknown>,
-  body = "# Skill content",
-): string {
+function buildSkillMd(frontmatter: Record<string, unknown>, body = "# Skill content"): string {
   const lines = Object.entries(frontmatter).map(([k, v]) => {
     if (typeof v === "boolean" || typeof v === "number") return `${k}: ${v}`
     return `${k}: ${JSON.stringify(v)}`
@@ -90,7 +85,9 @@ describe("acceptance: schema validation", () => {
     const wrapperResult = validateSkillFrontmatter(raw)
     expect(wrapperResult.success).toBe(false)
     if (!wrapperResult.success) {
-      expect(wrapperResult.errors.some((e) => e.includes("name") || e.includes("Required"))).toBe(true)
+      expect(wrapperResult.errors.some((e) => e.includes("name") || e.includes("Required"))).toBe(
+        true,
+      )
     }
   })
 
@@ -103,7 +100,9 @@ describe("acceptance: schema validation", () => {
     const result = validateSkillFrontmatter(raw)
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.errors.some((e) => e.toLowerCase().includes("name") || e.includes("Required"))).toBe(true)
+      expect(
+        result.errors.some((e) => e.toLowerCase().includes("name") || e.includes("Required")),
+      ).toBe(true)
     }
   })
 
@@ -157,8 +156,8 @@ describe("acceptance: precedence and trust", () => {
     const reentrancy = skills.get("reentrancy")
 
     expect(reentrancy).toBeDefined()
-    expect(reentrancy!.source).toBe("bundled")
-    expect(reentrancy!.content).not.toContain("custom reentrancy override")
+    expect(reentrancy?.source).toBe("bundled")
+    expect(reentrancy?.content).not.toContain("custom reentrancy override")
   })
 
   it("custom-first precedence: custom skill overrides bundled with same name", () => {
@@ -173,8 +172,8 @@ describe("acceptance: precedence and trust", () => {
     const reentrancy = skills.get("reentrancy")
 
     expect(reentrancy).toBeDefined()
-    expect(reentrancy!.source).toBe("custom")
-    expect(reentrancy!.content).toContain("my custom reentrancy")
+    expect(reentrancy?.source).toBe("custom")
+    expect(reentrancy?.content).toContain("my custom reentrancy")
   })
 
   it("correct trust tier classification for all source roots", () => {
@@ -224,14 +223,14 @@ describe("acceptance: duplicate detection and lint", () => {
     const skills = resolveArgusSkills(tmpDir, config)
     const oracle = skills.get("oracle-manipulation")
     expect(oracle).toBeDefined()
-    expect(oracle!.source).toBe("custom")
+    expect(oracle?.source).toBe("custom")
 
     // When: bundled-first → bundled wins
     const configBundled = makeConfig("bundled-first", customDir)
     const skillsBundled = resolveArgusSkills(tmpDir, configBundled)
     const oracleBundled = skillsBundled.get("oracle-manipulation")
     expect(oracleBundled).toBeDefined()
-    expect(oracleBundled!.source).toBe("bundled")
+    expect(oracleBundled?.source).toBe("bundled")
 
     // Then: exactly one entry — duplicate suppressed
     const oracleCount = [...skills.keys()].filter((n) => n === "oracle-manipulation").length
@@ -354,15 +353,17 @@ Detect flash loan attack vectors in DeFi protocols.`
     const resolved = skills.get(skillName)
 
     expect(resolved).toBeDefined()
-    expect(resolved!.source).toBe("custom")
-    expect(resolved!.name).toBe(skillName)
-    expect(resolved!.description).toBe("Custom flash loan detection rules")
-    expect(resolved!.source_url).toBe("https://example.com/flash-loan")
-    expect(resolved!.source_license).toBe("Apache-2.0")
-    expect(resolved!.source_hash).toBe("cafebabe")
-    expect(resolved!.content).toContain("Flash Loan Guard")
+    expect(resolved?.source).toBe("custom")
+    expect(resolved?.name).toBe(skillName)
+    expect(resolved?.description).toBe("Custom flash loan detection rules")
+    expect(resolved?.source_url).toBe("https://example.com/flash-loan")
+    expect(resolved?.source_license).toBe("Apache-2.0")
+    expect(resolved?.source_hash).toBe("cafebabe")
+    expect(resolved?.content).toContain("Flash Loan Guard")
 
-    const lintResult = lintSkillFiles([{ path: "custom-flash-loan/SKILL.md", content: skillContent }])
+    const lintResult = lintSkillFiles([
+      { path: "custom-flash-loan/SKILL.md", content: skillContent },
+    ])
     expect(lintResult.valid).toBe(1)
     expect(lintResult.invalid).toBe(0)
   })

@@ -1,14 +1,14 @@
-import { randomUUID } from "crypto";
-import type { AuditState } from "./types";
-import { createFindingStore, type FindingStore } from "./finding-store";
+import { randomUUID } from "node:crypto"
+import { createFindingStore, type FindingStore } from "./finding-store"
+import type { AuditState } from "./types"
 
 /**
  * Factory function to create a new audit state instance (NOT singleton)
  * Each call creates a fresh state with a unique session ID
  */
 export function createAuditState(projectDir: string): {
-  state: AuditState;
-  store: FindingStore;
+  state: AuditState
+  store: FindingStore
 } {
   const state: AuditState = {
     sessionId: randomUUID(),
@@ -21,9 +21,9 @@ export function createAuditState(projectDir: string): {
     startTime: Date.now(),
     soloditResults: [],
     fuzzCounterexamples: [],
-  };
+  }
 
-  const store = createFindingStore(state);
+  const store = createFindingStore(state)
 
-  return { state, store };
+  return { state, store }
 }

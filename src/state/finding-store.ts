@@ -1,84 +1,110 @@
-import type { Finding, FindingSeverity, AuditState } from "./types";
-import { createHash } from "crypto";
+import crypto from "node:crypto"
+import { isAbsolute, normalize, relative } from "node:path"
+import { normalizeText } from "./finding-fingerprint"
+import type { AuditState, Finding, FindingSeverity } from "./types"
 
-export interface FindingStore {
-  addFinding(finding: Omit<Finding, "id">): Finding;
-  getFindings(filter?: {
-    severity?: FindingSeverity;
-    source?: Finding["source"];
-  }): Finding[];
-  hasFinding(check: string, file: string, lines: [number, number]): boolean;
-  serialize(): string;
+function normalizeStorePath(filePath: string, projectDir: string): string {
+  if (!filePath || !projectDir) return filePath
+  const n = normalize(filePath)
+  if (!isAbsolute(n)) return n.replace(/^\.\//, "")
+  const rel = relative(projectDir, n)
+  return rel.startsWith("..") ? n : rel
 }
 
-/**
- * Creates a finding store with deduplication by check+file+lines
- * Deduplication key: `${check}:${file}:${lines[0]}-${lines[1]}`
- */
-export function createFindingStore(state: AuditState): FindingStore {
-  const findingMap = new Map<string, Finding>();
+export interface FindingStore {
+  addFinding(finding: Omit<Finding, "id">): Finding
+  getFindings(filter?: { severity?: FindingSeverity; source?: Finding["source"] }): Finding[]
+  hasFinding(check: string, file: string, lines: [number, number]): boolean
+  serialize(): string
+}
 
-  function generateId(
-    check: string,
-    file: string,
-    lines: [number, number]
-  ): string {
-    const key = `${check}:${file}:${lines[0]}-${lines[1]}`;
-    // Use deterministic hash for stable IDs
-    return createHash("sha256").update(key).digest("hex").substring(0, 16);
+function isValidHydrationFinding(f: unknown): f is Finding {
+  if (typeof f !== "object" || f === null) return false
+  const obj = f as Record<string, unknown>
+  return (
+    typeof obj.check === "string" &&
+    obj.check.length > 0 &&
+    typeof obj.file === "string" &&
+    obj.file.length > 0 &&
+    Array.isArray(obj.lines) &&
+    obj.lines.length === 2 &&
+    typeof obj.lines[0] === "number" &&
+    typeof obj.lines[1] === "number"
+  )
+}
+
+export function createFindingStore(state: AuditState): FindingStore {
+  const projectDir = state.projectDir
+
+  function generateObservationId(check: string, file: string, lines: [number, number]): string {
+    return crypto
+      .createHash("sha256")
+      .update(`${normalizeText(check)}:${normalizeText(file)}:${lines[0]}-${lines[1]}`)
+      .digest("hex")
+      .substring(0, 16)
   }
 
-  function addFinding(finding: Omit<Finding, "id">): Finding {
-    const id = generateId(finding.check, finding.file, finding.lines);
+  const hydratedFindings = state.findings.filter(isValidHydrationFinding)
 
-    // Check if finding already exists (deduplication)
-    if (findingMap.has(id)) {
-      return findingMap.get(id)!;
+  function addFinding(finding: Omit<Finding, "id">): Finding {
+    const normalizedFile = normalizeStorePath(finding.file, projectDir)
+    const normalized =
+      normalizedFile !== finding.file ? { ...finding, file: normalizedFile } : finding
+    const id = generateObservationId(normalized.check, normalized.file, normalized.lines)
+
+    const existing = hydratedFindings.find((f) => f.id === id)
+    if (existing) {
+      return existing
     }
 
     const newFinding: Finding = {
-      ...finding,
+      ...normalized,
       id,
-    };
+    }
 
-    findingMap.set(id, newFinding);
-    state.findings.push(newFinding);
+    state.findings.push(newFinding)
+    hydratedFindings.push(newFinding)
 
-    return newFinding;
+    return newFinding
   }
 
   function getFindings(filter?: {
-    severity?: FindingSeverity;
-    source?: Finding["source"];
+    severity?: FindingSeverity
+    source?: Finding["source"]
   }): Finding[] {
+    const findings = hydratedFindings.slice()
+
     if (!filter) {
-      return Array.from(findingMap.values());
+      return findings
     }
 
-    return Array.from(findingMap.values()).filter((finding) => {
+    return findings.filter((finding) => {
       if (filter.severity && finding.severity !== filter.severity) {
-        return false;
+        return false
       }
       if (filter.source && finding.source !== filter.source) {
-        return false;
+        return false
       }
-      return true;
-    });
+      return true
+    })
   }
 
-  function hasFinding(
-    check: string,
-    file: string,
-    lines: [number, number]
-  ): boolean {
-    const id = generateId(check, file, lines);
-    return findingMap.has(id);
+  function hasFinding(check: string, file: string, lines: [number, number]): boolean {
+    const normalizedCheck = normalizeText(check)
+    const normalizedFile = normalizeText(file)
+    return hydratedFindings.some(
+      (finding) =>
+        normalizeText(finding.check) === normalizedCheck &&
+        normalizeText(finding.file) === normalizedFile &&
+        finding.lines[0] === lines[0] &&
+        finding.lines[1] === lines[1],
+    )
   }
 
   function serialize(): string {
-    const findings = Array.from(findingMap.values());
-    const contractCount = state.contractsReviewed.length;
-    const findingCount = findings.length;
+    const findings = hydratedFindings.slice()
+    const contractCount = state.contractsReviewed.length
+    const findingCount = findings.length
 
     // Count by severity
     const severityCounts: Record<FindingSeverity, number> = {
@@ -87,34 +113,33 @@ export function createFindingStore(state: AuditState): FindingStore {
       Medium: 0,
       Low: 0,
       Informational: 0,
-    };
+    }
 
     findings.forEach((finding) => {
-      severityCounts[finding.severity]++;
-    });
+      severityCounts[finding.severity]++
+    })
 
     // Build severity string
-    const severityParts: string[] = [];
+    const severityParts: string[] = []
     if (severityCounts.Critical > 0) {
-      severityParts.push(`${severityCounts.Critical} Critical`);
+      severityParts.push(`${severityCounts.Critical} Critical`)
     }
     if (severityCounts.High > 0) {
-      severityParts.push(`${severityCounts.High} High`);
+      severityParts.push(`${severityCounts.High} High`)
     }
     if (severityCounts.Medium > 0) {
-      severityParts.push(`${severityCounts.Medium} Medium`);
+      severityParts.push(`${severityCounts.Medium} Medium`)
     }
     if (severityCounts.Low > 0) {
-      severityParts.push(`${severityCounts.Low} Low`);
+      severityParts.push(`${severityCounts.Low} Low`)
     }
     if (severityCounts.Informational > 0) {
-      severityParts.push(`${severityCounts.Informational} Informational`);
+      severityParts.push(`${severityCounts.Informational} Informational`)
     }
 
-    const severityStr =
-      severityParts.length > 0 ? ` (${severityParts.join(", ")})` : "";
+    const severityStr = severityParts.length > 0 ? ` (${severityParts.join(", ")})` : ""
 
-    return `Contracts: ${contractCount}, Findings: ${findingCount}${severityStr}, Phase: ${state.currentPhase}`;
+    return `Contracts: ${contractCount}, Findings: ${findingCount}${severityStr}, Phase: ${state.currentPhase}`
   }
 
   return {
@@ -122,5 +147,5 @@ export function createFindingStore(state: AuditState): FindingStore {
     getFindings,
     hasFinding,
     serialize,
-  };
+  }
 }

@@ -1,16 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
-import { safeCreateHook } from "./safe-create-hook"
-import {
-  createKnowledgeSyncHook,
-  type KnowledgeSyncDependencies,
-} from "./knowledge-sync-hook"
 import type { ArgusConfig } from "../config/types"
-import { getSyncStatus, isSyncStale, syncAll } from "../knowledge/scvd-sync"
-import { saveIndex, type ScvdIndex } from "../knowledge/scvd-index"
 import type { ScvdClient, ScvdFinding } from "../knowledge/scvd-client"
+import { releaseSyncLock, type ScvdIndex, saveIndex } from "../knowledge/scvd-index"
+import { getSyncStatus, syncAll } from "../knowledge/scvd-sync"
 import { resetLoggerSink } from "../shared/logger"
+import { createKnowledgeSyncHook, type KnowledgeSyncDependencies } from "./knowledge-sync-hook"
+import { safeCreateHook } from "./safe-create-hook"
 
 let stderrOutput: string[]
 let origStderrWrite: typeof process.stderr.write
@@ -20,7 +17,7 @@ beforeEach(() => {
   process.env.ARGUS_LOG = "stderr"
   resetLoggerSink()
   origStderrWrite = process.stderr.write.bind(process.stderr)
-  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+  process.stderr.write = ((chunk: string | Uint8Array, ..._rest: unknown[]) => {
     stderrOutput.push(typeof chunk === "string" ? chunk : chunk.toString())
     return true
   }) as typeof process.stderr.write
@@ -34,15 +31,20 @@ afterEach(() => {
 
 function createArgusConfig(enabled: boolean): ArgusConfig {
   return {
-    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {} },
+    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
     tools: {},
     knowledge: {
       scvd: { enabled, apiUrl: "https://api.scvd.dev" },
       autoSync: true,
       skillPrecedence: "bundled-first" as const,
     },
-    reporting: { format: "markdown", severityThreshold: "low", gasAnalysis: false },
-    solodit: { enabled: true, port: 3000 },
+    reporting: {
+      format: "markdown",
+      severityThreshold: "low",
+      gasAnalysis: false,
+      output_dir: ".opencode/reports/",
+    },
+    solodit: { enabled: true, port: 54173 },
     disabled_hooks: [],
     hooks: {},
     cli: {},
@@ -114,6 +116,7 @@ describe("syncAll observability", () => {
   const tempDir = "/tmp/argus-observability-tests"
 
   beforeEach(() => {
+    releaseSyncLock()
     mkdirSync(tempDir, { recursive: true })
   })
 

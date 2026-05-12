@@ -1,0 +1,38 @@
+Warning: optimizer settings and `viaIR` have been disabled for accurate coverage reports.
+If you encounter "stack too deep" errors, consider using `--ir-minimum` which enables `viaIR` with minimum optimization resolving most of the errors
+Compiling 25 files with Solc 0.8.20
+Solc 0.8.20 finished in 472.91ms
+Compiler run successful with warnings:
+Warning (2018): Function state mutability can be restricted to pure
+  --> src/PriceOracle.sol:14:5:
+   |
+14 |     function getPrice() external view returns (uint256) {
+   |     ^ (Relevant source part starts here and spans across multiple lines).
+
+Analysing contracts...
+Running tests...
+
+Ran 2 tests for test/VulnerableVault.t.sol:VulnerableVaultTest
+[PASS] test_deposit() (gas: 39440)
+[PASS] test_withdraw_basic() (gas: 34883)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 429.67µs (296.08µs CPU time)
+
+Ran 5 tests for test/ReentrancyPoC.t.sol:ReentrancyPoCTest
+[PASS] testFuzz_vaultSolvencyInvariant(uint256) (runs: 256, μ: 427051, ~: 427253)
+[FAIL: Single-level deposit-reentry: attacker net gain must be zero: 3000000000000000000 != 2000000000000000000] test_depositReentryAttack_singleLevel() (gas: 1008195)
+[PASS] test_depositReentryMultiLevel() (gas: 801970)
+[FAIL: Vault should still have 10 ETH - revert rolled back everything: 9000000000000000000 != 10000000000000000000] test_naiveReentryReverts() (gas: 430257)
+[FAIL: Insufficient balance] test_unauthorizedWithdraw() (gas: 20768)
+Suite result: FAILED. 2 passed; 3 failed; 0 skipped; finished in 22.27ms (23.14ms CPU time)
+
+Ran 2 test suites in 130.06ms (22.70ms CPU time): 4 tests passed, 3 failed, 0 skipped (7 total tests)
+
+Failing tests:
+Encountered 3 failing tests in test/ReentrancyPoC.t.sol:ReentrancyPoCTest
+[FAIL: Single-level deposit-reentry: attacker net gain must be zero: 3000000000000000000 != 2000000000000000000] test_depositReentryAttack_singleLevel() (gas: 1008195)
+[FAIL: Vault should still have 10 ETH - revert rolled back everything: 9000000000000000000 != 10000000000000000000] test_naiveReentryReverts() (gas: 430257)
+[FAIL: Insufficient balance] test_unauthorizedWithdraw() (gas: 20768)
+
+Encountered a total of 3 failing tests, 4 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 3 failed tests

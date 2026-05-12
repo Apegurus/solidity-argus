@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+import { createAuditEnforcer } from "../features/audit-enforcer/audit-enforcer"
 import type { AuditState, Finding } from "../state/types"
 import {
   buildDynamicContext,
@@ -7,7 +8,6 @@ import {
   estimateTokens,
   type SystemPromptHookDeps,
 } from "./system-prompt-hook"
-import { createAuditEnforcer } from "../features/audit-enforcer/audit-enforcer"
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -130,9 +130,36 @@ describe("createSystemPromptHook", () => {
 })
 
 describe("buildDynamicContext", () => {
+  it("includes run_id from sessionId", () => {
+    const context = buildDynamicContext(makeAuditState({ sessionId: "abc123-run-id" }), "scribe")
+    expect(context).toContain("run_id: abc123-run-id")
+  })
+
   it("includes phase information", () => {
     const context = buildDynamicContext(makeAuditState({ currentPhase: "manual-review" }), "argus")
     expect(context).toContain("Phase: manual-review")
+  })
+
+  it("includes task status with all pending when no tools executed", () => {
+    const context = buildDynamicContext(makeAuditState(), "argus")
+    expect(context).toContain(
+      "Tasks: slither=pending forge-test=pending patterns=pending solodit=pending analyzer=pending",
+    )
+  })
+
+  it("includes task status reflecting executed tools", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "argus_slither_analyze", startTime: 1, success: true, findingsCount: 3 },
+          { tool: "argus_check_patterns", startTime: 2, success: true, findingsCount: 1 },
+        ],
+      }),
+      "sentinel",
+    )
+    expect(context).toContain(
+      "Tasks: slither=done forge-test=pending patterns=done solodit=pending analyzer=pending",
+    )
   })
 
   it("includes findings counts by severity", () => {
@@ -172,7 +199,9 @@ describe("buildDynamicContext", () => {
       15,
     )
 
-    expect(context).toContain("Phase: reconnaissance | Findings: 2 | Contracts: 1")
+    expect(context).toContain(
+      "Phase: reconnaissance | Findings: 2 | Contracts: 1 | Tasks: 4/5 done",
+    )
     expect(context).not.toContain("Tools:")
   })
 })
@@ -346,5 +375,98 @@ describe("buildDynamicContext with unavailable tools", () => {
 
     expect(output.system[0]).toContain("Unavailable: slither, forge")
     expect(output.system[0]).toContain("DO NOT re-attempt argus_slither_analyze")
+  })
+})
+
+describe("reporting gate in buildDynamicContext", () => {
+  it("emits BLOCKED when key tools are pending", () => {
+    const context = buildDynamicContext(makeAuditState(), "argus")
+    expect(context).toContain(
+      "REPORTING GATE: BLOCKED \u2014 key tools pending: slither, forge-test, patterns, solodit, analyzer",
+    )
+  })
+
+  it("emits ALLOWED when all key tools are done", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "argus_slither_analyze", startTime: 1, success: true, findingsCount: 0 },
+          { tool: "argus_forge_test", startTime: 2, success: true, findingsCount: 0 },
+          { tool: "argus_check_patterns", startTime: 3, success: true, findingsCount: 0 },
+          { tool: "argus_solodit_search", startTime: 4, success: true, findingsCount: 0 },
+          { tool: "argus_analyze_contract", startTime: 5, success: true, findingsCount: 0 },
+        ],
+      }),
+      "argus",
+    )
+    expect(context).toContain("REPORTING GATE: ALLOWED")
+    expect(context).not.toContain("BLOCKED")
+  })
+
+  it("excuses unavailable tools from gate calculation", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        unavailableTools: ["slither", "forge"],
+        toolsExecuted: [
+          { tool: "argus_check_patterns", startTime: 1, success: true, findingsCount: 0 },
+          { tool: "argus_solodit_search", startTime: 2, success: true, findingsCount: 0 },
+          { tool: "argus_analyze_contract", startTime: 3, success: true, findingsCount: 0 },
+        ],
+      }),
+      "argus",
+    )
+    expect(context).toContain("REPORTING GATE: ALLOWED")
+  })
+
+  it("lists only truly pending tools in BLOCKED message", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "argus_slither_analyze", startTime: 1, success: true, findingsCount: 0 },
+          { tool: "argus_forge_test", startTime: 2, success: true, findingsCount: 0 },
+        ],
+      }),
+      "argus",
+    )
+    expect(context).toContain("REPORTING GATE: BLOCKED")
+    expect(context).toContain("patterns, solodit, analyzer")
+    expect(context).not.toContain("slither,")
+    expect(context).not.toContain("forge-test,")
+  })
+
+  it("truncated context preserves BLOCKED gate signal", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        findings: [
+          makeFinding({ id: "f-1", description: "x".repeat(500) }),
+          makeFinding({ id: "f-2", description: "y".repeat(500) }),
+        ],
+        toolsExecuted: [
+          { tool: "argus_solodit_search", startTime: 1, success: true, findingsCount: 1 },
+        ],
+      }),
+      "argus",
+      15,
+    )
+    expect(context).toContain("REPORTING GATE: BLOCKED")
+    expect(context).not.toContain("Tools:")
+  })
+
+  it("truncated context preserves ALLOWED gate signal", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "argus_slither_analyze", startTime: 1, success: true, findingsCount: 0 },
+          { tool: "argus_forge_test", startTime: 2, success: true, findingsCount: 0 },
+          { tool: "argus_check_patterns", startTime: 3, success: true, findingsCount: 0 },
+          { tool: "argus_solodit_search", startTime: 4, success: true, findingsCount: 0 },
+          { tool: "argus_analyze_contract", startTime: 5, success: true, findingsCount: 0 },
+        ],
+      }),
+      "argus",
+      15,
+    )
+    expect(context).toContain("REPORTING GATE: ALLOWED")
+    expect(context).not.toContain("Tools:")
   })
 })

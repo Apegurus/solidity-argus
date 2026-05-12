@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { createToolErrorRecoveryHandler } from "./tool-error-recovery"
 import type { AuditState } from "../../state/types"
+import { createToolErrorRecoveryHandler } from "./tool-error-recovery"
 
 function makeAuditState(): AuditState {
   return {

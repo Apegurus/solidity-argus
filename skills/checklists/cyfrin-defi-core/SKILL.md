@@ -1,6 +1,7 @@
 ---
 name: cyfrin-defi-core
 description: Cyfrin DeFi checklist covering attacker mindset and protocol-level DeFi primitives
+category: checklist
 source_url: https://github.com/Cyfrin/audit-checklist
 source_license: unspecified
 imported_at: "2025-01-15T00:00:00Z"

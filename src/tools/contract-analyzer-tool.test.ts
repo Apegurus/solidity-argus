@@ -1,10 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-import type { ToolContext } from "@opencode-ai/plugin";
-import { contractAnalyzerTool, executeContractAnalyzer } from "./contract-analyzer-tool";
-import type { ContractProfile } from "../state/types";
+import { afterEach, expect, test } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import type { ToolContext } from "@opencode-ai/plugin"
+import type { ContractProfile } from "../state/types"
+import { contractAnalyzerTool, executeContractAnalyzer } from "./contract-analyzer-tool"
 
 function createContext(abortController = new AbortController()): ToolContext {
   return {
@@ -15,12 +15,12 @@ function createContext(abortController = new AbortController()): ToolContext {
     worktree: "/tmp/project",
     abort: abortController.signal,
     metadata() {
-      return;
+      return
     },
     async ask() {
-      return;
+      return
     },
-  };
+  }
 }
 
 function createBaseProfile(): ContractProfile {
@@ -33,58 +33,54 @@ function createBaseProfile(): ContractProfile {
     accessControlPattern: "none",
     externalCalls: [],
     riskIndicators: [],
-  };
+  }
 }
 
-const tempDirs: string[] = [];
+const tempDirs: string[] = []
 
 afterEach(() => {
   for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true })
   }
-  tempDirs.length = 0;
-});
+  tempDirs.length = 0
+})
 
 test("contractAnalyzerTool uses tool() helper contract", () => {
-  expect(contractAnalyzerTool.description.length).toBeGreaterThan(0);
-  expect(contractAnalyzerTool.args).toBeDefined();
-  expect(typeof contractAnalyzerTool.execute).toBe("function");
-});
+  expect(contractAnalyzerTool.description.length).toBeGreaterThan(0)
+  expect(contractAnalyzerTool.args).toBeDefined()
+  expect(typeof contractAnalyzerTool.execute).toBe("function")
+})
 
 test("executeContractAnalyzer calls extractContractInfo using basename contract name", async () => {
-  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"));
-  tempDirs.push(root);
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
 
-  const contractsDir = join(root, "src", "contracts");
-  mkdirSync(contractsDir, { recursive: true });
-  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n");
+  const contractsDir = join(root, "src", "contracts")
+  mkdirSync(contractsDir, { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
 
-  const filePath = join(contractsDir, "Vault.sol");
-  writeFileSync(filePath, "contract Vault { function run() external {} }");
+  const filePath = join(contractsDir, "Vault.sol")
+  writeFileSync(filePath, "contract Vault { function run() external {} }")
 
-  const calls: Array<{ contractName: string; projectDir: string }> = [];
-  const result = await executeContractAnalyzer(
-    { file_path: filePath },
-    createContext(),
-    {
-      extractInfo: async (contractName, projectDir) => {
-        calls.push({ contractName, projectDir });
-        return createBaseProfile();
-      },
-    }
-  );
+  const calls: Array<{ contractName: string; projectDir: string }> = []
+  const result = await executeContractAnalyzer({ file_path: filePath }, createContext(), {
+    extractInfo: async (contractName, projectDir) => {
+      calls.push({ contractName, projectDir })
+      return createBaseProfile()
+    },
+  })
 
-  expect(calls).toEqual([{ contractName: "Vault", projectDir: root }]);
-  expect(result.error).toBeUndefined();
-});
+  expect(calls).toEqual([{ contractName: "Vault", projectDir: root }])
+  expect(result.error).toBeUndefined()
+})
 
 test("executeContractAnalyzer enriches risk indicators from source text and OZ imports", async () => {
-  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"));
-  tempDirs.push(root);
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
 
-  const filePath = join(root, "contracts", "RiskyVault.sol");
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n");
+  const filePath = join(root, "contracts", "RiskyVault.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
   writeFileSync(
     filePath,
     [
@@ -99,8 +95,8 @@ test("executeContractAnalyzer enriches risk indicators from source text and OZ i
       "  function originOnly() external view returns (bool) { return tx.origin == msg.sender; }",
       "  function lowLevel() external pure returns (uint256 x) { assembly { x := 1 } }",
       "}",
-    ].join("\n")
-  );
+    ].join("\n"),
+  )
 
   const result = await executeContractAnalyzer(
     { file_path: filePath, project_dir: root },
@@ -110,8 +106,8 @@ test("executeContractAnalyzer enriches risk indicators from source text and OZ i
         ...createBaseProfile(),
         riskIndicators: ["uses-delegatecall"],
       }),
-    }
-  );
+    },
+  )
 
   expect(result.riskIndicators).toEqual(
     expect.arrayContaining([
@@ -121,10 +117,48 @@ test("executeContractAnalyzer enriches risk indicators from source text and OZ i
       "uses-tx-origin",
       "uses-oz-ownable",
       "uses-oz-reentrancy-guard",
-    ])
-  );
-  expect(result.riskIndicators.filter((item) => item === "uses-delegatecall")).toHaveLength(1);
-});
+    ]),
+  )
+  expect(result.riskIndicators.filter((item) => item === "uses-delegatecall")).toHaveLength(1)
+})
+
+test("executeContractAnalyzer populates externalCalls from Solidity AST", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "ExternalCalls.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(
+    filePath,
+    [
+      "contract ExternalCalls {",
+      "  function ping(address target, bytes calldata data) external {",
+      "    (bool okCall,) = target.call(data);",
+      "    (bool okDelegate,) = target.delegatecall(data);",
+      "    (bool okStatic,) = target.staticcall(data);",
+      "    require(okCall && okDelegate && okStatic);",
+      "  }",
+      "}",
+    ].join("\n"),
+  )
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async () => ({
+        ...createBaseProfile(),
+        externalCalls: ["target.call"],
+      }),
+    },
+  )
+
+  expect(result.externalCalls).toEqual(
+    expect.arrayContaining(["target.call", "target.delegatecall", "target.staticcall"]),
+  )
+  expect(result.externalCalls.filter((item) => item === "target.call")).toHaveLength(1)
+})
 
 test("executeContractAnalyzer returns structured error when file does not exist", async () => {
   const result = await executeContractAnalyzer(
@@ -132,71 +166,147 @@ test("executeContractAnalyzer returns structured error when file does not exist"
     createContext(),
     {
       extractInfo: async () => createBaseProfile(),
-    }
-  );
+    },
+  )
 
-  expect(result.error).toContain("Contract file not found");
-  expect(result.functions).toEqual([]);
-  expect(result.riskIndicators).toEqual([]);
-});
+  expect(result.error).toContain("Contract file not found")
+  expect(result.functions).toEqual([])
+  expect(result.riskIndicators).toEqual([])
+})
 
 test("executeContractAnalyzer maps missing forge errors from parser", async () => {
-  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"));
-  tempDirs.push(root);
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
 
-  const filePath = join(root, "contracts", "Vault.sol");
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, "contract Vault {}\n");
+  const filePath = join(root, "contracts", "Vault.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(filePath, "contract Vault {}\n")
 
   const result = await executeContractAnalyzer(
     { file_path: filePath, project_dir: root },
     createContext(),
     {
       extractInfo: async () => {
-        const error = new Error("spawn forge ENOENT") as Error & { code?: string };
-        error.code = "ENOENT";
-        throw error;
+        const error = new Error("spawn forge ENOENT") as Error & { code?: string }
+        error.code = "ENOENT"
+        throw error
       },
-    }
-  );
+    },
+  )
 
-  expect(result.error).toBe("Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash");
-});
+  expect(result.error).toBe(
+    "Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash",
+  )
+})
+
+test("executeContractAnalyzer extracts modifiers from source text", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "ModVault.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(
+    filePath,
+    [
+      "contract ModVault {",
+      "  function withdraw(uint256 amount) external onlyOwner nonReentrant returns (bool) {",
+      "    return true;",
+      "  }",
+      "  function pause() external whenNotPaused {",
+      "    // pause logic",
+      "  }",
+      "  function getBalance() external view returns (uint256) {",
+      "    return 0;",
+      "  }",
+      "  function admin(address a) external onlyRole(ADMIN) {",
+      "    // admin logic",
+      "  }",
+      "}",
+    ].join("\n"),
+  )
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async () => ({
+        ...createBaseProfile(),
+        functions: [
+          { name: "withdraw", visibility: "external", mutability: "nonpayable", modifiers: [] },
+          { name: "pause", visibility: "external", mutability: "nonpayable", modifiers: [] },
+          { name: "getBalance", visibility: "external", mutability: "view", modifiers: [] },
+          { name: "admin", visibility: "external", mutability: "nonpayable", modifiers: [] },
+        ],
+      }),
+    },
+  )
+
+  expect(result.functions[0]?.modifiers).toEqual(["onlyOwner", "nonReentrant"])
+  expect(result.functions[1]?.modifiers).toEqual(["whenNotPaused"])
+  expect(result.functions[2]?.modifiers).toEqual([])
+  expect(result.functions[3]?.modifiers).toEqual(["onlyRole"])
+})
+
+test("executeContractAnalyzer retains empty modifiers when function not found in source", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "Minimal.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(filePath, "contract Minimal {}\n")
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async () => ({
+        ...createBaseProfile(),
+        functions: [
+          { name: "missing", visibility: "external", mutability: "nonpayable", modifiers: [] },
+        ],
+      }),
+    },
+  )
+
+  expect(result.functions[0]?.modifiers).toEqual([])
+})
 
 test("executeContractAnalyzer supports context abort", async () => {
-  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"));
-  tempDirs.push(root);
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
 
-  const filePath = join(root, "contracts", "Vault.sol");
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, "contract Vault {}\n");
+  const filePath = join(root, "contracts", "Vault.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(filePath, "contract Vault {}\n")
 
-  const abortController = new AbortController();
-  abortController.abort();
+  const abortController = new AbortController()
+  abortController.abort()
   const abortedBeforeStart = await executeContractAnalyzer(
     { file_path: filePath, project_dir: root },
     createContext(abortController),
     {
       extractInfo: async () => createBaseProfile(),
-    }
-  );
+    },
+  )
 
-  expect(abortedBeforeStart.error).toBe("contract analysis aborted");
+  expect(abortedBeforeStart.error).toBe("contract analysis aborted")
 
-  const delayedAbortController = new AbortController();
-  const delayedContext = createContext(delayedAbortController);
+  const delayedAbortController = new AbortController()
+  const delayedContext = createContext(delayedAbortController)
   const pending = executeContractAnalyzer(
     { file_path: filePath, project_dir: root },
     delayedContext,
     {
       extractInfo: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        return createBaseProfile();
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return createBaseProfile()
       },
-    }
-  );
-  delayedAbortController.abort();
+    },
+  )
+  delayedAbortController.abort()
 
-  const abortedMidway = await pending;
-  expect(abortedMidway.error).toBe("contract analysis aborted");
-});
+  const abortedMidway = await pending
+  expect(abortedMidway.error).toBe("contract analysis aborted")
+})

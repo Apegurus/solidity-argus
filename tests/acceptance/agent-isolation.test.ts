@@ -22,7 +22,10 @@ function registerAgent(tracker: AgentTracker, sessionID: string, agent: string):
   tracker.chatParamsHook(makeChatParamsInput({ sessionID, agent }))
 }
 
-function buildHook(tracker: AgentTracker, phase: "scanning" | "research" | "reporting" = "scanning") {
+function buildHook(
+  tracker: AgentTracker,
+  phase: "scanning" | "research" | "reporting" = "scanning",
+) {
   const { state } = createAuditState("/tmp/argus-acceptance")
   state.currentPhase = phase
   state.contractsReviewed.push("Vault.sol")

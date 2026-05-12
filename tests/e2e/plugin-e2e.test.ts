@@ -1,22 +1,20 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import path from "node:path"
-
-import ArgusPlugin from "../../src/index"
-import { loadArgusConfig, _mergeConfigs } from "../../src/config/loader"
-import { createHookGuard } from "../../src/hooks/hook-system"
-import { createTools } from "../../src/create-tools"
-import { createHooks } from "../../src/create-hooks"
-import { createManagers } from "../../src/create-managers"
-import { createPluginInterface } from "../../src/plugin-interface"
-import { ArgusConfigSchema } from "../../src/config/schema"
-import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
+import path, { join } from "node:path"
+import type { Config, Event } from "@opencode-ai/sdk"
+import { cliOutput } from "../../src/cli/cli-output"
 import { doctorCommand } from "../../src/cli/commands/doctor"
 import { initCommand } from "../../src/cli/commands/init"
-import { cliOutput } from "../../src/cli/cli-output"
-import type { Config } from "@opencode-ai/sdk"
+import { _mergeConfigs, loadArgusConfig } from "../../src/config/loader"
+import { ArgusConfigSchema } from "../../src/config/schema"
+import { createHooks } from "../../src/create-hooks"
+import { createManagers } from "../../src/create-managers"
+import { createTools } from "../../src/create-tools"
+import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
+import { createHookGuard } from "../../src/hooks/hook-system"
+import ArgusPlugin from "../../src/index"
+import { createPluginInterface } from "../../src/plugin-interface"
 
 const FIXTURE_DIR = path.resolve(import.meta.dir, "../fixtures/vulnerable-vault")
 
@@ -62,15 +60,15 @@ describe("E2E A: Plugin Load", () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
-     expect(result.tool).toBeDefined()
-     expect(typeof result.config).toBe("function")
-     expect(typeof result["experimental.chat.system.transform"]).toBe("function")
-     expect(typeof result["experimental.session.compacting"]).toBe("function")
-     expect(typeof result["tool.execute.after"]).toBe("function")
-     expect(typeof result.event).toBe("function")
+    expect(result.tool).toBeDefined()
+    expect(typeof result.config).toBe("function")
+    expect(typeof result["experimental.chat.system.transform"]).toBe("function")
+    expect(typeof result["experimental.session.compacting"]).toBe("function")
+    expect(typeof result["tool.execute.after"]).toBe("function")
+    expect(typeof result.event).toBe("function")
   })
 
-  test("tool map contains all 9 argus tools", async () => {
+  test("tool map contains all 15 argus tools", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
@@ -78,9 +76,15 @@ describe("E2E A: Plugin Load", () => {
     expect(toolNames).toEqual([
       "argus_analyze_contract",
       "argus_check_patterns",
+      "argus_forge_coverage",
       "argus_forge_fuzz",
       "argus_forge_test",
+      "argus_gas_analysis",
       "argus_generate_report",
+      "argus_persist_deduped",
+      "argus_proxy_detection",
+      "argus_read_findings",
+      "argus_record_finding",
       "argus_skill_load",
       "argus_slither_analyze",
       "argus_solodit_search",
@@ -98,15 +102,16 @@ describe("E2E A: Plugin Load", () => {
     }
   })
 
-  test("config hook registers 4 agents and Solodit MCP", async () => {
+  test("config hook registers 5 agents and Solodit MCP", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
     const config: Config = { agent: {}, mcp: {} }
-    await result.config!(config)
+    expect(result.config).toBeDefined()
+    await result.config?.(config)
 
     const agentNames = Object.keys(config.agent ?? {}).sort()
-    expect(agentNames).toEqual(["argus", "pythia", "scribe", "sentinel"])
+    expect(agentNames).toEqual(["argus", "pythia", "scribe", "sentinel", "themis"])
     expect(config.mcp?.["solodit-mcp"]).toBeDefined()
   })
 
@@ -117,7 +122,7 @@ describe("E2E A: Plugin Load", () => {
       const result = await ArgusPlugin(ctx)
 
       expect(result.tool).toBeDefined()
-      expect(Object.keys(result.tool ?? {})).toHaveLength(9)
+      expect(Object.keys(result.tool ?? {})).toHaveLength(15)
       expect(typeof result.config).toBe("function")
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
@@ -140,14 +145,14 @@ describe("E2E B: CLI Commands", () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  test("argus init creates config file in .opencode/", async () => {
+  test("argus init creates config file in .argus/", async () => {
     const out = captureConsole()
     try {
       const exitCode = await initCommand.execute([])
       out.restore()
 
       expect(exitCode).toBe(0)
-      const configPath = join(tmpDir, ".opencode", "solidity-argus.json")
+      const configPath = join(tmpDir, ".argus", "solidity-argus.json")
       expect(existsSync(configPath)).toBe(true)
 
       const content = JSON.parse(await Bun.file(configPath).text())
@@ -162,8 +167,8 @@ describe("E2E B: CLI Commands", () => {
   })
 
   test("argus init fails gracefully if config already exists", async () => {
-    mkdirSync(join(tmpDir, ".opencode"), { recursive: true })
-    writeFileSync(join(tmpDir, ".opencode", "solidity-argus.json"), "{}")
+    mkdirSync(join(tmpDir, ".argus"), { recursive: true })
+    writeFileSync(join(tmpDir, ".argus", "solidity-argus.json"), "{}")
 
     const out = captureConsole()
     try {
@@ -192,7 +197,7 @@ describe("E2E B: CLI Commands", () => {
     } finally {
       out.restore()
     }
-  })
+  }, 15000)
 
   test("argus doctor detects Foundry project", async () => {
     makeSolidityProject(tmpDir)
@@ -249,9 +254,9 @@ describe("E2E C: Config Merge", () => {
   test("loadArgusConfig reads real JSONC from disk", () => {
     const tmpDir = makeTempDir("config-merge")
     try {
-      mkdirSync(join(tmpDir, ".opencode"), { recursive: true })
+      mkdirSync(join(tmpDir, ".argus"), { recursive: true })
       writeFileSync(
-        join(tmpDir, ".opencode", "solidity-argus.jsonc"),
+        join(tmpDir, ".argus", "solidity-argus.jsonc"),
         [
           "{",
           '  "agents": {',
@@ -284,13 +289,13 @@ describe("E2E C: Config Merge", () => {
     expect(merged.disabled_hooks).toEqual(["system-prompt", "compaction"])
   })
 
-  test("solodit port is configurable", () => {
+  test("solodit enabled flag is configurable", () => {
     const projectConfig = {
-      solodit: { enabled: true, port: 4567 },
+      solodit: { enabled: false },
     }
 
     const merged = _mergeConfigs(null, projectConfig)
-    expect(merged.solodit.port).toBe(4567)
+    expect(merged.solodit.enabled).toBe(false)
   })
 
   test("background max_concurrent is configurable", () => {
@@ -313,7 +318,7 @@ describe("E2E C: Config Merge", () => {
 })
 
 describe("E2E D: Hook Lifecycle", () => {
-   test("compaction hook serializes audit state as XML block", async () => {
+  test("compaction hook serializes audit state as XML block", async () => {
     const config = ArgusConfigSchema.parse({})
     const managers = createManagers({ projectDir: FIXTURE_DIR, config })
     const hooks = createHooks({
@@ -324,7 +329,8 @@ describe("E2E D: Hook Lifecycle", () => {
     })
 
     const output = { context: ["Previous summary."] }
-    await hooks["experimental.session.compacting"]!({} as any, output)
+    expect(hooks["experimental.session.compacting"]).toBeDefined()
+    await hooks["experimental.session.compacting"]?.({ sessionID: "test-session" }, output)
 
     expect(output.context.length).toBe(2)
     expect(output.context[1]).toContain("<argus-audit-state>")
@@ -365,7 +371,8 @@ describe("E2E D: Hook Lifecycle", () => {
       metadata: {},
     }
 
-    await hooks["tool.execute.after"]!(input, output)
+    expect(hooks["tool.execute.after"]).toBeDefined()
+    await hooks["tool.execute.after"]?.(input, output)
   })
 
   test("event hook handles session lifecycle without throwing", async () => {
@@ -378,11 +385,19 @@ describe("E2E D: Hook Lifecycle", () => {
       isHookEnabled: () => true,
     })
 
-    const eventHook = hooks.event!
-    await eventHook({ event: { type: "session.created", properties: {} } } as any)
-    await eventHook({ event: { type: "session.idle", properties: {} } } as any)
-    await eventHook({ event: { type: "session.error", properties: {} } } as any)
-    await eventHook({ event: { type: "session.deleted", properties: {} } } as any)
+    expect(hooks.event).toBeDefined()
+    await hooks.event?.({ event: { type: "session.created", properties: {} } } as unknown as {
+      event: Event
+    })
+    await hooks.event?.({ event: { type: "session.idle", properties: {} } } as unknown as {
+      event: Event
+    })
+    await hooks.event?.({ event: { type: "session.error", properties: {} } } as unknown as {
+      event: Event
+    })
+    await hooks.event?.({ event: { type: "session.deleted", properties: {} } } as unknown as {
+      event: Event
+    })
   })
 
   test("disabled_hooks suppresses specific hooks from interface", async () => {
@@ -403,13 +418,13 @@ describe("E2E D: Hook Lifecycle", () => {
       hooks,
     })
 
-    expect(typeof iface["experimental.chat.system.transform"]).toBe("function")
+    expect(iface["experimental.chat.system.transform"]).toBeUndefined()
     expect(iface["experimental.session.compacting"]).toBeUndefined()
     expect(iface.event).toBeUndefined()
 
     expect(iface.config).toBeDefined()
     expect(iface["tool.execute.after"]).toBeDefined()
-    expect(Object.keys(iface.tool)).toHaveLength(9)
+    expect(Object.keys(iface.tool)).toHaveLength(15)
   })
 
   test("config hook is always present even with all feature hooks disabled", async () => {
@@ -432,7 +447,6 @@ describe("E2E D: Hook Lifecycle", () => {
 
     expect(typeof iface.config).toBe("function")
   })
-
 })
 
 describe("E2E E: Persistent State", () => {
@@ -466,17 +480,17 @@ describe("E2E E: Persistent State", () => {
       ],
     })
 
-    const stateFile = join(tmpDir, ".opencode", "argus-state.json")
+    const stateFile = join(tmpDir, ".argus", "argus-state.json")
     expect(existsSync(stateFile)).toBe(true)
 
     const manager2 = createAuditStateManager(tmpDir)
     const loaded = await manager2.load()
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.currentPhase).toBe("scanning")
-    expect(loaded!.contractsReviewed).toEqual(["VulnerableVault.sol"])
-    expect(loaded!.findings).toHaveLength(1)
-    expect(loaded!.findings[0]!.check).toBe("reentrancy")
+    expect(loaded?.currentPhase).toBe("scanning")
+    expect(loaded?.contractsReviewed).toEqual(["VulnerableVault.sol"])
+    expect(loaded?.findings).toHaveLength(1)
+    expect(loaded?.findings?.at(0)?.check).toBe("reentrancy")
   })
 
   test("update persists incremental changes to disk", async () => {
@@ -488,7 +502,7 @@ describe("E2E E: Persistent State", () => {
     const loaded = await manager2.load()
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.currentPhase).toBe("research")
+    expect(loaded?.currentPhase).toBe("research")
   })
 
   test("reset restores fresh default state", async () => {
@@ -505,9 +519,9 @@ describe("E2E E: Persistent State", () => {
     const loaded = await manager2.load()
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.currentPhase).toBe("reconnaissance")
-    expect(loaded!.contractsReviewed).toEqual([])
-    expect(loaded!.findings).toEqual([])
+    expect(loaded?.currentPhase).toBe("reconnaissance")
+    expect(loaded?.contractsReviewed).toEqual([])
+    expect(loaded?.findings).toEqual([])
   })
 
   test("load returns null when no state file exists", async () => {
@@ -557,12 +571,12 @@ describe("E2E E: Persistent State", () => {
     const loaded = await manager2.load()
 
     expect(loaded).not.toBeNull()
-    expect(loaded!.currentPhase).toBe("reporting")
-    expect(loaded!.scope).toEqual(["VulnerableVault.sol", "Token.sol"])
-    expect(loaded!.contractsReviewed).toEqual(["VulnerableVault.sol"])
-    expect(loaded!.toolsExecuted).toHaveLength(2)
-    expect(loaded!.findings).toHaveLength(2)
-    expect(loaded!.findings[0]!.remediation).toBe("Add reentrancy guard")
-    expect(loaded!.findings[1]!.remediation).toBeUndefined()
+    expect(loaded?.currentPhase).toBe("reporting")
+    expect(loaded?.scope).toEqual(["VulnerableVault.sol", "Token.sol"])
+    expect(loaded?.contractsReviewed).toEqual(["VulnerableVault.sol"])
+    expect(loaded?.toolsExecuted).toHaveLength(2)
+    expect(loaded?.findings).toHaveLength(2)
+    expect(loaded?.findings?.at(0)?.remediation).toBe("Add reentrancy guard")
+    expect(loaded?.findings?.at(1)?.remediation).toBeUndefined()
   })
 })

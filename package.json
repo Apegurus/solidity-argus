@@ -1,8 +1,19 @@
 {
   "name": "solidity-argus",
-  "version": "0.2.0",
-  "description": "Solidity smart contract security auditing plugin for OpenCode — 4 specialized agents, 8 tools, and a curated vulnerability knowledge base",
-  "keywords": ["solidity", "security", "audit", "opencode", "plugin", "smart-contract", "ethereum", "defi", "slither", "foundry"],
+  "version": "0.5.7",
+  "description": "Solidity smart contract security auditing plugin for OpenCode — 5 specialized agents, 15 tools (14 core + optional Solodit), and a curated vulnerability knowledge base",
+  "keywords": [
+    "solidity",
+    "security",
+    "audit",
+    "opencode",
+    "plugin",
+    "smart-contract",
+    "ethereum",
+    "defi",
+    "slither",
+    "foundry"
+  ],
   "author": "Apegurus",
   "license": "MIT",
   "type": "module",
@@ -10,36 +21,56 @@
   "module": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
-    "solidity-argus": "./src/cli/index.ts",
-    "argus": "./src/cli/index.ts"
+    "solidity-argus": "src/cli/index.ts",
+    "argus": "src/cli/index.ts"
   },
-  "files": ["src/", "!src/**/*.test.ts", "skills/", "README.md", "AGENTS.md", "LICENSE"],
+  "files": [
+    "src/",
+    "!src/**/*.test.ts",
+    "skills/",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "ci": "biome ci .",
     "cli": "bun src/cli/index.ts",
     "doctor": "bun src/cli/index.ts doctor",
     "init": "bun src/cli/index.ts init"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.6",
+    "@opencode-ai/plugin": "^1.2.10",
+    "@solidity-parser/parser": "^0.20.2",
     "yaml": "^2.8.2",
-    "zod": "^4.3.6"
+    "zod": "^4.1.8"
   },
   "peerDependencies": {
     "@opencode-ai/sdk": "^1.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
     "@types/bun": "^1.2.0",
+    "pdf-parse": "^2.4.5",
     "typescript": "^5"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Apegurus/solidity-argus"
+    "url": "git+https://github.com/Apegurus/solidity-argus.git"
   },
   "engines": {
     "bun": ">=1.0.0"
