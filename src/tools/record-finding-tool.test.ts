@@ -190,6 +190,67 @@ test("executeRecordFinding has no enrichment warnings when fields are present", 
   expect(parsed.enrichment_warnings).toBeUndefined()
 })
 
+test("executeRecordFinding preserves Slither findings without complete enrichment and warns", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "erc20-interface",
+        severity: "Low",
+        confidence: "High",
+        description: "Token transfer does not return a bool",
+        file: "src/Token.sol",
+        lines: [20, 25],
+        source: "slither",
+        impact: "Integrations can revert when decoding the empty return value",
+        recommendation: "Return true from transfer after successful balance updates",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    count: number
+    findings: Array<{ check: string; source: string }>
+    enrichment_warnings?: string[]
+    enrichment_hint?: string
+  }
+  expect(parsed.success).toBe(true)
+  expect(parsed.count).toBe(1)
+  expect(parsed.findings[0]?.check).toBe("erc20-interface")
+  expect(parsed.findings[0]?.source).toBe("slither")
+  expect(parsed.enrichment_warnings?.[0]).toContain("Slither finding")
+  expect(parsed.enrichment_warnings?.[0]).toContain("proofOfConcept")
+  expect(parsed.enrichment_hint).toContain("quality gate")
+})
+
+test("executeRecordFinding emits one Slither-specific warning for Critical Slither findings", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "reentrancy-eth",
+        severity: "Critical",
+        confidence: "High",
+        description: "External call before state update",
+        file: "src/Vault.sol",
+        lines: [42, 58],
+        source: "slither",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    enrichment_warnings?: string[]
+  }
+  expect(parsed.success).toBe(true)
+  expect(parsed.enrichment_warnings).toHaveLength(1)
+  expect(parsed.enrichment_warnings?.[0]).toContain("Slither finding")
+  expect(parsed.enrichment_warnings?.[0]).toContain("Scribe must enrich")
+  expect(parsed.enrichment_warnings?.[0]).not.toContain("Quality gate will flag this")
+})
+
 test("executeRecordFinding response echoes impact/recommendation/proofOfConcept/reported_by_agent (Task 1 / Bug #3)", async () => {
   const payload = await executeRecordFinding(
     {
@@ -229,7 +290,7 @@ test("executeRecordFinding response echoes impact/recommendation/proofOfConcept/
 })
 
 test("executeRecordFinding skips enrichment warnings for Low/Medium findings", async () => {
-  const payload = await executeRecordFinding(
+  const lowPayload = await executeRecordFinding(
     {
       finding: JSON.stringify({
         check: "gas-optimization",
@@ -244,10 +305,32 @@ test("executeRecordFinding skips enrichment warnings for Low/Medium findings", a
     createContext("sentinel"),
   )
 
-  const parsed = JSON.parse(payload) as {
+  const lowParsed = JSON.parse(lowPayload) as {
     success: boolean
     enrichment_warnings?: string[]
   }
-  expect(parsed.success).toBe(true)
-  expect(parsed.enrichment_warnings).toBeUndefined()
+  expect(lowParsed.success).toBe(true)
+  expect(lowParsed.enrichment_warnings).toBeUndefined()
+
+  const mediumPayload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "missing-event",
+        severity: "Medium",
+        confidence: "Medium",
+        description: "State change is missing an event",
+        file: "src/Vault.sol",
+        lines: [15, 15],
+        source: "manual",
+      }),
+    },
+    createContext("sentinel"),
+  )
+
+  const mediumParsed = JSON.parse(mediumPayload) as {
+    success: boolean
+    enrichment_warnings?: string[]
+  }
+  expect(mediumParsed.success).toBe(true)
+  expect(mediumParsed.enrichment_warnings).toBeUndefined()
 })
