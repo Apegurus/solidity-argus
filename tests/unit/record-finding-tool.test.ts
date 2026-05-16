@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
+import type { EventSink } from "../../src/features/persistent-state/event-sink"
+import { createToolTrackingHook } from "../../src/hooks/tool-tracking-hook"
 import { normalizeToCanonicalFinding } from "../../src/state/adapters"
+import type { AuditEvent } from "../../src/state/schemas"
+import type { AuditState } from "../../src/state/types"
 import { executeRecordFinding } from "../../src/tools/record-finding-tool"
 
 function createContext(): ToolContext {
@@ -33,6 +37,37 @@ function baseFinding(extra: Record<string, unknown> = {}): Record<string, unknow
     recommendation: "Use checks-effects-interactions and a reentrancy guard",
     proofOfConcept: "forge test --match-test testReentrancy",
     ...extra,
+  }
+}
+
+function createAuditState(): AuditState {
+  return {
+    sessionId: "run-record-finding",
+    projectDir: process.cwd(),
+    contractsReviewed: [],
+    findings: [],
+    toolsExecuted: [],
+    currentPhase: "manual-review",
+    scope: [],
+    startTime: Date.now(),
+  }
+}
+
+function createMemorySink(runId: string): EventSink & { events: AuditEvent[] } {
+  const events: AuditEvent[] = []
+  return {
+    runId,
+    isFinalized: false,
+    events,
+    async append(event: AuditEvent) {
+      events.push(event)
+    },
+    async readAll() {
+      return events
+    },
+    markFinalized() {
+      return
+    },
   }
 }
 
@@ -89,5 +124,30 @@ describe("argus_record_finding input schema", () => {
           diag.field === "confidence_score",
       ),
     ).toBe(false)
+  })
+
+  test("tool tracking hook preserves confidence_score before durable sink emission", async () => {
+    const state = createAuditState()
+    const sink = createMemorySink(state.sessionId)
+    const toolResponse = await recordFinding(baseFinding({ confidence_score: 85 }))
+    const hook = createToolTrackingHook(() => state, undefined, {
+      getEventSink: () => sink,
+      getAgentName: () => "sentinel",
+      projectDir: process.cwd(),
+    })
+
+    await hook({
+      tool: "argus_record_finding",
+      args: {},
+      result: JSON.stringify(toolResponse),
+      sessionID: "session-record-finding",
+      callID: "call-record-finding",
+    })
+
+    expect(state.findings[0]?.confidence_score).toBe(85)
+    const findingEvent = sink.events.find((event) => event.type === "finding.added")
+    expect((findingEvent?.payload as Record<string, unknown> | undefined)?.confidence_score).toBe(
+      85,
+    )
   })
 })

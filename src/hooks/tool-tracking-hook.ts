@@ -348,6 +348,8 @@ function processToolResult(
     }
 
     if (config.extractOptionalFields) {
+      findingPayload.confidence_score =
+        typeof item.confidence_score === "number" ? item.confidence_score : undefined
       findingPayload.impact = typeof item.impact === "string" ? item.impact : undefined
       findingPayload.recommendation =
         typeof item.recommendation === "string" ? item.recommendation : undefined
