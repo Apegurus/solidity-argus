@@ -6,9 +6,9 @@ describe("ArgusConfigSchema", () => {
     const config = {
       agents: {
         argus: { model: "anthropic/claude-opus-4-7" },
-        sentinel: { model: "anthropic/claude-sonnet-4-7" },
-        pythia: { model: "anthropic/claude-sonnet-4-7" },
-        scribe: { model: "anthropic/claude-sonnet-4-7" },
+        sentinel: { model: "anthropic/claude-sonnet-4-6" },
+        pythia: { model: "anthropic/claude-sonnet-4-6" },
+        scribe: { model: "anthropic/claude-sonnet-4-6" },
       },
       tools: {
         slitherPath: "/usr/local/bin/slither",

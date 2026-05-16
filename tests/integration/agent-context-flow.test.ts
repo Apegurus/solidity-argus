@@ -10,7 +10,7 @@ function makeChatParamsInput(overrides: Partial<ChatParamsInput>): ChatParamsInp
   return {
     sessionID: overrides.sessionID ?? "session-default",
     agent: overrides.agent ?? "argus",
-    model: (overrides.model ?? "anthropic/claude-sonnet-4-7") as ChatParamsInput["model"],
+    model: (overrides.model ?? "anthropic/claude-sonnet-4-6") as ChatParamsInput["model"],
     provider: (overrides.provider ?? "anthropic") as ChatParamsInput["provider"],
     message: (overrides.message ?? {}) as ChatParamsInput["message"],
   }
@@ -162,7 +162,7 @@ if (existsSync(systemPromptHookPath)) {
       })
       const output = { system: [] as string[] }
 
-      await hook({ sessionID: "ses_sys_argus", model: "anthropic/claude-sonnet-4-7" }, output)
+      await hook({ sessionID: "ses_sys_argus", model: "anthropic/claude-sonnet-4-6" }, output)
 
       expect(output.system).toHaveLength(1)
       expect(output.system[0]).toContain('<argus-context agent="sentinel">')
@@ -188,7 +188,7 @@ if (existsSync(systemPromptHookPath)) {
       })
       const output = { system: [] as string[] }
 
-      await hook({ sessionID: "ses_sys_build", model: "anthropic/claude-sonnet-4-7" }, output)
+      await hook({ sessionID: "ses_sys_build", model: "anthropic/claude-sonnet-4-6" }, output)
 
       expect(output.system).toEqual([])
     })
@@ -204,7 +204,7 @@ if (existsSync(systemPromptHookPath)) {
       })
       const output = { system: [] as string[] }
 
-      await hook({ model: "anthropic/claude-sonnet-4-7" }, output)
+      await hook({ model: "anthropic/claude-sonnet-4-6" }, output)
 
       expect(output.system).toEqual([])
     })
@@ -227,7 +227,7 @@ if (existsSync(systemPromptHookPath)) {
       })
       const outputBeforeCleanup = { system: [] as string[] }
       await hook(
-        { sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-7" },
+        { sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-6" },
         outputBeforeCleanup,
       )
       expect(outputBeforeCleanup.system.length).toBeGreaterThan(0)
@@ -236,7 +236,7 @@ if (existsSync(systemPromptHookPath)) {
 
       const outputAfterCleanup = { system: [] as string[] }
       await hook(
-        { sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-7" },
+        { sessionID: "ses_cleanup_system", model: "anthropic/claude-sonnet-4-6" },
         outputAfterCleanup,
       )
       expect(outputAfterCleanup.system).toEqual([])

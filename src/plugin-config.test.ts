@@ -112,9 +112,9 @@ test("loadArgusConfig accepts valid full config", () => {
     JSON.stringify({
       agents: {
         argus: { model: "anthropic/claude-opus-4-7" },
-        sentinel: { model: "anthropic/claude-sonnet-4-7" },
-        pythia: { model: "anthropic/claude-sonnet-4-7" },
-        scribe: { model: "anthropic/claude-sonnet-4-7" },
+        sentinel: { model: "anthropic/claude-sonnet-4-6" },
+        pythia: { model: "anthropic/claude-sonnet-4-6" },
+        scribe: { model: "anthropic/claude-sonnet-4-6" },
       },
       tools: { slitherPath: "/usr/local/bin/slither", forgePath: "/usr/local/bin/forge" },
       knowledge: {
@@ -135,7 +135,7 @@ test("loadArgusConfig accepts valid full config", () => {
   const config = loadArgusConfig(testDir)
 
   expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-7")
-  expect(config.agents.sentinel.model).toBe("anthropic/claude-sonnet-4-7")
+  expect(config.agents.sentinel.model).toBe("anthropic/claude-sonnet-4-6")
   expect(config.tools.slitherPath).toBe("/usr/local/bin/slither")
   expect(config.tools.forgePath).toBe("/usr/local/bin/forge")
   expect(config.knowledge.customSkillsDir).toBe("/path/to/skills")
