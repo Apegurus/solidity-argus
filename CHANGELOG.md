@@ -1,10 +1,16 @@
 # Changelog
 
-## 0.5.8 (unreleased)
+## 0.5.9 (unreleased)
+
+### Fixes
+- Hotfix: correct Sentinel/Pythia/Scribe default models from invalid `anthropic/claude-sonnet-4-7` to registry-valid `anthropic/claude-sonnet-4-6`, preventing `ProviderModelNotFoundError` during Argus background dispatch. Confirmed all default model IDs exist in the OpenCode model registry.
+- `argus doctor` now checks Solodit through the local MCP health probe instead of a stale direct tRPC endpoint, eliminating a false `Solodit API: returned 500` warning when local Solodit search is healthy.
+
+## 0.5.8 (2026-05-16)
 
 ### Fixes
 - `argus doctor` — new **Install drift** check detects a stale `solidity-argus` install hoisted to `~/.cache/opencode/node_modules/solidity-argus` that silently shadows the canonical install under `~/.cache/opencode/packages/solidity-argus@latest/...`. The shadowing install caused every MCP tool call to fail with `undefined is not an object (evaluating 'result.toLowerCase')` for users whose hoisted copy was older than v0.5.6 (before the defensive guards in `tool.execute.after` landed). Doctor now reports a hard failure with the exact `rm -rf` command needed to remove the shadow, plus a softer warning when the hoisted install merely drifts from the running CLI version.
-- Agent defaults now target the current model set: `anthropic/claude-opus-4-7` for Argus, `anthropic/claude-sonnet-4-7` for Sentinel/Pythia/Scribe, and `openai/gpt-5.5` for Themis.
+- Agent defaults were updated for Argus and Themis; Sentinel/Pythia/Scribe Sonnet defaults were corrected in v0.5.9.
 - `argus_generate_report` — default report rendering now includes Informational findings, aligning the implementation fallback with the tool schema default and keeping severity summary counts synchronized with the rendered findings body.
 - `argus_record_finding` — Slither-source findings with missing `impact`, `recommendation`, or `proofOfConcept` are preserved and returned with enrichment warnings instead of being rejected, preventing raw analyzer findings from being lost while still surfacing report-quality gaps for Scribe/finalization.
 - Run finalization now fails invariants when the generated report contains a `Completeness Warning` or failed report `qualityGates`, so validation summaries cannot mark warning-bearing or quality-gate-failing reports as successful.
@@ -277,9 +283,9 @@ Initial release of solidity-argus.
 
 ### Agents
 - **@argus** — Orchestrator, coordinates full 7-step audit methodology (claude-opus-4-7)
-- **@sentinel** — Static analysis & testing specialist (claude-sonnet-4-7)
-- **@pythia** — Vulnerability researcher via Solodit/SCVD (claude-sonnet-4-7)
-- **@scribe** — Audit report writer (claude-sonnet-4-7)
+- **@sentinel** — Static analysis & testing specialist (claude-sonnet-4-6)
+- **@pythia** — Vulnerability researcher via Solodit/SCVD (claude-sonnet-4-6)
+- **@scribe** — Audit report writer (claude-sonnet-4-6)
 
 ### Tools
 - `argus_slither_analyze` — Slither static analysis with auto-flatten fallback
