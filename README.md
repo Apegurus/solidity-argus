@@ -66,9 +66,9 @@ Argus will automatically:
 | Agent | Role | Model |
 |-------|------|-------|
 | `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-7 |
-| `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-7 |
-| `@pythia` | Vulnerability researcher | claude-sonnet-4-7 |
-| `@scribe` | Audit report writer | claude-sonnet-4-7 |
+| `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
+| `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
+| `@scribe` | Audit report writer | claude-sonnet-4-6 |
 | `@themis` | Independent audit quality gate | gpt-5.5 |
 
 ### @argus — The Orchestrator
@@ -285,9 +285,9 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 {
   "agents": {
     "argus": { "model": "anthropic/claude-opus-4-7" },
-    "sentinel": { "model": "anthropic/claude-sonnet-4-7" },
-    "pythia": { "model": "anthropic/claude-sonnet-4-7" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-7" },
+    "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
+    "pythia": { "model": "anthropic/claude-sonnet-4-6" },
+    "scribe": { "model": "anthropic/claude-sonnet-4-6" },
     "themis": { "model": "openai/gpt-5.5" }
   },
 
