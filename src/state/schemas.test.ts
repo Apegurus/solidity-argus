@@ -202,6 +202,30 @@ describe("normalizeToCanonicalFinding", () => {
     expect(result.data.proofOfConcept).toBe("Call setOwner from non-owner account")
     expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
   })
+
+  test("preserves deduplication lineage fields", () => {
+    const raw = {
+      check: "reentrancy-eth",
+      severity: "High",
+      confidence: "High",
+      description: "Merged reentrancy finding",
+      file: "src/Vault.sol",
+      lines: [10, 20],
+      source: "manual",
+      observation_ids: ["obs-b", "obs-a", "obs-a"],
+      observation_count: 2,
+      sources: ["manual", "slither"],
+      reported_by_agents: ["sentinel", "scribe"],
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-lineage", 1)
+
+    expect(result.data.observation_ids).toEqual(["obs-a", "obs-b"])
+    expect(result.data.observation_count).toBe(2)
+    expect(result.data.sources).toEqual(["manual", "slither"])
+    expect(result.data.reported_by_agents).toEqual(["scribe", "sentinel"])
+    expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
+  })
 })
 
 describe("validateReportInput", () => {

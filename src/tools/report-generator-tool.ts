@@ -860,6 +860,31 @@ function hasDedupLineage(findings: Finding[]): boolean {
   })
 }
 
+function observationIdsForFinding(finding: Finding): string[] {
+  const observationIds = (finding as { observation_ids?: unknown }).observation_ids
+  if (Array.isArray(observationIds)) {
+    return observationIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+  }
+  return typeof finding.observation_id === "string" && finding.observation_id.length > 0
+    ? [finding.observation_id]
+    : []
+}
+
+function compareObservationLineage(
+  eventFindings: Finding[],
+  reportFindings: Finding[],
+): { missing: string[]; extra: string[]; matches: boolean } {
+  const expected = new Set(eventFindings.flatMap(observationIdsForFinding))
+  const actual = new Set(reportFindings.flatMap(observationIdsForFinding))
+  const missing = Array.from(expected)
+    .filter((id) => !actual.has(id))
+    .sort((a, b) => a.localeCompare(b))
+  const extra = Array.from(actual)
+    .filter((id) => !expected.has(id))
+    .sort((a, b) => a.localeCompare(b))
+  return { missing, extra, matches: missing.length === 0 && extra.length === 0 }
+}
+
 export function validateReportQuality(
   findings: Finding[],
   policy: QualityGatePolicy,
@@ -1235,7 +1260,9 @@ export async function executeReportGeneration(
     const hasLineage = hasDedupLineage(reportInput.findings)
     const shouldCheckParity = eventFindings.length === inputFindings.length || hasLineage
     const parity = shouldCheckParity
-      ? compareIssueFingerprintSets(eventFindings, inputFindings)
+      ? hasLineage
+        ? compareObservationLineage(projectFindings(events), reportInput.findings)
+        : compareIssueFingerprintSets(eventFindings, inputFindings)
       : { missing: [], extra: [], matches: true }
 
     if (!shouldCheckParity) {
@@ -1260,11 +1287,12 @@ export async function executeReportGeneration(
       }
 
       warningBullets.push(`- Finding parity mismatch: ${mismatchSummary}`)
+      const parityLabel = hasLineage ? "observation IDs" : "issue fingerprints"
       if (parity.missing.length > 0) {
-        warningBullets.push(`- Missing issue fingerprints: ${parity.missing.join(", ")}`)
+        warningBullets.push(`- Missing ${parityLabel}: ${parity.missing.join(", ")}`)
       }
       if (parity.extra.length > 0) {
-        warningBullets.push(`- Extra issue fingerprints: ${parity.extra.join(", ")}`)
+        warningBullets.push(`- Extra ${parityLabel}: ${parity.extra.join(", ")}`)
       }
     }
   } catch (err) {

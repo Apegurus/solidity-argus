@@ -62,6 +62,13 @@ const KNOWN_INPUT_FIELDS = new Set([
   "observationId",
   "observationFingerprint",
   "issueFingerprint",
+  "observation_ids",
+  "observationIds",
+  "observation_count",
+  "observationCount",
+  "reported_by_agents",
+  "reportedByAgents",
+  "sources",
   "elements",
   "location",
 ])
@@ -155,6 +162,20 @@ function pushValidationDiagnostics(errors: ValidationError[]): Diagnostic[] {
     message: error.message,
     field: error.field,
   }))
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  )
+  return strings.length > 0
+    ? Array.from(new Set(strings)).sort((a, b) => a.localeCompare(b))
+    : undefined
+}
+
+function normalizePositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
 }
 
 export function normalizeToCanonicalFinding(
@@ -288,6 +309,16 @@ export function normalizeToCanonicalFinding(
       observationId,
     })
 
+  const observationIds =
+    normalizeStringArray(input.observation_ids) ?? normalizeStringArray(input.observationIds)
+  const reportedByAgents =
+    normalizeStringArray(input.reported_by_agents) ?? normalizeStringArray(input.reportedByAgents)
+  const sources = normalizeStringArray(input.sources)
+  const observationCount =
+    normalizePositiveInteger(input.observation_count) ??
+    normalizePositiveInteger(input.observationCount) ??
+    observationIds?.length
+
   const canonical: CanonicalFinding = {
     id: observationId,
     check,
@@ -302,6 +333,10 @@ export function normalizeToCanonicalFinding(
     issue_fingerprint: issueFingerprint,
     observation_fingerprint: observationFingerprint,
     observation_id: observationId,
+    observation_ids: observationIds,
+    observation_count: observationCount,
+    reported_by_agents: reportedByAgents,
+    sources,
     impact: typeof input.impact === "string" && input.impact.length > 0 ? input.impact : undefined,
     recommendation:
       typeof input.recommendation === "string" && input.recommendation.length > 0

@@ -197,6 +197,10 @@ function makeFinding(overrides: Partial<Finding>): Finding {
     file: overrides.file ?? "src/Vault.sol",
     lines: overrides.lines ?? [10, 15],
     source: overrides.source ?? "slither",
+    observation_ids: overrides.observation_ids,
+    observation_count: overrides.observation_count,
+    sources: overrides.sources,
+    reported_by_agents: overrides.reported_by_agents,
     remediation: overrides.remediation,
     exploitReference: overrides.exploitReference,
   }
@@ -1378,6 +1382,80 @@ test("preflight warn mode emits lineage warning for semantic dedup without obser
   expect(result.report).toContain("Completeness Warning")
   expect(result.report).toContain("Finding parity not verifiable")
   expect(result.report).toContain("observation_ids")
+})
+
+test("preflight accepts semantic dedup when observation_ids cover raw findings", async () => {
+  const rawReportInput = makeReportInput([
+    makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({
+      id: "raw-2",
+      check: "reentrancy-cei-violation",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+    }),
+  ])
+
+  const dedupedReportInput = makeReportInput([
+    makeFinding({
+      id: "deduped-1",
+      check: "reentrancy-withdraw",
+      description: "Scribe merged multiple reentrancy observations into one finding",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+      observation_ids: ["obs-raw-1", "obs-raw-2"],
+      observation_count: 2,
+    }),
+  ])
+
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_001,
+      payload: {},
+    },
+    ...rawReportInput.findings.map((finding, index) => ({
+      type: "finding.added" as const,
+      run_id: "test-run-1",
+      seq: index + 2,
+      session_id: "session-1",
+      tool_call_id: `finding-${index + 1}`,
+      source: "sentinel",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_002 + index,
+      payload: finding,
+    })),
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 4,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_004,
+      payload: {},
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "SemanticDedupWithLineage",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(dedupedReportInput),
+      preflight_policy: "warn",
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+    { readEvents: async () => events },
+  )
+
+  expect(result.report).not.toContain("Completeness Warning")
+  expect(result.report).not.toContain("Finding parity not verifiable")
+  expect(result.report).not.toContain("Finding parity mismatch")
 })
 
 test("preflight strict-fail throws when event read fails", async () => {
