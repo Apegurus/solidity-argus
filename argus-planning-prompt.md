@@ -325,11 +325,11 @@ if (ohoDetected) {
 {
   // Agent model overrides
   "agents": {
-    "argus": { "model": "claude-opus-4-5-20250929" },
-    "medusa": { "model": "claude-sonnet-4-5-20250929" },
+    "argus": { "model": "claude-opus-4-7" },
+    "medusa": { "model": "claude-sonnet-4-7" },
     "pythia": { "model": "gemini-2.5-pro" },
-    "hoplite": { "model": "claude-sonnet-4-5-20250929" },
-    "scribe": { "model": "claude-sonnet-4-5-20250929" }
+    "hoplite": { "model": "claude-sonnet-4-7" },
+    "scribe": { "model": "claude-sonnet-4-7" }
   },
 
   // Tool configuration
