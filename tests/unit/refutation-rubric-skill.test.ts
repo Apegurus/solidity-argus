@@ -72,4 +72,10 @@ describe("refutation-rubric skill", () => {
     const fm = parseYaml(fmMatch![1])
     expect(fm.category).toBe("methodology")
   })
+
+  test("audit-workflow skill references refutation-rubric", () => {
+    const path = join(import.meta.dir, "..", "..", "skills", "methodology", "audit-workflow", "SKILL.md")
+    const raw = readFileSync(path, "utf8")
+    expect(raw).toContain("refutation-rubric")
+  })
 })
