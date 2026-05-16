@@ -326,10 +326,10 @@ if (ohoDetected) {
   // Agent model overrides
   "agents": {
     "argus": { "model": "claude-opus-4-7" },
-    "medusa": { "model": "claude-sonnet-4-7" },
+    "medusa": { "model": "claude-sonnet-4-6" },
     "pythia": { "model": "gemini-2.5-pro" },
-    "hoplite": { "model": "claude-sonnet-4-7" },
-    "scribe": { "model": "claude-sonnet-4-7" }
+    "hoplite": { "model": "claude-sonnet-4-6" },
+    "scribe": { "model": "claude-sonnet-4-6" }
   },
 
   // Tool configuration

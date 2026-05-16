@@ -15,15 +15,15 @@
     },
     "sentinel": {
       // Static analysis specialist
-      "model": "anthropic/claude-sonnet-4-7"
+      "model": "anthropic/claude-sonnet-4-6"
     },
     "pythia": {
       // Research specialist
-      "model": "anthropic/claude-sonnet-4-7"
+      "model": "anthropic/claude-sonnet-4-6"
     },
     "scribe": {
       // Report writer — sonnet is sufficient
-      "model": "anthropic/claude-sonnet-4-7"
+      "model": "anthropic/claude-sonnet-4-6"
     },
     "themis": {
       // Independent quality gate — different provider for reasoning diversity
