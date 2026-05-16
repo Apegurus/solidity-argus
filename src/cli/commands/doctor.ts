@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { basename, dirname, extname, join } from "node:path"
+import { homedir } from "node:os"
+import { basename, dirname, extname, join, resolve } from "node:path"
 import { loadArgusConfig } from "../../config/loader"
 import type { ArgusConfig } from "../../config/types"
 import { createLogger } from "../../shared/logger"
@@ -133,6 +134,143 @@ export function buildSkillHealthReport(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Install-drift detection
+//
+// OpenCode's plugin resolver walks up the filesystem looking up `node_modules`
+// directories. A stale copy of solidity-argus hoisted to a higher-precedence
+// location (typically `~/.cache/opencode/node_modules/solidity-argus`) will
+// SHADOW the canonical install under `~/.cache/opencode/packages/...`. The
+// shadowing install is loaded silently, leading to confusing failures like
+// `undefined is not an object (evaluating 'result.toLowerCase')` on every MCP
+// call (older versions lacked defensive guards in `tool.execute.after`).
+//
+// This check enumerates known install locations and flags drift.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ArgusInstallSource =
+  | "current"
+  | "hoisted-cache"
+  | "package-cache"
+  | "user-config"
+  | "project-local"
+
+export type ArgusInstall = {
+  source: ArgusInstallSource
+  path: string
+  version: string | null
+}
+
+export type InstallDriftReport = {
+  current: ArgusInstall | null
+  installs: ArgusInstall[]
+  errors: string[]
+  warnings: string[]
+}
+
+function readPackageVersion(packageRoot: string): string | null {
+  try {
+    const raw = readFileSync(join(packageRoot, "package.json"), "utf8")
+    const parsed = JSON.parse(raw) as { version?: unknown }
+    return typeof parsed.version === "string" ? parsed.version : null
+  } catch {
+    return null
+  }
+}
+
+function getCurrentArgusInstall(): ArgusInstall | null {
+  // doctor.ts lives at <packageRoot>/src/cli/commands/doctor.ts
+  const packageRoot = resolve(import.meta.dir, "../../..")
+  if (!existsSync(join(packageRoot, "package.json"))) return null
+  const version = readPackageVersion(packageRoot)
+  return { source: "current", path: packageRoot, version }
+}
+
+export function enumerateArgusInstallCandidates(
+  cwd: string,
+  home: string,
+): Array<{ source: ArgusInstallSource; path: string }> {
+  return [
+    {
+      source: "hoisted-cache",
+      path: join(home, ".cache", "opencode", "node_modules", "solidity-argus"),
+    },
+    {
+      source: "package-cache",
+      path: join(
+        home,
+        ".cache",
+        "opencode",
+        "packages",
+        "solidity-argus@latest",
+        "node_modules",
+        "solidity-argus",
+      ),
+    },
+    {
+      source: "user-config",
+      path: join(home, ".config", "opencode", "node_modules", "solidity-argus"),
+    },
+    {
+      source: "project-local",
+      path: join(cwd, "node_modules", "solidity-argus"),
+    },
+  ]
+}
+
+function findArgusInstalls(cwd: string, home: string): ArgusInstall[] {
+  const installs: ArgusInstall[] = []
+  for (const { source, path } of enumerateArgusInstallCandidates(cwd, home)) {
+    if (existsSync(path)) {
+      installs.push({ source, path, version: readPackageVersion(path) })
+    }
+  }
+  return installs
+}
+
+export function detectInstallDrift(
+  current: ArgusInstall | null,
+  installs: ArgusInstall[],
+): { errors: string[]; warnings: string[] } {
+  const errors: string[] = []
+  const warnings: string[] = []
+
+  const hoisted = installs.find((i) => i.source === "hoisted-cache")
+  const pkgCache = installs.find((i) => i.source === "package-cache")
+
+  // Highest-confidence error: hoisted cache shadows the canonical cache with a
+  // DIFFERENT version. OpenCode will load the wrong one.
+  if (hoisted && pkgCache && hoisted.version !== pkgCache.version) {
+    errors.push(
+      `Stale install shadowing canonical version:\n` +
+        `    ${hoisted.path} (v${hoisted.version ?? "unknown"})\n` +
+        `    shadows ${pkgCache.path} (v${pkgCache.version ?? "unknown"}).\n` +
+        `    OpenCode will load v${hoisted.version ?? "unknown"} instead of v${pkgCache.version ?? "unknown"}.\n` +
+        `    Fix: rm -rf "${hoisted.path}"`,
+    )
+    return { errors, warnings }
+  }
+
+  // Lower-confidence: hoisted install drifts from the version the doctor CLI
+  // is itself running as (typical when the user upgraded via bunx/opencode).
+  if (hoisted && current?.version && hoisted.version && hoisted.version !== current.version) {
+    warnings.push(
+      `Possible stale install (drift from running version):\n` +
+        `    ${hoisted.path} (v${hoisted.version}) differs from current (v${current.version}).\n` +
+        `    Fix: rm -rf "${hoisted.path}"`,
+    )
+  }
+
+  return { errors, warnings }
+}
+
+export function buildInstallDriftReport(cwd: string, home: string): InstallDriftReport {
+  const current = getCurrentArgusInstall()
+  const installs = findArgusInstalls(cwd, home)
+  const { errors, warnings } = detectInstallDrift(current, installs)
+  return { current, installs, errors, warnings }
+}
+
 const NON_SKILL_FILENAMES = new Set(["README.md", "INVENTORY.md", "CHANGELOG.md", "LICENSE.md"])
 
 function scanMarkdownFiles(dir: string, maxDepth = 8): string[] {
@@ -235,6 +373,22 @@ export const doctorCommand: CliCommand = {
       cliOutput.log(`${GREEN}✓${RESET} Project: ${projectType} detected`)
     } else {
       cliOutput.log(`${YELLOW}⚠${RESET} Project: no Solidity project detected`)
+    }
+
+    const driftReport = buildInstallDriftReport(cwd, homedir())
+    if (driftReport.errors.length === 0 && driftReport.warnings.length === 0) {
+      const versionStr = driftReport.current?.version
+        ? ` (current: v${driftReport.current.version})`
+        : ""
+      cliOutput.log(`${GREEN}✓${RESET} Install drift: none detected${versionStr}`)
+    } else {
+      for (const err of driftReport.errors) {
+        cliOutput.log(`${RED}✗${RESET} Install drift: ${err}`)
+        hasFailure = true
+      }
+      for (const warn of driftReport.warnings) {
+        cliOutput.log(`${YELLOW}⚠${RESET} Install drift: ${warn}`)
+      }
     }
 
     if (projectType === "foundry" && detectViaIr(cwd)) {

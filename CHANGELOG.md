@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.8 (unreleased)
+
+### Fixes
+- `argus doctor` — new **Install drift** check detects a stale `solidity-argus` install hoisted to `~/.cache/opencode/node_modules/solidity-argus` that silently shadows the canonical install under `~/.cache/opencode/packages/solidity-argus@latest/...`. The shadowing install caused every MCP tool call to fail with `undefined is not an object (evaluating 'result.toLowerCase')` for users whose hoisted copy was older than v0.5.6 (before the defensive guards in `tool.execute.after` landed). Doctor now reports a hard failure with the exact `rm -rf` command needed to remove the shadow, plus a softer warning when the hoisted install merely drifts from the running CLI version.
+
+### Internal
+- New exported helpers in `src/cli/commands/doctor.ts`: `enumerateArgusInstallCandidates`, `detectInstallDrift`, `buildInstallDriftReport`, and the `ArgusInstall` / `InstallDriftReport` types — fully unit-tested with synthetic install records (no filesystem touch in tests).
+
 ## 0.5.7 (2026-05-12)
 
 ### Fixes (audit reporting pipeline)
