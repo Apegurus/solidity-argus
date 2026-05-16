@@ -1217,26 +1217,24 @@ export function buildProvenanceAppendix(
   return lines.join("\n")
 }
 
-type ReportRenderInput = ReportInput & {
-  project_name?: string
+export type RenderReportOptions = {
+  threshold?: number
+  projectName?: string
   include_executive_summary?: boolean
   severity_threshold?: SeverityThreshold
-  threshold?: number
-  confidenceThreshold?: number
-  renderScope?: string[]
+  scope?: string[]
   preflightWarningSection?: string | null
-  renderRunId?: string
+  runId?: string
 }
 
-export function renderReportMarkdown(input: ReportInput): string {
-  const renderInput = input as ReportRenderInput
-  const projectName = renderInput.project_name ?? "Unknown Project"
-  const includeExecutiveSummary = renderInput.include_executive_summary ?? true
-  const threshold = renderInput.severity_threshold ?? "informational"
-  const confidenceThreshold = renderInput.threshold ?? renderInput.confidenceThreshold ?? 80
-  const preflightWarningSection = renderInput.preflightWarningSection ?? null
+export function renderReportMarkdown(input: ReportInput, options: RenderReportOptions = {}): string {
+  const projectName = options.projectName ?? "Unknown Project"
+  const includeExecutiveSummary = options.include_executive_summary ?? true
+  const threshold = options.severity_threshold ?? "informational"
+  const confidenceThreshold = options.threshold ?? 80
+  const preflightWarningSection = options.preflightWarningSection ?? null
   const state = reportInputToAuditState(input)
-  const scope = renderInput.renderScope ?? input.scope
+  const scope = options.scope ?? input.scope
   const finalFindings = dedupeFindingsForFinalOutput(input.findings)
   const reportFindings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
@@ -1323,7 +1321,7 @@ export function renderReportMarkdown(input: ReportInput): string {
   sections.push(buildProvenanceAppendix(state, threshold, findings))
 
   // Embed report metadata for single-writer policy enforcement
-  const runId = renderInput.renderRunId ?? input.run_id
+  const runId = options.runId ?? input.run_id
   if (runId) {
     sections.push(buildReportMetadataComment(runId))
   }
@@ -1341,6 +1339,8 @@ export async function executeReportGeneration(
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
   const toolCoveragePolicy = args.tool_coverage_policy ?? "enforce"
   const expectedRunId = resolveExpectedRunId(args, context, deps)
+  let confidenceThreshold = 80
+  let loadedConfig: ArgusConfig | undefined
 
   // Ensure report-input.json is materialized before attempting disk lookup.
   // Scribe may call generate_report without calling read_findings first,
@@ -1361,6 +1361,14 @@ export async function executeReportGeneration(
   }
 
   const { reportInput, diagnostics } = parseReportInputPayload(args, context, expectedRunId)
+  try {
+    const loadConfig = deps.loadConfig ?? loadArgusConfig
+    const projectDir = resolveProjectDir(context)
+    loadedConfig = loadConfig(projectDir)
+    confidenceThreshold = loadedConfig.reporting?.confidenceThreshold ?? confidenceThreshold
+  } catch {
+    /* Preserve existing write-error behavior: config failures are reported during report write. */
+  }
 
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
@@ -1507,15 +1515,15 @@ export async function executeReportGeneration(
   if (runId.startsWith("ses_")) {
     throw new Error("Report generation requires canonical run_id; received OpenCode session id")
   }
-  const reportMarkdown = renderReportMarkdown({
-    ...reportInput,
-    project_name: args.project_name,
+  const reportMarkdown = renderReportMarkdown(reportInput, {
+    projectName: args.project_name,
     include_executive_summary: includeExecutiveSummary,
     severity_threshold: threshold,
-    renderScope: scope,
+    threshold: confidenceThreshold,
+    scope,
     preflightWarningSection,
-    renderRunId: runId,
-  } as ReportInput)
+    runId,
+  })
   const contentHash = stableHash(reportMarkdown)
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
@@ -1537,7 +1545,7 @@ export async function executeReportGeneration(
   try {
     const loadConfig = deps.loadConfig ?? loadArgusConfig
     const projectDir = resolveProjectDir(context)
-    const config = loadConfig(projectDir)
+    const config = loadedConfig ?? loadConfig(projectDir)
     const rawOutputDir = config.reporting?.output_dir ?? ".argus/reports/"
     const resolvedOutput = path.resolve(projectDir, rawOutputDir)
     const projectRoot = projectDir.endsWith(path.sep) ? projectDir : projectDir + path.sep
