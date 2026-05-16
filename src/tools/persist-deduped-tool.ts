@@ -85,7 +85,7 @@ export const persistDedupedTool = tool({
     deduped_findings: tool.schema
       .string()
       .describe(
-        "Serialized JSON array of deduplicated and enriched findings. Each finding should have: check, severity, confidence, description, file, lines, source, impact, recommendation.",
+        "Serialized JSON array of deduplicated and enriched findings. Each finding should have: check, severity, confidence, description, file, lines, source, impact, recommendation, proofOfConcept.",
       ),
   },
   async execute(args, context) {

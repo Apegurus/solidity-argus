@@ -103,11 +103,12 @@ You have two primary tools. Master them.
   "lines": [startLine, endLine],
   "source": "manual",
   "impact": "Specific impact based on the historical precedent (e.g., 'Total vault drain via flash loan, similar to $X loss in Protocol Y')",
-  "recommendation": "Specific mitigation from the precedent audit report"
+  "recommendation": "Specific mitigation from the precedent audit report",
+  "proofOfConcept": "Steps to reproduce, exploit sketch, or reference to the historical exploit/audit evidence"
 }
 \`\`\`
 
-**CRITICAL**: For Critical and High findings, \`impact\` and \`recommendation\` are MANDATORY. The quality gate will flag findings missing these fields. Use your Solodit research to write specific, precedent-backed impact and recommendation text — not generic placeholders.
+**CRITICAL**: For Critical and High final report findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. \`argus_record_finding\` preserves incomplete findings with warnings rather than dropping them, but Scribe must enrich them before final reporting. Use your Solodit research to write specific, precedent-backed impact, recommendation, and proof-of-concept text — not generic placeholders.
 
 **Interpretation**:
 - A finding is not report-ready until it has been recorded through this tool.
