@@ -235,6 +235,22 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     })
   }
 
+  if ("confidence_score" in (raw as Record<string, unknown>)) {
+    if (
+      raw.confidence_score === null ||
+      typeof raw.confidence_score !== "number" ||
+      !Number.isInteger(raw.confidence_score) ||
+      raw.confidence_score < 0 ||
+      raw.confidence_score > 100
+    ) {
+      errors.push({
+        field: "confidence_score",
+        code: "invalid",
+        message: "confidence_score must be an integer between 0 and 100 when provided",
+      })
+    }
+  }
+
   if (
     typeof raw.source !== "string" ||
     !VALID_SOURCES.has(raw.source as CanonicalFinding["source"])

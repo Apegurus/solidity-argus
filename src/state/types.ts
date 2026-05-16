@@ -15,6 +15,16 @@ export interface Finding {
   check: string // detector name e.g. "reentrancy-eth"
   severity: FindingSeverity
   confidence: "High" | "Medium" | "Low"
+  /**
+   * Optional numeric confidence (0-100 integer). Populated by source agents
+   * applying the refutation-rubric skill. Backward compatible: pre-rubric
+   * findings omit this field and still validate.
+   *
+   * Note: the existing string-enum `confidence` field ("High" | "Medium" | "Low")
+   * represents evidence quality, which is conceptually different. Both coexist.
+   * See docs/superpowers/specs/2026-05-16-findings-rubric-and-self-update-design.md §5.3.
+   */
+  confidence_score?: number
   description: string
   file: string // relative file path
   lines: [number, number] // [start, end]
