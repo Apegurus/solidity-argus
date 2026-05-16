@@ -73,6 +73,7 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
               source: "slither",
               impact: "Anyone can swap the price feed pool to manipulate oracle prices",
               recommendation: "Restrict setPool to onlyOwner",
+              proofOfConcept: "Call setPool from an unprivileged account and observe success",
             },
           ]),
         },
@@ -112,6 +113,19 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
               source: "slither",
               impact: "Anyone can swap the price feed pool to manipulate oracle prices",
               recommendation: "Restrict setPool to onlyOwner",
+              proofOfConcept: "Call setPool from an unprivileged account and observe success",
+            },
+            {
+              check: "floating-pragma",
+              severity: "Informational",
+              confidence: "Low",
+              description: "Contracts use a floating pragma",
+              file: "src/VulnerableVault.sol",
+              lines: [1, 1],
+              source: "manual",
+              impact: "Build reproducibility is reduced across compiler patch versions",
+              recommendation: "Pin all contracts to the same audited compiler version",
+              proofOfConcept: "Inspect pragma solidity declaration in the fixture contracts",
             },
           ]),
         },
@@ -120,7 +134,7 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
     ) as { success: boolean; findings_count: number }
 
     expect(persistResponse.success).toBe(true)
-    expect(persistResponse.findings_count).toBe(2)
+    expect(persistResponse.findings_count).toBe(3)
 
     const start = Date.now()
     const reportResult = await executeReportGeneration(
@@ -138,10 +152,12 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
     expect(reportResult.run_id).toBe(runId)
     expect(reportResult.findingsCount.critical).toBe(1)
     expect(reportResult.findingsCount.high).toBe(1)
+    expect(reportResult.findingsCount.informational).toBe(1)
     expect(reportResult.report).toContain("Critical")
     expect(reportResult.report).toContain("Attacker can drain all deposited ETH")
     expect(reportResult.report).toContain("Add OpenZeppelin nonReentrant modifier")
     expect(reportResult.report).toContain("Anyone can swap the price feed pool")
+    expect(reportResult.report).toContain("### [INFO-1] Floating Pragma")
     expect(reportResult.report).not.toContain("Impact details were not provided")
     expect(reportResult.report).not.toContain("Recommendation details were not provided")
     expect(elapsed).toBeLessThan(60_000)
