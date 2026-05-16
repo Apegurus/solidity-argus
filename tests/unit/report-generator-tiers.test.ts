@@ -191,6 +191,38 @@ describe("report-generator tier splitting", () => {
     expect(report).not.toMatch(/Rubric: \d+\/\d+ findings/)
   })
 
+  test("D4: finding WITH rubric trace renders without warning", () => {
+    const report = renderReportMarkdown({
+      findings: [f({
+        confidence_score: 90,
+        description: "**Rubric Trace** · Confidence: 90\n\n---\n\nlegit bug",
+      })],
+    } as any, { threshold: 80 })
+    expect(report).not.toContain("no rubric trace")
+  })
+
+  test("D4: finding WITHOUT rubric trace renders the warning annotation", () => {
+    const report = renderReportMarkdown({
+      findings: [f({
+        confidence_score: 90,
+        description: "plain finding without the trace prefix",
+      })],
+    } as any, { threshold: 80 })
+    expect(report).toMatch(/⚠️ no rubric trace/)
+  })
+
+  test("D4: annotation also appears on Leads missing the trace", () => {
+    const report = renderReportMarkdown({
+      findings: [f({
+        confidence_score: 60,
+        description: "low-confidence trail without rubric trace",
+      })],
+    } as any, { threshold: 80 })
+    const leadsIdx = report.indexOf("## Leads")
+    expect(leadsIdx).toBeGreaterThan(-1)
+    expect(report.slice(leadsIdx)).toMatch(/⚠️ no rubric trace/)
+  })
+
   test("executeReportGeneration honors reporting.confidenceThreshold from config", async () => {
     const result = await executeReportGeneration(
       {

@@ -1050,7 +1050,7 @@ function buildFindingsSection(findings: Finding[]): string {
     lines.push(`**Confidence**: ${finding.confidence}`)
     lines.push(`**Location**: ${formatLocation(finding)}`)
     lines.push("")
-    lines.push(`**Description**: ${finding.description}`)
+    lines.push(`**Description**: ${renderFindingBody(finding)}`)
     lines.push("")
     lines.push(`**Impact**: ${impact}`)
     lines.push("")
@@ -1078,6 +1078,13 @@ function hasRubricTrace(f: Finding): boolean {
   return typeof f.description === "string" && f.description.trimStart().startsWith("**Rubric Trace**")
 }
 
+function renderFindingBody(f: Finding): string {
+  const annotation = hasRubricTrace(f)
+    ? ""
+    : "⚠️ no rubric trace — this finding was emitted without applying the 4-gate refutation rubric.\n\n"
+  return annotation + (f.description ?? "")
+}
+
 function renderAdoptionFooter(findings: Finding[]): string {
   if (findings.length === 0) return ""
   const withTrace = findings.filter(hasRubricTrace).length
@@ -1094,7 +1101,7 @@ function buildLeadsSection(findings: Finding[]): string {
   for (const finding of findings) {
     lines.push(renderFindingHeader(finding, "lead"))
     lines.push("")
-    lines.push(`**Description**: ${finding.description}`)
+    lines.push(`**Description**: ${renderFindingBody(finding)}`)
     lines.push("")
   }
 
