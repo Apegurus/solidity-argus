@@ -116,7 +116,7 @@ describe("stripJsoncComments", () => {
   // Configuration file
   "agents": {
     "argus": {
-      "model": "claude-opus-4-6", // main orchestrator
+      "model": "claude-opus-4-7", // main orchestrator
       "tools": ["slither", "forge"] // available tools
     }
   },
@@ -124,7 +124,7 @@ describe("stripJsoncComments", () => {
   "enabled": true,
 }`
     const result = stripJsoncComments(input)
-    expect(result).toContain('"model": "claude-opus-4-6"')
+    expect(result).toContain('"model": "claude-opus-4-7"')
     expect(result).toContain('"tools": ["slither", "forge"]')
     expect(result).not.toContain("//")
     expect(result).not.toContain("/*")

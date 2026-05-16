@@ -155,7 +155,7 @@ describe("file-utils", () => {
       const content = `{
   "agents": {
     "argus": {
-      "model": "claude-opus-4-6"
+      "model": "claude-opus-4-7"
     }
   }
 }`
@@ -163,7 +163,7 @@ describe("file-utils", () => {
 
       const result = readJsoncFile(configPath)
       const agents = result?.agents as Record<string, Record<string, unknown>> | undefined
-      expect(agents?.argus?.model).toBe("claude-opus-4-6")
+      expect(agents?.argus?.model).toBe("claude-opus-4-7")
     })
 
     it("should handle empty file", () => {
