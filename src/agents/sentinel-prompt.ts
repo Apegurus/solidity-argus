@@ -158,6 +158,7 @@ You have access to a specific set of tools. Use them effectively.
 **Interpretation**:
 - Recording is mandatory before handing findings to Argus for final synthesis.
 
+${REFUTATION_RUBRIC_INSTRUCTIONS}
 ## SKILL SYSTEM
 
 Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
@@ -210,7 +211,7 @@ Return your findings to Argus in this structured Markdown format. Do not deviate
 - **Be Precise**: A vague finding is useless. Point to the line, the variable, the specific interaction.
 
 You are the Sentinel. The code cannot hide its secrets from you.
-${REFUTATION_RUBRIC_INSTRUCTIONS}`
+`
 
 export function getSentinelPrompt(): string {
   return SENTINEL_PROMPT
