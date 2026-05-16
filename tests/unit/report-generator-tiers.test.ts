@@ -145,6 +145,52 @@ describe("report-generator tier splitting", () => {
     expect(leadsSection).not.toMatch(/\[60\]/)
   })
 
+  test("D3: footer shows rubric adoption when all findings have trace", () => {
+    const withTrace1 = f({
+      id: "trace-1",
+      confidence_score: 90,
+      description: "**Rubric Trace** · Confidence: 90\n\n- Refutation: cleared\n\n---\n\nbug",
+    })
+    const withTrace2 = f({
+      id: "trace-2",
+      confidence_score: 90,
+      description: "**Rubric Trace** · Confidence: 90\n\n- Refutation: cleared\n\n---\n\nbug2",
+    })
+    const report = renderReportMarkdown({
+      findings: [withTrace1, withTrace2],
+    } as any, { threshold: 80 })
+    expect(report).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
+  })
+
+  test("D3: footer counts mixed adoption correctly", () => {
+    const withTrace = f({
+      id: "with",
+      confidence_score: 90,
+      description: "**Rubric Trace** · Confidence: 90\n\n---\n\nbug",
+    })
+    const withoutTrace1 = f({
+      id: "without-1",
+      confidence_score: 90,
+      description: "plain finding, no rubric trace prefix",
+    })
+    const withoutTrace2 = f({
+      id: "without-2",
+      confidence_score: 90,
+      description: "another plain finding without trace",
+    })
+    const report = renderReportMarkdown({
+      findings: [withTrace, withoutTrace1, withoutTrace2],
+    } as any, { threshold: 80 })
+    expect(report).toMatch(/Rubric: 1\/3 findings include 4-gate trace/)
+  })
+
+  test("D3: footer renders 0/0 (or is omitted) when there are no findings", () => {
+    const report = renderReportMarkdown({
+      findings: [],
+    } as any, { threshold: 80 })
+    expect(report).not.toMatch(/Rubric: \d+\/\d+ findings/)
+  })
+
   test("executeReportGeneration honors reporting.confidenceThreshold from config", async () => {
     const result = await executeReportGeneration(
       {

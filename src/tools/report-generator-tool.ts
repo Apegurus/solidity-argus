@@ -1074,6 +1074,16 @@ function renderFindingHeader(finding: Finding, tier: "finding" | "lead"): string
   return `### ${prefix}${normalizeTitle(finding.check)} · severity: ${finding.severity} · evidence: ${finding.confidence}`
 }
 
+function hasRubricTrace(f: Finding): boolean {
+  return typeof f.description === "string" && f.description.trimStart().startsWith("**Rubric Trace**")
+}
+
+function renderAdoptionFooter(findings: Finding[]): string {
+  if (findings.length === 0) return ""
+  const withTrace = findings.filter(hasRubricTrace).length
+  return `\n\n---\n\n_Rubric: ${withTrace}/${findings.length} findings include 4-gate trace_\n`
+}
+
 function buildLeadsSection(findings: Finding[]): string {
   if (findings.length === 0) {
     return ""
@@ -1233,8 +1243,9 @@ export function renderReportMarkdown(input: ReportInput, options: RenderReportOp
   const threshold = options.severity_threshold ?? "informational"
   const confidenceThreshold = options.threshold ?? 80
   const preflightWarningSection = options.preflightWarningSection ?? null
-  const state = reportInputToAuditState(input)
-  const scope = options.scope ?? input.scope
+  const toolsExecuted = input.toolsExecuted ?? []
+  const state = reportInputToAuditState({ ...input, toolsExecuted })
+  const scope = options.scope ?? input.scope ?? []
   const finalFindings = dedupeFindingsForFinalOutput(input.findings)
   const reportFindings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
@@ -1243,10 +1254,7 @@ export function renderReportMarkdown(input: ReportInput, options: RenderReportOp
   const findings = sortFindingsByConfidence(tiers.findings)
   const leads = sortFindingsByConfidence(tiers.leads)
   const counts = calculateCounts(findings)
-  // Derive audit date from the run's start time for deterministic output.
-  // Falls back to the earliest toolsExecuted timestamp, then current date as last resort.
-  // Exclude UNKNOWN_TIMESTAMP_SENTINEL (patched-in value for missing timestamps).
-  const runStartTime = input.toolsExecuted.reduce(
+  const runStartTime = toolsExecuted.reduce(
     (earliest, exec) =>
       typeof exec.startTime === "number" &&
       exec.startTime > UNKNOWN_TIMESTAMP_SENTINEL &&
@@ -1320,13 +1328,13 @@ export function renderReportMarkdown(input: ReportInput, options: RenderReportOp
 
   sections.push(buildProvenanceAppendix(state, threshold, findings))
 
-  // Embed report metadata for single-writer policy enforcement
   const runId = options.runId ?? input.run_id
   if (runId) {
     sections.push(buildReportMetadataComment(runId))
   }
 
-  return sections.join("\n\n")
+  const allFindings = [...findings, ...leads]
+  return sections.join("\n\n") + renderAdoptionFooter(allFindings)
 }
 
 export async function executeReportGeneration(
