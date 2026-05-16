@@ -5,6 +5,7 @@
 ### Fixes
 - Hotfix: correct Sentinel/Pythia/Scribe default models from invalid `anthropic/claude-sonnet-4-7` to registry-valid `anthropic/claude-sonnet-4-6`, preventing `ProviderModelNotFoundError` during Argus background dispatch. Confirmed all default model IDs exist in the OpenCode model registry.
 - `argus doctor` now checks Solodit through the local MCP health probe instead of a stale direct tRPC endpoint, eliminating a false `Solodit API: returned 500` warning when local Solodit search is healthy.
+- Deduped report findings now preserve `observation_ids`, `observation_count`, `sources`, and `reported_by_agents` through normalization, allowing `argus_generate_report` to verify semantic raw-to-deduped parity by observation lineage instead of emitting an unverifiable-parity warning.
 
 ## 0.5.8 (2026-05-16)
 
