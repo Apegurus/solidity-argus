@@ -32,6 +32,7 @@ const KNOWN_INPUT_FIELDS = new Set([
   "name",
   "severity",
   "confidence",
+  "confidence_score",
   "description",
   "impact",
   "first_markdown_element",
@@ -324,6 +325,9 @@ export function normalizeToCanonicalFinding(
     check,
     severity: VALID_SEVERITIES.has(severity) ? severity : "Informational",
     confidence: VALID_CONFIDENCES.has(confidence) ? confidence : "Low",
+    ...("confidence_score" in input
+      ? { confidence_score: input.confidence_score as CanonicalFinding["confidence_score"] }
+      : {}),
     description,
     file,
     lines: lines ?? [0, 0],

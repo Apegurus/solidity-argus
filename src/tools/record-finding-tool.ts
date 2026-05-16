@@ -22,6 +22,7 @@ type RecordFindingResponse = {
     lines: [number, number]
     source: string
     reported_by_agent: string
+    confidence_score?: number
     impact?: string
     recommendation?: string
     proofOfConcept?: string
@@ -206,6 +207,7 @@ export async function executeRecordFinding(
       lines: f.lines,
       source: f.source,
       reported_by_agent: f.reported_by_agent,
+      ...(f.confidence_score !== undefined ? { confidence_score: f.confidence_score } : {}),
       ...(f.impact !== undefined ? { impact: f.impact } : {}),
       ...(f.recommendation !== undefined ? { recommendation: f.recommendation } : {}),
       ...(f.proofOfConcept !== undefined ? { proofOfConcept: f.proofOfConcept } : {}),
@@ -232,13 +234,13 @@ export const recordFindingTool = tool({
       .string()
       .optional()
       .describe(
-        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
+        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: confidence_score (integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold, default 80, render in Findings; lower scores render in Leads), impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
       ),
     findings: tool.schema
       .string()
       .optional()
       .describe(
-        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.",
+        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Optional confidence_score is an integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold (default 80) render in Findings, lower scores render in Leads. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.",
       ),
   },
   async execute(args, context) {
