@@ -13,6 +13,8 @@ import {
 } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
 import { detectViaIr } from "../../tools/slither-tool"
+import { DEFAULT_SOLODIT_PORT } from "../../tools/solodit-search-tool"
+import { checkSoloditHealth } from "../../utils/solodit-health"
 import { cliOutput } from "../cli-output"
 import type { CliCommand } from "../types"
 
@@ -459,21 +461,13 @@ export const doctorCommand: CliCommand = {
 
     const soloditEnabled = config?.solodit?.enabled !== false
     if (soloditEnabled) {
-      try {
-        const response = await fetch(
-          "https://solodit.cyfrin.io/api/trpc/findings.get?batch=1&input=" +
-            encodeURIComponent(JSON.stringify({ 0: "[]" })),
-          {
-            signal: AbortSignal.timeout(5000),
-          },
-        )
-        if (response.ok) {
-          cliOutput.log(`${GREEN}✓${RESET} Solodit API: reachable`)
-        } else {
-          cliOutput.log(`${YELLOW}⚠${RESET} Solodit API: returned ${response.status}`)
-        }
-      } catch {
-        cliOutput.log(`${YELLOW}⚠${RESET} Solodit API: unreachable`)
+      const port = config?.solodit?.port ?? DEFAULT_SOLODIT_PORT
+      const status = await checkSoloditHealth(port, true)
+      if (status.reachable) {
+        cliOutput.log(`${GREEN}✓${RESET} Solodit MCP: reachable on port ${port}`)
+      } else {
+        const suffix = status.error ? ` (${status.error})` : ""
+        cliOutput.log(`${YELLOW}⚠${RESET} Solodit MCP: unreachable on port ${port}${suffix}`)
       }
     } else {
       cliOutput.log(`${YELLOW}⚠${RESET} Solodit: disabled in config`)

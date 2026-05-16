@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
 import type { ResolvedSkill } from "../../skills/argus-skill-resolver"
+import { cliOutput } from "../cli-output"
 import {
   ALL_CATEGORIES,
   type ArgusInstall,
@@ -39,6 +40,7 @@ function makeNoFrontmatterSkill(name: string, source: ResolvedSkill["source"]): 
 
 describe("doctorCommand", () => {
   const originalFetch = globalThis.fetch
+  const originalLog = cliOutput.log
 
   beforeEach(() => {
     globalThis.fetch = mock(() =>
@@ -48,6 +50,7 @@ describe("doctorCommand", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+    cliOutput.log = originalLog
   })
 
   it("has correct name and description", () => {
@@ -59,6 +62,23 @@ describe("doctorCommand", () => {
     const exitCode = await doctorCommand.execute([])
     expect(typeof exitCode).toBe("number")
     expect([0, 1]).toContain(exitCode)
+  })
+
+  it("checks Solodit through the local MCP health probe", async () => {
+    const urls: string[] = []
+    const output: string[] = []
+    globalThis.fetch = mock((url: string | URL | Request) => {
+      const target = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url
+      urls.push(target)
+      return Promise.resolve(new Response("ok", { status: 200 }))
+    }) as unknown as typeof fetch
+    cliOutput.log = (...args: unknown[]) => output.push(args.join(" "))
+
+    await doctorCommand.execute([])
+
+    expect(urls).toContain("http://localhost:54173/mcp")
+    expect(urls.some((url) => url.includes("solodit.cyfrin.io/api/trpc/findings.get"))).toBe(false)
+    expect(output.join("\n")).toContain("Solodit MCP: reachable on port 54173")
   })
 })
 
