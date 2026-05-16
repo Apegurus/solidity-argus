@@ -53,6 +53,7 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
    - Add "**Detected by:**" listing all tools/checks that flagged it
    - Example: reentrancy-eth + reentrancy-cei-violation + reentrancy-eth-withdraw-state-after-call at VulnerableVault.sol:18-23 → ONE finding
    - **PRESERVATION RULE**: Every raw finding MUST map to exactly one deduped finding. Only merge findings that are genuinely the SAME vulnerability at the SAME location. Different vulnerability classes (e.g., default-visibility vs dos-revert) are SEPARATE findings even if both are Informational. NEVER drop findings during deduplication.
+   - **LINEAGE RULE**: Every deduped finding MUST include \`observation_ids\` containing each raw finding's \`observation_id\`, plus \`observation_count\`, \`sources\`, and \`reported_by_agents\` when available. This lets \`argus_generate_report\` prove raw-to-deduped parity instead of emitting a "Finding parity not verifiable" warning.
 
 3. **Enrich** (MANDATORY for Critical/High):
    - Write specific \`impact\` (concrete consequence, not "could be exploited")
@@ -61,7 +62,7 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
 
 4. **Persist deduped findings**: Call \`argus_persist_deduped\` with:
    - \`run_id\`: the run ID from Argus
-   - \`deduped_findings\`: JSON array of your deduped and enriched findings
+   - \`deduped_findings\`: JSON array of your deduped and enriched findings, including \`observation_ids\` lineage for every merged raw observation
 
    This writes the source-of-truth JSON to disk at \`.argus/runs/{run_id}/deduped-findings.json\`.
 

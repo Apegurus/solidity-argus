@@ -527,7 +527,7 @@ Scope: {list of audited files}
 
 STEPS:
 1. Call argus_read_findings with run_id above to load all findings
-2. Deduplicate: group findings by vulnerability class + code location, merge into single entries
+2. Deduplicate: group findings by vulnerability class + code location, merge into single entries. Include \`observation_ids\` on every deduped finding so each raw finding maps to exactly one report entry.
 3. Enrich: for each Critical/High finding, write specific impact and recommendation
 4. Call argus_persist_deduped with run_id and your deduped findings array — this writes the source-of-truth JSON to disk
 5. Call argus_generate_report with run_id, project_name, and scope — the tool reads deduped findings from disk
@@ -538,7 +538,7 @@ Overall risk assessment: {your assessment}
 
 Scribe will:
 1. Read raw findings (may contain duplicates from different tools)
-2. Semantically deduplicate (e.g., merge reentrancy-eth + reentrancy-cei-violation at same location)
+2. Semantically deduplicate (e.g., merge reentrancy-eth + reentrancy-cei-violation at same location) while preserving \`observation_ids\` lineage for every raw finding
 3. Enrich Critical/High findings with specific impact and recommendation text
 4. Persist deduped findings to disk via \`argus_persist_deduped\` (source-of-truth JSON)
 5. Call \`argus_generate_report\` with \`run_id\` — the tool reads from disk and renders markdown
