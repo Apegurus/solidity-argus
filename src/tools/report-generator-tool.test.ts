@@ -289,16 +289,11 @@ test("executeReportGeneration creates complete markdown report with findings by 
   expect(result.report).toContain("## Findings")
   expect(result.report).toContain("## Recommendations")
   expect(result.report).toContain("## Appendix")
-  expect(result.report).toContain("### Critical")
-  expect(result.report).toContain("### High")
-  expect(result.report).toContain("### Medium")
-  expect(result.report).toContain("### Low")
-  expect(result.report).toContain("### Informational")
-  expect(result.report).toContain("### [CRIT-1] Critical Bug")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth")
-  expect(result.report).toContain("### [MED-1] Unsafe Cast")
-  expect(result.report).toContain("### [LOW-1] Missing Event")
-  expect(result.report).toContain("### [INFO-1] Naming")
+  expect(result.report).toContain("### Critical Bug · severity: Critical · evidence: High")
+  expect(result.report).toContain("### Reentrancy Eth · severity: High · evidence: Medium")
+  expect(result.report).toContain("### Unsafe Cast · severity: Medium · evidence: High")
+  expect(result.report).toContain("### Missing Event · severity: Low · evidence: Low")
+  expect(result.report).toContain("### Naming · severity: Informational · evidence: Low")
   expect(result.report).toContain("**Location**: src/Core.sol:4-9")
   expect(result.report).toContain("| Critical | 1 |")
   expect(result.report).toContain("| High | 1 |")
@@ -337,12 +332,10 @@ test("executeReportGeneration applies medium severity threshold", async () => {
     informational: 0,
   })
 
-  expect(result.report).toContain("### High")
-  expect(result.report).toContain("### Medium")
-  expect(result.report).not.toContain("### Low")
-  expect(result.report).not.toContain("### Informational")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth")
-  expect(result.report).toContain("### [MED-1] Unsafe Cast")
+  expect(result.report).toContain("### Reentrancy Eth · severity: High · evidence: High")
+  expect(result.report).toContain("### Unsafe Cast · severity: Medium · evidence: High")
+  expect(result.report).not.toContain("severity: Low")
+  expect(result.report).not.toContain("severity: Informational")
 })
 
 test("executeReportGeneration default threshold includes Informational findings", async () => {
@@ -368,8 +361,8 @@ test("executeReportGeneration default threshold includes Informational findings"
     low: 1,
     informational: 1,
   })
-  expect(result.report).toContain("### [LOW-1] Missing Event")
-  expect(result.report).toContain("### [INFO-1] Floating Pragma")
+  expect(result.report).toContain("### Missing Event · severity: Low · evidence: High")
+  expect(result.report).toContain("### Floating Pragma · severity: Informational · evidence: High")
   expect(result.report).toContain("| Informational | 1 |")
 })
 
@@ -418,7 +411,8 @@ test("executeReportGeneration handles empty findings after threshold filtering",
     low: 0,
     informational: 0,
   })
-  expect(result.report).toContain("No findings meet the configured severity threshold.")
+  expect(result.report).not.toContain("## Findings")
+  expect(result.report).not.toContain("## Leads")
   expect(result.report).toContain("| Critical | 0 |")
 })
 
@@ -941,7 +935,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
 
     const content = await Bun.file(result.filePath ?? "").text()
     expect(content).toContain("# Security Audit Report — DiskWriteTest")
-    expect(content).toContain("### [HIGH-1] Disk Write Test")
+    expect(content).toContain("### Disk Write Test · severity: High · evidence: High")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -1272,7 +1266,7 @@ test("durable-evidence report path renders without undefined when synthesis text
   )
 
   expect(result.report).toContain("# Security Audit Report — DurableOnlyNoSynthesis")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
+  expect(result.report).toContain("### Reentrancy Withdraw · severity: High · evidence: High")
   expect(result.report).not.toContain("undefined")
 })
 
@@ -1822,7 +1816,7 @@ test("executeReportGeneration falls back to run_id disk report-input.json", asyn
 
     expect(result.run_id).toBe(runId)
     expect(result.findingsCount.high).toBe(1)
-    expect(result.report).toContain("### [HIGH-1] Disk Fallback Check")
+    expect(result.report).toContain("### Disk Fallback Check · severity: High · evidence: High")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

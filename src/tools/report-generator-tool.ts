@@ -131,16 +131,6 @@ async function checkDuplicateWrite(
   return null
 }
 
-const SEVERITY_ORDER: FindingSeverity[] = ["Critical", "High", "Medium", "Low", "Informational"]
-
-const SEVERITY_PREFIX: Record<FindingSeverity, string> = {
-  Critical: "CRIT",
-  High: "HIGH",
-  Medium: "MED",
-  Low: "LOW",
-  Informational: "INFO",
-}
-
 const THRESHOLD_WEIGHT: Record<SeverityThreshold, number> = {
   critical: 5,
   high: 4,
@@ -853,6 +843,45 @@ function sortFindingsDeterministically(findings: Finding[]): Finding[] {
   return [...findings].sort(compareFindingsDeterministically)
 }
 
+function sortFindingsByConfidence(findings: Finding[]): Finding[] {
+  return [...findings].sort((a, b) => {
+    const aHas = typeof a.confidence_score === "number"
+    const bHas = typeof b.confidence_score === "number"
+    if (aHas && !bHas) return -1
+    if (!aHas && bHas) return 1
+    if (aHas && bHas && a.confidence_score !== b.confidence_score) {
+      return b.confidence_score! - a.confidence_score!
+    }
+
+    const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+    if (severityDelta !== 0) return severityDelta
+
+    const fileDelta = a.file.localeCompare(b.file)
+    if (fileDelta !== 0) return fileDelta
+
+    const lineDelta = (a.lines[0] ?? 0) - (b.lines[0] ?? 0)
+    if (lineDelta !== 0) return lineDelta
+
+    return a.id.localeCompare(b.id)
+  })
+}
+
+function splitFindingsByTier(
+  findings: Finding[],
+  threshold: number,
+): { findings: Finding[]; leads: Finding[] } {
+  const findingsTier: Finding[] = []
+  const leadsTier: Finding[] = []
+  for (const finding of findings) {
+    if (typeof finding.confidence_score === "number" && finding.confidence_score < threshold) {
+      leadsTier.push(finding)
+    } else {
+      findingsTier.push(finding)
+    }
+  }
+  return { findings: findingsTier, leads: leadsTier }
+}
+
 function hasDedupLineage(findings: Finding[]): boolean {
   return findings.some((finding) => {
     const observationIds = (finding as { observation_ids?: unknown }).observation_ids
@@ -1007,43 +1036,56 @@ function buildRecommendations(counts: FindingsCount): string[] {
 
 function buildFindingsSection(findings: Finding[]): string {
   if (findings.length === 0) {
-    return "## Findings\nNo findings meet the configured severity threshold."
+    return ""
   }
 
   const lines: string[] = ["## Findings"]
 
-  for (const severity of SEVERITY_ORDER) {
-    const severityFindings = findings.filter((finding) => finding.severity === severity)
-    if (severityFindings.length === 0) {
-      continue
+  for (const finding of findings) {
+    const recommendation = getFindingRecommendation(finding)
+    const impact = getFindingImpact(finding)
+
+    lines.push(renderFindingHeader(finding, "finding"))
+    lines.push(`**Severity**: ${finding.severity}`)
+    lines.push(`**Confidence**: ${finding.confidence}`)
+    lines.push(`**Location**: ${formatLocation(finding)}`)
+    lines.push("")
+    lines.push(`**Description**: ${finding.description}`)
+    lines.push("")
+    lines.push(`**Impact**: ${impact}`)
+    lines.push("")
+    lines.push(`**Recommendation**: ${recommendation}`)
+    const pocEvidence = getPocEvidence(finding)
+    if (pocEvidence) {
+      lines.push("")
+      lines.push(`**PoC / Evidence**: ${pocEvidence}`)
     }
+    lines.push("")
+  }
 
-    lines.push(`### ${severity}`)
+  return lines.join("\n")
+}
 
-    severityFindings.forEach((finding, index) => {
-      const prefix = SEVERITY_PREFIX[severity]
-      const findingId = `[${prefix}-${index + 1}]`
-      const title = normalizeTitle(finding.check)
-      const recommendation = getFindingRecommendation(finding)
-      const impact = getFindingImpact(finding)
+function renderFindingHeader(finding: Finding, tier: "finding" | "lead"): string {
+  const prefix =
+    tier === "finding" && typeof finding.confidence_score === "number"
+      ? `[${finding.confidence_score}] `
+      : ""
+  return `### ${prefix}${normalizeTitle(finding.check)} · severity: ${finding.severity} · evidence: ${finding.confidence}`
+}
 
-      lines.push(`### ${findingId} ${title}`)
-      lines.push(`**Severity**: ${finding.severity}`)
-      lines.push(`**Confidence**: ${finding.confidence}`)
-      lines.push(`**Location**: ${formatLocation(finding)}`)
-      lines.push("")
-      lines.push(`**Description**: ${finding.description}`)
-      lines.push("")
-      lines.push(`**Impact**: ${impact}`)
-      lines.push("")
-      lines.push(`**Recommendation**: ${recommendation}`)
-      const pocEvidence = getPocEvidence(finding)
-      if (pocEvidence) {
-        lines.push("")
-        lines.push(`**PoC / Evidence**: ${pocEvidence}`)
-      }
-      lines.push("")
-    })
+function buildLeadsSection(findings: Finding[]): string {
+  if (findings.length === 0) {
+    return ""
+  }
+
+  const lines: string[] = ["## Leads"]
+
+  for (const finding of findings) {
+    lines.push(renderFindingHeader(finding, "lead"))
+    lines.push("")
+    lines.push(`**Description**: ${finding.description}`)
+    lines.push("")
   }
 
   return lines.join("\n")
@@ -1179,6 +1221,8 @@ type ReportRenderInput = ReportInput & {
   project_name?: string
   include_executive_summary?: boolean
   severity_threshold?: SeverityThreshold
+  threshold?: number
+  confidenceThreshold?: number
   renderScope?: string[]
   preflightWarningSection?: string | null
   renderRunId?: string
@@ -1189,13 +1233,17 @@ export function renderReportMarkdown(input: ReportInput): string {
   const projectName = renderInput.project_name ?? "Unknown Project"
   const includeExecutiveSummary = renderInput.include_executive_summary ?? true
   const threshold = renderInput.severity_threshold ?? "informational"
+  const confidenceThreshold = renderInput.threshold ?? renderInput.confidenceThreshold ?? 80
   const preflightWarningSection = renderInput.preflightWarningSection ?? null
   const state = reportInputToAuditState(input)
   const scope = renderInput.renderScope ?? input.scope
   const finalFindings = dedupeFindingsForFinalOutput(input.findings)
-  const findings = sortFindingsDeterministically(
+  const reportFindings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
+  const tiers = splitFindingsByTier(reportFindings, confidenceThreshold)
+  const findings = sortFindingsByConfidence(tiers.findings)
+  const leads = sortFindingsByConfidence(tiers.leads)
   const counts = calculateCounts(findings)
   // Derive audit date from the run's start time for deterministic output.
   // Falls back to the earliest toolsExecuted timestamp, then current date as last resort.
@@ -1251,10 +1299,17 @@ export function renderReportMarkdown(input: ReportInput): string {
   sections.push("- Pattern Analysis")
   sections.push("- Solodit research cross-referencing")
   sections.push(
-    "Approach: Findings are normalized, deterministically ordered by severity/file/line, and validated against report quality gates before emission.",
+    "Approach: Findings are normalized, split into Findings/Leads by confidence threshold, deterministically ordered by confidence/severity/file/line, and validated against report quality gates before emission.",
   )
 
-  sections.push(buildFindingsSection(findings))
+  const findingsSection = buildFindingsSection(findings)
+  if (findingsSection.length > 0) {
+    sections.push(findingsSection)
+  }
+  const leadsSection = buildLeadsSection(leads)
+  if (leadsSection.length > 0) {
+    sections.push(leadsSection)
+  }
 
   sections.push("## Recommendations")
   for (const item of buildRecommendations(counts)) {

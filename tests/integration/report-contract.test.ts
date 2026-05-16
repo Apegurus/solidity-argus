@@ -130,7 +130,7 @@ describe("report input contract", () => {
     expect(result.report).toContain("# Security Audit Report — ContractFlow")
     expect(result.findingsCount.high).toBe(1)
     expect(result.contractDiagnostics).toHaveLength(0)
-    expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
+    expect(result.report).toContain("### Reentrancy Withdraw · severity: High · evidence: High")
   })
 
   test("strict mode rejects incomplete orchestration with orphaned tools", async () => {
@@ -272,7 +272,7 @@ describe("report input contract", () => {
     )
 
     expect(result.report).toContain("# Security Audit Report — DurableEvidenceOnly")
-    expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
+    expect(result.report).toContain("### Reentrancy Withdraw · severity: High · evidence: High")
     expect(result.report).not.toContain("undefined")
   })
 })
