@@ -65,11 +65,11 @@ Argus will automatically:
 
 | Agent | Role | Model |
 |-------|------|-------|
-| `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-6 |
-| `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
-| `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
-| `@scribe` | Audit report writer | claude-sonnet-4-6 |
-| `@themis` | Independent audit quality gate | gpt-5.4 |
+| `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-7 |
+| `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-7 |
+| `@pythia` | Vulnerability researcher | claude-sonnet-4-7 |
+| `@scribe` | Audit report writer | claude-sonnet-4-7 |
+| `@themis` | Independent audit quality gate | gpt-5.5 |
 
 ### @argus — The Orchestrator
 Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Scribe, and Themis as needed.
@@ -284,11 +284,11 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 ```jsonc
 {
   "agents": {
-    "argus": { "model": "anthropic/claude-opus-4-6" },
-    "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
-    "pythia": { "model": "anthropic/claude-sonnet-4-6" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-6" },
-    "themis": { "model": "openai/gpt-5.4" }
+    "argus": { "model": "anthropic/claude-opus-4-7" },
+    "sentinel": { "model": "anthropic/claude-sonnet-4-7" },
+    "pythia": { "model": "anthropic/claude-sonnet-4-7" },
+    "scribe": { "model": "anthropic/claude-sonnet-4-7" },
+    "themis": { "model": "openai/gpt-5.5" }
   },
 
   "tools": {

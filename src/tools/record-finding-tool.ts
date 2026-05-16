@@ -28,6 +28,8 @@ type RecordFindingResponse = {
   }>
   schema_version: string
   note: string
+  enrichment_warnings?: string[]
+  enrichment_hint?: string
 }
 
 type ParseResult = { ok: true; data: Record<string, unknown>[] } | { ok: false; error: string }
@@ -77,6 +79,16 @@ function errorResponse(error: string): string {
     note: error,
     error,
   })
+}
+
+function collectMissingEnrichmentFields(
+  finding: ReturnType<typeof normalizeToCanonicalFinding>["data"],
+): string[] {
+  const missing: string[] = []
+  if (!isNonEmptyString(finding.impact)) missing.push("impact")
+  if (!isNonEmptyString(finding.recommendation)) missing.push("recommendation")
+  if (!isNonEmptyString(finding.proofOfConcept)) missing.push("proofOfConcept")
+  return missing
 }
 
 export async function executeRecordFinding(
@@ -160,16 +172,21 @@ export async function executeRecordFinding(
     return errorResponse(`Failed to record finding(s): ${errors.join("; ")}`)
   }
 
-  // Warn when Critical/High findings are missing enrichment fields
+  // Warn when report-quality enrichment is missing without dropping findings.
   const enrichmentWarnings: string[] = []
   const HIGH_SEVERITIES = new Set(["Critical", "High"])
   for (const f of findings) {
-    if (!HIGH_SEVERITIES.has(f.severity)) continue
-    const missing: string[] = []
-    if (!f.impact) missing.push("impact")
-    if (!f.recommendation) missing.push("recommendation")
-    if (!f.proofOfConcept) missing.push("proofOfConcept")
+    const missing = collectMissingEnrichmentFields(f)
     if (missing.length > 0) {
+      if (f.source === "slither") {
+        enrichmentWarnings.push(
+          `[${f.severity}] Slither finding ${f.check} in ${f.file} is missing: ${missing.join(", ")}. The finding was recorded, but Scribe must enrich it before final reporting.`,
+        )
+        continue
+      }
+
+      if (!HIGH_SEVERITIES.has(f.severity)) continue
+
       enrichmentWarnings.push(
         `[${f.severity}] ${f.check} in ${f.file} is missing: ${missing.join(", ")}. Quality gate will flag this.`,
       )
@@ -199,7 +216,7 @@ export async function executeRecordFinding(
       ? {
           enrichment_warnings: enrichmentWarnings,
           enrichment_hint:
-            "Critical and High findings MUST include impact, recommendation, and proofOfConcept fields. Re-submit with these fields to pass the quality gate.",
+            "Critical and High findings MUST include impact, recommendation, and proofOfConcept fields. Slither findings should include all three fields before Scribe persists deduped findings; incomplete Slither records are preserved but will be flagged by report quality gates if not enriched downstream.",
         }
       : {}),
   }
@@ -215,13 +232,13 @@ export const recordFindingTool = tool({
       .string()
       .optional()
       .describe(
-        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"). Optional: impact, recommendation, proofOfConcept (mandatory for Critical/High).',
+        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
       ),
     findings: tool.schema
       .string()
       .optional()
       .describe(
-        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Aliases title/name → check and location → file are accepted but canonical names are preferred.",
+        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.",
       ),
   },
   async execute(args, context) {

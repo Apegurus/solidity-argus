@@ -151,7 +151,7 @@ You have access to a specific set of tools. Use them effectively.
 }
 \`\`\`
 
-**CRITICAL**: For Critical and High findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. The quality gate will flag findings missing these fields. Do not use generic placeholders — be specific to the vulnerability.
+**CRITICAL**: For Critical and High findings, \`impact\`, \`recommendation\`, and \`proofOfConcept\` are MANDATORY. For any finding with \`source: "slither"\`, preserve the finding even when enrichment is not ready, but add these three fields before final Scribe persistence whenever possible. \`argus_record_finding\` warns on incomplete Slither enrichment instead of dropping the finding. Do not use generic placeholders — be specific to the vulnerability.
 
 **Interpretation**:
 - Recording is mandatory before handing findings to Argus for final synthesis.

@@ -49,14 +49,14 @@ test("loadArgusConfig merges partial config with defaults", () => {
   writeFileSync(
     join(configDir, "solidity-argus.jsonc"),
     JSON.stringify({
-      agents: { argus: { model: "anthropic/claude-opus-4-6" } },
+      agents: { argus: { model: "anthropic/claude-opus-4-7" } },
       reporting: { gasAnalysis: true },
     }),
   )
 
   const config = loadArgusConfig(testDir)
 
-  expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-6")
+  expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-7")
   expect(config.agents.sentinel).toEqual({})
   expect(config.reporting.gasAnalysis).toBe(true)
   expect(config.reporting.format).toBe("markdown")
@@ -74,7 +74,7 @@ test("loadArgusConfig handles JSONC comments", () => {
     // This is a comment
     "agents": {
       "argus": {
-        "model": "anthropic/claude-opus-4-6" // inline comment
+        "model": "anthropic/claude-opus-4-7" // inline comment
       }
     },
     /* block comment */
@@ -86,7 +86,7 @@ test("loadArgusConfig handles JSONC comments", () => {
 
   const config = loadArgusConfig(testDir)
 
-  expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-6")
+  expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-7")
   expect(config.reporting.format).toBe("markdown")
 })
 
@@ -111,10 +111,10 @@ test("loadArgusConfig accepts valid full config", () => {
     join(configDir, "solidity-argus.jsonc"),
     JSON.stringify({
       agents: {
-        argus: { model: "anthropic/claude-opus-4-6" },
-        sentinel: { model: "anthropic/claude-sonnet-4-6" },
-        pythia: { model: "anthropic/claude-sonnet-4-6" },
-        scribe: { model: "anthropic/claude-sonnet-4-5-20250929" },
+        argus: { model: "anthropic/claude-opus-4-7" },
+        sentinel: { model: "anthropic/claude-sonnet-4-7" },
+        pythia: { model: "anthropic/claude-sonnet-4-7" },
+        scribe: { model: "anthropic/claude-sonnet-4-7" },
       },
       tools: { slitherPath: "/usr/local/bin/slither", forgePath: "/usr/local/bin/forge" },
       knowledge: {
@@ -134,8 +134,8 @@ test("loadArgusConfig accepts valid full config", () => {
 
   const config = loadArgusConfig(testDir)
 
-  expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-6")
-  expect(config.agents.sentinel.model).toBe("anthropic/claude-sonnet-4-6")
+  expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-7")
+  expect(config.agents.sentinel.model).toBe("anthropic/claude-sonnet-4-7")
   expect(config.tools.slitherPath).toBe("/usr/local/bin/slither")
   expect(config.tools.forgePath).toBe("/usr/local/bin/forge")
   expect(config.knowledge.customSkillsDir).toBe("/path/to/skills")

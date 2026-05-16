@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.8 (unreleased)
+
+### Fixes
+- `argus doctor` — new **Install drift** check detects a stale `solidity-argus` install hoisted to `~/.cache/opencode/node_modules/solidity-argus` that silently shadows the canonical install under `~/.cache/opencode/packages/solidity-argus@latest/...`. The shadowing install caused every MCP tool call to fail with `undefined is not an object (evaluating 'result.toLowerCase')` for users whose hoisted copy was older than v0.5.6 (before the defensive guards in `tool.execute.after` landed). Doctor now reports a hard failure with the exact `rm -rf` command needed to remove the shadow, plus a softer warning when the hoisted install merely drifts from the running CLI version.
+- Agent defaults now target the current model set: `anthropic/claude-opus-4-7` for Argus, `anthropic/claude-sonnet-4-7` for Sentinel/Pythia/Scribe, and `openai/gpt-5.5` for Themis.
+- `argus_generate_report` — default report rendering now includes Informational findings, aligning the implementation fallback with the tool schema default and keeping severity summary counts synchronized with the rendered findings body.
+- `argus_record_finding` — Slither-source findings with missing `impact`, `recommendation`, or `proofOfConcept` are preserved and returned with enrichment warnings instead of being rejected, preventing raw analyzer findings from being lost while still surfacing report-quality gaps for Scribe/finalization.
+- Run finalization now fails invariants when the generated report contains a `Completeness Warning` or failed report `qualityGates`, so validation summaries cannot mark warning-bearing or quality-gate-failing reports as successful.
+- Report preflight no longer emits false exact-fingerprint mismatch warnings for semantic deduplication artifacts that do not carry raw observation lineage; it now emits a lineage warning instead, while exact fingerprint parity is still enforced when lineage is available or no deduplication occurred.
+
+### Internal
+- New exported helpers in `src/cli/commands/doctor.ts`: `enumerateArgusInstallCandidates`, `detectInstallDrift`, `buildInstallDriftReport`, and the `ArgusInstall` / `InstallDriftReport` types — fully unit-tested with synthetic install records (no filesystem touch in tests).
+- Added focused report-quality regressions covering default Informational rendering, Slither enrichment preservation warnings, warning-aware finalization, and the reporting pipeline end-to-end path.
+
 ## 0.5.7 (2026-05-12)
 
 ### Fixes (audit reporting pipeline)
@@ -34,10 +48,10 @@
 ## 0.5.3 (2026-03-23)
 
 ### Features
-- **Themis quality gate** — new 5th agent running on `openai/gpt-5.4` for independent cross-validation of audit pipeline output. Compares raw findings against Scribe's deduped output and the final report; performs second-opinion research via Solodit and skill checklists.
+- **Themis quality gate** — new 5th agent running on `openai/gpt-5.5` for independent cross-validation of audit pipeline output. Compares raw findings against Scribe's deduped output and the final report; performs second-opinion research via Solodit and skill checklists.
 
 ### Fixes
-- Use `openai/gpt-5.4` for Themis (gpt-5.4-pro not available on openai provider)
+- Use `openai/gpt-5.5` for Themis (gpt-5.5-pro not available on openai provider)
 - Resolve `read_findings` regression and dedup data loss after Themis integration
 - Defense-in-depth path normalization and finding-field aliases at store/tool layer
 - Bypass event materialization in report pipeline — read findings directly from audit state
@@ -262,10 +276,10 @@
 Initial release of solidity-argus.
 
 ### Agents
-- **@argus** — Orchestrator, coordinates full 7-step audit methodology (claude-opus-4-6)
-- **@sentinel** — Static analysis & testing specialist (claude-sonnet-4-6)
-- **@pythia** — Vulnerability researcher via Solodit/SCVD (claude-sonnet-4-6)
-- **@scribe** — Audit report writer (claude-sonnet-4-6)
+- **@argus** — Orchestrator, coordinates full 7-step audit methodology (claude-opus-4-7)
+- **@sentinel** — Static analysis & testing specialist (claude-sonnet-4-7)
+- **@pythia** — Vulnerability researcher via Solodit/SCVD (claude-sonnet-4-7)
+- **@scribe** — Audit report writer (claude-sonnet-4-7)
 
 ### Tools
 - `argus_slither_analyze` — Slither static analysis with auto-flatten fallback

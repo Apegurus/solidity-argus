@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
 import { finalizeRun } from "./run-finalizer"
@@ -155,5 +158,75 @@ describe("finalizeRun", () => {
     const latest = sink.getEvents().at(-1)
     expect(latest?.type).toBe("run.finalized")
     expect((latest?.payload as { status?: string } | undefined)?.status).toBe("finalized")
+  })
+
+  test("fails invariants when generated report contains a completeness warning", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "argus-finalizer-warning-"))
+    const reportPath = join(dir, "warn-report.md")
+    writeFileSync(
+      reportPath,
+      [
+        "# Security Audit Report — WarningFixture",
+        "",
+        "## ⚠ Completeness Warning",
+        "",
+        "- Finding parity mismatch: missing=1, extra=0",
+      ].join("\n"),
+    )
+
+    try {
+      const sink = makeInMemorySink([
+        makeEvent({ type: "session.created", seq: 1 }),
+        makeEvent({
+          type: "tool.completed",
+          seq: 2,
+          tool_call_id: "report-tool-1",
+          payload: {
+            tool: "argus_generate_report",
+            success: true,
+            filePath: reportPath,
+          },
+        }),
+      ])
+
+      const result = await finalizeRun(RUN_ID, dir, sink)
+
+      expect(result.invariantsPassed).toBe(false)
+      expect(result.errors).toContain("generated report contains Completeness Warning")
+      const latest = sink.getEvents().at(-1)
+      expect((latest?.payload as { status?: string } | undefined)?.status).toBe(
+        "failed-finalization",
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("fails invariants when generated report quality gates fail", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: {
+          tool: "argus_generate_report",
+          success: true,
+          qualityGates: {
+            passed: false,
+            violations: ["Missing impact for High finding reentrancy-drain"],
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors).toContain(
+      "generated report failed quality gates: Missing impact for High finding reentrancy-drain",
+    )
+    const latest = sink.getEvents().at(-1)
+    expect((latest?.payload as { status?: string } | undefined)?.status).toBe("failed-finalization")
   })
 })

@@ -167,7 +167,7 @@ describe("createConfigHandler", () => {
       agent: {
         build: {
           mode: "primary",
-          model: "anthropic/claude-sonnet-4-6",
+          model: "anthropic/claude-sonnet-4-7",
         },
       },
     }
@@ -176,7 +176,7 @@ describe("createConfigHandler", () => {
 
     expect(config.agent?.build).toEqual({
       mode: "primary",
-      model: "anthropic/claude-sonnet-4-6",
+      model: "anthropic/claude-sonnet-4-7",
     })
     expect(config.agent?.argus).toBeDefined()
   })

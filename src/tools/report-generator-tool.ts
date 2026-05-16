@@ -853,6 +853,13 @@ function sortFindingsDeterministically(findings: Finding[]): Finding[] {
   return [...findings].sort(compareFindingsDeterministically)
 }
 
+function hasDedupLineage(findings: Finding[]): boolean {
+  return findings.some((finding) => {
+    const observationIds = (finding as { observation_ids?: unknown }).observation_ids
+    return Array.isArray(observationIds) && observationIds.length > 0
+  })
+}
+
 export function validateReportQuality(
   findings: Finding[],
   policy: QualityGatePolicy,
@@ -1149,7 +1156,7 @@ export async function executeReportGeneration(
   deps: ReportGenerationDependencies = {},
 ): Promise<ReportGenerationResult> {
   const includeExecutiveSummary = args.include_executive_summary ?? true
-  const threshold = args.severity_threshold ?? "low"
+  const threshold = args.severity_threshold ?? "informational"
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
   const toolCoveragePolicy = args.tool_coverage_policy ?? "enforce"
   const expectedRunId = resolveExpectedRunId(args, context, deps)
@@ -1225,7 +1232,24 @@ export async function executeReportGeneration(
 
     const eventFindings = dedupeFindingsForFinalOutput(projectFindings(events))
     const inputFindings = dedupeFindingsForFinalOutput(reportInput.findings)
-    const parity = compareIssueFingerprintSets(eventFindings, inputFindings)
+    const hasLineage = hasDedupLineage(reportInput.findings)
+    const shouldCheckParity = eventFindings.length === inputFindings.length || hasLineage
+    const parity = shouldCheckParity
+      ? compareIssueFingerprintSets(eventFindings, inputFindings)
+      : { missing: [], extra: [], matches: true }
+
+    if (!shouldCheckParity) {
+      const unverifiableSummary = `event_findings=${eventFindings.length}, report_findings=${inputFindings.length}`
+      if (preflightPolicy === "strict-fail") {
+        throw new Error(
+          `Preflight failed (strict-fail): finding parity not verifiable (${unverifiableSummary}; missing observation_ids)`,
+        )
+      }
+
+      warningBullets.push(
+        `- Finding parity not verifiable: ${unverifiableSummary}; deduped findings must include observation_ids to prove merged observations were preserved`,
+      )
+    }
 
     if (!parity.matches) {
       const mismatchSummary = `missing=${parity.missing.length}, extra=${parity.extra.length}`

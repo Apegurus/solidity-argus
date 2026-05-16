@@ -5,10 +5,10 @@ describe("ArgusConfigSchema", () => {
   it("validates a complete valid config", () => {
     const config = {
       agents: {
-        argus: { model: "anthropic/claude-opus-4-6" },
-        sentinel: { model: "anthropic/claude-sonnet-4-6" },
-        pythia: { model: "anthropic/claude-sonnet-4-6" },
-        scribe: { model: "anthropic/claude-sonnet-4-5" },
+        argus: { model: "anthropic/claude-opus-4-7" },
+        sentinel: { model: "anthropic/claude-sonnet-4-7" },
+        pythia: { model: "anthropic/claude-sonnet-4-7" },
+        scribe: { model: "anthropic/claude-sonnet-4-7" },
       },
       tools: {
         slitherPath: "/usr/local/bin/slither",
@@ -40,7 +40,7 @@ describe("ArgusConfigSchema", () => {
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.agents.argus.model).toBe("anthropic/claude-opus-4-6")
+      expect(result.data.agents.argus.model).toBe("anthropic/claude-opus-4-7")
       expect(result.data.solodit.enabled).toBe(true)
     }
   })

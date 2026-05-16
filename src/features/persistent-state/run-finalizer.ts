@@ -83,6 +83,54 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return null
 }
 
+function isGenerateReportCompletion(event: AuditEvent): boolean {
+  if (event.type !== "tool.completed") return false
+  const payload = asRecord(event.payload)
+  if (!payload) return false
+  return payload.tool === "argus_generate_report" || payload.name === "argus_generate_report"
+}
+
+async function collectReportCompletenessErrors(events: AuditEvent[]): Promise<string[]> {
+  const errors: string[] = []
+  const reportEvents = events.filter(isGenerateReportCompletion)
+
+  for (const event of reportEvents) {
+    const payload = asRecord(event.payload)
+    const filePath = payload?.filePath
+    if (typeof filePath !== "string" || filePath.length === 0) continue
+
+    try {
+      const report = await Bun.file(filePath).text()
+      if (report.includes("## ⚠ Completeness Warning")) {
+        errors.push("generated report contains Completeness Warning")
+      }
+    } catch {
+      // Missing report files are handled by report-generation/tool-tracking gates.
+    }
+  }
+
+  return errors
+}
+
+function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
+  const errors: string[] = []
+  const reportEvents = events.filter(isGenerateReportCompletion)
+
+  for (const event of reportEvents) {
+    const payload = asRecord(event.payload)
+    const qualityGates = asRecord(payload?.qualityGates)
+    if (qualityGates?.passed !== false) continue
+
+    const violations = Array.isArray(qualityGates.violations)
+      ? qualityGates.violations.filter((entry): entry is string => typeof entry === "string")
+      : []
+    const details = violations.length > 0 ? `: ${violations.join("; ")}` : ""
+    errors.push(`generated report failed quality gates${details}`)
+  }
+
+  return errors
+}
+
 function collectParentChildIntegrityErrors(events: AuditEvent[]): string[] {
   const errors: string[] = []
   const parentByChild = new Map<string, string>()
@@ -257,17 +305,25 @@ export async function finalizeRun(
   const hasEventsAfterExistingFinalization =
     existingResult !== null && existingResult.finalizedIndex < events.length - 1
   if (existingResult?.invariantsPassed && !hasEventsAfterExistingFinalization) {
-    return {
-      success: existingResult.success,
-      invariantsPassed: existingResult.invariantsPassed,
-      errors: existingResult.errors,
-      warnings: existingResult.warnings,
-      runId: existingResult.runId,
-      timestamp: existingResult.timestamp,
+    const reportErrors = [
+      ...(await collectReportCompletenessErrors(events)),
+      ...collectReportQualityGateErrors(events),
+    ]
+    if (reportErrors.length === 0) {
+      return {
+        success: existingResult.success,
+        invariantsPassed: existingResult.invariantsPassed,
+        errors: existingResult.errors,
+        warnings: existingResult.warnings,
+        runId: existingResult.runId,
+        timestamp: existingResult.timestamp,
+      }
     }
   }
 
   const { errors, warnings } = collectInvariantErrors(events)
+  errors.push(...(await collectReportCompletenessErrors(events)))
+  errors.push(...collectReportQualityGateErrors(events))
   const invariantsPassed = errors.length === 0
   const sessionId = events.at(-1)?.session_id ?? ""
 
