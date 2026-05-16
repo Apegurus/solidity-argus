@@ -25,6 +25,61 @@ const RED = "\x1b[31m"
 const YELLOW = "\x1b[33m"
 const RESET = "\x1b[0m"
 
+const REGISTRY_URL = "https://registry.npmjs.org/solidity-argus/latest"
+const DEFAULT_TIMEOUT_MS = 3_000
+
+export type VersionCheckResult =
+  | { status: "up-to-date"; remoteVersion: string; localVersion: string }
+  | { status: "outdated"; remoteVersion: string; localVersion: string }
+  | { status: "ahead"; remoteVersion: string; localVersion: string }
+  | { status: "skipped"; reason: string }
+
+function compareSemver(a: string, b: string): -1 | 0 | 1 {
+  const pa = a.split(".").map((p) => parseInt(p, 10))
+  const pb = b.split(".").map((p) => parseInt(p, 10))
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] ?? 0
+    const y = pb[i] ?? 0
+    if (x < y) return -1
+    if (x > y) return 1
+  }
+  return 0
+}
+
+export async function checkRemoteVersion(opts: {
+  localVersion: string
+  timeoutMs?: number
+}): Promise<VersionCheckResult> {
+  const { localVersion, timeoutMs = DEFAULT_TIMEOUT_MS } = opts
+  const ctrl = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        ctrl.abort()
+        reject(new Error("version check timed out"))
+      }, timeoutMs)
+    })
+    const res = await Promise.race([fetch(REGISTRY_URL, { signal: ctrl.signal }), timeout])
+    if (!res.ok) {
+      return { status: "skipped", reason: `non-200 status: ${res.status}` }
+    }
+    const body = (await res.json()) as { version?: unknown }
+    if (typeof body.version !== "string") {
+      return { status: "skipped", reason: "malformed registry response (no version field)" }
+    }
+    const cmp = compareSemver(localVersion, body.version)
+    if (cmp === 0) return { status: "up-to-date", remoteVersion: body.version, localVersion }
+    if (cmp < 0) return { status: "outdated", remoteVersion: body.version, localVersion }
+    return { status: "ahead", remoteVersion: body.version, localVersion }
+  } catch (err) {
+    return { status: "skipped", reason: err instanceof Error ? err.message : "unknown error" }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function checkBinary(
   name: string,
   versionArgs: string[] = ["--version"],
@@ -391,6 +446,31 @@ export const doctorCommand: CliCommand = {
       for (const warn of driftReport.warnings) {
         cliOutput.log(`${YELLOW}⚠${RESET} Install drift: ${warn}`)
       }
+    }
+
+    const installedVersion = driftReport.current?.version
+    if (installedVersion) {
+      const versionCheck = await checkRemoteVersion({ localVersion: installedVersion })
+      switch (versionCheck.status) {
+        case "up-to-date":
+          cliOutput.log(`${GREEN}✓${RESET} argus is up to date (v${installedVersion})`)
+          break
+        case "outdated":
+          cliOutput.log(
+            `${YELLOW}⚠${RESET} argus v${installedVersion} installed — latest is v${versionCheck.remoteVersion}. Upgrade: \`bun add solidity-argus@latest\``,
+          )
+          break
+        case "ahead":
+          cliOutput.log(
+            `· argus v${installedVersion} (ahead of registry v${versionCheck.remoteVersion}, e.g. local dev build)`,
+          )
+          break
+        case "skipped":
+          cliOutput.log("· version check skipped (network unavailable)")
+          break
+      }
+    } else {
+      cliOutput.log("· version check skipped (network unavailable)")
     }
 
     if (projectType === "foundry" && detectViaIr(cwd)) {
