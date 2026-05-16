@@ -22,7 +22,8 @@ describe("refutation-rubric skill", () => {
     const raw = readFileSync(SKILL_PATH, "utf8")
     const match = raw.match(/^---\n([\s\S]*?)\n---/)
     expect(match).not.toBeNull()
-    const fm = parseYaml(match![1] as string)
+    const captured = match?.[1] ?? ""
+    const fm = parseYaml(captured)
     expect(fm.name).toBe("refutation-rubric")
     expect(typeof fm.description).toBe("string")
     expect(fm.description.length).toBeGreaterThan(40)
@@ -73,9 +74,9 @@ describe("refutation-rubric skill", () => {
     expect(skill).toBeDefined()
     expect(skill?.name).toBe("refutation-rubric")
 
-    const fmMatch = skill!.content.match(/^---\n([\s\S]*?)\n---/)
+    const fmMatch = skill?.content.match(/^---\n([\s\S]*?)\n---/)
     expect(fmMatch).not.toBeNull()
-    const fm = parseYaml(fmMatch![1] as string)
+    const fm = parseYaml(fmMatch?.[1] ?? "")
     expect(fm.category).toBe("methodology")
   })
 

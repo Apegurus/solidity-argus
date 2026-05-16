@@ -850,7 +850,9 @@ function sortFindingsByConfidence(findings: Finding[]): Finding[] {
     if (aHas && !bHas) return -1
     if (!aHas && bHas) return 1
     if (aHas && bHas && a.confidence_score !== b.confidence_score) {
-      return b.confidence_score! - a.confidence_score!
+      const aScore = a.confidence_score as number
+      const bScore = b.confidence_score as number
+      return bScore - aScore
     }
 
     const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
