@@ -72,3 +72,6 @@ tests/fixtures/vulnerable-vault/test/ReentrancyPoC.t.sol
 
 # claude-generated reports
 .claude/reports/
+
+# Foundry caches in test fixtures (regenerated on each test run)
+tests/fixtures/**/cache/
