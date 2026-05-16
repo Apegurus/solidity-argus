@@ -39,6 +39,7 @@ function createTestConfig(outputDir: string): ArgusConfig {
       skillPrecedence: "bundled-first" as const,
     },
     reporting: {
+      confidenceThreshold: 80,
       format: "markdown" as const,
       severityThreshold: "low" as const,
       gasAnalysis: false,

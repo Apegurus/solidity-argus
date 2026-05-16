@@ -123,6 +123,7 @@ test("loadArgusConfig accepts valid full config", () => {
         customSkillsDir: "/path/to/skills",
       },
       reporting: {
+        confidenceThreshold: 80,
         format: "markdown",
         severityThreshold: "high",
         gasAnalysis: true,

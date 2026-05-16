@@ -31,12 +31,14 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
       customSkillsDir: overrides?.knowledge?.customSkillsDir,
     },
     reporting: {
+      confidenceThreshold: 80,
       format: "markdown",
       severityThreshold: "low",
       gasAnalysis: false,
       output_dir: ".opencode/reports/",
       ...(overrides?.reporting ?? {}),
     } as unknown as {
+      confidenceThreshold: number
       format: "markdown"
       severityThreshold: "critical" | "high" | "medium" | "low" | "informational"
       gasAnalysis: boolean

@@ -919,6 +919,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
             skillPrecedence: "bundled-first" as const,
           },
           reporting: {
+            confidenceThreshold: 80,
             format: "markdown" as const,
             severityThreshold: "low" as const,
             gasAnalysis: false,
@@ -1000,6 +1001,7 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
             skillPrecedence: "bundled-first" as const,
           },
           reporting: {
+            confidenceThreshold: 80,
             format: "markdown" as const,
             severityThreshold: "low" as const,
             gasAnalysis: false,

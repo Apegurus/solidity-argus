@@ -65,6 +65,7 @@ describe("skill precedence", () => {
         skillPrecedence: precedence,
       },
       reporting: {
+        confidenceThreshold: 80,
         format: "markdown",
         severityThreshold: "low",
         gasAnalysis: false,
