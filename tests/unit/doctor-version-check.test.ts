@@ -3,7 +3,9 @@ import { checkRemoteVersion } from "../../src/cli/commands/doctor"
 
 const ORIGINAL_FETCH = globalThis.fetch
 
-function replaceFetch(fn: (url: Parameters<typeof fetch>[0], init?: RequestInit) => Promise<Response>): void {
+function replaceFetch(
+  fn: (url: Parameters<typeof fetch>[0], init?: RequestInit) => Promise<Response>,
+): void {
   globalThis.fetch = fn as unknown as typeof fetch
 }
 
@@ -13,9 +15,9 @@ afterEach(() => {
 
 describe("checkRemoteVersion", () => {
   test("returns up-to-date when local matches remote", async () => {
-    replaceFetch(mock(async () =>
-      new Response(JSON.stringify({ version: "1.2.3" }), { status: 200 }),
-    ))
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "1.2.3" }), { status: 200 })),
+    )
 
     const r = await checkRemoteVersion({ localVersion: "1.2.3" })
 
@@ -25,9 +27,9 @@ describe("checkRemoteVersion", () => {
   })
 
   test("returns outdated when remote is newer", async () => {
-    replaceFetch(mock(async () =>
-      new Response(JSON.stringify({ version: "2.0.0" }), { status: 200 }),
-    ))
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "2.0.0" }), { status: 200 })),
+    )
 
     const r = await checkRemoteVersion({ localVersion: "1.2.3" })
 
@@ -37,9 +39,9 @@ describe("checkRemoteVersion", () => {
   })
 
   test("returns ahead when local is newer than remote", async () => {
-    replaceFetch(mock(async () =>
-      new Response(JSON.stringify({ version: "1.0.0" }), { status: 200 }),
-    ))
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "1.0.0" }), { status: 200 })),
+    )
 
     const r = await checkRemoteVersion({ localVersion: "1.2.3" })
 
@@ -47,9 +49,11 @@ describe("checkRemoteVersion", () => {
   })
 
   test("returns skipped on network failure", async () => {
-    replaceFetch(mock(async () => {
-      throw new Error("network down")
-    }))
+    replaceFetch(
+      mock(async () => {
+        throw new Error("network down")
+      }),
+    )
 
     const r = await checkRemoteVersion({ localVersion: "1.2.3" })
 

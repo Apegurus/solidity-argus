@@ -1075,7 +1075,9 @@ function renderFindingHeader(finding: Finding, tier: "finding" | "lead"): string
 }
 
 function hasRubricTrace(f: Finding): boolean {
-  return typeof f.description === "string" && f.description.trimStart().startsWith("**Rubric Trace**")
+  return (
+    typeof f.description === "string" && f.description.trimStart().startsWith("**Rubric Trace**")
+  )
 }
 
 function renderFindingBody(f: Finding): string {
@@ -1244,7 +1246,10 @@ export type RenderReportOptions = {
   runId?: string
 }
 
-export function renderReportMarkdown(input: ReportInput, options: RenderReportOptions = {}): string {
+export function renderReportMarkdown(
+  input: ReportInput,
+  options: RenderReportOptions = {},
+): string {
   const projectName = options.projectName ?? "Unknown Project"
   const includeExecutiveSummary = options.include_executive_summary ?? true
   const threshold = options.severity_threshold ?? "informational"

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { CanonicalFinding, ReportInput } from "../../src/state/schemas"
-import { executeReportGeneration, renderReportMarkdown } from "../../src/tools/report-generator-tool"
+import {
+  executeReportGeneration,
+  renderReportMarkdown,
+} from "../../src/tools/report-generator-tool"
 
 function createContext(): ToolContext {
   return {
@@ -156,9 +159,12 @@ describe("report-generator tier splitting", () => {
       confidence_score: 90,
       description: "**Rubric Trace** · Confidence: 90\n\n- Refutation: cleared\n\n---\n\nbug2",
     })
-    const report = renderReportMarkdown({
-      findings: [withTrace1, withTrace2],
-    } as any, { threshold: 80 })
+    const report = renderReportMarkdown(
+      {
+        findings: [withTrace1, withTrace2],
+      } as any,
+      { threshold: 80 },
+    )
     expect(report).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
   })
 
@@ -178,46 +184,67 @@ describe("report-generator tier splitting", () => {
       confidence_score: 90,
       description: "another plain finding without trace",
     })
-    const report = renderReportMarkdown({
-      findings: [withTrace, withoutTrace1, withoutTrace2],
-    } as any, { threshold: 80 })
+    const report = renderReportMarkdown(
+      {
+        findings: [withTrace, withoutTrace1, withoutTrace2],
+      } as any,
+      { threshold: 80 },
+    )
     expect(report).toMatch(/Rubric: 1\/3 findings include 4-gate trace/)
   })
 
   test("D3: footer renders 0/0 (or is omitted) when there are no findings", () => {
-    const report = renderReportMarkdown({
-      findings: [],
-    } as any, { threshold: 80 })
+    const report = renderReportMarkdown(
+      {
+        findings: [],
+      } as any,
+      { threshold: 80 },
+    )
     expect(report).not.toMatch(/Rubric: \d+\/\d+ findings/)
   })
 
   test("D4: finding WITH rubric trace renders without warning", () => {
-    const report = renderReportMarkdown({
-      findings: [f({
-        confidence_score: 90,
-        description: "**Rubric Trace** · Confidence: 90\n\n---\n\nlegit bug",
-      })],
-    } as any, { threshold: 80 })
+    const report = renderReportMarkdown(
+      {
+        findings: [
+          f({
+            confidence_score: 90,
+            description: "**Rubric Trace** · Confidence: 90\n\n---\n\nlegit bug",
+          }),
+        ],
+      } as any,
+      { threshold: 80 },
+    )
     expect(report).not.toContain("no rubric trace")
   })
 
   test("D4: finding WITHOUT rubric trace renders the warning annotation", () => {
-    const report = renderReportMarkdown({
-      findings: [f({
-        confidence_score: 90,
-        description: "plain finding without the trace prefix",
-      })],
-    } as any, { threshold: 80 })
+    const report = renderReportMarkdown(
+      {
+        findings: [
+          f({
+            confidence_score: 90,
+            description: "plain finding without the trace prefix",
+          }),
+        ],
+      } as any,
+      { threshold: 80 },
+    )
     expect(report).toMatch(/⚠️ no rubric trace/)
   })
 
   test("D4: annotation also appears on Leads missing the trace", () => {
-    const report = renderReportMarkdown({
-      findings: [f({
-        confidence_score: 60,
-        description: "low-confidence trail without rubric trace",
-      })],
-    } as any, { threshold: 80 })
+    const report = renderReportMarkdown(
+      {
+        findings: [
+          f({
+            confidence_score: 60,
+            description: "low-confidence trail without rubric trace",
+          }),
+        ],
+      } as any,
+      { threshold: 80 },
+    )
     const leadsIdx = report.indexOf("## Leads")
     expect(leadsIdx).toBeGreaterThan(-1)
     expect(report.slice(leadsIdx)).toMatch(/⚠️ no rubric trace/)

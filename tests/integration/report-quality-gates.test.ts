@@ -365,18 +365,10 @@ describe("report quality gates", () => {
     const critPos = result.report.indexOf(
       "### Critical A 8 · severity: Critical · evidence: Medium",
     )
-    const highAPos = result.report.indexOf(
-      "### High A 5 · severity: High · evidence: Medium",
-    )
-    const highA10Pos = result.report.indexOf(
-      "### High A 10 · severity: High · evidence: Medium",
-    )
-    const highZPos = result.report.indexOf(
-      "### High Z 20 · severity: High · evidence: Medium",
-    )
-    const medPos = result.report.indexOf(
-      "### Medium A 1 · severity: Medium · evidence: Medium",
-    )
+    const highAPos = result.report.indexOf("### High A 5 · severity: High · evidence: Medium")
+    const highA10Pos = result.report.indexOf("### High A 10 · severity: High · evidence: Medium")
+    const highZPos = result.report.indexOf("### High Z 20 · severity: High · evidence: Medium")
+    const medPos = result.report.indexOf("### Medium A 1 · severity: Medium · evidence: Medium")
 
     expect(critPos).toBeGreaterThan(-1)
     expect(highAPos).toBeGreaterThan(critPos)

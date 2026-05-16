@@ -29,8 +29,15 @@ const KnowledgeConfigSchema = z.object({
 })
 
 const ReportingConfigSchema = z.object({
-  confidenceThreshold: z.number().int().min(0).max(100).default(80)
-    .describe("Threshold (0-100) for splitting findings into '## Findings' (>=) and '## Leads' (<). Default 80."),
+  confidenceThreshold: z
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .default(80)
+    .describe(
+      "Threshold (0-100) for splitting findings into '## Findings' (>=) and '## Leads' (<). Default 80.",
+    ),
   format: z.enum(["markdown"]).default("markdown"),
   severityThreshold: z.enum(["critical", "high", "medium", "low", "informational"]).default("low"),
   gasAnalysis: z.boolean().default(false),

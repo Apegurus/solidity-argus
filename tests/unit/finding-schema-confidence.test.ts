@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { validateCanonicalFinding, SCHEMA_VERSION } from "../../src/state/schemas"
+import { SCHEMA_VERSION, validateCanonicalFinding } from "../../src/state/schemas"
 
 function baseFinding(extra: Record<string, unknown> = {}): unknown {
   return {

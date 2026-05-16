@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test"
-import { readFileSync, existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { parse as parseYaml } from "yaml"
 
-const SKILL_PATH = join(import.meta.dir, "..", "..", "skills", "methodology", "refutation-rubric", "SKILL.md")
+const SKILL_PATH = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "skills",
+  "methodology",
+  "refutation-rubric",
+  "SKILL.md",
+)
 
 describe("refutation-rubric skill", () => {
   test("SKILL.md file exists", () => {
@@ -60,9 +68,7 @@ describe("refutation-rubric skill", () => {
 
   test("refutation-rubric is discoverable by argus-skill-resolver", async () => {
     const resolver = await import("../../src/skills/argus-skill-resolver")
-    const skillsMap = resolver.resolveArgusSkills(
-      join(import.meta.dir, "..", ".."),
-    )
+    const skillsMap = resolver.resolveArgusSkills(join(import.meta.dir, "..", ".."))
     const skill = skillsMap.get("refutation-rubric")
     expect(skill).toBeDefined()
     expect(skill?.name).toBe("refutation-rubric")
@@ -74,7 +80,15 @@ describe("refutation-rubric skill", () => {
   })
 
   test("audit-workflow skill references refutation-rubric", () => {
-    const path = join(import.meta.dir, "..", "..", "skills", "methodology", "audit-workflow", "SKILL.md")
+    const path = join(
+      import.meta.dir,
+      "..",
+      "..",
+      "skills",
+      "methodology",
+      "audit-workflow",
+      "SKILL.md",
+    )
     const raw = readFileSync(path, "utf8")
     expect(raw).toContain("refutation-rubric")
   })
