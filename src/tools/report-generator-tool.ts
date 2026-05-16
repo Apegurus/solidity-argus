@@ -1175,6 +1175,107 @@ export function buildProvenanceAppendix(
   return lines.join("\n")
 }
 
+type ReportRenderInput = ReportInput & {
+  project_name?: string
+  include_executive_summary?: boolean
+  severity_threshold?: SeverityThreshold
+  renderScope?: string[]
+  preflightWarningSection?: string | null
+  renderRunId?: string
+}
+
+export function renderReportMarkdown(input: ReportInput): string {
+  const renderInput = input as ReportRenderInput
+  const projectName = renderInput.project_name ?? "Unknown Project"
+  const includeExecutiveSummary = renderInput.include_executive_summary ?? true
+  const threshold = renderInput.severity_threshold ?? "informational"
+  const preflightWarningSection = renderInput.preflightWarningSection ?? null
+  const state = reportInputToAuditState(input)
+  const scope = renderInput.renderScope ?? input.scope
+  const finalFindings = dedupeFindingsForFinalOutput(input.findings)
+  const findings = sortFindingsDeterministically(
+    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+  )
+  const counts = calculateCounts(findings)
+  // Derive audit date from the run's start time for deterministic output.
+  // Falls back to the earliest toolsExecuted timestamp, then current date as last resort.
+  // Exclude UNKNOWN_TIMESTAMP_SENTINEL (patched-in value for missing timestamps).
+  const runStartTime = input.toolsExecuted.reduce(
+    (earliest, exec) =>
+      typeof exec.startTime === "number" &&
+      exec.startTime > UNKNOWN_TIMESTAMP_SENTINEL &&
+      exec.startTime < earliest
+        ? exec.startTime
+        : earliest,
+    Number.MAX_SAFE_INTEGER,
+  )
+  const auditDate =
+    runStartTime < Number.MAX_SAFE_INTEGER
+      ? new Date(runStartTime).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
+
+  const sections: string[] = [`# Security Audit Report — ${projectName}`]
+
+  if (includeExecutiveSummary) {
+    sections.push("## Executive Summary")
+    sections.push(
+      `This report summarizes security findings identified for ${projectName} based on static analysis, testing, and pattern-based review.`,
+    )
+    sections.push("")
+    sections.push("| Severity | Count |")
+    sections.push("| --- | ---: |")
+    sections.push(`| Critical | ${counts.critical} |`)
+    sections.push(`| High | ${counts.high} |`)
+    sections.push(`| Medium | ${counts.medium} |`)
+    sections.push(`| Low | ${counts.low} |`)
+    sections.push(`| Informational | ${counts.informational} |`)
+    sections.push("")
+    sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`)
+  }
+
+  sections.push("## Scope")
+  sections.push("Contracts in scope:")
+  if (scope.length === 0) {
+    sections.push("- None provided")
+  } else {
+    for (const contract of scope) {
+      sections.push(`- ${contract}`)
+    }
+  }
+  sections.push(`Audit date: ${auditDate}`)
+
+  sections.push("## Methodology")
+  sections.push("Tools and techniques used:")
+  sections.push("- Slither static analysis")
+  sections.push("- Foundry tests and fuzzing")
+  sections.push("- Pattern Analysis")
+  sections.push("- Solodit research cross-referencing")
+  sections.push(
+    "Approach: Findings are normalized, deterministically ordered by severity/file/line, and validated against report quality gates before emission.",
+  )
+
+  sections.push(buildFindingsSection(findings))
+
+  sections.push("## Recommendations")
+  for (const item of buildRecommendations(counts)) {
+    sections.push(`- ${item}`)
+  }
+
+  if (preflightWarningSection) {
+    sections.push(preflightWarningSection)
+  }
+
+  sections.push(buildProvenanceAppendix(state, threshold, findings))
+
+  // Embed report metadata for single-writer policy enforcement
+  const runId = renderInput.renderRunId ?? input.run_id
+  if (runId) {
+    sections.push(buildReportMetadataComment(runId))
+  }
+
+  return sections.join("\n\n")
+}
+
 export async function executeReportGeneration(
   args: ReportGeneratorArgs,
   context: ToolContext,
@@ -1315,7 +1416,6 @@ export async function executeReportGeneration(
     ].join("\n")
   }
 
-  const state = reportInputToAuditState(reportInput)
   const scope = args.scope.length > 0 ? args.scope : reportInput.scope
   const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
   const findings = sortFindingsDeterministically(
@@ -1347,69 +1447,20 @@ export async function executeReportGeneration(
 
   context.metadata({ title: `Generate audit report: ${args.project_name}` })
 
-  const sections: string[] = [`# Security Audit Report — ${args.project_name}`]
-
-  if (includeExecutiveSummary) {
-    sections.push("## Executive Summary")
-    sections.push(
-      `This report summarizes security findings identified for ${args.project_name} based on static analysis, testing, and pattern-based review.`,
-    )
-    sections.push("")
-    sections.push("| Severity | Count |")
-    sections.push("| --- | ---: |")
-    sections.push(`| Critical | ${counts.critical} |`)
-    sections.push(`| High | ${counts.high} |`)
-    sections.push(`| Medium | ${counts.medium} |`)
-    sections.push(`| Low | ${counts.low} |`)
-    sections.push(`| Informational | ${counts.informational} |`)
-    sections.push("")
-    sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`)
-  }
-
-  sections.push("## Scope")
-  sections.push("Contracts in scope:")
-  if (scope.length === 0) {
-    sections.push("- None provided")
-  } else {
-    for (const contract of scope) {
-      sections.push(`- ${contract}`)
-    }
-  }
-  sections.push(`Audit date: ${auditDate}`)
-
-  sections.push("## Methodology")
-  sections.push("Tools and techniques used:")
-  sections.push("- Slither static analysis")
-  sections.push("- Foundry tests and fuzzing")
-  sections.push("- Pattern Analysis")
-  sections.push("- Solodit research cross-referencing")
-  sections.push(
-    "Approach: Findings are normalized, deterministically ordered by severity/file/line, and validated against report quality gates before emission.",
-  )
-
-  sections.push(buildFindingsSection(findings))
-
-  sections.push("## Recommendations")
-  for (const item of buildRecommendations(counts)) {
-    sections.push(`- ${item}`)
-  }
-
-  if (preflightWarningSection) {
-    sections.push(preflightWarningSection)
-  }
-
-  sections.push(buildProvenanceAppendix(state, threshold, findings))
-
   // Embed report metadata for single-writer policy enforcement
   const runId = expectedRunId ?? reportInput.run_id
   if (runId.startsWith("ses_")) {
     throw new Error("Report generation requires canonical run_id; received OpenCode session id")
   }
-  if (runId) {
-    sections.push(buildReportMetadataComment(runId))
-  }
-
-  const reportMarkdown = sections.join("\n\n")
+  const reportMarkdown = renderReportMarkdown({
+    ...reportInput,
+    project_name: args.project_name,
+    include_executive_summary: includeExecutiveSummary,
+    severity_threshold: threshold,
+    renderScope: scope,
+    preflightWarningSection,
+    renderRunId: runId,
+  } as ReportInput)
   const contentHash = stableHash(reportMarkdown)
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
