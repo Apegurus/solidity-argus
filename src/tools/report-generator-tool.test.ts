@@ -341,6 +341,34 @@ test("executeReportGeneration applies medium severity threshold", async () => {
   expect(result.report).toContain("### [MED-1] Unsafe Cast")
 })
 
+test("executeReportGeneration default threshold includes Informational findings", async () => {
+  const findings: Finding[] = [
+    makeFinding({ id: "f-low", check: "missing-event", severity: "Low" }),
+    makeFinding({ id: "f-info", check: "floating-pragma", severity: "Informational" }),
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "DefaultThresholdProject",
+      scope: ["Vault.sol"],
+      report_input: JSON.stringify(makeReportInput(findings)),
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+  )
+
+  expect(result.findingsCount).toEqual({
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 1,
+    informational: 1,
+  })
+  expect(result.report).toContain("### [LOW-1] Missing Event")
+  expect(result.report).toContain("### [INFO-1] Floating Pragma")
+  expect(result.report).toContain("| Informational | 1 |")
+})
+
 test("executeReportGeneration supports disabling executive summary", async () => {
   const findings: Finding[] = [
     makeFinding({ id: "f-high", check: "reentrancy-eth", severity: "High" }),
@@ -1275,6 +1303,81 @@ test("preflight warn mode succeeds when event read fails", async () => {
   // Should succeed — no throw in warn mode
   expect(result.report).toContain("# Security Audit Report")
   expect(result.report).not.toContain("Completeness Warning")
+})
+
+test("preflight warn mode emits lineage warning for semantic dedup without observation ids", async () => {
+  const rawReportInput = makeReportInput([
+    makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({
+      id: "raw-2",
+      check: "reentrancy-cei-violation",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+    }),
+  ])
+
+  const dedupedReportInput = makeReportInput([
+    makeFinding({
+      id: "deduped-1",
+      check: "reentrancy-withdraw",
+      description: "Scribe merged multiple reentrancy observations into one finding",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+    }),
+  ])
+
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_001,
+      payload: {},
+    },
+    ...rawReportInput.findings.map((finding, index) => ({
+      type: "finding.added" as const,
+      run_id: "test-run-1",
+      seq: index + 2,
+      session_id: "session-1",
+      tool_call_id: `finding-${index + 1}`,
+      source: "sentinel",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_002 + index,
+      payload: finding,
+    })),
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 4,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_004,
+      payload: {},
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "SemanticDedupNoLineage",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(dedupedReportInput),
+      preflight_policy: "warn",
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+    {
+      readEvents: async () => events,
+    },
+  )
+
+  expect(result.report).not.toContain("Finding parity mismatch")
+  expect(result.report).toContain("Completeness Warning")
+  expect(result.report).toContain("Finding parity not verifiable")
+  expect(result.report).toContain("observation_ids")
 })
 
 test("preflight strict-fail throws when event read fails", async () => {
