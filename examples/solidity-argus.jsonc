@@ -11,19 +11,23 @@
   "agents": {
     "argus": {
       // Primary orchestrator — use a powerful model
-      "model": "anthropic/claude-opus-4-6"
+      "model": "anthropic/claude-opus-4-7"
     },
     "sentinel": {
       // Static analysis specialist
-      "model": "anthropic/claude-sonnet-4-6"
+      "model": "anthropic/claude-sonnet-4-7"
     },
     "pythia": {
       // Research specialist
-      "model": "anthropic/claude-sonnet-4-6"
+      "model": "anthropic/claude-sonnet-4-7"
     },
     "scribe": {
       // Report writer — sonnet is sufficient
-      "model": "anthropic/claude-sonnet-4-5-20250929"
+      "model": "anthropic/claude-sonnet-4-7"
+    },
+    "themis": {
+      // Independent quality gate — different provider for reasoning diversity
+      "model": "openai/gpt-5.5"
     }
   },
 
