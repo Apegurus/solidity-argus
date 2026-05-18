@@ -746,6 +746,22 @@ function formatLocation(finding: Finding): string {
   return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`
 }
 
+function sourceExcerpt(projectDir: string, finding: Finding): string | null {
+  if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return null
+  const start = finding.lines[0]
+  const end = finding.lines[1]
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start <= 0 || end < start) {
+    return null
+  }
+  const absolutePath = path.isAbsolute(finding.file)
+    ? finding.file
+    : path.join(projectDir, finding.file)
+  if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) return null
+  const contents = readFileSync(absolutePath, "utf-8").split(/\r?\n/)
+  const excerpt = contents.slice(start - 1, end).join("\n")
+  return excerpt.trim().length > 0 ? excerpt : null
+}
+
 function shouldIncludeFinding(finding: Finding, threshold: SeverityThreshold): boolean {
   return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold]
 }
@@ -1005,7 +1021,7 @@ function buildRecommendations(counts: FindingsCount): string[] {
   return items
 }
 
-function buildFindingsSection(findings: Finding[]): string {
+function buildFindingsSection(findings: Finding[], projectDir: string): string {
   if (findings.length === 0) {
     return "## Findings\nNo findings meet the configured severity threshold."
   }
@@ -1031,6 +1047,15 @@ function buildFindingsSection(findings: Finding[]): string {
       lines.push(`**Severity**: ${finding.severity}`)
       lines.push(`**Confidence**: ${finding.confidence}`)
       lines.push(`**Location**: ${formatLocation(finding)}`)
+      const excerpt = sourceExcerpt(projectDir, finding)
+      if (excerpt) {
+        lines.push("")
+        lines.push("**Source Excerpt**:")
+        lines.push("")
+        lines.push("```solidity")
+        lines.push(excerpt)
+        lines.push("```")
+      }
       lines.push("")
       lines.push(`**Description**: ${finding.description}`)
       lines.push("")
@@ -1387,7 +1412,7 @@ export async function executeReportGeneration(
     "Approach: Findings are normalized, deterministically ordered by severity/file/line, and validated against report quality gates before emission.",
   )
 
-  sections.push(buildFindingsSection(findings))
+  sections.push(buildFindingsSection(findings, reportInput.projectDir))
 
   sections.push("## Recommendations")
   for (const item of buildRecommendations(counts)) {
