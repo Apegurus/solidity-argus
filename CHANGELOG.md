@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.10 (2026-05-17)
+## 0.5.11 (unreleased)
 
 ### Fixes
 - Reporting gates now require successful key-tool executions instead of counting failed attempts as complete, and the audit enforcer shares the same key-tool logic as report generation.
