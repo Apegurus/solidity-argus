@@ -4,6 +4,7 @@ import {
   type CanonicalFinding,
   SCHEMA_VERSION,
   validateCanonicalFinding,
+  validateCanonicalToolExecution,
   validateReportInput,
 } from "./schemas"
 
@@ -257,6 +258,79 @@ describe("validateReportInput", () => {
 
   test("accepts valid toolsExecuted entry", () => {
     const result = validateReportInput(makeValidReportInput())
+    expect(result.success).toBe(true)
+  })
+
+  test("accepts additive findingCounts and coverageAttempt fields", () => {
+    const result = validateReportInput(
+      makeValidReportInput({
+        findingCounts: {
+          rawObservations: 8,
+          recordedFindings: 6,
+          dedupedFindings: 4,
+          actionableFindings: 3,
+          nonActionableFindings: 1,
+        },
+        coverageAttempt: {
+          status: "skipped",
+          attemptedAt: 1700000000,
+          reason: "forge unavailable",
+        },
+      }),
+    )
+
+    expect(result.success).toBe(true)
+  })
+
+  test("rejects invalid additive findingCounts fields", () => {
+    const result = validateReportInput(
+      makeValidReportInput({
+        findingCounts: {
+          rawObservations: -1,
+          recordedFindings: 6,
+          dedupedFindings: 4,
+          actionableFindings: 3,
+          nonActionableFindings: 1,
+        },
+      }),
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors.some((e) => e.field === "findingCounts.rawObservations")).toBe(true)
+    }
+  })
+
+  test("rejects invalid coverageAttempt status", () => {
+    const result = validateReportInput(
+      makeValidReportInput({
+        coverageAttempt: {
+          status: "unknown",
+        },
+      }),
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors.some((e) => e.field === "coverageAttempt.status")).toBe(true)
+    }
+  })
+
+  test("accepts additive count metrics on canonical tool executions", () => {
+    const result = validateCanonicalToolExecution({
+      tool: "argus_slither_analyze",
+      startTime: 1700000000,
+      endTime: 1700000010,
+      success: true,
+      findingsCount: 3,
+      findingCounts: {
+        rawObservations: 5,
+        recordedFindings: 3,
+      },
+      run_id: "run-1",
+      schema_version: SCHEMA_VERSION,
+    })
+
     expect(result.success).toBe(true)
   })
 
