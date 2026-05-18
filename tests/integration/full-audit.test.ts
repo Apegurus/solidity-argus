@@ -23,6 +23,7 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
     argus: {},
     sentinel: {},
     pythia: {},
+    auditSpecialist: {},
     scribe: {},
     themis: {},
   },

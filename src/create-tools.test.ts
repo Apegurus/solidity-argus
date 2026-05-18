@@ -7,6 +7,7 @@ const baseConfig: ArgusConfig = {
     argus: {},
     sentinel: {},
     pythia: {},
+    auditSpecialist: {},
     scribe: {},
     themis: {},
   },
