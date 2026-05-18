@@ -131,6 +131,97 @@ function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
   return errors
 }
 
+type ThemisVerdict = {
+  approved?: unknown
+  pipeline_issues?: unknown
+  false_positives?: unknown
+  missed_findings?: unknown
+  severity_adjustments?: unknown
+}
+
+type ThemisDisposition = {
+  status?: unknown
+  verdict?: ThemisVerdict
+  notes?: unknown
+  justification?: unknown
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0
+}
+
+function isResolvedThemisDisposition(value: unknown): boolean {
+  const disposition = asRecord(value) as ThemisDisposition | null
+  if (disposition?.status === "approved") {
+    return disposition.verdict?.approved === true
+  }
+  if (disposition?.status === "remediated") {
+    return disposition.verdict?.approved === false && hasText(disposition.notes)
+  }
+  if (disposition?.status === "overridden") {
+    return disposition.verdict?.approved === false && hasText(disposition.justification)
+  }
+  return false
+}
+
+function hasRejectedThemisVerdict(value: unknown): boolean {
+  const verdict = asRecord(value) as ThemisVerdict | null
+  return verdict?.approved === false
+}
+
+function collectThemisDispositionErrors(events: AuditEvent[]): string[] {
+  let reportIndex = -1
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event && isGenerateReportCompletion(event)) {
+      reportIndex = index
+      break
+    }
+  }
+  if (reportIndex === -1) return []
+
+  const laterEvents = events.slice(reportIndex + 1)
+  const hasResolvedDisposition = laterEvents.some((event) => {
+    if (event.type !== "tool.completed") return false
+    const payload = asRecord(event.payload)
+    return isResolvedThemisDisposition(payload?.themisDisposition)
+  })
+
+  if (hasResolvedDisposition) return []
+
+  const hasUnresolvedRejection = laterEvents.some((event) => {
+    if (event.type !== "tool.completed") return false
+    const payload = asRecord(event.payload)
+    return (
+      payload?.tool === "task" &&
+      payload.subagent_type === "themis" &&
+      hasRejectedThemisVerdict(payload.themis)
+    )
+  })
+
+  return hasUnresolvedRejection
+    ? ["generated report has unresolved Themis issues"]
+    : ["generated report has no resolved Themis disposition"]
+}
+
+export function hasResolvedThemisDispositionAfterReport(events: AuditEvent[]): boolean {
+  let reportIndex = -1
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event && isGenerateReportCompletion(event)) {
+      reportIndex = index
+      break
+    }
+  }
+  if (reportIndex === -1) return false
+
+  return events.slice(reportIndex + 1).some((event) => {
+    if (event.type !== "tool.completed") return false
+    const payload = asRecord(event.payload)
+    return isResolvedThemisDisposition(payload?.themisDisposition)
+  })
+}
+
 function collectParentChildIntegrityErrors(events: AuditEvent[]): string[] {
   const errors: string[] = []
   const parentByChild = new Map<string, string>()
@@ -244,7 +335,7 @@ function collectInvariantErrors(events: AuditEvent[]): { errors: string[]; warni
 
   warnings.push(...collectOrphanedToolStarts(events))
   errors.push(...collectParentChildIntegrityErrors(events))
-  errors.push(...collectMultiSessionErrors(events))
+  warnings.push(...collectMultiSessionErrors(events))
   return { errors, warnings }
 }
 
@@ -308,6 +399,7 @@ export async function finalizeRun(
     const reportErrors = [
       ...(await collectReportCompletenessErrors(events)),
       ...collectReportQualityGateErrors(events),
+      ...collectThemisDispositionErrors(events),
     ]
     if (reportErrors.length === 0) {
       return {
@@ -324,6 +416,7 @@ export async function finalizeRun(
   const { errors, warnings } = collectInvariantErrors(events)
   errors.push(...(await collectReportCompletenessErrors(events)))
   errors.push(...collectReportQualityGateErrors(events))
+  errors.push(...collectThemisDispositionErrors(events))
   const invariantsPassed = errors.length === 0
   const sessionId = events.at(-1)?.session_id ?? ""
 

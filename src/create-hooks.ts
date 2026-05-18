@@ -18,7 +18,10 @@ import {
   materializeReportInput,
 } from "./features/persistent-state/findings-materializer"
 import { recordRun, updateRunStatus } from "./features/persistent-state/global-run-index"
-import { finalizeRun } from "./features/persistent-state/run-finalizer"
+import {
+  finalizeRun,
+  hasResolvedThemisDispositionAfterReport,
+} from "./features/persistent-state/run-finalizer"
 import { createRunJournal } from "./features/persistent-state/run-journal"
 import { pruneStaleRuns } from "./features/persistent-state/run-pruner"
 import { createAgentTracker } from "./hooks/agent-tracker"
@@ -628,6 +631,11 @@ export function createHooks(args: {
             (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
 
           if (runSink && !runSink.isFinalized) {
+            const events = await runSink.readAll()
+            if (!hasResolvedThemisDispositionAfterReport(events)) {
+              return
+            }
+
             try {
               const idleFinalization = await finalizeRun(
                 auditState.sessionId,
@@ -1092,11 +1100,13 @@ export function createHooks(args: {
               )
             }
 
-            // Trigger finalization immediately after report generation.
-            // The session.idle handler also checks reportGenerated, but in
-            // `opencode run` mode the process may exit before another idle
-            // event fires.  Finalizing here guarantees the run is closed.
-            if (state.reportGenerated) {
+            // The report is materialized here, but finalization waits until
+            // Argus records a resolved Themis disposition.
+          }
+
+          if (toolName === "argus_themis_disposition") {
+            const state = getAuditState(input.sessionID)
+            if (state?.reportGenerated) {
               const runSink =
                 eventSinksByRunId.get(state.sessionId) ??
                 (input.sessionID
@@ -1120,12 +1130,12 @@ export function createHooks(args: {
                   )
                   if (!reportFinalization.invariantsPassed) {
                     logger.warn(
-                      `Report-triggered finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                      `Themis-disposition finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
                     )
                   }
                 } catch (error) {
                   logger.warn(
-                    `Report-triggered finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+                    `Themis-disposition finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
                   )
                 }
               }
