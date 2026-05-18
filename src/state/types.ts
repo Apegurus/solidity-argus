@@ -1,5 +1,11 @@
 export type FindingSeverity = "Critical" | "High" | "Medium" | "Low" | "Informational"
-export type ArgusAgentName = "argus" | "sentinel" | "pythia" | "scribe" | "unknown"
+export type ArgusAgentName =
+  | "argus"
+  | "sentinel"
+  | "pythia"
+  | "audit-specialist"
+  | "scribe"
+  | "unknown"
 export type AuditPhase =
   | "reconnaissance"
   | "scanning"
