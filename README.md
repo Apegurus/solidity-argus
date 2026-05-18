@@ -106,6 +106,7 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 | `argus_read_findings` | Scribe, Themis | Reads persisted findings and audit artifacts for report generation and validation |
 | `argus_persist_deduped` | Scribe | Persists deduplicated findings before final report generation and validation |
 | `argus_generate_report` | Scribe | Generates the final structured audit report in professional markdown format |
+| `argus_themis_disposition` | Argus | Records Argus' resolved disposition for Themis validation: approved, remediated, or explicitly overridden |
 | `argus_sync_knowledge` | Argus | Syncs the local vulnerability database from SCVD (api.scvd.dev) |
 
 ---
