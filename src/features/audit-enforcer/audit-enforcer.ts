@@ -1,22 +1,8 @@
 import { PHASE_ORDER } from "../../shared/audit-phases"
+import { computeMissingKeyTools } from "../../shared/key-tools"
 import type { AuditPhase, AuditState } from "../../state/types"
 
 const REPORTING_PHASES: AuditPhase[] = ["reporting", "complete"]
-
-const KEY_TOOL_FAMILIES: Array<{ family: string; prefixes: string[] }> = [
-  { family: "slither", prefixes: ["argus_slither_analyze", "slither"] },
-  { family: "forge_test", prefixes: ["argus_forge_test", "forge_test"] },
-  { family: "forge_fuzz", prefixes: ["argus_forge_fuzz", "forge_fuzz"] },
-  { family: "forge_coverage", prefixes: ["argus_forge_coverage", "forge_coverage"] },
-]
-
-function getMissingToolFamilies(auditState: AuditState): string[] {
-  const executedTools = auditState.toolsExecuted.map((t) => t.tool)
-  return KEY_TOOL_FAMILIES.filter(
-    ({ prefixes }) =>
-      !executedTools.some((tool) => prefixes.some((prefix) => tool.startsWith(prefix))),
-  ).map(({ family }) => family)
-}
 
 function getNextPhase(current: AuditPhase): AuditPhase | null {
   const idx = PHASE_ORDER.indexOf(current)
@@ -39,7 +25,7 @@ export function createAuditEnforcer() {
     ]
 
     if (REPORTING_PHASES.includes(auditState.currentPhase)) {
-      const missing = getMissingToolFamilies(auditState)
+      const missing = computeMissingKeyTools(auditState.toolsExecuted, auditState.unavailableTools)
       if (missing.length > 0) {
         parts.push(
           `\u26a0\ufe0f Tool coverage incomplete: ${missing.join(", ")} have not been executed. Do not proceed to report generation until required tools are complete.`,
