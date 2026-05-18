@@ -470,26 +470,6 @@ export async function executeSlitherAnalyze(
     }
   }
 
-  if (args.via_ir) {
-    const fallbackResult = await flattenFallback(args, context, {
-      ...getDefaultFlattenDeps(),
-      runCommand,
-      cwd: projectDir,
-    })
-    if (fallbackResult) return fallbackResult
-    return {
-      success: false,
-      findingsCount: 0,
-      findings: [],
-      executionTime: Date.now() - startedAt,
-      errors: [
-        "via_ir enabled — flatten fallback failed. Ensure forge and solc-select are installed.",
-      ],
-      error:
-        "Project uses via_ir which is incompatible with Slither direct analysis. Flatten fallback also failed.",
-    }
-  }
-
   const command = buildCommand(args)
 
   try {
@@ -508,7 +488,7 @@ export async function executeSlitherAnalyze(
       payload = JSON.parse(runResult.stdout) as SlitherPayload
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown parse error"
-      if (shouldTryFlattenFallback(errors, runResult.stderr)) {
+      if (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr)) {
         const fallbackResult = await flattenFallback(args, context, {
           ...getDefaultFlattenDeps(),
           runCommand,
@@ -533,7 +513,11 @@ export async function executeSlitherAnalyze(
     const findings = parseFindings(payload)
     const success = findings.length > 0 || (runResult.exitCode === 0 && payload.success !== false)
 
-    if (!success && findings.length === 0 && shouldTryFlattenFallback(errors, runResult.stderr)) {
+    if (
+      !success &&
+      findings.length === 0 &&
+      (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))
+    ) {
       const fallbackResult = await flattenFallback(args, context, {
         ...getDefaultFlattenDeps(),
         runCommand,

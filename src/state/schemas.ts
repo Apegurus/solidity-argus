@@ -8,7 +8,9 @@ import {
 import type {
   ArgusAgentName,
   AuditPhase,
+  CoverageAttemptState,
   Finding,
+  FindingCounts,
   FindingSeverity,
   FuzzCounterexample,
   SoloditResult,
@@ -111,6 +113,7 @@ export interface ReportInput {
   projectDir: string
   findings: CanonicalFinding[]
   toolsExecuted: CanonicalToolExecution[]
+  findingCounts?: FindingCounts
   scope: string[]
   soloditResults?: SoloditResult[]
   fuzzCounterexamples?: FuzzCounterexample[]
@@ -120,6 +123,82 @@ export interface ReportInput {
   patternVersion?: string
   skillsLoaded?: string[]
   unavailableTools?: string[]
+  coverageAttempt?: CoverageAttemptState
+}
+
+const FINDING_COUNT_FIELDS = [
+  "rawObservations",
+  "recordedFindings",
+  "dedupedFindings",
+  "actionableFindings",
+  "nonActionableFindings",
+] as const
+
+const COVERAGE_ATTEMPT_STATUSES = new Set(["pending", "run", "skipped", "failed"])
+
+function pushFindingCountsErrors(errors: ValidationError[], raw: unknown, prefix: string): void {
+  if (raw == null) return
+  if (!isRecord(raw)) {
+    errors.push({
+      field: prefix,
+      code: "invalid",
+      message: `${prefix} must be an object when provided`,
+    })
+    return
+  }
+
+  for (const field of FINDING_COUNT_FIELDS) {
+    const value = raw[field]
+    if (value == null) continue
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      errors.push({
+        field: `${prefix}.${field}`,
+        code: "invalid",
+        message: `${prefix}.${field} must be a non-negative integer when provided`,
+      })
+    }
+  }
+}
+
+function pushCoverageAttemptErrors(errors: ValidationError[], raw: unknown): void {
+  if (raw == null) return
+  if (!isRecord(raw)) {
+    errors.push({
+      field: "coverageAttempt",
+      code: "invalid",
+      message: "coverageAttempt must be an object when provided",
+    })
+    return
+  }
+
+  if (typeof raw.status !== "string" || !COVERAGE_ATTEMPT_STATUSES.has(raw.status)) {
+    errors.push({
+      field: "coverageAttempt.status",
+      code: "enum",
+      message: "coverageAttempt.status must be one of: pending, run, skipped, failed",
+    })
+  }
+
+  if (
+    raw.attemptedAt != null &&
+    (typeof raw.attemptedAt !== "number" ||
+      !Number.isInteger(raw.attemptedAt) ||
+      raw.attemptedAt <= 0)
+  ) {
+    errors.push({
+      field: "coverageAttempt.attemptedAt",
+      code: "invalid",
+      message: "coverageAttempt.attemptedAt must be a positive integer when provided",
+    })
+  }
+
+  if (raw.reason != null && (typeof raw.reason !== "string" || raw.reason.trim().length === 0)) {
+    errors.push({
+      field: "coverageAttempt.reason",
+      code: "invalid",
+      message: "coverageAttempt.reason must be a non-empty string when provided",
+    })
+  }
 }
 
 function pushRequiredRootStringError(
@@ -346,6 +425,8 @@ export function validateCanonicalToolExecution(
     })
   }
 
+  pushFindingCountsErrors(errors, raw.findingCounts, "findingCounts")
+
   if (typeof raw.run_id !== "string" || raw.run_id.trim().length === 0) {
     errors.push({
       field: "run_id",
@@ -399,6 +480,9 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
       message: `schema_version must be ${SCHEMA_VERSION}`,
     })
   }
+
+  pushFindingCountsErrors(errors, raw.findingCounts, "findingCounts")
+  pushCoverageAttemptErrors(errors, raw.coverageAttempt)
 
   if (!Array.isArray(raw.scope) || !raw.scope.every((item) => typeof item === "string")) {
     errors.push({

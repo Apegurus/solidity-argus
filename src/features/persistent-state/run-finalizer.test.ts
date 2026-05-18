@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
-import { finalizeRun } from "./run-finalizer"
+import { finalizeRun, hasResolvedThemisDispositionAfterReport } from "./run-finalizer"
 
 const RUN_ID = "run-finalizer-test"
 
@@ -44,6 +44,45 @@ function makeInMemorySink(initialEvents: AuditEvent[]) {
 }
 
 describe("finalizeRun", () => {
+  test("requires disposition after latest report generation", () => {
+    const events = [
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 4,
+        tool_call_id: "report-tool-2",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+    ]
+
+    expect(hasResolvedThemisDispositionAfterReport(events)).toBe(false)
+  })
+
   test("returns existing successful finalization without appending a new event", async () => {
     const sink = makeInMemorySink([
       makeEvent({ type: "session.created", seq: 1 }),
@@ -137,6 +176,65 @@ describe("finalizeRun", () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  test("warns instead of failing when a child writer lacks a recorded task edge", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1, session_id: "ses-parent" }),
+      makeEvent({
+        type: "tool.started",
+        seq: 2,
+        session_id: "ses-child",
+        tool_call_id: "tool-1",
+        payload: { tool: "argus_generate_report" },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        session_id: "ses-child",
+        tool_call_id: "tool-1",
+        payload: {
+          tool: "argus_generate_report",
+          findingsCount: 0,
+          success: true,
+        },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 4,
+        session_id: "ses-child",
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          findingsCount: 0,
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(true)
+    expect(result.errors).toEqual([])
+    expect(
+      result.warnings.some((warning) =>
+        warning.includes(
+          "unexpected session writers detected (not in parent-child graph): ses-child",
+        ),
+      ),
+    ).toBe(true)
+    const latest = sink.getEvents().at(-1)
+    expect((latest?.payload as { status?: string } | undefined)?.status).toBe("finalized")
+  })
+
   test("recomputes when existing finalization failed and appends upgraded result", async () => {
     const sink = makeInMemorySink([
       makeEvent({ type: "session.created", seq: 1 }),
@@ -228,5 +326,165 @@ describe("finalizeRun", () => {
     )
     const latest = sink.getEvents().at(-1)
     expect((latest?.payload as { status?: string } | undefined)?.status).toBe("failed-finalization")
+  })
+
+  test("fails invariants when report generation is not followed by resolved themis disposition", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors).toContain("generated report has no resolved Themis disposition")
+  })
+
+  test("passes invariants when report generation is followed by approved themis disposition", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-task-1",
+        payload: {
+          tool: "task",
+          success: true,
+          subagent_type: "themis",
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(true)
+  })
+
+  test("passes invariants when Argus records a remediated Themis disposition", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "remediated",
+            verdict: {
+              approved: false,
+              pipeline_issues: ["report mismatch"],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+            notes: "Scribe regenerated the report after correcting the cited mismatch.",
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(true)
+  })
+
+  test("passes invariants when Argus records an explicit Themis override", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "overridden",
+            verdict: {
+              approved: false,
+              pipeline_issues: ["severity disagreement"],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+            justification:
+              "Argus reviewed the cited evidence and determined the reported issue is an accepted documented trade-off.",
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(true)
+  })
+
+  test("fails invariants when Themis rejects output and Argus records no disposition", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-task-1",
+        payload: {
+          tool: "task",
+          success: true,
+          subagent_type: "themis",
+          themis: {
+            approved: false,
+            pipeline_issues: ["report mismatch"],
+            false_positives: [],
+            missed_findings: [],
+            severity_adjustments: [],
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors).toContain("generated report has unresolved Themis issues")
   })
 })

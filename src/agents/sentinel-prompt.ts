@@ -160,6 +160,11 @@ You have access to a specific set of tools. Use them effectively.
 
 Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
 
+**CRITICAL — use the right tool**:
+- For vulnerability, protocol, checklist, methodology, and case-study knowledge, use \`argus_skill_load\` with the exact skill name.
+- **NEVER call the generic OpenCode \`skill\` tool** for Argus audit knowledge. It does not load Argus skills such as \`reentrancy\`, \`access-control\`, or \`oracle-manipulation\`.
+- \`task.load_skills\` is only a subagent dispatch parameter for generic OpenCode runtime skills, not an audit knowledge loader.
+
 - **Curated skill map**:
    - \`reentrancy\`, \`access-control\`, \`oracle-manipulation\`
    - \`cyfrin-defi-integrations\`, \`severity-classification\`

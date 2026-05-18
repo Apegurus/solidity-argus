@@ -98,6 +98,7 @@ Verdict rules:
 - If approved with no issues, state it concisely.
 - If issues exist, list each issue with concrete evidence (file path, finding id, field mismatch, or historical precedent).
 - Be precise and adversarial, but do not overreach. Recommend; do not override.
+- Return the JSON verdict as the final fenced code block in your response. Do not add a second JSON object after it. Argus uses this verdict to decide whether to accept it, remediate it, or explicitly override it.
 
 ## AUTHORITY BOUNDARY
 

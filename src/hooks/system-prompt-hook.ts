@@ -35,6 +35,57 @@ export function buildFallbackDirectives(unavailableTools: string[]): string[] {
   return directives
 }
 
+function formatDuration(startTime: number, endTime?: number): string {
+  if (typeof endTime !== "number" || endTime < startTime) return "pending"
+  return `${endTime - startTime}ms`
+}
+
+function buildToolLedgerLine(auditState: AuditState): string {
+  const taskDispatches = auditState.toolsExecuted.filter((tool) => tool.tool === "task").length
+  const argusTools = auditState.toolsExecuted.filter((tool) => tool.tool !== "task").slice(-5)
+  const entries = argusTools.map((tool) => {
+    const status = tool.success ? "ok" : "failed"
+    return `${tool.tool}=${status} findings=${tool.findingsCount} duration=${formatDuration(tool.startTime, tool.endTime)}`
+  })
+
+  if (taskDispatches > 0) entries.push(`task dispatches=${taskDispatches}`)
+  return entries.length > 0 ? entries.join("; ") : "none"
+}
+
+function buildToolsLine(auditState: AuditState): string {
+  const tools = auditState.toolsExecuted
+    .filter((tool) => tool.tool !== "task")
+    .map((tool) => tool.tool)
+  return tools.length > 0 ? tools.join(", ") : "none"
+}
+
+function buildFindingCountsLine(auditState: AuditState): string | null {
+  const counts = auditState.findingCounts
+  if (!counts) return null
+
+  return [
+    "Finding Counts:",
+    `raw_observations=${counts.rawObservations ?? 0}`,
+    `recorded=${counts.recordedFindings ?? 0}`,
+    `deduped=${counts.dedupedFindings ?? 0}`,
+    `actionable=${counts.actionableFindings ?? 0}`,
+    `non_actionable=${counts.nonActionableFindings ?? 0}`,
+  ].join(" ")
+}
+
+function buildCoverageLine(auditState: AuditState): string {
+  const attempt = auditState.coverageAttempt
+  if (attempt) {
+    return attempt.reason
+      ? `Coverage: ${attempt.status} — ${attempt.reason}`
+      : `Coverage: ${attempt.status}`
+  }
+  const unavailable = auditState.unavailableTools ?? []
+  return unavailable.includes("forge")
+    ? "Coverage: skipped — forge unavailable"
+    : "Coverage: pending"
+}
+
 export function buildDynamicContext(
   auditState: AuditState,
   agent: string,
@@ -45,7 +96,7 @@ export function buildDynamicContext(
   const executedToolNames = new Set(
     auditState.toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
   )
-  const tools = auditState.toolsExecuted.map((tool) => tool.tool).join(", ") || "none"
+  const findingCountsLine = buildFindingCountsLine(auditState)
   const taskStatus = KEY_TOOLS.map(
     (t) => `${t}=${executedToolNames.has(t) ? "done" : "pending"}`,
   ).join(" ")
@@ -62,7 +113,10 @@ export function buildDynamicContext(
     `Phase: ${auditState.currentPhase}`,
     `Contracts: ${auditState.contractsReviewed.length} reviewed`,
     `Findings: Critical=${severityCounts.Critical} High=${severityCounts.High} Medium=${severityCounts.Medium} Low=${severityCounts.Low} Info=${severityCounts.Informational}`,
-    `Tools: ${tools}`,
+    ...(findingCountsLine ? [findingCountsLine] : []),
+    `Tools: ${buildToolsLine(auditState)}`,
+    `Tool Ledger: ${buildToolLedgerLine(auditState)}`,
+    buildCoverageLine(auditState),
     `Tasks: ${taskStatus}`,
   ]
 

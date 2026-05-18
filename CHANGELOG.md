@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.5.9 (unreleased)
+## 0.5.11 (unreleased)
+
+### Fixes
+- Reporting gates now require successful key-tool executions instead of counting failed attempts as complete, and the audit enforcer shares the same key-tool logic as report generation.
+- Report generation now preserves canonical finding wording and renders source excerpts for readable findings, improving audit report evidence fidelity.
+- Slither analysis now attempts direct Foundry/via-IR analysis before falling back to flattening, while preserving stderr on direct failures.
+- Forge coverage now supports `match_path`, explicit `ir_minimum`, and automatic `--ir-minimum` retry for stack-too-deep failures.
+- Themis validation is now a resolved disposition gate: Argus remains final judge, but finalization requires an approved, remediated, or explicitly overridden Themis disposition.
+
+### Tools
+- Added `argus_themis_disposition` for recording Argus' final disposition of Themis validation verdicts.
+
+## 0.5.9 (2026-05-17)
 
 ### Fixes
 - Hotfix: correct Sentinel/Pythia/Scribe default models from invalid `anthropic/claude-sonnet-4-7` to registry-valid `anthropic/claude-sonnet-4-6`, preventing `ProviderModelNotFoundError` during Argus background dispatch. Confirmed all default model IDs exist in the OpenCode model registry.

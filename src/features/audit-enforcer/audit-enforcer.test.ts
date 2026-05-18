@@ -75,16 +75,17 @@ describe("createAuditEnforcer", () => {
 
     expect(result).toContain("Tool coverage incomplete")
     expect(result).toContain("slither")
-    expect(result).toContain("forge_test")
-    expect(result).toContain("forge_fuzz")
-    expect(result).toContain("forge_coverage")
+    expect(result).toContain("forge-test")
+    expect(result).toContain("patterns")
+    expect(result).toContain("solodit")
+    expect(result).toContain("analyzer")
     expect(result).toContain("Do not proceed to report generation")
   })
 
   it("stays silent on missing-tool reminder when all key tools have been executed", () => {
     const enforcer = createAuditEnforcer()
     const state: AuditState = {
-      ...makeMockState("complete"),
+      ...makeMockState("reporting"),
       toolsExecuted: [
         {
           tool: "argus_slither_analyze",
@@ -94,13 +95,20 @@ describe("createAuditEnforcer", () => {
           findingsCount: 0,
         },
         { tool: "argus_forge_test", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
-        { tool: "argus_forge_fuzz", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
-        { tool: "argus_forge_coverage", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_check_patterns", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_solodit_search", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        {
+          tool: "argus_analyze_contract",
+          startTime: 1,
+          endTime: 2,
+          success: true,
+          findingsCount: 0,
+        },
       ],
     }
     const result = enforcer(state)
 
-    expect(result).toBeNull()
+    expect(result).not.toContain("Tool coverage incomplete")
   })
 
   it("emits missing-tool reminder only for reporting/complete phases, not earlier phases", () => {
@@ -109,5 +117,36 @@ describe("createAuditEnforcer", () => {
     const result = enforcer(state)
 
     expect(result).not.toContain("Tool coverage incomplete")
+  })
+
+  it("treats failed key tools as incomplete", () => {
+    const enforcer = createAuditEnforcer()
+    const state: AuditState = {
+      ...makeMockState("reporting"),
+      toolsExecuted: [
+        {
+          tool: "argus_slither_analyze",
+          startTime: 1,
+          endTime: 2,
+          success: false,
+          findingsCount: 0,
+        },
+        { tool: "argus_forge_test", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_check_patterns", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        { tool: "argus_solodit_search", startTime: 1, endTime: 2, success: true, findingsCount: 0 },
+        {
+          tool: "argus_analyze_contract",
+          startTime: 1,
+          endTime: 2,
+          success: true,
+          findingsCount: 0,
+        },
+      ],
+    }
+
+    const result = enforcer(state)
+
+    expect(result).toContain("Tool coverage incomplete")
+    expect(result).toContain("slither")
   })
 })

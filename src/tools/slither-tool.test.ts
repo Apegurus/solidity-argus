@@ -214,6 +214,44 @@ test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async
   expect(result.findingsCount).toBe(0)
 })
 
+test("executeSlitherAnalyze attempts direct slither before flatten fallback when via_ir is requested", async () => {
+  const commands: string[][] = []
+  const { context } = createContext()
+
+  const result = await executeSlitherAnalyze(
+    { target: "src/WAlpha.sol", via_ir: true },
+    context,
+    async (command, _signal, _cwd) => {
+      commands.push(command)
+      return {
+        stdout: JSON.stringify({ success: true, results: { detectors: [] } }),
+        stderr: "",
+        exitCode: 0,
+      }
+    },
+  )
+
+  expect(result.success).toBe(true)
+  expect(commands).toEqual([
+    ["slither", "src/WAlpha.sol", "--json", "-", "--filter-paths", "node_modules"],
+  ])
+})
+
+test("executeSlitherAnalyze returns stderr when direct slither fails without fallback", async () => {
+  const { context } = createContext()
+
+  const result = await executeSlitherAnalyze({ target: "src/WAlpha.sol" }, context, async () => ({
+    stdout: "not-json",
+    stderr: "syntax error near unexpected token",
+    exitCode: 1,
+  }))
+
+  expect(result.success).toBe(false)
+  expect(result.errors).toContain("Slither exited with code 1")
+  expect(result.errors).toContain("syntax error near unexpected token")
+  expect(result.error).toContain("Slither output parse error")
+})
+
 function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): FlattenFallbackDeps {
   return {
     runCommand: async (_command, _signal, _cwd) => ({
@@ -433,7 +471,7 @@ test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with
   expect(result.findings[0]?.check).toBe("reentrancy-eth")
 })
 
-test("executeSlitherAnalyze skips primary run and uses flatten fallback when via_ir is true", async () => {
+test("executeSlitherAnalyze uses flatten fallback after direct via_ir analysis fails", async () => {
   const { context } = createContext()
   let primaryCalled = false
 
@@ -448,7 +486,7 @@ test("executeSlitherAnalyze skips primary run and uses flatten fallback when via
     },
   )
 
-  expect(primaryCalled).toBe(false)
+  expect(primaryCalled).toBe(true)
   expect(result.success).toBe(false)
   // flattenFallback returns structured error (forge not found or solc version missing)
   expect(result.error).toBeDefined()
@@ -564,8 +602,8 @@ test("manual via_ir: true override bypasses auto-detection", async () => {
     },
   )
 
-  // Should have gone through the via_ir path (flatten fallback), not primary
-  expect(primaryRunCalled).toBe(false)
+  // Manual via_ir should still try direct Slither before any fallback.
+  expect(primaryRunCalled).toBe(true)
   expect(result.success).toBe(false)
   expect(result.error).toBeDefined()
 })

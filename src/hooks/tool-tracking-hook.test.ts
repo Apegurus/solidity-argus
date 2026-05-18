@@ -375,6 +375,7 @@ describe("createToolTrackingHook", () => {
 
     expect(auditState.toolsExecuted).toHaveLength(1)
     expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_forge_test")
+    expect(auditState.toolsExecuted.at(0)?.success).toBe(false)
     expect(auditState.toolsExecuted.at(0)?.findingsCount).toBe(3)
   })
 
@@ -1196,6 +1197,22 @@ Content...`
       expect(covFile1?.path).toBe("src/Token.sol")
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_forge_coverage")
+      expect(auditState.coverageAttempt?.status).toBe("run")
+    })
+
+    test("coverage failure records explicit coverage attempt state", async () => {
+      await hook({
+        tool: "argus_forge_coverage",
+        args: { target: "." },
+        result: JSON.stringify({
+          success: false,
+          error: "forge coverage unavailable",
+        }),
+      })
+
+      expect(auditState.coverageAttempt?.status).toBe("failed")
+      expect(auditState.coverageAttempt?.reason).toBe("forge coverage unavailable")
+      expect(auditState.toolsExecuted.at(0)?.findingCounts?.recordedFindings).toBe(0)
     })
   })
 
@@ -1407,6 +1424,53 @@ Content...`
       expect(runScopedSink.events.filter((event) => event.type === "tool.completed")).toHaveLength(
         1,
       )
+    })
+
+    test("records findings count from read_findings tool output", async () => {
+      const sink = createMockSink()
+      const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+        getEventSink: () => sink,
+      })
+
+      await hookWithSink({
+        tool: "argus_read_findings",
+        args: { run_id: auditState.sessionId },
+        result: JSON.stringify({
+          success: true,
+          truncated: false,
+          reportInput: {
+            run_id: auditState.sessionId,
+            findings: [
+              {
+                check: "one",
+                severity: "Low",
+                file: "A.sol",
+                lines: [1, 1],
+                description: "one",
+                source: "manual",
+                confidence: "High",
+              },
+              {
+                check: "two",
+                severity: "Medium",
+                file: "B.sol",
+                lines: [2, 2],
+                description: "two",
+                source: "manual",
+                confidence: "High",
+              },
+            ],
+            toolsExecuted: [],
+            scope: [],
+          },
+        }),
+      })
+
+      const completed = sink.events.find((e) => e.type === "tool.completed")
+      const completedPayload = completed?.payload as Record<string, unknown>
+      expect(completedPayload.tool).toBe("argus_read_findings")
+      expect(completedPayload.findingsCount).toBe(2)
+      expect(auditState.toolsExecuted.at(-1)?.findingsCount).toBe(2)
     })
 
     test("emits tool.started and tool.completed for skill_load", async () => {

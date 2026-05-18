@@ -5,10 +5,14 @@ import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeCoverageArgs = {
   target?: string
+  match_path?: string
+  ir_minimum?: boolean
 }
 
 type NormalizedForgeCoverageArgs = {
   target: string
+  match_path?: string
+  ir_minimum: boolean
 }
 
 type ForgeCoverageFile = {
@@ -53,7 +57,20 @@ const EMPTY_SUMMARY: ForgeCoverageSummary = {
 function normalizeArgs(args: ForgeCoverageArgs, context: ToolContext): NormalizedForgeCoverageArgs {
   return {
     target: args.target ?? resolveProjectDir(context),
+    match_path: args.match_path,
+    ir_minimum: args.ir_minimum ?? false,
   }
+}
+
+function buildCoverageCommand(args: NormalizedForgeCoverageArgs, forceIrMinimum = false): string[] {
+  const command = ["forge", "coverage", "--report", "summary"]
+  if (args.match_path) command.push("--match-path", args.match_path)
+  if (args.ir_minimum || forceIrMinimum) command.push("--ir-minimum")
+  return command
+}
+
+function isStackTooDeep(stderr: string): boolean {
+  return /stack too deep/i.test(stderr)
 }
 
 function parsePercent(input: string): number {
@@ -156,10 +173,21 @@ export async function executeForgeCoverage(
   })
 
   try {
-    const runResult = await runCommand(["forge", "coverage"], {
+    let runResult = await runCommand(buildCoverageCommand(normalizedArgs), {
       signal: context.abort,
       cwd: normalizedArgs.target,
     })
+
+    if (
+      runResult.exitCode !== 0 &&
+      !normalizedArgs.ir_minimum &&
+      isStackTooDeep(runResult.stderr)
+    ) {
+      runResult = await runCommand(buildCoverageCommand(normalizedArgs, true), {
+        signal: context.abort,
+        cwd: normalizedArgs.target,
+      })
+    }
 
     if (runResult.exitCode !== 0) {
       return fail(
@@ -193,6 +221,8 @@ export const forgeCoverageTool = tool({
     "Run forge coverage analysis and return structured per-file coverage metrics (lines, statements, branches, functions).",
   args: {
     target: tool.schema.string().optional(),
+    match_path: tool.schema.string().optional(),
+    ir_minimum: tool.schema.boolean().optional(),
   },
   async execute(args, context) {
     const result = await executeForgeCoverage(args, context)

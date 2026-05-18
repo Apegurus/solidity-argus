@@ -48,7 +48,7 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
     { target: "." },
     context,
     async (command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
-      expect(command).toEqual(["forge", "coverage"])
+      expect(command).toEqual(["forge", "coverage", "--report", "summary"])
       expect(options.signal).toBe(context.abort)
       expect(options.cwd).toBe(".")
       return { stdout, stderr: "", exitCode: 0 }
@@ -80,6 +80,53 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
   })
   expect(metadataCalls[0]?.title).toContain("forge coverage")
   expect(result.executionTime).toBeGreaterThanOrEqual(0)
+})
+
+test("executeForgeCoverage forwards match_path and ir_minimum flags", async () => {
+  const { context } = createContext()
+  const stdout =
+    "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) |"
+
+  const result = await executeForgeCoverage(
+    { target: ".", match_path: "test/WAlpha.t.sol", ir_minimum: true },
+    context,
+    async (command, options) => {
+      expect(command).toEqual([
+        "forge",
+        "coverage",
+        "--report",
+        "summary",
+        "--match-path",
+        "test/WAlpha.t.sol",
+        "--ir-minimum",
+      ])
+      expect(options.cwd).toBe(".")
+      return { stdout, stderr: "", exitCode: 0 }
+    },
+  )
+
+  expect(result.success).toBe(true)
+})
+
+test("executeForgeCoverage retries stack-too-deep failures with ir_minimum", async () => {
+  const { context } = createContext()
+  const commands: string[][] = []
+  const stdout =
+    "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) |"
+
+  const result = await executeForgeCoverage({ target: "." }, context, async (command) => {
+    commands.push(command)
+    if (commands.length === 1) {
+      return { stdout: "", stderr: "Compiler error: Stack too deep", exitCode: 1 }
+    }
+    return { stdout, stderr: "", exitCode: 0 }
+  })
+
+  expect(result.success).toBe(true)
+  expect(commands).toEqual([
+    ["forge", "coverage", "--report", "summary"],
+    ["forge", "coverage", "--report", "summary", "--ir-minimum"],
+  ])
 })
 
 test("executeForgeCoverage handles missing forge binary gracefully", async () => {
