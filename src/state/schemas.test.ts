@@ -90,6 +90,16 @@ describe("validateCanonicalFinding", () => {
       )
     }
   })
+
+  test("accepts audit-specialist as reported_by_agent", () => {
+    const finding = makeCanonicalFinding({
+      reported_by_agent: "audit-specialist",
+    })
+
+    const result = validateCanonicalFinding(finding)
+
+    expect(result.success).toBe(true)
+  })
 })
 
 describe("normalizeToCanonicalFinding", () => {
@@ -226,6 +236,23 @@ describe("normalizeToCanonicalFinding", () => {
     expect(result.data.sources).toEqual(["manual", "slither"])
     expect(result.data.reported_by_agents).toEqual(["scribe", "sentinel"])
     expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
+  })
+
+  test("normalizes audit-specialist as a canonical reporting agent", () => {
+    const raw = {
+      check: "math-precision-loss",
+      severity: "Medium",
+      confidence: "High",
+      description: "Reward math loses precision",
+      file: "src/Rewards.sol",
+      lines: [44, 51],
+      source: "manual",
+      reported_by_agent: "audit-specialist",
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-specialist", 1)
+
+    expect(result.data.reported_by_agent).toBe("audit-specialist")
   })
 })
 

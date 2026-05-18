@@ -332,7 +332,8 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     errors.push({
       field: "reported_by_agent",
       code: "enum",
-      message: "reported_by_agent must be one of: argus, sentinel, pythia, scribe, unknown",
+      message:
+        "reported_by_agent must be one of: argus, sentinel, pythia, audit-specialist, scribe, unknown",
     })
   }
 
