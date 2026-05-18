@@ -309,6 +309,7 @@ const VALID_AGENT_VALUES = new Set<ArgusAgentName>([
   "argus",
   "sentinel",
   "pythia",
+  "audit-specialist",
   "scribe",
   "unknown",
 ])

@@ -996,7 +996,14 @@ test("executeReportGeneration writes report to disk and returns filePath", async
       context,
       {
         loadConfig: () => ({
-          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
           tools: {},
           knowledge: {
             scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -1077,7 +1084,14 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
       context,
       {
         loadConfig: () => ({
-          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
           tools: {},
           knowledge: {
             scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
