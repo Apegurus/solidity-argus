@@ -3,6 +3,7 @@ import { ARGUS_PROMPT } from "./argus-prompt"
 import { AUDIT_SPECIALIST_PROMPT } from "./audit-specialist-prompt"
 import { SCRIBE_PROMPT } from "./scribe-prompt"
 import { SENTINEL_PROMPT } from "./sentinel-prompt"
+import { THEMIS_PROMPT } from "./themis-prompt"
 
 describe("Argus skill boundary prompt guidance", () => {
   test("Argus prompt distinguishes argus_skill_load from task.load_skills", () => {
@@ -34,5 +35,11 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(AUDIT_SPECIALIST_PROMPT).toContain("attack-vector-deck")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("LEAD")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")
+  })
+
+  test("Themis prompt treats audit-specialist findings as parity inputs", () => {
+    expect(THEMIS_PROMPT).toContain("audit-specialist")
+    expect(THEMIS_PROMPT).toContain('reported_by_agent: "audit-specialist"')
+    expect(THEMIS_PROMPT).toContain("raw -> deduped -> report parity")
   })
 })
