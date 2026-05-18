@@ -1,7 +1,7 @@
 # Argus Knowledge Base Inventory
 
 Generated: 2026-02-20
-Total SKILL.md files: 82
+Total SKILL.md files: 91
 
 ## Vulnerability Patterns
 | File | Source(s) | Topic | Word Count |
@@ -65,6 +65,18 @@ Total SKILL.md files: 82
 | methodology/report-template/SKILL.md | DeFiFoFum | Audit Report Template | 585 |
 | methodology/severity-classification/SKILL.md | DeFiFoFum | Severity Classification Guide | 603 |
 
+## Specialist Profiles
+| File | Source(s) | Topic | Word Count |
+|------|-----------|-------|------------|
+| specialist-profiles/access-control-specialist/SKILL.md | Argus | Access Control Specialist Profile | 190 |
+| specialist-profiles/economic-security/SKILL.md | Argus | Economic Security Profile | 190 |
+| specialist-profiles/execution-trace/SKILL.md | Argus | Execution Trace Profile | 180 |
+| specialist-profiles/first-principles/SKILL.md | Argus | First Principles Profile | 170 |
+| specialist-profiles/invariant/SKILL.md | Argus | Invariant Profile | 170 |
+| specialist-profiles/math-precision/SKILL.md | Argus | Math Precision Profile | 190 |
+| specialist-profiles/periphery/SKILL.md | Argus | Periphery Profile | 175 |
+| specialist-profiles/vector-scan/SKILL.md | Argus | Vector Scan Profile | 150 |
+
 ## Protocol Patterns
 | File | Source(s) | Topic | Word Count |
 |------|-----------|-------|------------|
@@ -89,6 +101,7 @@ Total SKILL.md files: 82
 |------|-----------|-------|------------|
 | references/exploit-reference/SKILL.md | SunWeb3Sec | DeFi Exploit Reference Index | 1125 |
 | references/smartbugs-examples/SKILL.md | smartbugs | SmartBugs Curated Dataset — Vulnerable Contract Examples | 1677 |
+| references/attack-vector-deck/SKILL.md | Argus | Attack-Vector Deck | 520 |
 
 ## Case Studies
 | File | Source(s) | Topic | Word Count |
