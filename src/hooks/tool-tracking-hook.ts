@@ -487,6 +487,7 @@ function recordToolExecution(
   state: AuditState,
   toolName: string,
   findingsCount: number,
+  success: boolean,
   findingCounts?: FindingCounts,
 ): void {
   const now = Date.now()
@@ -494,7 +495,7 @@ function recordToolExecution(
     tool: toolName,
     startTime: now,
     endTime: now,
-    success: true,
+    success,
     findingsCount,
     findingCounts,
   })
@@ -640,7 +641,7 @@ export function createToolTrackingHook(
       }
 
       if (resolved) {
-        recordToolExecution(resolved.state, "task", 0, buildFindingCounts(resolved.state, 0))
+        recordToolExecution(resolved.state, "task", 0, true, buildFindingCounts(resolved.state, 0))
         onStateChanged?.({ tool: "task", findingsCount: 0, sessionId: input.sessionID })
       }
 
@@ -1001,12 +1002,12 @@ export function createToolTrackingHook(
           }
         }
 
-        completedSuccess = true
+        completedSuccess = record.success !== false
       }
 
       const findingCounts = buildFindingCounts(auditState, findingsCount)
       auditState.findingCounts = findingCounts
-      recordToolExecution(auditState, input.tool, findingsCount, findingCounts)
+      recordToolExecution(auditState, input.tool, findingsCount, completedSuccess, findingCounts)
 
       const nextPhase = inferPhaseAdvancement(auditState, input.tool)
       if (nextPhase) {

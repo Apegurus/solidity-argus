@@ -375,6 +375,7 @@ describe("createToolTrackingHook", () => {
 
     expect(auditState.toolsExecuted).toHaveLength(1)
     expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_forge_test")
+    expect(auditState.toolsExecuted.at(0)?.success).toBe(false)
     expect(auditState.toolsExecuted.at(0)?.findingsCount).toBe(3)
   })
 
