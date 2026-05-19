@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 (2026-05-19)
+
+### Features
+- Added the `audit-specialist` adversarial review agent, giving Argus a profile-driven specialist pass for access control, math precision, invariants, economic security, execution tracing, periphery review, first-principles review, and broad vector scanning.
+- Added the bundled attack-vector deck and specialist-profile skills, expanding the curated knowledge base to 91 SKILL.md files across vulnerability patterns, methodology, protocol patterns, checklists, references, and case studies.
+
+### Improvements
+- Updated Argus, Themis, README, AGENTS, configuration defaults, state schemas, and skill resolution to recognize the 6-agent audit pipeline and audit-specialist tool access.
+- Added regression and end-to-end coverage for audit-specialist registration, prompt boundaries, skill loading, finding recording, report generation, and full audit flows.
+
 ## 0.5.11 (2026-05-18)
 
 ### Fixes
