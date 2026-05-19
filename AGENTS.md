@@ -11,7 +11,7 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 ## argus
 
 **Role**: Primary security audit orchestrator
-**Description**: Argus Panoptes, the All-Seeing Guardian. Coordinates full Solidity security audits by dispatching Sentinel (analysis), Pythia (research), Scribe (reporting), and Themis (validation). Follows a rigorous 7-step methodology: Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, and Reporting.
+**Description**: Argus Panoptes, the All-Seeing Guardian. Coordinates full Solidity security audits by dispatching Sentinel (analysis), Pythia (research), Audit Specialist (deep/adversarial profiles), Scribe (reporting), and Themis (validation). Follows a rigorous 7-step methodology: Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, and Reporting.
 **Model**: anthropic/claude-opus-4-7
 **Tools**: 15 orchestrator-accessible argus_* tools (argus_slither_analyze, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_solodit_search, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_skill_load, argus_generate_report, argus_record_finding, argus_read_findings, argus_sync_knowledge, argus_themis_disposition). `argus_persist_deduped` is reserved for Scribe.
 
@@ -28,6 +28,13 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 **Description**: Consults Solodit, SCVD, and the knowledge base to find historical precedents and known attack vectors. Searches 7,769+ real-world audit findings and 51 curated vulnerability pattern files. Dispatched by Argus during Vulnerability Research phase.
 **Model**: anthropic/claude-sonnet-4-6
 **Tools**: argus_solodit_search, argus_check_patterns, argus_record_finding, skill
+
+## audit-specialist
+
+**Role**: Profile-driven adversarial specialist auditor
+**Description**: Runs focused deep/adversarial passes under profiles such as vector-scan, access-control, math-precision, invariant, economic-security, execution-trace, periphery, and first-principles. Combines Sentinel-style analysis and verification tools with Pythia-style historical research. Records only confirmed findings; returns unproven trails as LEAD blocks.
+**Model**: anthropic/claude-sonnet-4-6
+**Tools**: argus_skill_load, argus_check_patterns, argus_solodit_search, argus_analyze_contract, argus_slither_analyze, argus_proxy_detection, argus_forge_test, argus_forge_fuzz, argus_forge_coverage, argus_gas_analysis, argus_record_finding, skill
 
 ## scribe
 

@@ -63,7 +63,13 @@ function parseFindingObject(raw: string, label: "finding" | "findings"): ParseRe
 }
 
 function normalizeAgent(value: string): ArgusAgentName {
-  if (value === "argus" || value === "sentinel" || value === "pythia" || value === "scribe") {
+  if (
+    value === "argus" ||
+    value === "sentinel" ||
+    value === "pythia" ||
+    value === "audit-specialist" ||
+    value === "scribe"
+  ) {
     return value
   }
 

@@ -31,7 +31,7 @@ afterEach(() => {
 
 function createArgusConfig(enabled: boolean): ArgusConfig {
   return {
-    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+    agents: { argus: {}, sentinel: {}, pythia: {}, auditSpecialist: {}, scribe: {}, themis: {} },
     tools: {},
     knowledge: {
       scvd: { enabled, apiUrl: "https://api.scvd.dev" },

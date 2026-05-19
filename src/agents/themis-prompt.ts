@@ -47,6 +47,8 @@ This phase is mandatory on every invocation.
 
 4. Validate raw -> deduped mapping:
    - Every raw finding must map to exactly one deduped finding.
+   - Findings reported by \`audit-specialist\` are first-class raw findings, just like Sentinel and Pythia findings.
+   - Preserve \`reported_by_agent: "audit-specialist"\` and include those observations in raw -> deduped -> report parity checks.
    - Merging is allowed, dropping is not.
    - Flag any raw finding that vanished without a valid merge target.
 

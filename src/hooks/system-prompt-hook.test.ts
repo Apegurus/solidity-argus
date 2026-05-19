@@ -87,6 +87,16 @@ describe("createSystemPromptHook", () => {
     expect(output.system[0]).toContain('<argus-context agent="scribe">')
   })
 
+  it("injects context for audit-specialist agent session", async () => {
+    const hook = createSystemPromptHook(makeDeps({ getAgentForSession: () => "audit-specialist" }))
+    const output = { system: [] as string[] }
+
+    await hook({ sessionID: "s-1", model: "anthropic/claude" }, output)
+
+    expect(output.system).toHaveLength(1)
+    expect(output.system[0]).toContain('<argus-context agent="audit-specialist">')
+  })
+
   it("does not inject for non-argus agents", async () => {
     const hook = createSystemPromptHook(
       makeDeps({

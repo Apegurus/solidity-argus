@@ -5,6 +5,7 @@ import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../../src/shared/audit-artifact-resolver"
 import { SCHEMA_VERSION } from "../../src/state/schemas"
+import { executeArgusSkillLoad } from "../../src/tools/argus-skill-load-tool"
 import { executePersistDeduped } from "../../src/tools/persist-deduped-tool"
 import { executeRecordFinding } from "../../src/tools/record-finding-tool"
 import { executeReportGeneration } from "../../src/tools/report-generator-tool"
@@ -219,5 +220,114 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
     expect(result.findingsCount.critical).toBe(1)
     expect(result.report).toContain("Flash-loan attacker can manipulate")
     expect(result.report).not.toContain("Impact details were not provided")
+  })
+
+  test("audit-specialist profile finding survives dedupe and report parity", async () => {
+    const projectDir = makeTempDir()
+    const runId = "e2e-audit-specialist-parity"
+    const auditSpecialistContext = makeContext(projectDir, "audit-specialist")
+
+    const profileSkill = await executeArgusSkillLoad(
+      { name: "access-control-specialist" },
+      auditSpecialistContext,
+    )
+    expect(profileSkill).toContain("## Argus Skill: access-control-specialist")
+
+    const recordResponse = JSON.parse(
+      await executeRecordFinding(
+        {
+          finding: JSON.stringify({
+            check: "missing-access-control",
+            severity: "High",
+            confidence: "High",
+            description: "PriceOracle.setPool lacks an authorization check",
+            file: "src/PriceOracle.sol",
+            lines: [21, 21],
+            source: "manual",
+            impact: "Any caller can redirect the pool used for price calculations",
+            recommendation: "Restrict setPool to the owner or configured governance role",
+            proofOfConcept: "Call setPool from an unprivileged address and observe success",
+          }),
+        },
+        auditSpecialistContext,
+      ),
+    ) as {
+      success: boolean
+      findings: Array<Record<string, unknown> & { reported_by_agent?: string }>
+    }
+
+    expect(recordResponse.success).toBe(true)
+    expect(recordResponse.findings[0]?.reported_by_agent).toBe("audit-specialist")
+
+    const dedupedFinding = {
+      ...recordResponse.findings[0],
+      observation_ids: ["session-audit-specialist:1"],
+      observation_count: 1,
+      reported_by_agents: ["audit-specialist"],
+    }
+
+    const persistResponse = JSON.parse(
+      await executePersistDeduped(
+        {
+          run_id: runId,
+          deduped_findings: JSON.stringify([dedupedFinding]),
+        },
+        makeContext(projectDir, "scribe"),
+      ),
+    ) as { success: boolean; findings_count: number }
+
+    expect(persistResponse.success).toBe(true)
+    expect(persistResponse.findings_count).toBe(1)
+
+    const reportResult = await executeReportGeneration(
+      {
+        project_name: "AuditSpecialistParity",
+        scope: ["src/PriceOracle.sol"],
+        run_id: runId,
+        tool_coverage_policy: "skip",
+        preflight_policy: "warn",
+      },
+      makeContext(projectDir, "scribe"),
+      {
+        readEvents: async () => [
+          {
+            type: "session.created" as const,
+            run_id: runId,
+            seq: 1,
+            session_id: "session-audit-specialist",
+            source: "argus",
+            schema_version: SCHEMA_VERSION,
+            timestamp: 1_700_000_000_001,
+            payload: {},
+          },
+          {
+            type: "finding.added" as const,
+            run_id: runId,
+            seq: 2,
+            session_id: "session-audit-specialist",
+            tool_call_id: "audit-specialist-finding-1",
+            source: "audit-specialist",
+            schema_version: SCHEMA_VERSION,
+            timestamp: 1_700_000_000_002,
+            payload: dedupedFinding,
+          },
+          {
+            type: "session.deleted" as const,
+            run_id: runId,
+            seq: 3,
+            session_id: "session-audit-specialist",
+            source: "argus",
+            schema_version: SCHEMA_VERSION,
+            timestamp: 1_700_000_000_003,
+            payload: {},
+          },
+        ],
+      },
+    )
+
+    expect(reportResult.report).toContain("PriceOracle.setPool lacks an authorization check")
+    expect(reportResult.report).toContain("Any caller can redirect the pool")
+    expect(reportResult.report).not.toContain("Finding parity mismatch")
+    expect(reportResult.report).not.toContain("Finding parity not verifiable")
   })
 })

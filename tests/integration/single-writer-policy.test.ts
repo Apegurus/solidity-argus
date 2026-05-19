@@ -31,7 +31,7 @@ function createContext(directory: string): ToolContext {
 
 function createTestConfig(outputDir: string): ArgusConfig {
   return {
-    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+    agents: { argus: {}, sentinel: {}, pythia: {}, auditSpecialist: {}, scribe: {}, themis: {} },
     tools: {},
     knowledge: {
       scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },

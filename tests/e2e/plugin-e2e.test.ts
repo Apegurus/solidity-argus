@@ -103,7 +103,7 @@ describe("E2E A: Plugin Load", () => {
     }
   })
 
-  test("config hook registers 5 agents and Solodit MCP", async () => {
+  test("config hook registers 6 agents and Solodit MCP", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
@@ -112,7 +112,14 @@ describe("E2E A: Plugin Load", () => {
     await result.config?.(config)
 
     const agentNames = Object.keys(config.agent ?? {}).sort()
-    expect(agentNames).toEqual(["argus", "pythia", "scribe", "sentinel", "themis"])
+    expect(agentNames).toEqual([
+      "argus",
+      "audit-specialist",
+      "pythia",
+      "scribe",
+      "sentinel",
+      "themis",
+    ])
     expect(config.mcp?.["solodit-mcp"]).toBeDefined()
   })
 

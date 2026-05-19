@@ -9,9 +9,10 @@ OpenCode Skills System
 ├── skills/ (bundled with plugin)
 │   ├── vulnerability-patterns/ (51 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
 │   ├── methodology/ (3 files from DeFiFoFum)
+│   ├── specialist-profiles/ (8 profile skills for audit-specialist)
 │   ├── protocol-patterns/ (5 files from DeFiFoFum)
 │   ├── checklists/ (6 files from DeFiFoFum + Cyfrin)
-│   ├── references/ (2 files: SmartBugs + DeFiHackLabs)
+│   ├── references/ (3 files: SmartBugs + DeFiHackLabs + attack-vector deck)
 │   └── case-studies/ (15 case studies from DeFiFoFum)
 ├── SCVD Local Index (~/.cache/solidity-argus/scvd-index.json)
 │   └── 7,769+ findings, auto-synced from api.scvd.dev
@@ -37,6 +38,7 @@ All sources in the table below must include the following metadata in their SKIL
 | SunWeb3Sec/DeFiHackLabs | Reference only | https://github.com/SunWeb3Sec/DeFiHackLabs | 15 exploit PoC GitHub URL references |
 | BailSec | CC0 | https://github.com/bailsec/BailSec | Vulnerability patterns extracted from professional audit PDFs |
 | SCVD (api.scvd.dev) | CC0 | https://api.scvd.dev | 7,769+ findings via local index (auto-synced) |
+| Argus specialist profiles | MIT | https://github.com/Apegurus/solidity-argus | 8 profile skills and one attack-vector deck for deep/adversarial audit passes |
 
 ## SKILL.md Format Specification
 
@@ -119,4 +121,4 @@ detection_rules:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 82 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 91 SKILL.md files currently bundled with Argus.
