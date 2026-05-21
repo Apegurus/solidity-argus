@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- Added a strict Argus direct-tool budget so the orchestrator delegates broad audits instead of spending all 50 OpenCode steps on direct `bash`/`read` reconnaissance, which could trigger OpenCode's max-steps assistant-prefill path on Anthropic models.
+
 ## 0.6.0 (2026-05-19)
 
 ### Features
