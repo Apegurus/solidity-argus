@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
+import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { isNonEmptyString } from "../shared/type-guards"
@@ -20,6 +21,28 @@ export interface DedupedFindingsArtifact {
   deduped_by: string
   findings_count: number
   findings: CanonicalFinding[]
+}
+
+async function loadRawFindings(
+  runId: string,
+  projectDir: string,
+): Promise<CanonicalFinding[] | null> {
+  const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
+  try {
+    const parsed = JSON.parse(await readFile(findingsFile, "utf8"))
+    if (!parsed || !Array.isArray(parsed.findings)) return null
+    return parsed.findings
+  } catch {
+    return null
+  }
+}
+
+function missingRawFindings(runId: string): string {
+  return JSON.stringify({
+    success: false,
+    error: "MissingRawFindingsError",
+    message: `Cannot verify deduped lineage because .argus/runs/${runId}/findings.json is missing or invalid`,
+  })
 }
 
 export async function executePersistDeduped(
@@ -55,6 +78,27 @@ export async function executePersistDeduped(
   const projectDir = resolveProjectDir(context)
   const resolver = createAuditArtifactResolver(args.run_id, projectDir)
   const dedupedPath = resolver.paths().dedupedFindingsFile
+  const rawFindings = await loadRawFindings(args.run_id, projectDir)
+
+  if (!rawFindings) {
+    return missingRawFindings(args.run_id)
+  }
+
+  const lineage = validateFindingLineage(rawFindings, findings)
+  if (!lineage.valid) {
+    return JSON.stringify({
+      success: false,
+      error: "LineageError",
+      lineage: {
+        raw_count: lineage.raw_count,
+        mapped_count: lineage.mapped_count,
+        duplicate_observation_ids: lineage.duplicate_observation_ids,
+        phantom_observation_ids: lineage.phantom_observation_ids,
+        missing_observation_ids: lineage.missing_observation_ids,
+        count_mismatches: lineage.count_mismatches,
+      },
+    })
+  }
 
   const artifact: DedupedFindingsArtifact = {
     run_id: args.run_id,
