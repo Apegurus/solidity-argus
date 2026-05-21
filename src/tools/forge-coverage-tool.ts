@@ -40,6 +40,8 @@ type ForgeCoverageResult = {
   report: ForgeCoverageReport
   executionTime: number
   error?: string
+  hint?: string
+  suggested_command?: string
 }
 
 export type ForgeCommandRunner = (
@@ -71,6 +73,27 @@ function buildCoverageCommand(args: NormalizedForgeCoverageArgs, forceIrMinimum 
 
 function isStackTooDeep(stderr: string): boolean {
   return /stack too deep/i.test(stderr)
+}
+
+function classifyCoverageFailure(
+  stderr: string,
+  args: NormalizedForgeCoverageArgs,
+): Pick<ForgeCoverageResult, "hint" | "suggested_command"> | undefined {
+  if (
+    !/(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
+      stderr,
+    )
+  ) {
+    return undefined
+  }
+
+  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
+  return {
+    hint:
+      `Forge coverage failed for ${args.target} while parsing or instrumenting project configuration. ` +
+      "If foundry.toml uses optimizerSteps or unsupported optimizer settings, run a scoped coverage command or temporarily adjust coverage-only config manually; Argus will not edit foundry.toml.",
+    suggested_command: command,
+  }
 }
 
 function parsePercent(input: string): number {
@@ -165,11 +188,15 @@ export async function executeForgeCoverage(
   const normalizedArgs = normalizeArgs(args, context)
   context.metadata({ title: `Run forge coverage: ${normalizedArgs.target}` })
 
-  const fail = (error: string): ForgeCoverageResult => ({
+  const fail = (
+    error: string,
+    diagnostics?: Pick<ForgeCoverageResult, "hint" | "suggested_command">,
+  ): ForgeCoverageResult => ({
     success: false,
     report: { files: [], summary: { ...EMPTY_SUMMARY } },
     executionTime: Date.now() - startedAt,
     error,
+    ...diagnostics,
   })
 
   try {
@@ -190,9 +217,9 @@ export async function executeForgeCoverage(
     }
 
     if (runResult.exitCode !== 0) {
-      return fail(
-        runResult.stderr.trim() || `forge coverage exited with code ${runResult.exitCode}`,
-      )
+      const error =
+        runResult.stderr.trim() || `forge coverage exited with code ${runResult.exitCode}`
+      return fail(error, classifyCoverageFailure(error, normalizedArgs))
     }
 
     let report: ForgeCoverageReport
