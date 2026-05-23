@@ -66,6 +66,7 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(AUDIT_SPECIALIST_PROMPT).toContain("exactly one active profile")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("CHECKPOINT")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("Do not repeat the same function")
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("same conclusion and no new evidence")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("findings_recorded_ids")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("leads_not_recorded")
   })

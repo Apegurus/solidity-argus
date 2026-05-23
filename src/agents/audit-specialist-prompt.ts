@@ -53,7 +53,7 @@ When recording a confirmed finding with \`argus_record_finding\`, include specif
 
 Emit a \`CHECKPOINT\` block after every 5 reviewed functions or when changing contracts. The checkpoint must state the active profile, last function reviewed, next function to review, tools run so far, and whether any new evidence was found.
 
-Do not repeat the same function, same trace, or same \`SAFE\`/\`LEAD\` assessment more than once. If a function remains unresolved after two passes, move it to \`leads_not_recorded\` with the missing proof and continue to the next distinct target.
+Do not repeat the same function, same trace, or same \`SAFE\`/\`LEAD\` assessment more than once. If a function remains unresolved after two consecutive passes with the same conclusion and no new evidence, move it to \`leads_not_recorded\` with the missing proof and continue to the next distinct target.
 
 Return structured blocks only:
 
