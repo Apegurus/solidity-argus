@@ -1590,6 +1590,49 @@ test("preflight strict-fail throws when event read fails", async () => {
   ).rejects.toThrow("unable to read event stream")
 })
 
+test("preflight strict-fail rejects findings outside requested scope", async () => {
+  const reportInput = makeReportInput([
+    makeFinding({ file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({ id: "out-of-scope", file: "src/Token.sol", lines: [1, 3] }),
+  ])
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1,
+      payload: {},
+    },
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 2,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 2,
+      payload: {},
+    },
+  ]
+
+  expect(
+    executeReportGeneration(
+      {
+        project_name: "StrictScopeTest",
+        scope: ["src/Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+        preflight_policy: "strict-fail",
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+      { readEvents: async () => events },
+    ),
+  ).rejects.toThrow("findings outside audited scope")
+})
+
 test("strict-fail rejects report_input run_id that uses ses_ session identifier", async () => {
   const reportInput = {
     run_id: "ses_abc123",
