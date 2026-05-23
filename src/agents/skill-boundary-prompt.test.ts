@@ -19,9 +19,26 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(ARGUS_PROMPT).toContain("vector-scan")
   })
 
+  test("Argus prompt keeps direct reconnaissance bounded", () => {
+    expect(ARGUS_PROMPT).toContain("Direct-Tool Budget")
+    expect(ARGUS_PROMPT).toContain("8 total per user turn")
+    expect(ARGUS_PROMPT).toContain("A broad audit request should produce early parallel delegation")
+  })
+
   test("Sentinel prompt forbids generic skill for Argus audit knowledge", () => {
     expect(SENTINEL_PROMPT).toContain("argus_skill_load")
     expect(SENTINEL_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")
+    expect(SENTINEL_PROMPT).toContain("reentrancy")
+    expect(SENTINEL_PROMPT).toContain("access-control")
+    expect(SENTINEL_PROMPT).toContain("oracle-manipulation")
+    expect(SENTINEL_PROMPT).toContain("task.load_skills")
+  })
+
+  test("Sentinel prompt bounds large tool output", () => {
+    expect(SENTINEL_PROMPT).toContain("5,000 characters")
+    expect(SENTINEL_PROMPT).toContain("10 bullets")
+    expect(SENTINEL_PROMPT).toContain("artifact path")
+    expect(SENTINEL_PROMPT).toContain("do not paste the full output")
   })
 
   test("Scribe prompt forbids generic skill for report audit knowledge", () => {

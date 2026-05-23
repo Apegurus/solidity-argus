@@ -188,6 +188,32 @@ test("runId first 8 chars appended to filename when provided", () => {
   expect(result.filename).toBe("VulnerableVault-security-audit-2026-02-21-abcdef12.md")
 })
 
+test("revision appends deterministic revision suffix after runId", () => {
+  const result = resolveReportPath({
+    contractName: "VulnerableVault",
+    date: FIXED_DATE,
+    outputDir: FIXED_OUTPUT_DIR,
+    runId: "abcdef1234567890",
+    revision: 2,
+  })
+
+  expect(result.filename).toBe("VulnerableVault-security-audit-2026-02-21-abcdef12-r2.md")
+})
+
+test("revision must be an integer greater than or equal to 2", () => {
+  for (const revision of [1, 0, -1, 2.5]) {
+    expect(() =>
+      resolveReportPath({
+        contractName: "VulnerableVault",
+        date: FIXED_DATE,
+        outputDir: FIXED_OUTPUT_DIR,
+        runId: "abcdef1234567890",
+        revision,
+      }),
+    ).toThrow(ReportPathError)
+  }
+})
+
 test("no runId suffix in filename when runId not provided", () => {
   const result = resolveReportPath({
     contractName: "VulnerableVault",

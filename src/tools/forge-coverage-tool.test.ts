@@ -182,6 +182,42 @@ test("executeForgeCoverage handles AbortSignal cancellation", async () => {
   expect(result.error).toBe("forge coverage aborted")
 })
 
+test("executeForgeCoverage returns hint for optimizerSteps coverage failure", async () => {
+  const { context } = createContext()
+  const stderr =
+    "Error: failed to parse foundry.toml: optimizerSteps is not supported during coverage instrumentation"
+
+  const result = await executeForgeCoverage(
+    { target: "/tmp/project", match_path: "test/Vault.t.sol" },
+    context,
+    async () => ({ stdout: "", stderr, exitCode: 1 }),
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toContain("Forge coverage failed for /tmp/project")
+  expect(result.hint).toContain("optimizerSteps")
+  expect(result.suggested_command).toBe(
+    "forge coverage --report summary --match-path test/Vault.t.sol --ir-minimum",
+  )
+})
+
+test("executeForgeCoverage preserves generic forge stderr without hint", async () => {
+  const { context } = createContext()
+  const stderr = "forge coverage aborted"
+
+  const result = await executeForgeCoverage({ target: "/tmp/project" }, context, async () => ({
+    stdout: "",
+    stderr,
+    exitCode: 1,
+  }))
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toBeUndefined()
+  expect(result.suggested_command).toBeUndefined()
+})
+
 test("executeForgeCoverage resolves cwd from context when target is omitted", async () => {
   const { context } = createContext({
     directory: "/tmp/from-directory",

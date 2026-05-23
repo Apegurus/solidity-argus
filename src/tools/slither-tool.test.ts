@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -107,6 +107,55 @@ test("executeSlitherAnalyze handles ENOENT when slither is missing", async () =>
 
   expect(result.success).toBe(false)
   expect(result.error).toBe("Slither not found. Install with: pip install slither-analyzer")
+  expect(result.hint).toBeUndefined()
+})
+
+test("executeSlitherAnalyze returns mixed-pragma narrowing hint with safe src suggestion", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-slither-mixed-"))
+  try {
+    mkdirSync(join(tempDir, "src"), { recursive: true })
+    writeFileSync(join(tempDir, "src", "Vault.sol"), "pragma solidity ^0.8.20; contract Vault {}")
+    const { context } = createContext({ directory: tempDir, worktree: tempDir })
+    const stderr =
+      "CryticCompileError: Source file requires different compiler version; found pragmas 0.5.17 and 0.8.20"
+
+    const result = await executeSlitherAnalyze(
+      { target: tempDir },
+      context,
+      async () => ({ stdout: "not-json", stderr, exitCode: 1 }),
+      tempDir,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.hint).toContain("Try narrowing target to a single-pragma subdirectory")
+    expect(result.hint).toContain("foundry.toml/remappings")
+    expect(result.suggested_command).toBe(
+      `slither ${join(tempDir, "src")} --json - --filter-paths node_modules`,
+    )
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeSlitherAnalyze omits mixed-pragma suggested command when no safe src target exists", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-slither-no-src-"))
+  try {
+    const { context } = createContext({ directory: tempDir, worktree: tempDir })
+    const stderr = "Slither exited with code 1: solc pragma requires different compiler version"
+
+    const result = await executeSlitherAnalyze(
+      { target: tempDir },
+      context,
+      async () => ({ stdout: "not-json", stderr, exitCode: 1 }),
+      tempDir,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.hint).toContain("Try narrowing target to a single-pragma subdirectory")
+    expect(result.suggested_command).toBeUndefined()
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test("executeSlitherAnalyze parses partial findings from non-zero exit JSON", async () => {

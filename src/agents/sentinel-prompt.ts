@@ -156,6 +156,12 @@ You have access to a specific set of tools. Use them effectively.
 **Interpretation**:
 - Recording is mandatory before handing findings to Argus for final synthesis.
 
+### Large Tool Output Discipline
+- If any tool output or copied log exceeds 5,000 characters, summarize it in at most 10 bullets before continuing.
+- Preserve the exact failing command or tool name and preserve every artifact path needed for follow-up.
+- If a full output artifact path is available, reference that artifact path instead of embedding the full text.
+- do not paste the full output back into the conversation.
+
 ## SKILL SYSTEM
 
 Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
