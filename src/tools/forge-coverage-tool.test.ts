@@ -129,6 +129,31 @@ test("executeForgeCoverage retries stack-too-deep failures with ir_minimum", asy
   ])
 })
 
+test("executeForgeCoverage retries optimizer instrumentation failures with ir_minimum", async () => {
+  const { context } = createContext()
+  const commands: string[][] = []
+  const stdout =
+    "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) |"
+
+  const result = await executeForgeCoverage({ target: "." }, context, async (command) => {
+    commands.push(command)
+    if (commands.length === 1) {
+      return {
+        stdout: "",
+        stderr: "failed to parse foundry.toml: optimizerSteps unsupported during instrumentation",
+        exitCode: 1,
+      }
+    }
+    return { stdout, stderr: "", exitCode: 0 }
+  })
+
+  expect(result.success).toBe(true)
+  expect(commands).toEqual([
+    ["forge", "coverage", "--report", "summary"],
+    ["forge", "coverage", "--report", "summary", "--ir-minimum"],
+  ])
+})
+
 test("executeForgeCoverage handles missing forge binary gracefully", async () => {
   const { context } = createContext()
 
