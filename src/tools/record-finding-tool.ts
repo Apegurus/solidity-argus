@@ -1,7 +1,7 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { isNonEmptyString } from "../shared/type-guards"
 import { normalizeToCanonicalFinding } from "../state/adapters"
-import { SCHEMA_VERSION } from "../state/schemas"
+import { type CanonicalFinding, SCHEMA_VERSION } from "../state/schemas"
 import type { ArgusAgentName } from "../state/types"
 
 type RecordFindingArgs = {
@@ -12,20 +12,7 @@ type RecordFindingArgs = {
 type RecordFindingResponse = {
   success: boolean
   count: number
-  findings: Array<{
-    id: string
-    check: string
-    severity: string
-    confidence: string
-    file: string
-    description: string
-    lines: [number, number]
-    source: string
-    reported_by_agent: string
-    impact?: string
-    recommendation?: string
-    proofOfConcept?: string
-  }>
+  findings: CanonicalFinding[]
   schema_version: string
   note: string
   enrichment_warnings?: string[]
@@ -202,20 +189,7 @@ export async function executeRecordFinding(
   const response: RecordFindingResponse = {
     success: true,
     count: findings.length,
-    findings: findings.map((f) => ({
-      id: f.id,
-      check: f.check,
-      severity: f.severity,
-      confidence: f.confidence,
-      file: f.file,
-      description: f.description,
-      lines: f.lines,
-      source: f.source,
-      reported_by_agent: f.reported_by_agent,
-      ...(f.impact !== undefined ? { impact: f.impact } : {}),
-      ...(f.recommendation !== undefined ? { recommendation: f.recommendation } : {}),
-      ...(f.proofOfConcept !== undefined ? { proofOfConcept: f.proofOfConcept } : {}),
-    })),
+    findings,
     schema_version: SCHEMA_VERSION,
     note: "Findings recorded to event journal. The system assigns the canonical run_id automatically — use the run_id from <argus-context> for Scribe dispatch.",
     ...(enrichmentWarnings.length > 0
