@@ -1062,8 +1062,12 @@ describe("createAuditStateManager", () => {
     writeFileSync(staleTmpA, "stale")
     writeFileSync(staleTmpB, "stale")
 
-    createAuditStateManager(projectDir)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    const manager = createAuditStateManager(projectDir)
+    const state = manager.get()
+    if (!state) {
+      throw new Error("expected new audit state manager to initialize state")
+    }
+    await manager.save(state)
 
     expect(existsSync(staleTmpA)).toBe(false)
     expect(existsSync(staleTmpB)).toBe(false)
