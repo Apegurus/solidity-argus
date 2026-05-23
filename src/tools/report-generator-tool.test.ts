@@ -212,6 +212,7 @@ function makeFinding(overrides: Partial<Finding>): Finding {
 test("reportGeneratorTool uses tool() helper contract", () => {
   expect(reportGeneratorTool.description.length).toBeGreaterThan(0)
   expect(reportGeneratorTool.args).toBeDefined()
+  expect(Object.keys(reportGeneratorTool.args)).toContain("quality_gate_policy")
   expect(typeof reportGeneratorTool.execute).toBe("function")
 })
 

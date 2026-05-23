@@ -1586,6 +1586,10 @@ export const reportGeneratorTool = tool({
       .enum(["critical", "high", "medium", "low", "informational"])
       .default("informational"),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
+    quality_gate_policy: tool.schema
+      .enum(["warn", "strict-fail"])
+      .optional()
+      .describe("Controls whether report quality gate violations warn or fail generation."),
     tool_coverage_policy: tool.schema
       .enum(["enforce", "warn", "skip"])
       .optional()
