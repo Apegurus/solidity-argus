@@ -12,6 +12,8 @@ import type { AuditState } from "../state/types"
 
 type ReadFindingsArgs = {
   run_id: string
+  findings_offset?: number
+  findings_limit?: number
 }
 
 type ReportFinding = Omit<
@@ -42,6 +44,11 @@ type CompactReportInput = Omit<
   run_id: string
   findings: ReportFinding[]
   toolsExecuted: ReportToolExecution[]
+  findingsPage?: {
+    offset: number
+    limit: number
+    total: number
+  }
 }
 
 type ReadFindingsInlineResult = {
@@ -98,13 +105,31 @@ function stripInternalKeys(obj: object, keysToStrip: ReadonlySet<string>): Recor
   return result
 }
 
-function buildCompactInput(reportInput: ReportInput): CompactReportInput {
+function normalizePageArgs(args: ReadFindingsArgs): { offset: number; limit: number } | null {
+  if (args.findings_offset == null && args.findings_limit == null) return null
+
+  const offset = args.findings_offset ?? 0
+  const limit = args.findings_limit ?? 50
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error("findings_offset must be a non-negative integer")
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new Error("findings_limit must be an integer between 1 and 500")
+  }
+  return { offset, limit }
+}
+
+function buildCompactInput(
+  reportInput: ReportInput,
+  page: { offset: number; limit: number } | null = null,
+): CompactReportInput {
+  const rawFindings = page
+    ? reportInput.findings.slice(page.offset, page.offset + page.limit)
+    : reportInput.findings
   return {
     run_id: reportInput.run_id,
     projectDir: reportInput.projectDir,
-    findings: reportInput.findings.map(
-      (f) => stripInternalKeys(f, FINDING_INTERNAL_KEYS) as ReportFinding,
-    ),
+    findings: rawFindings.map((f) => stripInternalKeys(f, FINDING_INTERNAL_KEYS) as ReportFinding),
     toolsExecuted: reportInput.toolsExecuted.map(
       (t) => stripInternalKeys(t, TOOL_EXECUTION_INTERNAL_KEYS) as ReportToolExecution,
     ),
@@ -118,6 +143,13 @@ function buildCompactInput(reportInput: ReportInput): CompactReportInput {
     ...(reportInput.proxyContracts && { proxyContracts: reportInput.proxyContracts }),
     ...(reportInput.patternVersion && { patternVersion: reportInput.patternVersion }),
     ...(reportInput.skillsLoaded && { skillsLoaded: reportInput.skillsLoaded }),
+    ...(page && {
+      findingsPage: {
+        offset: page.offset,
+        limit: page.limit,
+        total: reportInput.findings.length,
+      },
+    }),
   }
 }
 
@@ -339,7 +371,8 @@ export async function executeReadFindings(
 
   const projectDir = resolveProjectDir(context)
   const reportInput = readAuditStateAsReportInput(projectDir, runId)
-  const compactInput = buildCompactInput(reportInput)
+  const page = normalizePageArgs(args)
+  const compactInput = buildCompactInput(reportInput, page)
 
   const inlineJson = JSON.stringify({
     success: true,
@@ -383,6 +416,14 @@ export const readFindingsTool = tool({
     "Read the materialized ReportInput artifact from disk for a given run. Returns the canonical findings, tools executed, scope, and all enrichment data. Scribe should call this before generating the report.",
   args: {
     run_id: tool.schema.string().describe("The run ID to read findings for."),
+    findings_offset: tool.schema
+      .number()
+      .optional()
+      .describe("Optional zero-based finding offset for paged inline retrieval."),
+    findings_limit: tool.schema
+      .number()
+      .optional()
+      .describe("Optional finding page size for inline retrieval (1-500)."),
   },
   async execute(args, context) {
     return executeReadFindings(args, context)
