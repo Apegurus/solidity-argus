@@ -115,6 +115,7 @@ function makeManagers(overrides?: Partial<Managers>): Managers {
       dispatch: () => "task-1",
       cancel: () => {},
       getResult: async () => null,
+      getTaskStatus: async () => undefined,
       onComplete: () => {},
       getActiveCount: () => 0,
     },

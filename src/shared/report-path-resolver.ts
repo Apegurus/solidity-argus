@@ -16,6 +16,8 @@ export interface ReportPathOptions {
   outputDir: string
   /** Optional run_id for run-scoped naming */
   runId?: string
+  /** Optional caller-supplied report revision. Base report is revision 1. */
+  revision?: number
 }
 
 export interface ResolvedReportPath {
@@ -46,7 +48,7 @@ export function sanitizeContractName(name: string): string {
 }
 
 export function resolveReportPath(options: ReportPathOptions): ResolvedReportPath {
-  const { contractName, date, outputDir, runId } = options
+  const { contractName, date, outputDir, runId, revision } = options
 
   if (!contractName || contractName.trim() === "") {
     throw new ReportPathError("contractName must not be empty")
@@ -54,12 +56,16 @@ export function resolveReportPath(options: ReportPathOptions): ResolvedReportPat
   if (!outputDir || outputDir.trim() === "") {
     throw new ReportPathError("outputDir must not be empty")
   }
+  if (revision != null && (!Number.isInteger(revision) || revision < 2)) {
+    throw new ReportPathError("revision must be an integer greater than or equal to 2")
+  }
 
   const resolvedDate = date ?? new Date()
   const dateStr = formatReportDate(resolvedDate)
   const sanitizedName = sanitizeContractName(contractName)
   const runIdSuffix = runId ? `-${runId.substring(0, 8)}` : ""
-  const filename = `${sanitizedName}-security-audit-${dateStr}${runIdSuffix}.md`
+  const revisionSuffix = revision == null ? "" : `-r${revision}`
+  const filename = `${sanitizedName}-security-audit-${dateStr}${runIdSuffix}${revisionSuffix}.md`
   const filePath = join(outputDir, filename)
   const canonicalId = runId ?? filename
 

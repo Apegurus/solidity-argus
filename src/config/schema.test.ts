@@ -8,6 +8,7 @@ describe("ArgusConfigSchema", () => {
         argus: { model: "anthropic/claude-opus-4-7" },
         sentinel: { model: "anthropic/claude-sonnet-4-6" },
         pythia: { model: "anthropic/claude-sonnet-4-6" },
+        auditSpecialist: { model: "anthropic/claude-sonnet-4-6" },
         scribe: { model: "anthropic/claude-sonnet-4-6" },
       },
       tools: {
@@ -55,6 +56,7 @@ describe("ArgusConfigSchema", () => {
         argus: {},
         sentinel: {},
         pythia: {},
+        auditSpecialist: {},
         scribe: {},
         themis: {},
       })
@@ -80,6 +82,7 @@ describe("ArgusConfigSchema", () => {
     if (result.success) {
       expect(result.data.agents.argus.model).toBe("custom-model")
       expect(result.data.agents.sentinel).toEqual({})
+      expect(result.data.agents.auditSpecialist).toEqual({})
       expect(result.data.solodit.enabled).toBe(false)
       expect(result.data.solodit.enabled).toBe(false)
     }

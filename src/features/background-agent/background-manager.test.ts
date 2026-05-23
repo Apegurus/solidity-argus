@@ -174,4 +174,71 @@ describe("createBackgroundManager", () => {
     expect(healthyCallback).toHaveBeenCalledTimes(1)
     expect(await manager.getResult(taskId)).toBe("complete")
   })
+
+  it("getTaskStatus returns completed task diagnostics", async () => {
+    const dispatcher = mock(async () => "complete")
+    const manager = createBackgroundManager(dispatcher)
+    const taskId = manager.dispatch("argus", "audit this")
+
+    await flushMicrotasks()
+
+    expect(await manager.getTaskStatus(taskId)).toEqual({
+      status: "completed",
+      result: "complete",
+    })
+  })
+
+  it("getTaskStatus classifies provider prefill failures", async () => {
+    const error = new Error("This model does not support assistant message prefill")
+    const dispatcher = mock(async () => {
+      throw error
+    })
+    const manager = createBackgroundManager(dispatcher)
+    const taskId = manager.dispatch("sentinel", "audit this")
+
+    await flushMicrotasks()
+
+    expect(await manager.getTaskStatus(taskId)).toEqual({
+      status: "failed",
+      error,
+      diagnostic: {
+        category: "model_error",
+        retry_recommendation: "retry_with_changes",
+        summary: "Provider rejected assistant prefill; retry with a fresh or shorter prompt.",
+      },
+    })
+  })
+
+  it("getTaskStatus classifies tool failures", async () => {
+    const error = new Error('Argus tool error payload: {"success":false,"error":"Slither failed"}')
+    const dispatcher = mock(async () => {
+      throw error
+    })
+    const manager = createBackgroundManager(dispatcher)
+    const taskId = manager.dispatch("sentinel", "run slither")
+
+    await flushMicrotasks()
+
+    const status = await manager.getTaskStatus(taskId)
+    expect(status?.diagnostic).toEqual({
+      category: "tool_error",
+      retry_recommendation: "retry_with_changes",
+      summary: "Background task failed inside a tool or command invocation.",
+    })
+  })
+
+  it("getTaskStatus reports queued and unknown task ids", async () => {
+    const deferred = createDeferred<string>()
+    const dispatcher = mock(async () => deferred.promise)
+    const manager = createBackgroundManager(dispatcher, { maxConcurrent: 1 })
+
+    manager.dispatch("argus", "one")
+    const queued = manager.dispatch("argus", "two")
+
+    await flushMicrotasks()
+
+    expect(await manager.getTaskStatus(queued)).toEqual({ status: "queued" })
+    expect(await manager.getTaskStatus("missing-task")).toBeUndefined()
+    deferred.resolve("done")
+  })
 })

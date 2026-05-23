@@ -51,6 +51,7 @@ export const ArgusConfigSchema = z
         argus: AgentConfigSchema.default({}),
         sentinel: AgentConfigSchema.default({}),
         pythia: AgentConfigSchema.default({}),
+        auditSpecialist: AgentConfigSchema.default({}),
         scribe: AgentConfigSchema.default({}),
         themis: AgentConfigSchema.optional().default({}),
       })
@@ -58,6 +59,7 @@ export const ArgusConfigSchema = z
         argus: {},
         sentinel: {},
         pythia: {},
+        auditSpecialist: {},
         scribe: {},
         themis: {},
       }),

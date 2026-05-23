@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -31,7 +31,7 @@ function createContext(directory: string): ToolContext {
 
 function createTestConfig(outputDir: string): ArgusConfig {
   return {
-    agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+    agents: { argus: {}, sentinel: {}, pythia: {}, auditSpecialist: {}, scribe: {}, themis: {} },
     tools: {},
     knowledge: {
       scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -62,6 +62,38 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
     file: overrides.file ?? "src/Vault.sol",
     lines: overrides.lines ?? [10, 15],
     source: overrides.source ?? "slither",
+  }
+}
+
+function reportArgs(projectName: string, runId: string, findings: Finding[] = [makeFinding()]) {
+  return {
+    project_name: projectName,
+    scope: ["Vault.sol"],
+    report_input: JSON.stringify({
+      run_id: runId,
+      seq: findings.length,
+      session_id: runId,
+      tool_call_id: "tc-report",
+      source: "test",
+      schema_version: SCHEMA_VERSION,
+      projectDir: "/tmp/project",
+      findings: findings.map((f, i) => ({
+        ...f,
+        run_id: runId,
+        seq: i + 1,
+        session_id: runId,
+        tool_call_id: "tc-1",
+        source: f.source ?? "slither",
+        schema_version: SCHEMA_VERSION,
+        observation_id: `obs-${f.id ?? i}`,
+        issue_fingerprint: `issue-${f.id ?? i}`,
+        observation_fingerprint: `obs-fp-${f.id ?? i}`,
+        reported_by_agent: "sentinel" as const,
+      })),
+      toolsExecuted: [],
+      scope: ["Vault.sol"],
+    }),
+    tool_coverage_policy: "skip" as const,
   }
 }
 
@@ -268,6 +300,112 @@ describe("single-writer policy", () => {
 
       const content = await Bun.file(secondResult.filePath ?? "").text()
       expect(extractReportRunId(content)).toBe("run-beta")
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("revision 2 writes revised report and preserves base report", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-revision-"))
+    try {
+      const context = createContext(tempDir)
+      const deps = { loadConfig: () => createTestConfig("reports") }
+      const args = reportArgs("RevisionTest", "run-revision-test")
+
+      const base = await executeReportGeneration(args, context, deps)
+      const revised = await executeReportGeneration({ ...args, revision: 2 }, context, deps)
+
+      expect(base.error).toBeUndefined()
+      expect(revised.error).toBeUndefined()
+      expect(base.filePath).toBeDefined()
+      expect(revised.filePath).toBeDefined()
+      expect(base.filePath).not.toBe(revised.filePath)
+      expect(path.basename(revised.filePath ?? "")).toContain("-r2.md")
+      expect(existsSync(base.filePath ?? "")).toBe(true)
+      expect(existsSync(revised.filePath ?? "")).toBe(true)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("duplicate revision 2 write is rejected", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-revision-dup-"))
+    try {
+      const context = createContext(tempDir)
+      const deps = { loadConfig: () => createTestConfig("reports") }
+      const args = { ...reportArgs("RevisionDupTest", "run-revision-dup-test"), revision: 2 }
+
+      const first = await executeReportGeneration(args, context, deps)
+      const second = await executeReportGeneration(args, context, deps)
+
+      expect(first.error).toBeUndefined()
+      expect(second.error?.code).toBe("DUPLICATE_WRITE_ATTEMPT")
+      expect(second.filePath).toBeUndefined()
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("force overwrites only same-run Argus report at base path", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-force-"))
+    try {
+      const context = createContext(tempDir)
+      const deps = { loadConfig: () => createTestConfig("reports") }
+      const args = reportArgs("ForceTest", "run-force-test", [
+        makeFinding({ check: "first-check" }),
+      ])
+
+      const first = await executeReportGeneration(args, context, deps)
+      expect(first.error).toBeUndefined()
+      expect(readFileSync(first.filePath ?? "", "utf8")).toContain("First Check")
+
+      const forced = await executeReportGeneration(
+        {
+          ...reportArgs("ForceTest", "run-force-test", [makeFinding({ check: "second-check" })]),
+          force: true,
+        },
+        context,
+        deps,
+      )
+
+      expect(forced.error).toBeUndefined()
+      expect(forced.filePath).toBe(first.filePath)
+      expect(readFileSync(first.filePath ?? "", "utf8")).toContain("Second Check")
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("force refuses non-Argus or different-run report files", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-force-refuse-"))
+    try {
+      const context = createContext(tempDir)
+      const deps = { loadConfig: () => createTestConfig("reports") }
+      const args = reportArgs("RefuseForceTest", "run-force-refuse-test")
+      const first = await executeReportGeneration(args, context, deps)
+      expect(first.filePath).toBeDefined()
+      writeFileSync(first.filePath ?? "", "# Manual report\n")
+
+      const forced = await executeReportGeneration({ ...args, force: true }, context, deps)
+
+      expect(forced.error?.code).toBe("INSECURE_OVERWRITE_REFUSED")
+      expect(forced.filePath).toBeUndefined()
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("force plus revision is rejected before writing", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-force-revision-"))
+    try {
+      const result = await executeReportGeneration(
+        { ...reportArgs("ForceRevisionTest", "run-force-revision-test"), force: true, revision: 2 },
+        createContext(tempDir),
+        { loadConfig: () => createTestConfig("reports") },
+      )
+
+      expect(result.error?.code).toBe("INVALID_REGENERATION_OPTIONS")
+      expect(result.filePath).toBeUndefined()
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

@@ -95,6 +95,11 @@ Before generating the report, verify:
 
 Use \`argus_skill_load\` only when needed to improve report quality and consistency.
 
+**CRITICAL — use the right tool**:
+- For report templates, severity rubrics, checklists, exploit references, and audit methodology, use \`argus_skill_load\` with the exact skill name.
+- **NEVER call the generic OpenCode \`skill\` tool** for Argus report knowledge. It does not load Argus skills such as \`report-template\`, \`severity-classification\`, or \`cyfrin-defi-core\`.
+- \`task.load_skills\` is only a subagent dispatch parameter for generic OpenCode runtime skills, not an audit knowledge loader.
+
 - **Curated skill map**:
    - \`report-template\`, \`severity-classification\`
    - \`cyfrin-defi-core\`

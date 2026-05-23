@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs"
 import { join, resolve } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
+import { AUDIT_SPECIALIST_PROMPT } from "../agents/audit-specialist-prompt"
 import { PYTHIA_PROMPT } from "../agents/pythia-prompt"
 import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
@@ -127,6 +128,7 @@ export function createConfigHandler(
           task: {
             sentinel: "allow",
             pythia: "allow",
+            "audit-specialist": "allow",
             scribe: "allow",
             themis: "allow",
           },
@@ -164,6 +166,27 @@ export function createConfigHandler(
           argus_check_patterns: "allow",
           argus_record_finding: "allow",
           argus_skill_load: "allow",
+          skill: "allow",
+        },
+      },
+      "audit-specialist": {
+        mode: "subagent",
+        model: argusConfig.agents?.auditSpecialist?.model ?? DEFAULT_MODELS.auditSpecialist,
+        steps: argusConfig.agents?.auditSpecialist?.steps ?? DEFAULT_STEPS,
+        description: "Profile-driven adversarial specialist auditor",
+        prompt: AUDIT_SPECIALIST_PROMPT,
+        permission: {
+          argus_skill_load: "allow",
+          argus_check_patterns: "allow",
+          argus_solodit_search: "allow",
+          argus_analyze_contract: "allow",
+          argus_slither_analyze: "allow",
+          argus_proxy_detection: "allow",
+          argus_forge_test: "allow",
+          argus_forge_fuzz: "allow",
+          argus_forge_coverage: "allow",
+          argus_gas_analysis: "allow",
+          argus_record_finding: "allow",
           skill: "allow",
         },
       },

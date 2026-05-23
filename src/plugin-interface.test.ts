@@ -12,6 +12,7 @@ function makeManagers(): Managers {
       dispatch: () => "task-1",
       cancel: () => {},
       getResult: async () => null,
+      getTaskStatus: async () => undefined,
       onComplete: () => {},
       getActiveCount: () => 0,
     },
@@ -49,7 +50,7 @@ describe("createPluginInterface", () => {
     expect(result.event).toBeDefined()
   })
 
-  it("tool map has 15 entries", () => {
+  it("tool map has 16 entries", () => {
     const config = ArgusConfigSchema.parse({})
     const tools = createTools(config)
     const hooks = createHooks({
@@ -60,7 +61,7 @@ describe("createPluginInterface", () => {
     })
 
     const result = createPluginInterface({ tools, hooks })
-    expect(Object.keys(result.tool)).toHaveLength(15)
+    expect(Object.keys(result.tool)).toHaveLength(16)
   })
 
   it("omits disabled hooks from interface", () => {

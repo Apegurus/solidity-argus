@@ -87,6 +87,16 @@ describe("createSystemPromptHook", () => {
     expect(output.system[0]).toContain('<argus-context agent="scribe">')
   })
 
+  it("injects context for audit-specialist agent session", async () => {
+    const hook = createSystemPromptHook(makeDeps({ getAgentForSession: () => "audit-specialist" }))
+    const output = { system: [] as string[] }
+
+    await hook({ sessionID: "s-1", model: "anthropic/claude" }, output)
+
+    expect(output.system).toHaveLength(1)
+    expect(output.system[0]).toContain('<argus-context agent="audit-specialist">')
+  })
+
   it("does not inject for non-argus agents", async () => {
     const hook = createSystemPromptHook(
       makeDeps({
@@ -160,6 +170,71 @@ describe("buildDynamicContext", () => {
     expect(context).toContain(
       "Tasks: slither=done forge-test=pending patterns=done solodit=pending analyzer=pending",
     )
+  })
+
+  it("renders operator-readable tool ledger without repeated task placeholders", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "task", startTime: 1000, endTime: 1010, success: true, findingsCount: 0 },
+          { tool: "task", startTime: 1020, endTime: 1035, success: true, findingsCount: 0 },
+          {
+            tool: "argus_slither_analyze",
+            startTime: 2000,
+            endTime: 2050,
+            success: true,
+            findingsCount: 3,
+          },
+          {
+            tool: "argus_forge_test",
+            startTime: 3000,
+            endTime: 3030,
+            success: false,
+            findingsCount: 1,
+          },
+        ],
+      }),
+      "argus",
+    )
+
+    expect(context).not.toContain("Tools: task, task")
+    expect(context).toContain(
+      "Tool Ledger: argus_slither_analyze=ok findings=3 duration=50ms; argus_forge_test=failed findings=1 duration=30ms; task dispatches=2",
+    )
+  })
+
+  it("renders additive finding counts when present", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        findingCounts: {
+          rawObservations: 9,
+          recordedFindings: 7,
+          dedupedFindings: 4,
+          actionableFindings: 3,
+          nonActionableFindings: 1,
+        },
+      }),
+      "scribe",
+    )
+
+    expect(context).toContain(
+      "Finding Counts: raw_observations=9 recorded=7 deduped=4 actionable=3 non_actionable=1",
+    )
+  })
+
+  it("renders coverage attempt state", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        coverageAttempt: {
+          status: "failed",
+          attemptedAt: 1700000000,
+          reason: "forge coverage unavailable",
+        },
+      }),
+      "sentinel",
+    )
+
+    expect(context).toContain("Coverage: failed — forge coverage unavailable")
   })
 
   it("includes findings counts by severity", () => {

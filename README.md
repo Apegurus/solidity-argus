@@ -10,12 +10,12 @@
 
 **solidity-argus** is a security auditing plugin for [OpenCode](https://opencode.ai) that brings professional-grade Solidity smart contract auditing directly into your AI coding workflow.
 
-Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 5 specialized AI agents to conduct comprehensive security audits: static analysis, vulnerability research, dynamic testing, professional report generation, and independent validation.
+Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 6 specialized AI agents to conduct comprehensive security audits: static analysis, vulnerability research, deep adversarial specialist review, dynamic testing, professional report generation, and independent validation.
 
 **What it does:**
 - Runs Slither static analysis and Foundry tests automatically
 - Searches 7,769+ real-world audit findings via SCVD and Solodit
-- Matches code against 82 curated SKILL.md knowledge files
+- Matches code against 91 curated SKILL.md knowledge files
 - Generates professional markdown audit reports with severity classifications
 - Follows a rigorous 7-step audit methodology (Reconnaissance → Report)
 
@@ -68,17 +68,21 @@ Argus will automatically:
 | `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-7 |
 | `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
 | `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
+| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-4-6 |
 | `@scribe` | Audit report writer | claude-sonnet-4-6 |
 | `@themis` | Independent audit quality gate | gpt-5.5 |
 
 ### @argus — The Orchestrator
-Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Scribe, and Themis as needed.
+Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Audit Specialist, Scribe, and Themis as needed.
 
 ### @sentinel — The Executor
 Runs Slither, writes and executes Foundry tests, performs fuzz testing. Your tactical executor for all dynamic and static analysis tasks.
 
 ### @pythia — The Researcher
 Searches Solodit and SCVD for historical exploits, checks vulnerability pattern databases, and provides research context for similar protocols and known attack vectors.
+
+### @audit-specialist — The Adversarial Specialist
+Runs focused deep/adversarial passes under profiles such as `vector-scan`, `access-control`, `math-precision`, `invariant`, `economic-security`, `execution-trace`, `periphery`, and `first-principles`. It records only confirmed findings and returns unproven trails as leads.
 
 ### @scribe — The Reporter
 Transforms raw findings into professional, structured markdown audit reports with severity classifications, impact assessments, and actionable recommendations.
@@ -92,35 +96,36 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 
 | Tool | Agent | Description |
 |------|-------|-------------|
-| `argus_slither_analyze` | Sentinel | Runs Slither static analysis on Solidity contracts; detects reentrancy, uninitialized variables, unchecked returns, and more |
-| `argus_analyze_contract` | Sentinel | Generates a deep structural profile of a contract: functions, state variables, modifiers, inheritance tree |
-| `argus_check_patterns` | Sentinel, Pythia | Scans code against a library of complex vulnerability patterns (regex/AST-based) covering 50+ vulnerability classes across 14 pattern categories |
-| `argus_proxy_detection` | Sentinel | Detects proxy patterns in Solidity contracts (ERC1967, UUPS, transparent, beacon, diamond) with confidence scoring |
-| `argus_solodit_search` | Pythia | Searches Solodit's database of real-world audit reports for similar protocols and historical findings |
-| `argus_forge_test` | Sentinel | Runs existing or newly written Foundry/Forge tests; essential for PoC verification |
-| `argus_gas_analysis` | Sentinel | Runs forge gas report analysis, parses per-function gas metrics, and identifies high-gas hotspots above configurable threshold |
-| `argus_forge_fuzz` | Sentinel | Fuzzes specific functions with random inputs to find edge cases and invariant violations |
-| `argus_forge_coverage` | Sentinel | Runs forge coverage analysis and returns structured per-file coverage metrics (lines, statements, branches, functions) |
-| `argus_skill_load` | Pythia, Themis | Loads curated SKILL.md knowledge files on demand for vulnerability patterns, protocol guidance, methodology, and case studies |
-| `argus_record_finding` | Sentinel, Pythia | Records verified manual, static-analysis, research, or testing findings into durable audit state |
+| `argus_slither_analyze` | Sentinel, Audit Specialist | Runs Slither static analysis on Solidity contracts; detects reentrancy, uninitialized variables, unchecked returns, and more |
+| `argus_analyze_contract` | Sentinel, Audit Specialist | Generates a deep structural profile of a contract: functions, state variables, modifiers, inheritance tree |
+| `argus_check_patterns` | Sentinel, Pythia, Audit Specialist | Scans code against a library of complex vulnerability patterns (regex/AST-based) covering 50+ vulnerability classes across 14 pattern categories |
+| `argus_proxy_detection` | Sentinel, Audit Specialist | Detects proxy patterns in Solidity contracts (ERC1967, UUPS, transparent, beacon, diamond) with confidence scoring |
+| `argus_solodit_search` | Pythia, Audit Specialist | Searches Solodit's database of real-world audit reports for similar protocols and historical findings |
+| `argus_forge_test` | Sentinel, Audit Specialist | Runs existing or newly written Foundry/Forge tests; essential for PoC verification |
+| `argus_gas_analysis` | Sentinel, Audit Specialist | Runs forge gas report analysis, parses per-function gas metrics, and identifies high-gas hotspots above configurable threshold |
+| `argus_forge_fuzz` | Sentinel, Audit Specialist | Fuzzes specific functions with random inputs to find edge cases and invariant violations |
+| `argus_forge_coverage` | Sentinel, Audit Specialist | Runs forge coverage analysis and returns structured per-file coverage metrics (lines, statements, branches, functions) |
+| `argus_skill_load` | Pythia, Audit Specialist, Themis | Loads curated SKILL.md knowledge files on demand for vulnerability patterns, protocol guidance, methodology, and case studies |
+| `argus_record_finding` | Sentinel, Pythia, Audit Specialist | Records verified manual, static-analysis, research, or testing findings into durable audit state |
 | `argus_read_findings` | Scribe, Themis | Reads persisted findings and audit artifacts for report generation and validation |
 | `argus_persist_deduped` | Scribe | Persists deduplicated findings before final report generation and validation |
 | `argus_generate_report` | Scribe | Generates the final structured audit report in professional markdown format |
+| `argus_themis_disposition` | Argus | Records Argus' resolved disposition for Themis validation: approved, remediated, or explicitly overridden |
 | `argus_sync_knowledge` | Argus | Syncs the local vulnerability database from SCVD (api.scvd.dev) |
 
 ---
 
 ## Knowledge Base
 
-The plugin ships with **82 curated SKILL.md files** organized into 6 categories:
+The plugin ships with **91 curated SKILL.md files** organized into 7 categories:
 
 | Category | Files | Description |
 |----------|-------|-------------|
 | Vulnerability Patterns | 51 | Reentrancy, oracle manipulation, flash loans, access control, ERC4626, governance, front-running, and 44 more |
-| Methodology | 3 | Audit workflow, report templates, severity classification |
+| Methodology | 11 | Audit workflow, report templates, severity classification, and 8 audit-specialist profiles |
 | Protocol Patterns | 5 | AMM/DEX, bridges, governance, lending, staking security guides |
 | Checklists | 6 | Cyfrin audit checklists (DeFi core, integrations, upgrades, gas, best practices) |
-| References | 2 | DeFi exploit reference index, SmartBugs vulnerable contract examples |
+| References | 3 | DeFi exploit reference index, SmartBugs vulnerable contract examples, and the attack-vector deck |
 | Case Studies | 15 | Major DeFi exploit analyses (Euler, Nomad Bridge, Ronin, Cream Finance, etc.) |
 
 **Sources:** Trail of Bits, Cyfrin, DeFiFoFum, kadenzipfel, SunWeb3Sec, smartbugs, BailSec, Argus
@@ -287,6 +292,7 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
     "argus": { "model": "anthropic/claude-opus-4-7" },
     "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
     "pythia": { "model": "anthropic/claude-sonnet-4-6" },
+    "auditSpecialist": { "model": "anthropic/claude-sonnet-4-6" },
     "scribe": { "model": "anthropic/claude-sonnet-4-6" },
     "themis": { "model": "openai/gpt-5.5" }
   },
@@ -338,11 +344,12 @@ Argus uses a **three-channel context delivery system** to inject dynamic audit s
 
 ### Prompt Channel (Static Identity)
 
-Each of the 5 Argus agents has a static prompt file defining its role, methodology, and tool instructions:
+Each of the 6 Argus agents has a static prompt file defining its role, methodology, and tool instructions:
 
 - `src/agents/argus-prompt.ts` — Orchestrator methodology (7-step audit framework)
 - `src/agents/sentinel-prompt.ts` — Static analysis & testing instructions
 - `src/agents/pythia-prompt.ts` — Vulnerability research methodology
+- `src/agents/audit-specialist-prompt.ts` — Profile-driven adversarial review methodology
 - `src/agents/scribe-prompt.ts` — Report generation format and structure
 - `src/agents/themis-prompt.ts` — Independent validation and quality gate logic
 
@@ -357,7 +364,7 @@ The `experimental.chat.system.transform` hook injects dynamic audit state into t
 - Tools executed and their results
 - Session-specific audit state (contract under review, scope, etc.)
 
-**Critical Rule:** This hook is **Argus-family gated**. Only agents in `{argus, sentinel, pythia, scribe, themis}` receive injected context. All other agents receive `undefined` (no injection).
+**Critical Rule:** This hook is **Argus-family gated**. Only agents in `{argus, sentinel, pythia, audit-specialist, scribe, themis}` receive injected context. All other agents receive `undefined` (no injection).
 
 **Session→Agent Mapping Pattern:**
 1. `chat.params` hook captures `(sessionID, agentName)` pairs during each turn
@@ -372,9 +379,9 @@ Agents load specialized knowledge on-demand via the `argus_skill_load` tool:
 
 - **Vulnerability Patterns** — 51 SKILL.md files covering reentrancy, oracle manipulation, flash loans, etc.
 - **Protocol Patterns** — 5 files for AMM/DEX, bridges, governance, lending, staking
-- **Methodology** — 3 files for audit workflow, report templates, severity classification
+- **Methodology** — 11 files for audit workflow, report templates, severity classification, and specialist profiles
 - **Checklists** — 6 Cyfrin audit checklists
-- **References** — 2 files for exploit index and vulnerable contract examples
+- **References** — 3 files for exploit index, vulnerable contract examples, and attack-vector deck
 
 This channel is **lazy-loaded** — agents request skills only when needed, reducing context overhead.
 

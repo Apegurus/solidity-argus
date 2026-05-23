@@ -289,6 +289,64 @@ test("executeRecordFinding response echoes impact/recommendation/proofOfConcept/
   expect(f?.reported_by_agent).toBe("sentinel")
 })
 
+test("executeRecordFinding preserves audit-specialist attribution", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "access-control-admin-bypass",
+        severity: "High",
+        confidence: "High",
+        description: "Admin-only operation lacks an authorization guard",
+        file: "src/Vault.sol",
+        lines: [12, 18],
+        source: "manual",
+        impact: "Unauthorized callers can change privileged vault state",
+        recommendation: "Restrict the function with the intended admin modifier",
+        proofOfConcept: "Call the function from an unprivileged account",
+      }),
+    },
+    createContext("audit-specialist"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    findings: Array<{ reported_by_agent?: string }>
+  }
+
+  expect(parsed.success).toBe(true)
+  expect(parsed.findings[0]?.reported_by_agent).toBe("audit-specialist")
+})
+
+test("executeRecordFinding uses trusted context over spoofed reported_by_agent input", async () => {
+  const payload = await executeRecordFinding(
+    {
+      finding: JSON.stringify({
+        check: "spoofed-attribution",
+        severity: "High",
+        confidence: "High",
+        description: "Payload attempts to spoof Scribe attribution",
+        file: "src/Vault.sol",
+        lines: [20, 25],
+        source: "manual",
+        reported_by_agent: "scribe",
+        impact: "Lineage would incorrectly hide the reporting agent",
+        recommendation: "Trust the tool context instead of payload attribution",
+        proofOfConcept:
+          "Call argus_record_finding from audit-specialist with reported_by_agent set to scribe",
+      }),
+    },
+    createContext("audit-specialist"),
+  )
+
+  const parsed = JSON.parse(payload) as {
+    success: boolean
+    findings: Array<{ reported_by_agent?: string }>
+  }
+
+  expect(parsed.success).toBe(true)
+  expect(parsed.findings[0]?.reported_by_agent).toBe("audit-specialist")
+})
+
 test("executeRecordFinding skips enrichment warnings for Low/Medium findings", async () => {
   const lowPayload = await executeRecordFinding(
     {

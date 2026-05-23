@@ -62,6 +62,7 @@ function makeManagers(): Managers {
       dispatch: () => "task-1",
       cancel: () => {},
       getResult: async () => null,
+      getTaskStatus: async () => undefined,
       onComplete: () => {},
       getActiveCount: () => 0,
     },
@@ -190,6 +191,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -273,6 +275,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -355,6 +358,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -408,6 +412,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -453,6 +458,34 @@ describe("createHooks", () => {
       } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
     )
 
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     expect(await Bun.file(findingsPath).exists()).toBe(true)
     const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
@@ -483,6 +516,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -528,12 +562,147 @@ describe("createHooks", () => {
       } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
     )
 
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
     await hooks.event?.({
       event: { type: "session.idle", properties: { sessionID: "oc-idle-finalize" } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
     const journalPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
     const events = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+    const finalizationEvent = [...events].reverse().find((event) => event.type === "run.finalized")
+
+    expect(finalizationEvent).toBeDefined()
+    expect(finalizationEvent?.payload?.status).toBe("finalized")
+    expect(finalizationEvent?.payload?.invariantsPassed).toBe(true)
+  })
+
+  it("does not finalize on session.idle until Themis disposition is recorded", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-idle-waits-themis-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        getTaskStatus: async () => undefined,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+        dispose: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-idle-waits-themis" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-idle-waits-themis")
+
+    const freshRunId = await waitForRunId("oc-idle-waits-themis")
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: freshRunId,
+          filePath: ".argus/reports/idle-waits-themis.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await hooks.event?.({
+      event: { type: "session.idle", properties: { sessionID: "oc-idle-waits-themis" } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const journalPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    let events = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+
+    expect(events.some((event) => event.type === "run.finalized")).toBe(false)
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    events = (await Bun.file(journalPath).text())
       .split("\n")
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
@@ -554,6 +723,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -640,6 +810,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -731,6 +902,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -790,6 +962,7 @@ describe("createHooks", () => {
         dispatch: () => "task-1",
         cancel: () => {},
         getResult: async () => null,
+        getTaskStatus: async () => undefined,
         onComplete: () => {},
         getActiveCount: () => 0,
       },
@@ -820,24 +993,26 @@ describe("createHooks", () => {
     const orphanRunId = `run-no-events-DOES-NOT-EXIST-${Date.now()}`
     activeState.sessionId = orphanRunId
 
-    await expect(
-      hooks["tool.execute.after"]?.(
-        {
-          tool: "argus_generate_report",
-          args: { target: FIXTURE_DIR },
-          sessionID: "oc-orphan",
-        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
-        {
-          title: "argus_generate_report",
-          output: JSON.stringify({
-            run_id: orphanRunId,
-            filePath: ".argus/reports/orphan.md",
-            report: "ok",
-          }),
-          metadata: {},
-        } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
-      ),
-    ).resolves.toBeUndefined()
+    const toolExecuteAfter = hooks["tool.execute.after"]
+    expect(toolExecuteAfter).toBeDefined()
+    if (!toolExecuteAfter) return
+
+    await toolExecuteAfter(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-orphan",
+      } as unknown as Parameters<typeof toolExecuteAfter>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: orphanRunId,
+          filePath: ".argus/reports/orphan.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<typeof toolExecuteAfter>[1],
+    )
   })
 
   it("dispose removes process exit handler", () => {

@@ -30,6 +30,31 @@ describe("argus-skill-resolver", () => {
       expect(skills.has(requiredSkill)).toBe(true)
     }
   })
+
+  it("resolves bundled audit specialist profile skills and attack-vector deck", () => {
+    const skills = resolveArgusSkills(process.cwd())
+    const specialistSkills = [
+      "attack-vector-deck",
+      "vector-scan",
+      "access-control-specialist",
+      "math-precision",
+      "invariant",
+      "economic-security",
+      "execution-trace",
+      "periphery",
+      "first-principles",
+    ]
+
+    for (const skillName of specialistSkills) {
+      expect(skills.has(skillName), `${skillName} should resolve`).toBe(true)
+    }
+    expect(skills.get("attack-vector-deck")?.filePath).toContain(
+      "skills/references/attack-vector-deck/SKILL.md",
+    )
+    expect(skills.get("math-precision")?.filePath).toContain(
+      "skills/specialist-profiles/math-precision/SKILL.md",
+    )
+  })
 })
 
 describe("skill precedence", () => {
@@ -56,7 +81,7 @@ describe("skill precedence", () => {
 
   function makeConfig(precedence: "bundled-first" | "custom-first"): ArgusConfig {
     return {
-      agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+      agents: { argus: {}, sentinel: {}, pythia: {}, auditSpecialist: {}, scribe: {}, themis: {} },
       tools: {},
       knowledge: {
         scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },

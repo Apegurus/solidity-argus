@@ -1,5 +1,11 @@
 export type FindingSeverity = "Critical" | "High" | "Medium" | "Low" | "Informational"
-export type ArgusAgentName = "argus" | "sentinel" | "pythia" | "scribe" | "unknown"
+export type ArgusAgentName =
+  | "argus"
+  | "sentinel"
+  | "pythia"
+  | "audit-specialist"
+  | "scribe"
+  | "unknown"
 export type AuditPhase =
   | "reconnaissance"
   | "scanning"
@@ -88,6 +94,21 @@ export interface ToolExecution {
   endTime?: number
   success: boolean
   findingsCount: number
+  findingCounts?: FindingCounts
+}
+
+export interface FindingCounts {
+  rawObservations?: number
+  recordedFindings?: number
+  dedupedFindings?: number
+  actionableFindings?: number
+  nonActionableFindings?: number
+}
+
+export interface CoverageAttemptState {
+  status: "pending" | "run" | "skipped" | "failed"
+  attemptedAt?: number
+  reason?: string
 }
 
 export interface AuditState {
@@ -105,7 +126,9 @@ export interface AuditState {
   skillsLoaded?: string[]
   unavailableTools?: string[]
   reportGenerated?: boolean
+  findingCounts?: FindingCounts
   knowledgeSynced?: { success: boolean; timestamp: number }
+  coverageAttempt?: CoverageAttemptState
   coverageReport?: {
     files: Array<{
       path: string

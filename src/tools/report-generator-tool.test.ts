@@ -199,6 +199,9 @@ function makeFinding(overrides: Partial<Finding>): Finding {
     source: overrides.source ?? "slither",
     observation_ids: overrides.observation_ids,
     observation_count: overrides.observation_count,
+    impact: overrides.impact,
+    recommendation: overrides.recommendation,
+    proofOfConcept: overrides.proofOfConcept,
     sources: overrides.sources,
     reported_by_agents: overrides.reported_by_agents,
     remediation: overrides.remediation,
@@ -371,6 +374,88 @@ test("executeReportGeneration default threshold includes Informational findings"
   expect(result.report).toContain("### [LOW-1] Missing Event")
   expect(result.report).toContain("### [INFO-1] Floating Pragma")
   expect(result.report).toContain("| Informational | 1 |")
+})
+
+test("executeReportGeneration renders canonical finding fields exactly", async () => {
+  const finding = makeFinding({
+    id: "f-deadline",
+    check: "missing-deadline-parameter-on-wrap-unwrap",
+    severity: "Informational",
+    confidence: "Medium",
+    description:
+      "wrap() and unwrap() already implement slippage protection via minWAlphaOut and minAlphaOut; the remaining gap is that neither function accepts a deadline parameter.",
+    file: "src/WAlpha.sol",
+    lines: [172, 228],
+    source: "manual",
+    recommendation:
+      "Add deadline parameters while preserving the existing minWAlphaOut and minAlphaOut slippage checks.",
+  })
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "FidelityFixture",
+      scope: ["src/WAlpha.sol"],
+      report_input: JSON.stringify(makeReportInput([finding], { toolsExecuted: [] })),
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+  )
+
+  expect(result.findingsCount.informational).toBe(1)
+  expect(result.findingsCount.low).toBe(0)
+  expect(result.report).toContain("**Severity**: Informational")
+  expect(result.report).toContain(finding.description)
+  expect(result.report).toContain(finding.recommendation as string)
+  expect(result.report).not.toContain("do not accept a deadline or minSharesOut / minAlphaOut")
+  expect(result.report).not.toContain("lack slippage protection")
+})
+
+test("executeReportGeneration includes source excerpts for findings when files are readable", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-source-"))
+  const sourceDir = path.join(tempDir, "src")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(
+    path.join(sourceDir, "WAlpha.sol"),
+    [
+      "pragma solidity ^0.8.20;",
+      "contract WAlpha {",
+      "    function setFeeReceiver(address newReceiver) external {",
+      "        if (newReceiver == address(0)) revert WAlpha_ZeroAddress();",
+      "    }",
+      "}",
+    ].join("\n"),
+  )
+
+  try {
+    const finding = makeFinding({
+      id: "f-zero",
+      check: "no-zero-coldkey-check-on-set-fee-receiver",
+      severity: "Informational",
+      confidence: "High",
+      description: "setFeeReceiver validates address(0); the missing pre-check is coldkey mapping.",
+      file: "src/WAlpha.sol",
+      lines: [3, 4],
+      source: "manual",
+    })
+    const input = makeReportInput([finding], { toolsExecuted: [] })
+    input.projectDir = tempDir
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "SourceExcerptFixture",
+        scope: ["src/WAlpha.sol"],
+        report_input: JSON.stringify(input),
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+    )
+
+    expect(result.report).toContain("**Source Excerpt**")
+    expect(result.report).toContain("function setFeeReceiver(address newReceiver) external")
+    expect(result.report).toContain("if (newReceiver == address(0)) revert WAlpha_ZeroAddress();")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test("executeReportGeneration supports disabling executive summary", async () => {
@@ -911,7 +996,14 @@ test("executeReportGeneration writes report to disk and returns filePath", async
       context,
       {
         loadConfig: () => ({
-          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
           tools: {},
           knowledge: {
             scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -992,7 +1084,14 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
       context,
       {
         loadConfig: () => ({
-          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
           tools: {},
           knowledge: {
             scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },

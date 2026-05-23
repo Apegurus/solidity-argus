@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -107,6 +107,55 @@ test("executeSlitherAnalyze handles ENOENT when slither is missing", async () =>
 
   expect(result.success).toBe(false)
   expect(result.error).toBe("Slither not found. Install with: pip install slither-analyzer")
+  expect(result.hint).toBeUndefined()
+})
+
+test("executeSlitherAnalyze returns mixed-pragma narrowing hint with safe src suggestion", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-slither-mixed-"))
+  try {
+    mkdirSync(join(tempDir, "src"), { recursive: true })
+    writeFileSync(join(tempDir, "src", "Vault.sol"), "pragma solidity ^0.8.20; contract Vault {}")
+    const { context } = createContext({ directory: tempDir, worktree: tempDir })
+    const stderr =
+      "CryticCompileError: Source file requires different compiler version; found pragmas 0.5.17 and 0.8.20"
+
+    const result = await executeSlitherAnalyze(
+      { target: tempDir },
+      context,
+      async () => ({ stdout: "not-json", stderr, exitCode: 1 }),
+      tempDir,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.hint).toContain("Try narrowing target to a single-pragma subdirectory")
+    expect(result.hint).toContain("foundry.toml/remappings")
+    expect(result.suggested_command).toBe(
+      `slither ${join(tempDir, "src")} --json - --filter-paths node_modules`,
+    )
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeSlitherAnalyze omits mixed-pragma suggested command when no safe src target exists", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-slither-no-src-"))
+  try {
+    const { context } = createContext({ directory: tempDir, worktree: tempDir })
+    const stderr = "Slither exited with code 1: solc pragma requires different compiler version"
+
+    const result = await executeSlitherAnalyze(
+      { target: tempDir },
+      context,
+      async () => ({ stdout: "not-json", stderr, exitCode: 1 }),
+      tempDir,
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.hint).toContain("Try narrowing target to a single-pragma subdirectory")
+    expect(result.suggested_command).toBeUndefined()
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test("executeSlitherAnalyze parses partial findings from non-zero exit JSON", async () => {
@@ -212,6 +261,44 @@ test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async
   expect(calls.length).toBe(1)
   expect(result.success).toBe(true)
   expect(result.findingsCount).toBe(0)
+})
+
+test("executeSlitherAnalyze attempts direct slither before flatten fallback when via_ir is requested", async () => {
+  const commands: string[][] = []
+  const { context } = createContext()
+
+  const result = await executeSlitherAnalyze(
+    { target: "src/WAlpha.sol", via_ir: true },
+    context,
+    async (command, _signal, _cwd) => {
+      commands.push(command)
+      return {
+        stdout: JSON.stringify({ success: true, results: { detectors: [] } }),
+        stderr: "",
+        exitCode: 0,
+      }
+    },
+  )
+
+  expect(result.success).toBe(true)
+  expect(commands).toEqual([
+    ["slither", "src/WAlpha.sol", "--json", "-", "--filter-paths", "node_modules"],
+  ])
+})
+
+test("executeSlitherAnalyze returns stderr when direct slither fails without fallback", async () => {
+  const { context } = createContext()
+
+  const result = await executeSlitherAnalyze({ target: "src/WAlpha.sol" }, context, async () => ({
+    stdout: "not-json",
+    stderr: "syntax error near unexpected token",
+    exitCode: 1,
+  }))
+
+  expect(result.success).toBe(false)
+  expect(result.errors).toContain("Slither exited with code 1")
+  expect(result.errors).toContain("syntax error near unexpected token")
+  expect(result.error).toContain("Slither output parse error")
 })
 
 function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): FlattenFallbackDeps {
@@ -433,7 +520,7 @@ test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with
   expect(result.findings[0]?.check).toBe("reentrancy-eth")
 })
 
-test("executeSlitherAnalyze skips primary run and uses flatten fallback when via_ir is true", async () => {
+test("executeSlitherAnalyze uses flatten fallback after direct via_ir analysis fails", async () => {
   const { context } = createContext()
   let primaryCalled = false
 
@@ -448,7 +535,7 @@ test("executeSlitherAnalyze skips primary run and uses flatten fallback when via
     },
   )
 
-  expect(primaryCalled).toBe(false)
+  expect(primaryCalled).toBe(true)
   expect(result.success).toBe(false)
   // flattenFallback returns structured error (forge not found or solc version missing)
   expect(result.error).toBeDefined()
@@ -564,8 +651,8 @@ test("manual via_ir: true override bypasses auto-detection", async () => {
     },
   )
 
-  // Should have gone through the via_ir path (flatten fallback), not primary
-  expect(primaryRunCalled).toBe(false)
+  // Manual via_ir should still try direct Slither before any fallback.
+  expect(primaryRunCalled).toBe(true)
   expect(result.success).toBe(false)
   expect(result.error).toBeDefined()
 })

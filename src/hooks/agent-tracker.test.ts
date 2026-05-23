@@ -78,6 +78,16 @@ describe("createAgentTracker", () => {
     expect(tracker.isArgusAgent("scribe-session")).toBe(true)
   })
 
+  it('isArgusAgent returns true for "audit-specialist"', () => {
+    const tracker = createAgentTracker()
+
+    tracker.chatParamsHook(
+      makeChatParamsInput({ sessionID: "audit-specialist-session", agent: "audit-specialist" }),
+    )
+
+    expect(tracker.isArgusAgent("audit-specialist-session")).toBe(true)
+  })
+
   it("isArgusAgent returns false for non-argus and unknown agents", () => {
     const tracker = createAgentTracker()
 
