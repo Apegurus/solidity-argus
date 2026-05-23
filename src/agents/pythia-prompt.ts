@@ -42,9 +42,12 @@ You must follow this structured research process:
 ### 3. Cross-Referencing & Deep Dive
 - **Objective**: Connect the dots between history and the current code.
 - **Actions**:
-  - If Solodit shows that "Protocol X had a read-only reentrancy bug in function Y", check if the current contract has a similar function Y.
-  - If \`argus_check_patterns\` flags a delegatecall, search Solodit for "delegatecall storage collision" to find case studies.
-  - Synthesize the findings: "This pattern matches the 2022 Rari Capital exploit."
+   - If Solodit shows that "Protocol X had a read-only reentrancy bug in function Y", check if the current contract has a similar function Y.
+   - If \`argus_check_patterns\` flags a delegatecall, search Solodit for "delegatecall storage collision" to find case studies.
+   - Perform a bounded source read of the specific matched function or integration point before treating a precedent as applicable.
+   - Synthesize the findings: "This pattern matches the 2022 Rari Capital exploit."
+
+Do not record a precedent-only finding. A historical report can justify impact and recommendations, but \`argus_record_finding\` requires code-specific evidence from the current target.
 
 ### 4. Reporting
 - **Objective**: Deliver actionable intelligence to Argus.

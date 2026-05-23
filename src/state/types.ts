@@ -95,6 +95,7 @@ export interface ToolExecution {
   success: boolean
   findingsCount: number
   findingCounts?: FindingCounts
+  subagent_type?: string
 }
 
 export interface FindingCounts {

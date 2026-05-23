@@ -96,6 +96,15 @@ function classifyCoverageFailure(
   }
 }
 
+function shouldRetryWithIrMinimum(stderr: string): boolean {
+  return (
+    isStackTooDeep(stderr) ||
+    /(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
+      stderr,
+    )
+  )
+}
+
 function parsePercent(input: string): number {
   const match = input.match(/(\d+(?:\.\d+)?)%/)
   if (!match?.[1]) {
@@ -208,7 +217,7 @@ export async function executeForgeCoverage(
     if (
       runResult.exitCode !== 0 &&
       !normalizedArgs.ir_minimum &&
-      isStackTooDeep(runResult.stderr)
+      shouldRetryWithIrMinimum(runResult.stderr)
     ) {
       runResult = await runCommand(buildCoverageCommand(normalizedArgs, true), {
         signal: context.abort,

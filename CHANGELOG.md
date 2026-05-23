@@ -1,9 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 (2026-05-23)
 
 ### Fixes
 - Added a strict Argus direct-tool budget so the orchestrator delegates broad audits instead of spending all 50 OpenCode steps on direct `bash`/`read` reconnaissance, which could trigger OpenCode's max-steps assistant-prefill path on Anthropic models.
+- Enforced one audit-specialist profile per task, with anti-loop checkpoints and structured handoff fields so Argus can synthesize specialist leads without bundled-profile drift.
+- Required fresh approved Themis validation after remediation, preventing `remediated` dispositions from closing an audit without an approved follow-up verdict.
+- Added strict report scope validation so `argus_generate_report` rejects findings outside the audited scope when `preflight_policy` is `strict-fail`.
+- Exposed `quality_gate_policy` in the `argus_generate_report` tool schema so Scribe and Argus can request strict report-quality enforcement through the actual tool surface.
+- Added paged `argus_read_findings` retrieval with `findings_offset` and `findings_limit` to keep large audit state readable without truncating canonical data.
+- Retried Forge coverage with `--ir-minimum` for stack-too-deep, optimizer, config parse, and instrumentation failures.
+- Required Pythia to perform bounded source reads before applying historical precedent and to avoid recording precedent-only findings.
+- Added per-subagent task dispatch counts to dynamic Argus context for clearer audit-progress tracking.
 
 ## 0.6.0 (2026-05-19)
 

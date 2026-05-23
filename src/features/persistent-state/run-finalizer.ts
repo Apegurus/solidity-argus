@@ -155,13 +155,19 @@ function isResolvedThemisDisposition(value: unknown): boolean {
   if (disposition?.status === "approved") {
     return disposition.verdict?.approved === true
   }
-  if (disposition?.status === "remediated") {
-    return disposition.verdict?.approved === false && hasText(disposition.notes)
-  }
   if (disposition?.status === "overridden") {
     return disposition.verdict?.approved === false && hasText(disposition.justification)
   }
   return false
+}
+
+function isRemediatedThemisDisposition(value: unknown): boolean {
+  const disposition = asRecord(value) as ThemisDisposition | null
+  return (
+    disposition?.status === "remediated" &&
+    disposition.verdict?.approved === false &&
+    hasText(disposition.notes)
+  )
 }
 
 function hasRejectedThemisVerdict(value: unknown): boolean {
@@ -188,6 +194,16 @@ function collectThemisDispositionErrors(events: AuditEvent[]): string[] {
   })
 
   if (hasResolvedDisposition) return []
+
+  const hasRemediatedDisposition = laterEvents.some((event) => {
+    if (event.type !== "tool.completed") return false
+    const payload = asRecord(event.payload)
+    return isRemediatedThemisDisposition(payload?.themisDisposition)
+  })
+
+  if (hasRemediatedDisposition) {
+    return ["remediated Themis disposition requires fresh approved Themis validation"]
+  }
 
   const hasUnresolvedRejection = laterEvents.some((event) => {
     if (event.type !== "tool.completed") return false

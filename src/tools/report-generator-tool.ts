@@ -794,6 +794,23 @@ function shouldIncludeFinding(finding: Finding, threshold: SeverityThreshold): b
   return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold]
 }
 
+function normalizeScopePath(value: string): string {
+  return value.replace(/^\.\//, "").replace(/\/+$|\\+$/g, "")
+}
+
+function isFindingInScope(finding: Finding, scope: string[]): boolean {
+  if (scope.length === 0) return true
+  const file = normalizeScopePath(finding.file)
+  return scope.some((entry) => {
+    const scoped = normalizeScopePath(entry)
+    return file === scoped || file.startsWith(`${scoped}/`)
+  })
+}
+
+function collectOutOfScopeFindings(findings: Finding[], scope: string[]): Finding[] {
+  return findings.filter((finding) => !isFindingInScope(finding, scope))
+}
+
 function calculateCounts(findings: Finding[]): FindingsCount {
   const counts = emptyCounts()
 
@@ -1249,6 +1266,18 @@ export async function executeReportGeneration(
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
   const warningBullets: string[] = []
+  const state = reportInputToAuditState(reportInput)
+  const scope = args.scope.length > 0 ? args.scope : reportInput.scope
+  const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
+  const outOfScopeFindings = collectOutOfScopeFindings(finalFindings, scope)
+  if (outOfScopeFindings.length > 0) {
+    const locations = outOfScopeFindings.map(formatLocation).join(", ")
+    const message = `findings outside audited scope: ${locations}`
+    if (preflightPolicy === "strict-fail") {
+      throw new Error(`Preflight failed (strict-fail): ${message}`)
+    }
+    warningBullets.push(`- ${message}`)
+  }
 
   // Hard gate: refuse to generate a report if key audit tools have not been executed
   if (toolCoveragePolicy !== "skip") {
@@ -1376,9 +1405,6 @@ export async function executeReportGeneration(
     ].join("\n")
   }
 
-  const state = reportInputToAuditState(reportInput)
-  const scope = args.scope.length > 0 ? args.scope : reportInput.scope
-  const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
   const findings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
@@ -1560,6 +1586,10 @@ export const reportGeneratorTool = tool({
       .enum(["critical", "high", "medium", "low", "informational"])
       .default("informational"),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
+    quality_gate_policy: tool.schema
+      .enum(["warn", "strict-fail"])
+      .optional()
+      .describe("Controls whether report quality gate violations warn or fail generation."),
     tool_coverage_policy: tool.schema
       .enum(["enforce", "warn", "skip"])
       .optional()

@@ -145,6 +145,31 @@ test("returns file reference with truncated=true when output exceeds threshold",
   }
 })
 
+test("returns an inline findings page for large report inputs", async () => {
+  const dir = await makeTempDir()
+  const findings = Array.from({ length: 200 }, (_, i) => ({
+    ...makeFinding(i),
+    description: `Finding ${i}: ${"X".repeat(200)} vulnerability description padding.`,
+    recommendation: `Recommendation for finding ${i}. ${"Y".repeat(100)}`,
+  }))
+
+  await writeAuditState(dir, makeAuditState({ findings }))
+
+  const payload = await executeReadFindings(
+    { run_id: "run-test", findings_offset: 20, findings_limit: 5 },
+    createContext(dir),
+  )
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  expect(parsed.truncated).toBe(false)
+  if (!parsed.truncated) {
+    expect(parsed.reportInput.findings).toHaveLength(5)
+    expect(parsed.reportInput.findings[0]?.file).toBe("src/Contract20.sol")
+    expect(parsed.reportInput.findingsPage).toEqual({ offset: 20, limit: 5, total: 200 })
+  }
+})
+
 test("throws when no audit state exists", async () => {
   const dir = await makeTempDir()
 
