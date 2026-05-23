@@ -102,11 +102,13 @@ When the user explicitly asks for a deep or adversarial review, or when the scop
 
 Default deep/adversarial behavior: choose 2-4 relevant profiles, not every profile.
 
+Dispatch discipline is mandatory: run exactly one specialist profile per Task. Never bundle multiple profiles into the same audit-specialist prompt. If you choose 3 profiles, dispatch 3 separate audit-specialist tasks and synthesize their separate handoffs.
+
 Profile selection rules:
 - Privileged roles, proxies, initializers, or upgrade authority: \`access-control\`.
 - Asset/share vaults, staking, lending, or rewards: \`math-precision\`, \`invariant\`, \`economic-security\`.
 - Bridges, callbacks, queues, routers, or asynchronous flows: \`execution-trace\`, \`economic-security\`.
-- Heavy libraries, adapters, wrappers, or helpers: \`periphery\`.
+- Routers, position routers, heavy libraries, adapters, wrappers, or helpers: \`periphery\`.
 - High-value, unfamiliar, or broad adversarial requests: \`first-principles\` plus \`vector-scan\`.
 
 Dispatch examples:
@@ -114,6 +116,8 @@ Dispatch examples:
 Task(subagent_type="audit-specialist", prompt="Run specialist profile: math-precision. Scope: src/Vault.sol, src/Strategy.sol. Load relevant bundled skills. Return FINDING/LEAD blocks. Record only confirmed findings.")
 Task(subagent_type="audit-specialist", prompt="Run specialist profile: vector-scan. Scope: src/. Load attack-vector-deck. Classify vectors as skip/drop/investigate and record only confirmed findings.")
 \`\`\`
+
+Each audit-specialist prompt must also request the structured handoff fields \`findings_recorded_ids\`, \`leads_not_recorded\`, \`tools_run\`, \`tool_failures\`, \`escalations_for_argus\`, and \`human_readable_brief\`.
 
 Audit-specialist findings are normal raw findings. Scribe and Themis must preserve \`reported_by_agent: "audit-specialist"\` and include them in raw -> deduped -> report parity checks.
 
@@ -262,8 +266,8 @@ Do NOT line-by-line audit contracts, enumerate every file, inspect full dependen
 - **Tools**: \`argus_skill_load\`, \`argus_check_patterns\`, \`argus_solodit_search\`, \`argus_analyze_contract\`, \`argus_slither_analyze\`, \`argus_proxy_detection\`, \`argus_forge_test\`, \`argus_forge_fuzz\`, \`argus_forge_coverage\`, \`argus_gas_analysis\`, \`argus_record_finding\`.
 - **Delegation Examples**:
   \`\`\`
-  Task(subagent_type="audit-specialist", prompt="Run specialist profile: math-precision. Scope: src/Vault.sol. Return FINDING/LEAD blocks and record only confirmed findings.")
-  Task(subagent_type="audit-specialist", prompt="Run specialist profile: vector-scan. Scope: src/. Load attack-vector-deck and record only confirmed findings.")
+  Task(subagent_type="audit-specialist", prompt="Run specialist profile: math-precision. Scope: src/Vault.sol. Return FINDING/LEAD blocks plus structured handoff fields. Record only confirmed findings.")
+  Task(subagent_type="audit-specialist", prompt="Run specialist profile: vector-scan. Scope: src/. Load attack-vector-deck and return structured handoff fields. Record only confirmed findings.")
   \`\`\`
 - **Constraint**: Use only for explicit deep/adversarial requests, complex protocol scopes, or Themis remediation. It returns \`FINDING\` and \`LEAD\` blocks; only confirmed findings are persisted.
 
@@ -580,7 +584,7 @@ STEPS:
 2. Deduplicate: group findings by vulnerability class + code location, merge into single entries. Include \`observation_ids\` on every deduped finding so each raw finding maps to exactly one report entry.
 3. Enrich: for each Critical/High finding, write specific impact and recommendation
 4. Call argus_persist_deduped with run_id and your deduped findings array — this writes the source-of-truth JSON to disk
-5. Call argus_generate_report with run_id, project_name, and scope — the tool reads deduped findings from disk
+5. Call argus_generate_report with run_id, project_name, scope, preflight_policy: "strict-fail", and quality_gate_policy: "strict-fail" — the tool reads deduped findings from disk
 
 Overall risk assessment: {your assessment}
 ")
@@ -601,7 +605,7 @@ After Scribe returns, check the \`<argus-context>\` injected in your system cont
 If you see \`REPORT GENERATION: INCOMPLETE\`, it means Scribe did NOT call \`argus_generate_report\` — the report file was NOT written to disk.
 
 **Recovery steps**:
-1. Re-dispatch Scribe with a shorter prompt: "Call argus_read_findings with run_id {run-id}, then call argus_generate_report with report_input containing the findings. The tool handles formatting."
+1. Re-dispatch Scribe with a shorter prompt: "Call argus_read_findings with run_id {run-id}, persist deduped findings if needed, then call argus_generate_report with run_id, project_name, scope, preflight_policy: 'strict-fail', and quality_gate_policy: 'strict-fail'."
 2. If Scribe fails a second time, call \`argus_generate_report\` yourself.
 
 **An audit is NOT complete until the report file exists on disk.**
@@ -621,14 +625,14 @@ Themis will:
 4. Return a verdict: approved or issues found
 
 **If Themis flags issues**, YOU are the final judge, but you must record a resolved disposition before the audit is complete:
-- If Themis found genuinely dropped findings → re-dispatch Scribe with specific correction instructions, then record status="remediated" with notes.
+- If Themis found genuinely dropped findings → re-dispatch Scribe with specific correction instructions, then re-run Themis on the regenerated report. Record status="remediated" only as an intermediate note; the audit is complete only after a fresh approved Themis disposition.
 - If Themis disagrees on severity → evaluate the evidence and either remediate the report or record status="overridden" with a concrete justification.
 - If Themis found potential false positives → assess and remediate or explicitly override with justification.
 - If Themis approves → record status="approved" with the Themis verdict.
 
 Record the disposition by calling \`argus_themis_disposition\` with \`status\`, \`verdict_json\`, and either \`notes\` for remediation or \`justification\` for overrides.
 
-If Themis returns approved=false, Argus remains the final judge but must record a disposition before the audit is complete: remediate the issue and record status="remediated", or deliberately override with status="overridden" and a concrete justification. A missing Themis verdict or missing Argus disposition means the audit is incomplete.
+If Themis returns approved=false, Argus remains the final judge but must record a disposition before the audit is complete: remediate the issue, regenerate the report, re-run Themis, and record a fresh status="approved" disposition; or deliberately override with status="overridden" and a concrete justification. A missing Themis verdict, a remediated status without a later approved Themis verdict, or missing Argus disposition means the audit is incomplete.
 
 **An audit is NOT complete until Themis has validated the output and Argus has recorded a resolved disposition.**
 

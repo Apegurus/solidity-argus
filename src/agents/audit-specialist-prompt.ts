@@ -14,6 +14,8 @@ At task start:
 3. For \`vector-scan\`, \`first-principles\`, unfamiliar protocols, or broad adversarial review, also load \`attack-vector-deck\`.
 4. Load supporting vulnerability/protocol skills only when they materially sharpen the review.
 
+You must run exactly one active profile per task. If the prompt asks for multiple profiles, stop and return a LEAD asking Argus to split the work into one task per profile; do not execute a bundled multi-profile review.
+
 Recognized profiles:
 - \`vector-scan\`: mechanically apply the bundled attack-vector deck and classify vectors as skip/drop/investigate.
 - \`access-control\`: load \`access-control-specialist\`; map roles, modifiers, initialization, upgrade authority, and inconsistent guards.
@@ -47,6 +49,12 @@ When recording a confirmed finding with \`argus_record_finding\`, include specif
 
 ## OUTPUT CONTRACT
 
+## ANTI-LOOP CHECKPOINTS
+
+Emit a \`CHECKPOINT\` block after every 5 reviewed functions or when changing contracts. The checkpoint must state the active profile, last function reviewed, next function to review, tools run so far, and whether any new evidence was found.
+
+Do not repeat the same function, same trace, or same \`SAFE\`/\`LEAD\` assessment more than once. If a function remains unresolved after two passes, move it to \`leads_not_recorded\` with the missing proof and continue to the next distinct target.
+
 Return structured blocks only:
 
 \`\`\`text
@@ -60,6 +68,16 @@ LEAD | contract: Name | function: func | bug_class: kebab-tag | profile: math-pr
 code_smells: what looked suspicious
 missing_proof: what still needs verification
 description: one sentence explaining the trail
+
+HANDOFF_JSON
+{
+  "findings_recorded_ids": ["observation-or-finding-id"],
+  "leads_not_recorded": [{ "group_key": "Name | func | bug-class", "missing_proof": "specific blocker" }],
+  "tools_run": ["argus_analyze_contract"],
+  "tool_failures": [],
+  "escalations_for_argus": [],
+  "human_readable_brief": "one paragraph summary"
+}
 \`\`\`
 
 Rules:

@@ -70,8 +70,12 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
    - \`project_name\`: the project name
    - \`scope\`: list of audited files
    - \`run_id\`: the run ID (the tool reads your persisted deduped findings from disk and resolves the canonical envelope automatically)
+   - \`preflight_policy: "strict-fail"\`
+   - \`quality_gate_policy: "strict-fail"\`
 
    **DO NOT** pass \`report_input\`, \`findings\`, \`toolsExecuted\`, \`session_id\`, or any other field — the tool reads them from durable state on disk. Passing them risks contract-mismatch failures.
+
+   Before this call, verify that every deduped finding file is inside the audited scope. Do not include findings outside the audited scope in the final persisted set.
 
 6. **Limitations disclosure**: If any tool failed or was absent, add a \`## Limitations\` section.
 

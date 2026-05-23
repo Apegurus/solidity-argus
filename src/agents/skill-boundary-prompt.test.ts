@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { ARGUS_PROMPT } from "./argus-prompt"
 import { AUDIT_SPECIALIST_PROMPT } from "./audit-specialist-prompt"
+import { PYTHIA_PROMPT } from "./pythia-prompt"
 import { SCRIBE_PROMPT } from "./scribe-prompt"
 import { SENTINEL_PROMPT } from "./sentinel-prompt"
 import { THEMIS_PROMPT } from "./themis-prompt"
@@ -17,6 +18,13 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(ARGUS_PROMPT).toContain("deep/adversarial")
     expect(ARGUS_PROMPT).toContain("math-precision")
     expect(ARGUS_PROMPT).toContain("vector-scan")
+  })
+
+  test("Argus prompt requires one audit-specialist profile per task", () => {
+    expect(ARGUS_PROMPT).toContain("one specialist profile per Task")
+    expect(ARGUS_PROMPT).toContain("Never bundle multiple profiles")
+    expect(ARGUS_PROMPT).toContain("Routers, position routers")
+    expect(ARGUS_PROMPT).toContain("periphery")
   })
 
   test("Argus prompt keeps direct reconnaissance bounded", () => {
@@ -54,9 +62,34 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(AUDIT_SPECIALIST_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")
   })
 
+  test("Audit Specialist prompt includes anti-loop checkpoints and structured handoff", () => {
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("exactly one active profile")
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("CHECKPOINT")
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("Do not repeat the same function")
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("findings_recorded_ids")
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("leads_not_recorded")
+  })
+
+  test("Scribe prompt requires strict report generation policies", () => {
+    expect(SCRIBE_PROMPT).toContain('preflight_policy: "strict-fail"')
+    expect(SCRIBE_PROMPT).toContain('quality_gate_policy: "strict-fail"')
+    expect(SCRIBE_PROMPT).toContain("outside the audited scope")
+  })
+
+  test("Sentinel and Pythia prompts require remediation fallbacks and bounded source reads", () => {
+    expect(SENTINEL_PROMPT).toContain("Retry coverage with `ir_minimum: true`")
+    expect(PYTHIA_PROMPT).toContain("bounded source read")
+    expect(PYTHIA_PROMPT).toContain("Do not record a precedent-only finding")
+  })
+
   test("Themis prompt treats audit-specialist findings as parity inputs", () => {
     expect(THEMIS_PROMPT).toContain("audit-specialist")
     expect(THEMIS_PROMPT).toContain('reported_by_agent: "audit-specialist"')
     expect(THEMIS_PROMPT).toContain("raw -> deduped -> report parity")
+  })
+
+  test("Themis prompt exposes a single machine-readable verdict contract", () => {
+    expect(THEMIS_PROMPT).toContain("Return exactly one JSON verdict")
+    expect(THEMIS_PROMPT).toContain("No prose after the JSON verdict")
   })
 })
