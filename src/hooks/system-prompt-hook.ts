@@ -41,14 +41,30 @@ function formatDuration(startTime: number, endTime?: number): string {
 }
 
 function buildToolLedgerLine(auditState: AuditState): string {
-  const taskDispatches = auditState.toolsExecuted.filter((tool) => tool.tool === "task").length
+  const taskTools = auditState.toolsExecuted.filter((tool) => tool.tool === "task")
+  const taskDispatches = taskTools.length
   const argusTools = auditState.toolsExecuted.filter((tool) => tool.tool !== "task").slice(-5)
   const entries = argusTools.map((tool) => {
     const status = tool.success ? "ok" : "failed"
     return `${tool.tool}=${status} findings=${tool.findingsCount} duration=${formatDuration(tool.startTime, tool.endTime)}`
   })
 
-  if (taskDispatches > 0) entries.push(`task dispatches=${taskDispatches}`)
+  if (taskDispatches > 0) {
+    const bySubagent = new Map<string, number>()
+    for (const tool of taskTools) {
+      const subagent = tool.subagent_type ?? "unknown"
+      bySubagent.set(subagent, (bySubagent.get(subagent) ?? 0) + 1)
+    }
+    const subagentSummary = [...bySubagent.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([subagent, count]) => `${subagent}=${count}`)
+      .join(" ")
+    entries.push(
+      subagentSummary.length > 0
+        ? `task dispatches=${taskDispatches} (${subagentSummary})`
+        : `task dispatches=${taskDispatches}`,
+    )
+  }
   return entries.length > 0 ? entries.join("; ") : "none"
 }
 
