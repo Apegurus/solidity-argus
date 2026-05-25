@@ -79,6 +79,16 @@ function classifyCoverageFailure(
   stderr: string,
   args: NormalizedForgeCoverageArgs,
 ): Pick<ForgeCoverageResult, "hint" | "suggested_command"> | undefined {
+  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
+  if (/unknown key/i.test(stderr)) {
+    return {
+      hint:
+        `Forge coverage failed for ${args.target} because foundry.toml contains an unknown foundry.toml key. ` +
+        "Review coverage-compatible Foundry configuration manually; Argus will not edit foundry.toml.",
+      suggested_command: command,
+    }
+  }
+
   if (
     !/(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
       stderr,
@@ -87,7 +97,6 @@ function classifyCoverageFailure(
     return undefined
   }
 
-  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
   return {
     hint:
       `Forge coverage failed for ${args.target} while parsing or instrumenting project configuration. ` +
