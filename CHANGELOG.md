@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.2 (2026-05-25)
+
+### Features
+- Added the specialist repetition watchdog and exposed the text-completion hook so Argus can interrupt repeated specialist loops and surface completion behavior through the plugin hook system.
+
+### Fixes
+- Made deduped report artifacts idempotent with stable semantic hashing, while preserving dropped-observation lineage through persistence and report reads.
+- Hardened lineage validation diagnostics for invalid deduped artifacts, including mapped/dropped observation overlap.
+- Improved contract analysis fallback by trying declared contract names when direct target resolution fails.
+- Classified Forge coverage unknown-configuration-key failures without mutating Foundry configuration or suggesting unrelated IR retries.
+
+### Internal
+- Carried the v0.6.2 follow-up plan into repository documentation and stabilized temporary-state cleanup assertions.
+
 ## 0.6.1 (2026-05-23)
 
 ### Fixes
