@@ -1,0 +1,70 @@
+Argus v0.6.2 Follow-Up PR Spec
+Date: 2026-05-25
+Status: proposed execution spec, carried into feat/argus-v062-follow-up with corrected runtime-loop scope
+
+Context
+- v0.6.1 materially improved audit rigor, especially Themis remediation -> fresh approved validation and single-profile audit-specialist dispatch.
+- Field validation against PositionRouter.sol surfaced remaining runtime and lineage gaps.
+- Referenced audit artifacts were not present in this checkout, so the assessment was made from code paths and provided field notes.
+
+Goal
+Close the highest-impact v0.6.1 field gaps with a focused follow-up PR, avoiding broad feature work.
+
+Primary Scope
+1. Post-generation runtime loop detection for audit specialists
+- Problem: audit-specialist has prompt-level anti-loop checkpoints only. A specialist can still repeat identical paragraphs despite recognizing the loop.
+- Evidence: src/agents/audit-specialist-prompt.ts contains CHECKPOINT and no-repeat instructions, but there was no runtime content-hash, repeated-output, max-iteration, or post-generation stop guard.
+- Correction: OpenCode currently exposes completed assistant text through experimental.text.complete, not a true streaming abort surface.
+- Direction: add a small post-generation repetition guard through the available OpenCode hook surface.
+- Detector shape: normalize assistant output paragraphs, keep a bounded view of repeated paragraphs, and trigger on repeated identical or stagnant content.
+- Preferred behavior: throw a blocking diagnostic from the hook so Argus stops using the degenerating specialist output and can dispatch a bounded replacement.
+- Prompt hardening remains useful but only as defense-in-depth.
+
+2. Dropped observations and lineage model
+- Problem: strict scope filtering and strict lineage parity conflict when raw observations include adjacent or out-of-scope files.
+- Evidence: ReportInput had no dropped_observations field; report generation rejected out-of-scope findings under strict preflight; lineage validation expected every raw observation_id to be represented by deduped findings.
+- Direction: add first-class dropped_observations metadata to report/dedup artifacts.
+- Drop reasons: out-of-scope, false-positive, merged-into, non-actionable-noise.
+- Acceptance rule: a raw observation is lineage-complete if it is either mapped into a deduped finding or explicitly listed in dropped_observations with a valid reason.
+- Expected result: Scribe should not need to fake consolidated placeholder findings just to preserve lineage.
+
+3. argus_persist_deduped idempotency
+- Problem: persist validates against current findings.json and writes deduped-findings.json, but had no idempotent semantic-content check or accepted-lineage state.
+- Evidence: src/tools/persist-deduped-tool.ts validated then wrote; src/shared/lineage-validator.ts only validated against current raw observation_id values.
+- Direction: update argus_persist_deduped to accept an object containing findings and dropped_observations.
+- If identical semantic content is already persisted, return success with idempotent: true and do not rewrite timestamps/content.
+- If content differs but lineage is valid, persist intentionally with clear revision/metadata rather than silent accidental overwrite.
+- If lineage is invalid, return structured missing/phantom/duplicate details that account for dropped observations.
+
+4. Contract analyzer name resolution
+- Problem: argus_analyze_contract derived contract name from file basename and called forge inspect <contractName>, which is brittle in large projects.
+- Evidence: src/tools/contract-analyzer-tool.ts used basename(filePath, '.sol'); src/utils/solidity-parser.ts called forge inspect with that name only.
+- Direction: parse declared contract/interface/library names from the target file.
+- Try basename first for compatibility, then declared names, then Foundry-qualified identifiers if needed.
+- Return useful ambiguity/failure output listing candidate contracts and attempted identifiers instead of only a generic inspect failure.
+
+5. Forge coverage config failure handling
+- Problem: forge coverage retries --ir-minimum for optimizer/config/instrumentation failures, but it does not sanitize unsupported foundry.toml keys.
+- Evidence: src/tools/forge-coverage-tool.ts retried --ir-minimum and returned an optimizerSteps/config hint; tests covered the hint path but not safe unknown-key diagnostics.
+- Direction for this PR: add a minimal failing fixture/repro for optimizerSteps or unknown-key behavior, then improve classification and diagnostics.
+- Do not mutate foundry.toml in place.
+- Only implement temporary config sanitization if the repro proves a safe isolated temp-project or temp-config strategy.
+
+Deferred Unless Reproduced
+- G6 missing session.deleted lifecycle event.
+- Current code accepts run.finalized as an alternative to session.deleted in report preflight, so treat this as lower priority unless a strict preflight/finalization failure is reproducible.
+
+Verification Plan
+- Add focused unit tests per subsystem.
+- Add integration coverage for raw findings + dropped observations + strict report preflight.
+- Run: bun run typecheck
+- Run: bun run check
+- Run: bun test
+- Run CLI smoke: bun src/cli/index.ts doctor
+- Manual QA: create a synthetic run artifact with raw findings, deduped findings, dropped_observations, and strict report generation to prove the report path works without fake consolidated findings.
+
+Out of Scope
+- Merging PR #12 to main.
+- Broad new audit features.
+- Automatic mutation of user foundry.toml.
+- Reworking lifecycle finalization without a concrete failing reproduction.

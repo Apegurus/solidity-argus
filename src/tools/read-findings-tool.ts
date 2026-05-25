@@ -3,6 +3,11 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
+import {
+  DROPPED_OBSERVATION_REASONS,
+  type DroppedObservation,
+} from "../shared/dropped-observations"
+import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { defaultRootResolver } from "../shared/path-root-resolver"
 import { resolveProjectDir } from "../shared/project-utils"
@@ -134,6 +139,9 @@ function buildCompactInput(
       (t) => stripInternalKeys(t, TOOL_EXECUTION_INTERNAL_KEYS) as ReportToolExecution,
     ),
     scope: reportInput.scope,
+    ...(reportInput.dropped_observations && {
+      dropped_observations: reportInput.dropped_observations,
+    }),
     ...(reportInput.soloditResults && { soloditResults: reportInput.soloditResults }),
     ...(reportInput.fuzzCounterexamples && {
       fuzzCounterexamples: reportInput.fuzzCounterexamples,
@@ -275,6 +283,39 @@ function readNewestSessionState(argusRoot: string): AuditState | null {
   return null
 }
 
+function readRawFindings(projectDir: string, runId: string): CanonicalFinding[] | null {
+  const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
+  try {
+    const parsed = JSON.parse(readFileSync(findingsFile, "utf8")) as { findings?: unknown }
+    return Array.isArray(parsed.findings) ? (parsed.findings as CanonicalFinding[]) : null
+  } catch {
+    return null
+  }
+}
+
+function parseDroppedObservations(raw: unknown): DroppedObservation[] | null {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) return null
+
+  const validReasons = new Set<string>(DROPPED_OBSERVATION_REASONS)
+  const dropped: DroppedObservation[] = []
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return null
+    const record = item as Record<string, unknown>
+    if (typeof record.observation_id !== "string" || record.observation_id.length === 0) return null
+    if (typeof record.reason !== "string" || !validReasons.has(record.reason)) return null
+    const drop: DroppedObservation = {
+      observation_id: record.observation_id,
+      reason: record.reason as DroppedObservation["reason"],
+    }
+    if (typeof record.note === "string" && record.note.length > 0) {
+      drop.note = record.note
+    }
+    dropped.push(drop)
+  }
+  return dropped
+}
+
 function readAuditStateAsReportInput(projectDir: string, runId: string): ReportInput {
   const logger = createLogger()
   const argusRoot = defaultRootResolver.writeRoot(projectDir)
@@ -283,10 +324,35 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   try {
     const dedupedRaw = JSON.parse(readFileSync(dedupedFile, "utf8")) as {
       findings?: unknown[]
+      dropped_observations?: unknown[]
       run_id?: string
     }
     if (Array.isArray(dedupedRaw.findings) && dedupedRaw.findings.length > 0) {
       logger.debug(`Loaded deduped findings from: ${dedupedFile}`)
+      const rawFindings = readRawFindings(projectDir, runId)
+      if (!rawFindings) {
+        throw new Error(
+          `Cannot verify deduped lineage because .argus/runs/${runId}/findings.json is missing or invalid`,
+        )
+      }
+
+      const droppedObservations = parseDroppedObservations(dedupedRaw.dropped_observations)
+      if (!droppedObservations) {
+        throw new Error(
+          "Invalid deduped findings artifact: dropped_observations must be an array of valid dropped observation entries",
+        )
+      }
+
+      const lineage = validateFindingLineage(
+        rawFindings,
+        dedupedRaw.findings as CanonicalFinding[],
+        droppedObservations,
+      )
+      if (!lineage.valid) {
+        throw new Error(
+          `Invalid deduped findings lineage: missing=${lineage.missing_observation_ids.length}, extra=${lineage.phantom_observation_ids.length}, duplicates=${lineage.duplicate_observation_ids.length}, dropped_extra=${lineage.phantom_dropped_observation_ids.length}, dropped_duplicates=${lineage.duplicate_dropped_observation_ids.length}, mapped_dropped_overlap=${lineage.overlapping_mapped_dropped_observation_ids.length}, invalid_dropped=${lineage.invalid_dropped_observations.length}, count_mismatches=${lineage.count_mismatches.length}`,
+        )
+      }
 
       const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
       let baseReportInput: Partial<ReportInput> = {}
@@ -298,6 +364,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
         ...baseReportInput,
         run_id: dedupedRaw.run_id ?? runId,
         findings: dedupedRaw.findings as CanonicalFinding[],
+        dropped_observations: droppedObservations,
         toolsExecuted: baseReportInput.toolsExecuted ?? [],
         scope: baseReportInput.scope ?? [],
         projectDir: baseReportInput.projectDir ?? projectDir,
@@ -308,7 +375,14 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
         schema_version: SCHEMA_VERSION,
       } as ReportInput
     }
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.startsWith("Cannot verify deduped lineage") ||
+        error.message.startsWith("Invalid deduped findings"))
+    ) {
+      throw error
+    }
     logger.debug(`No deduped findings at ${dedupedFile}`)
   }
 

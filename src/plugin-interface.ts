@@ -32,6 +32,10 @@ export function createPluginInterface(args: {
     result["experimental.session.compacting"] = hooks["experimental.session.compacting"]
   }
 
+  if (hooks["experimental.text.complete"]) {
+    result["experimental.text.complete"] = hooks["experimental.text.complete"]
+  }
+
   if (hooks["tool.execute.after"]) {
     result["tool.execute.after"] = hooks["tool.execute.after"]
   }

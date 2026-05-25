@@ -636,6 +636,7 @@ function parseReportInputPayload(
       try {
         const dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as {
           findings?: unknown[]
+          dropped_observations?: unknown[]
           deduped_by?: string
         }
         if (Array.isArray(dedupedArtifact.findings) && dedupedArtifact.findings.length > 0) {
@@ -661,6 +662,9 @@ function parseReportInputPayload(
             ...baseInput,
             run_id: effectiveRunId,
             findings: normalizedFindings,
+            dropped_observations: Array.isArray(dedupedArtifact.dropped_observations)
+              ? dedupedArtifact.dropped_observations
+              : baseInput.dropped_observations,
           }
           normalizeToolsExecutedDefaults(merged, effectiveRunId, diagnostics)
           if (typeof merged.seq !== "number" || (merged.seq as number) < 0) {
@@ -914,11 +918,22 @@ function sortFindingsDeterministically(findings: Finding[]): Finding[] {
   return [...findings].sort(compareFindingsDeterministically)
 }
 
-function hasDedupLineage(findings: Finding[]): boolean {
-  return findings.some((finding) => {
+function hasObservationIds(finding: Finding): boolean {
+  const observationIds = (finding as { observation_ids?: unknown }).observation_ids
+  return Array.isArray(observationIds) && observationIds.length > 0
+}
+
+function hasCompleteDedupLineage(findings: Finding[]): boolean {
+  return findings.length > 0 && findings.every(hasObservationIds)
+}
+
+function hasPartialDedupLineage(findings: Finding[]): boolean {
+  const withLineage = findings.some(hasObservationIds)
+  const withoutLineage = findings.some((finding) => {
     const observationIds = (finding as { observation_ids?: unknown }).observation_ids
-    return Array.isArray(observationIds) && observationIds.length > 0
+    return !Array.isArray(observationIds) || observationIds.length === 0
   })
+  return withLineage && withoutLineage
 }
 
 export function validateReportQuality(
@@ -1326,10 +1341,16 @@ export async function executeReportGeneration(
 
     const eventFindings = dedupeFindingsForFinalOutput(projectFindings(events))
     const inputFindings = dedupeFindingsForFinalOutput(reportInput.findings)
-    const hasLineage = hasDedupLineage(reportInput.findings)
-    const shouldCheckParity = eventFindings.length === inputFindings.length || hasLineage
+    const hasLineage = hasCompleteDedupLineage(reportInput.findings)
+    const partialLineage = hasPartialDedupLineage(reportInput.findings)
+    const shouldCheckParity =
+      !partialLineage && (eventFindings.length === inputFindings.length || hasLineage)
     const lineage = hasLineage
-      ? validateFindingLineage(projectFindings(events), reportInput.findings)
+      ? validateFindingLineage(
+          projectFindings(events),
+          reportInput.findings,
+          reportInput.dropped_observations,
+        )
       : null
     const parity = shouldCheckParity
       ? lineage
@@ -1347,7 +1368,18 @@ export async function executeReportGeneration(
           }
       : { missing: [], extra: [], duplicates: [], countMismatches: [], matches: true }
 
-    if (!shouldCheckParity) {
+    if (partialLineage) {
+      const partialSummary = `event_findings=${eventFindings.length}, report_findings=${inputFindings.length}`
+      if (preflightPolicy === "strict-fail") {
+        throw new Error(
+          `Preflight failed (strict-fail): finding parity not verifiable (${partialSummary}; partial observation_ids)`,
+        )
+      }
+
+      warningBullets.push(
+        `- Finding parity not verifiable: ${partialSummary}; partial dedup lineage means some findings lack observation_ids`,
+      )
+    } else if (!shouldCheckParity) {
       const unverifiableSummary = `event_findings=${eventFindings.length}, report_findings=${inputFindings.length}`
       if (preflightPolicy === "strict-fail") {
         throw new Error(

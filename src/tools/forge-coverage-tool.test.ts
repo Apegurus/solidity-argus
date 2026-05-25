@@ -227,6 +227,49 @@ test("executeForgeCoverage returns hint for optimizerSteps coverage failure", as
   )
 })
 
+test("executeForgeCoverage classifies unknown foundry config keys without mutating config", async () => {
+  const { context } = createContext()
+  const stderr = "Error: failed to parse foundry.toml: unknown key `optimizer_steps`"
+  const commands: string[][] = []
+
+  const result = await executeForgeCoverage(
+    { target: "/tmp/project" },
+    context,
+    async (command) => {
+      commands.push(command)
+      return { stdout: "", stderr, exitCode: 1 }
+    },
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toContain("unknown foundry.toml key")
+  expect(result.hint).toContain("Argus will not edit foundry.toml")
+  expect(result.suggested_command).toBe("forge coverage --report summary")
+  expect(commands).toEqual([["forge", "coverage", "--report", "summary"]])
+})
+
+test("executeForgeCoverage classifies bare unknown foundry config keys", async () => {
+  const { context } = createContext()
+  const stderr = "Error: unknown key `optimizer_steps`"
+  const commands: string[][] = []
+
+  const result = await executeForgeCoverage(
+    { target: "/tmp/project" },
+    context,
+    async (command) => {
+      commands.push(command)
+      return { stdout: "", stderr, exitCode: 1 }
+    },
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toContain("unknown foundry.toml key")
+  expect(result.suggested_command).toBe("forge coverage --report summary")
+  expect(commands).toEqual([["forge", "coverage", "--report", "summary"]])
+})
+
 test("executeForgeCoverage preserves generic forge stderr without hint", async () => {
   const { context } = createContext()
   const stderr = "forge coverage aborted"

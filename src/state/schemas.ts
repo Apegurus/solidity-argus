@@ -1,3 +1,7 @@
+import {
+  DROPPED_OBSERVATION_REASONS,
+  type DroppedObservation,
+} from "../shared/dropped-observations"
 import { isRecord } from "../shared/type-guards"
 import {
   VALID_AGENTS,
@@ -112,6 +116,7 @@ export interface ReportInput {
   schema_version: string
   projectDir: string
   findings: CanonicalFinding[]
+  dropped_observations?: DroppedObservation[]
   toolsExecuted: CanonicalToolExecution[]
   findingCounts?: FindingCounts
   scope: string[]
@@ -198,6 +203,52 @@ function pushCoverageAttemptErrors(errors: ValidationError[], raw: unknown): voi
       code: "invalid",
       message: "coverageAttempt.reason must be a non-empty string when provided",
     })
+  }
+}
+
+function pushDroppedObservationsErrors(errors: ValidationError[], raw: unknown): void {
+  if (raw == null) return
+  if (!Array.isArray(raw)) {
+    errors.push({
+      field: "dropped_observations",
+      code: "invalid",
+      message: "dropped_observations must be an array when provided",
+    })
+    return
+  }
+
+  const validReasons = new Set<string>(DROPPED_OBSERVATION_REASONS)
+  for (const [index, entry] of raw.entries()) {
+    if (!isRecord(entry)) {
+      errors.push({
+        field: `dropped_observations[${index}]`,
+        code: "type",
+        message: "dropped_observations entries must be objects",
+      })
+      continue
+    }
+    if (typeof entry.observation_id !== "string" || entry.observation_id.trim().length === 0) {
+      errors.push({
+        field: `dropped_observations[${index}].observation_id`,
+        code: "required",
+        message: "observation_id is required and must be a non-empty string",
+      })
+    }
+    if (typeof entry.reason !== "string" || !validReasons.has(entry.reason)) {
+      errors.push({
+        field: `dropped_observations[${index}].reason`,
+        code: "enum",
+        message:
+          "reason must be one of: out-of-scope, false-positive, merged-into, non-actionable-noise",
+      })
+    }
+    if (entry.note != null && typeof entry.note !== "string") {
+      errors.push({
+        field: `dropped_observations[${index}].note`,
+        code: "invalid",
+        message: "note must be a string when provided",
+      })
+    }
   }
 }
 
@@ -484,6 +535,7 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
 
   pushFindingCountsErrors(errors, raw.findingCounts, "findingCounts")
   pushCoverageAttemptErrors(errors, raw.coverageAttempt)
+  pushDroppedObservationsErrors(errors, raw.dropped_observations)
 
   if (!Array.isArray(raw.scope) || !raw.scope.every((item) => typeof item === "string")) {
     errors.push({

@@ -99,6 +99,29 @@ function collectRiskIndicators(source: string, existing: string[]): string[] {
   return [...indicators]
 }
 
+function declaredContractNames(source: string): string[] {
+  const names = new Set<string>()
+  const declarationPattern = /\b(?:contract|interface|library)\s+([A-Za-z_][A-Za-z0-9_]*)\b/g
+  let match: RegExpExecArray | null = declarationPattern.exec(source)
+  while (match) {
+    const name = match.at(1)
+    if (name) names.add(name)
+    match = declarationPattern.exec(source)
+  }
+  return [...names]
+}
+
+function inspectCandidates(filePath: string, source: string): string[] {
+  const basenameCandidate = basename(filePath, ".sol")
+  const declared = declaredContractNames(source)
+  const qualified = declared.map((name) => `${filePath}:${name}`)
+  return [...new Set([basenameCandidate, ...declared, ...qualified])]
+}
+
+function isSuccessfulProfile(profile: ContractProfile): boolean {
+  return typeof profile.error !== "string" || profile.error.length === 0
+}
+
 function withAbort<T>(signal: AbortSignal, operation: Promise<T>): Promise<T> {
   if (signal.aborted) {
     return Promise.reject(new DOMException("Aborted", "AbortError"))
@@ -140,10 +163,33 @@ export async function executeContractAnalyzer(
   const projectDir = args.project_dir ?? findFoundryProjectDir(filePath)
 
   try {
-    const [contractProfile, sourceText] = await withAbort(
-      context.abort,
-      Promise.all([dependencies.extractInfo(contractName, projectDir), Bun.file(filePath).text()]),
-    )
+    const sourceText = await withAbort(context.abort, Bun.file(filePath).text())
+
+    const candidates = inspectCandidates(filePath, sourceText)
+    const failures: string[] = []
+    let contractProfile: ContractProfile | undefined
+    let analyzedContractName = contractName
+
+    for (const candidate of candidates) {
+      const profile = await withAbort(
+        context.abort,
+        dependencies.extractInfo(candidate, projectDir),
+      )
+      if (isSuccessfulProfile(profile)) {
+        contractProfile = profile
+        analyzedContractName = profile.name || candidate.split(":").at(-1) || candidate
+        break
+      }
+      failures.push(`${candidate}: ${profile.error ?? "unknown inspect failure"}`)
+    }
+
+    if (!contractProfile) {
+      return createFailureProfile(
+        contractName,
+        filePath,
+        `contract analysis failed for candidates [${candidates.join(", ")}]: ${failures.join("; ")}`,
+      )
+    }
 
     if (context.abort.aborted) {
       return createFailureProfile(contractName, filePath, "contract analysis aborted")
@@ -166,7 +212,7 @@ export async function executeContractAnalyzer(
         firstMatchParents = parents
       }
 
-      if (matchedName === contractName) {
+      if (matchedName === analyzedContractName) {
         sourceInheritance = parents
         break
       }
@@ -213,7 +259,7 @@ export async function executeContractAnalyzer(
 
     return {
       ...contractProfile,
-      name: contractProfile.name || contractName,
+      name: contractProfile.name || analyzedContractName,
       filePath,
       inheritance: mergedInheritance,
       externalCalls: mergedExternalCalls,

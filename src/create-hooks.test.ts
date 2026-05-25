@@ -99,7 +99,75 @@ describe("createHooks", () => {
     expect(hooks.event).toBeDefined()
     expect(hooks["experimental.chat.system.transform"]).toBeDefined()
     expect(hooks["experimental.session.compacting"]).toBeDefined()
+    expect((hooks as Record<string, unknown>)["experimental.text.complete"]).toBeDefined()
     expect(hooks["tool.execute.after"]).toBeDefined()
+  })
+
+  it("blocks repeated audit-specialist text after completion", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+
+    await hooks["chat.params"]?.(
+      { sessionID: "specialist-session", agent: "audit-specialist" } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[0],
+      { temperature: 0, topP: 1, topK: 0, options: {} } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[1],
+    )
+
+    const textComplete = (hooks as Record<string, unknown>)["experimental.text.complete"] as (
+      input: { sessionID: string; messageID: string; partID: string },
+      output: { text: string },
+    ) => Promise<void>
+    const paragraph = "Repeated stagnant analysis paragraph with no new evidence."
+
+    let error: unknown
+    try {
+      await textComplete(
+        { sessionID: "specialist-session", messageID: "msg-1", partID: "part-1" },
+        { text: [paragraph, paragraph, paragraph].join("\n\n") },
+      )
+    } catch (err) {
+      error = err
+    }
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain("audit-specialist output repetition watchdog")
+  })
+
+  it("does not apply the text watchdog to non-specialist Argus agents", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+
+    await hooks["chat.params"]?.(
+      { sessionID: "argus-session", agent: "argus" } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[0],
+      { temperature: 0, topP: 1, topK: 0, options: {} } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[1],
+    )
+
+    const textComplete = (hooks as Record<string, unknown>)["experimental.text.complete"] as (
+      input: { sessionID: string; messageID: string; partID: string },
+      output: { text: string },
+    ) => Promise<void>
+    const paragraph = "Repeated stagnant analysis paragraph with no new evidence."
+
+    await textComplete(
+      { sessionID: "argus-session", messageID: "msg-1", partID: "part-1" },
+      { text: [paragraph, paragraph, paragraph].join("\n\n") },
+    )
   })
 
   it("returns undefined for disabled feature hook slots", () => {
@@ -178,7 +246,13 @@ describe("createHooks", () => {
       },
     })
 
-    expect(checkedHooks).toEqual(["compaction", "tool-tracking", "event", "system-prompt"])
+    expect(checkedHooks).toEqual([
+      "compaction",
+      "audit-specialist-watchdog",
+      "tool-tracking",
+      "event",
+      "system-prompt",
+    ])
   })
 
   it("persists current state on session.idle", async () => {
