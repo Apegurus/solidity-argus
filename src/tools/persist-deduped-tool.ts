@@ -81,7 +81,7 @@ function semanticHash(
   findings: CanonicalFinding[],
   droppedObservations: DroppedObservation[],
 ): string {
-  return stableHash(JSON.stringify({ findings, dropped_observations: droppedObservations }))
+  return stableHash({ findings, dropped_observations: droppedObservations })
 }
 
 async function loadExistingArtifact(path: string): Promise<DedupedFindingsArtifact | null> {
@@ -158,6 +158,8 @@ export async function executePersistDeduped(
         missing_observation_ids: lineage.missing_observation_ids,
         duplicate_dropped_observation_ids: lineage.duplicate_dropped_observation_ids,
         phantom_dropped_observation_ids: lineage.phantom_dropped_observation_ids,
+        overlapping_mapped_dropped_observation_ids:
+          lineage.overlapping_mapped_dropped_observation_ids,
         invalid_dropped_observations: lineage.invalid_dropped_observations,
         count_mismatches: lineage.count_mismatches,
       },

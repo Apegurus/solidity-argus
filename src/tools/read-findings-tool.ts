@@ -350,7 +350,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
       )
       if (!lineage.valid) {
         throw new Error(
-          `Invalid deduped findings lineage: missing=${lineage.missing_observation_ids.length}, extra=${lineage.phantom_observation_ids.length}, duplicates=${lineage.duplicate_observation_ids.length}, dropped_extra=${lineage.phantom_dropped_observation_ids.length}, dropped_duplicates=${lineage.duplicate_dropped_observation_ids.length}, invalid_dropped=${lineage.invalid_dropped_observations.length}, count_mismatches=${lineage.count_mismatches.length}`,
+          `Invalid deduped findings lineage: missing=${lineage.missing_observation_ids.length}, extra=${lineage.phantom_observation_ids.length}, duplicates=${lineage.duplicate_observation_ids.length}, dropped_extra=${lineage.phantom_dropped_observation_ids.length}, dropped_duplicates=${lineage.duplicate_dropped_observation_ids.length}, mapped_dropped_overlap=${lineage.overlapping_mapped_dropped_observation_ids.length}, invalid_dropped=${lineage.invalid_dropped_observations.length}, count_mismatches=${lineage.count_mismatches.length}`,
         )
       }
 

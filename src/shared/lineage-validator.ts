@@ -18,6 +18,7 @@ export type FindingLineageResult = {
   missing_observation_ids: string[]
   duplicate_dropped_observation_ids: string[]
   phantom_dropped_observation_ids: string[]
+  overlapping_mapped_dropped_observation_ids: string[]
   invalid_dropped_observations: Array<{ observation_id: string; reason: string }>
   count_mismatches: LineageCountMismatch[]
 }
@@ -99,11 +100,13 @@ export function validateFindingLineage(
   const droppedSet = new Set(droppedIds)
   const phantom = mappedIds.filter((id) => !rawIds.has(id))
   const phantomDropped = droppedIds.filter((id) => !rawIds.has(id))
+  const overlappingMappedDropped = droppedIds.filter((id) => mappedSet.has(id))
   const missing = Array.from(rawIds).filter((id) => !mappedSet.has(id) && !droppedSet.has(id))
   const duplicateIds = sorted(duplicates)
   const phantomIds = sorted(phantom)
   const duplicateDroppedIds = sorted(duplicateDropped)
   const phantomDroppedIds = sorted(phantomDropped)
+  const overlappingMappedDroppedIds = sorted(overlappingMappedDropped)
   const missingIds = sorted(missing)
 
   countMismatches.sort((a, b) => a.check.localeCompare(b.check))
@@ -114,6 +117,7 @@ export function validateFindingLineage(
       phantomIds.length === 0 &&
       duplicateDroppedIds.length === 0 &&
       phantomDroppedIds.length === 0 &&
+      overlappingMappedDroppedIds.length === 0 &&
       invalidDropped.length === 0 &&
       missingIds.length === 0 &&
       countMismatches.length === 0 &&
@@ -126,6 +130,7 @@ export function validateFindingLineage(
     missing_observation_ids: missingIds,
     duplicate_dropped_observation_ids: duplicateDroppedIds,
     phantom_dropped_observation_ids: phantomDroppedIds,
+    overlapping_mapped_dropped_observation_ids: overlappingMappedDroppedIds,
     invalid_dropped_observations: invalidDropped,
     count_mismatches: countMismatches,
   }

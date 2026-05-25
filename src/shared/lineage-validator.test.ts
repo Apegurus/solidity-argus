@@ -41,6 +41,7 @@ test("validateFindingLineage accepts complete one-to-one lineage", () => {
     missing_observation_ids: [],
     duplicate_dropped_observation_ids: [],
     phantom_dropped_observation_ids: [],
+    overlapping_mapped_dropped_observation_ids: [],
     invalid_dropped_observations: [],
     count_mismatches: [],
   })
@@ -72,6 +73,7 @@ test("validateFindingLineage reports duplicate phantom missing and count mismatc
     missing_observation_ids: ["obs-b", "obs-c"],
     duplicate_dropped_observation_ids: [],
     phantom_dropped_observation_ids: [],
+    overlapping_mapped_dropped_observation_ids: [],
     invalid_dropped_observations: [],
     count_mismatches: [{ check: "z-check", observation_count: 3, observation_ids_length: 2 }],
   })
@@ -113,9 +115,24 @@ test("validateFindingLineage treats explicitly dropped observations as complete"
     missing_observation_ids: [],
     duplicate_dropped_observation_ids: [],
     phantom_dropped_observation_ids: [],
+    overlapping_mapped_dropped_observation_ids: [],
     invalid_dropped_observations: [],
     count_mismatches: [],
   })
+})
+
+test("validateFindingLineage reports observations that are both mapped and dropped", () => {
+  const raw = [finding({ id: "raw-a", observation_id: "obs-a" })]
+  const deduped = [
+    finding({ id: "dedup-a", check: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 }),
+  ]
+
+  const result = validateFindingLineage(raw, deduped, [
+    { observation_id: "obs-a", reason: "false-positive" },
+  ])
+
+  expect(result.valid).toBe(false)
+  expect(result.overlapping_mapped_dropped_observation_ids).toEqual(["obs-a"])
 })
 
 test("validateFindingLineage rejects invalid dropped observation reasons and duplicates", () => {
@@ -130,6 +147,7 @@ test("validateFindingLineage rejects invalid dropped observation reasons and dup
   expect(result.valid).toBe(false)
   expect(result.duplicate_dropped_observation_ids).toEqual(["obs-a"])
   expect(result.phantom_dropped_observation_ids).toEqual(["obs-phantom"])
+  expect(result.overlapping_mapped_dropped_observation_ids).toEqual([])
   expect(result.invalid_dropped_observations).toEqual([
     { observation_id: "obs-a", reason: "invalid-reason" },
   ])

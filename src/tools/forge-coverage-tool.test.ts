@@ -245,11 +245,8 @@ test("executeForgeCoverage classifies unknown foundry config keys without mutati
   expect(result.error).toBe(stderr)
   expect(result.hint).toContain("unknown foundry.toml key")
   expect(result.hint).toContain("Argus will not edit foundry.toml")
-  expect(result.suggested_command).toBe("forge coverage --report summary --ir-minimum")
-  expect(commands).toEqual([
-    ["forge", "coverage", "--report", "summary"],
-    ["forge", "coverage", "--report", "summary", "--ir-minimum"],
-  ])
+  expect(result.suggested_command).toBe("forge coverage --report summary")
+  expect(commands).toEqual([["forge", "coverage", "--report", "summary"]])
 })
 
 test("executeForgeCoverage classifies bare unknown foundry config keys", async () => {
@@ -269,7 +266,7 @@ test("executeForgeCoverage classifies bare unknown foundry config keys", async (
   expect(result.success).toBe(false)
   expect(result.error).toBe(stderr)
   expect(result.hint).toContain("unknown foundry.toml key")
-  expect(result.suggested_command).toBe("forge coverage --report summary --ir-minimum")
+  expect(result.suggested_command).toBe("forge coverage --report summary")
   expect(commands).toEqual([["forge", "coverage", "--report", "summary"]])
 })
 

@@ -216,3 +216,32 @@ test("executePersistDeduped is idempotent for identical semantic content", async
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
+
+test("executePersistDeduped is idempotent for semantically identical key order changes", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-key-order-"))
+  try {
+    const runId = "run-key-order"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+
+    const firstPayload = `{"findings":[{"id":"dedup-a","check":"dedup-a","severity":"Medium","confidence":"High","description":"dedup-a","file":"src/Vault.sol","lines":[1,1],"source":"manual","run_id":"run-1","seq":1,"schema_version":"${SCHEMA_VERSION}","observation_id":"obs-dedup-a","issue_fingerprint":"issue-dedup-a","observation_fingerprint":"obsfp-dedup-a","reported_by_agent":"sentinel","observation_ids":["obs-a"],"observation_count":1}]}`
+    const secondPayload = `{"findings":[{"observation_count":1,"observation_ids":["obs-a"],"reported_by_agent":"sentinel","observation_fingerprint":"obsfp-dedup-a","issue_fingerprint":"issue-dedup-a","observation_id":"obs-dedup-a","schema_version":"${SCHEMA_VERSION}","seq":1,"run_id":"run-1","source":"manual","lines":[1,1],"file":"src/Vault.sol","description":"dedup-a","confidence":"High","severity":"Medium","check":"dedup-a","id":"dedup-a"}]}`
+
+    const first = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: firstPayload },
+        context(tempDir),
+      ),
+    )
+    const second = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: secondPayload },
+        context(tempDir),
+      ),
+    )
+
+    expect(first.success).toBe(true)
+    expect(second).toMatchObject({ success: true, idempotent: true })
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})

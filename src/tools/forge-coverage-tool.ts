@@ -75,19 +75,24 @@ function isStackTooDeep(stderr: string): boolean {
   return /stack too deep/i.test(stderr)
 }
 
+function isUnknownConfigKey(stderr: string): boolean {
+  return /unknown key/i.test(stderr)
+}
+
 function classifyCoverageFailure(
   stderr: string,
   args: NormalizedForgeCoverageArgs,
 ): Pick<ForgeCoverageResult, "hint" | "suggested_command"> | undefined {
-  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
-  if (/unknown key/i.test(stderr)) {
+  if (isUnknownConfigKey(stderr)) {
     return {
       hint:
         `Forge coverage failed for ${args.target} because foundry.toml contains an unknown foundry.toml key. ` +
         "Review coverage-compatible Foundry configuration manually; Argus will not edit foundry.toml.",
-      suggested_command: command,
+      suggested_command: buildCoverageCommand(args).join(" "),
     }
   }
+
+  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
 
   if (
     !/(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
@@ -108,9 +113,10 @@ function classifyCoverageFailure(
 function shouldRetryWithIrMinimum(stderr: string): boolean {
   return (
     isStackTooDeep(stderr) ||
-    /(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
-      stderr,
-    )
+    (!isUnknownConfigKey(stderr) &&
+      /(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
+        stderr,
+      ))
   )
 }
 
