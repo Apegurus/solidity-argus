@@ -35,9 +35,13 @@ test("validateFindingLineage accepts complete one-to-one lineage", () => {
     valid: true,
     raw_count: 1,
     mapped_count: 1,
+    dropped_count: 0,
     duplicate_observation_ids: [],
     phantom_observation_ids: [],
     missing_observation_ids: [],
+    duplicate_dropped_observation_ids: [],
+    phantom_dropped_observation_ids: [],
+    invalid_dropped_observations: [],
     count_mismatches: [],
   })
 })
@@ -62,9 +66,13 @@ test("validateFindingLineage reports duplicate phantom missing and count mismatc
     valid: false,
     raw_count: 3,
     mapped_count: 3,
+    dropped_count: 0,
     duplicate_observation_ids: ["obs-a"],
     phantom_observation_ids: ["obs-missing"],
     missing_observation_ids: ["obs-b", "obs-c"],
+    duplicate_dropped_observation_ids: [],
+    phantom_dropped_observation_ids: [],
+    invalid_dropped_observations: [],
     count_mismatches: [{ check: "z-check", observation_count: 3, observation_ids_length: 2 }],
   })
 })
@@ -79,5 +87,50 @@ test("validateFindingLineage requires non-empty observation_ids for every dedupe
   expect(result.missing_observation_ids).toEqual(["obs-a"])
   expect(result.count_mismatches).toEqual([
     { check: "dedup-a", observation_count: undefined, observation_ids_length: 0 },
+  ])
+})
+
+test("validateFindingLineage treats explicitly dropped observations as complete", () => {
+  const raw = [
+    finding({ id: "raw-a", observation_id: "obs-a" }),
+    finding({ id: "raw-b", observation_id: "obs-b" }),
+  ]
+  const deduped = [
+    finding({ id: "dedup-a", check: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 }),
+  ]
+
+  expect(
+    validateFindingLineage(raw, deduped, [
+      { observation_id: "obs-b", reason: "out-of-scope", note: "outside requested scope" },
+    ]),
+  ).toEqual({
+    valid: true,
+    raw_count: 2,
+    mapped_count: 1,
+    dropped_count: 1,
+    duplicate_observation_ids: [],
+    phantom_observation_ids: [],
+    missing_observation_ids: [],
+    duplicate_dropped_observation_ids: [],
+    phantom_dropped_observation_ids: [],
+    invalid_dropped_observations: [],
+    count_mismatches: [],
+  })
+})
+
+test("validateFindingLineage rejects invalid dropped observation reasons and duplicates", () => {
+  const raw = [finding({ id: "raw-a", observation_id: "obs-a" })]
+  const dropped = [
+    { observation_id: "obs-a", reason: "invalid-reason" },
+    { observation_id: "obs-a", reason: "false-positive" },
+    { observation_id: "obs-phantom", reason: "false-positive" },
+  ] as unknown as Parameters<typeof validateFindingLineage>[2]
+  const result = validateFindingLineage(raw, [], dropped)
+
+  expect(result.valid).toBe(false)
+  expect(result.duplicate_dropped_observation_ids).toEqual(["obs-a"])
+  expect(result.phantom_dropped_observation_ids).toEqual(["obs-phantom"])
+  expect(result.invalid_dropped_observations).toEqual([
+    { observation_id: "obs-a", reason: "invalid-reason" },
   ])
 })

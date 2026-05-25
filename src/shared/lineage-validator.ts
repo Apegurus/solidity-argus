@@ -1,5 +1,6 @@
 import type { CanonicalFinding } from "../state/schemas"
 import type { Finding } from "../state/types"
+import { DROPPED_OBSERVATION_REASONS, type DroppedObservation } from "./dropped-observations"
 
 export type LineageCountMismatch = {
   check: string
@@ -11,9 +12,13 @@ export type FindingLineageResult = {
   valid: boolean
   raw_count: number
   mapped_count: number
+  dropped_count: number
   duplicate_observation_ids: string[]
   phantom_observation_ids: string[]
   missing_observation_ids: string[]
+  duplicate_dropped_observation_ids: string[]
+  phantom_dropped_observation_ids: string[]
+  invalid_dropped_observations: Array<{ observation_id: string; reason: string }>
   count_mismatches: LineageCountMismatch[]
 }
 
@@ -42,11 +47,16 @@ function rawObservationIds(rawFindings: CanonicalFinding[]): string[] {
 export function validateFindingLineage(
   rawFindings: CanonicalFinding[],
   dedupedFindings: FindingLike[],
+  droppedObservations: DroppedObservation[] = [],
 ): FindingLineageResult {
   const rawIds = new Set(rawObservationIds(rawFindings))
   const mappedIds: string[] = []
   const seen = new Set<string>()
   const duplicates = new Set<string>()
+  const droppedIds: string[] = []
+  const seenDropped = new Set<string>()
+  const duplicateDropped = new Set<string>()
+  const invalidDropped: Array<{ observation_id: string; reason: string }> = []
   const countMismatches: LineageCountMismatch[] = []
 
   for (const finding of dedupedFindings) {
@@ -70,11 +80,30 @@ export function validateFindingLineage(
     }
   }
 
+  const validDropReasons = new Set<string>(DROPPED_OBSERVATION_REASONS)
+  for (const dropped of droppedObservations) {
+    const id = dropped.observation_id
+    const reason = dropped.reason
+    if (typeof id !== "string" || id.length === 0 || !validDropReasons.has(reason)) {
+      invalidDropped.push({ observation_id: id, reason })
+    }
+    if (typeof id !== "string" || id.length === 0) continue
+    droppedIds.push(id)
+    if (seenDropped.has(id)) {
+      duplicateDropped.add(id)
+    }
+    seenDropped.add(id)
+  }
+
   const mappedSet = new Set(mappedIds)
+  const droppedSet = new Set(droppedIds)
   const phantom = mappedIds.filter((id) => !rawIds.has(id))
-  const missing = Array.from(rawIds).filter((id) => !mappedSet.has(id))
+  const phantomDropped = droppedIds.filter((id) => !rawIds.has(id))
+  const missing = Array.from(rawIds).filter((id) => !mappedSet.has(id) && !droppedSet.has(id))
   const duplicateIds = sorted(duplicates)
   const phantomIds = sorted(phantom)
+  const duplicateDroppedIds = sorted(duplicateDropped)
+  const phantomDroppedIds = sorted(phantomDropped)
   const missingIds = sorted(missing)
 
   countMismatches.sort((a, b) => a.check.localeCompare(b.check))
@@ -83,14 +112,21 @@ export function validateFindingLineage(
     valid:
       duplicateIds.length === 0 &&
       phantomIds.length === 0 &&
+      duplicateDroppedIds.length === 0 &&
+      phantomDroppedIds.length === 0 &&
+      invalidDropped.length === 0 &&
       missingIds.length === 0 &&
       countMismatches.length === 0 &&
-      mappedIds.length === rawIds.size,
+      mappedIds.length + droppedIds.length === rawIds.size,
     raw_count: rawIds.size,
     mapped_count: mappedIds.length,
+    dropped_count: droppedIds.length,
     duplicate_observation_ids: duplicateIds,
     phantom_observation_ids: phantomIds,
     missing_observation_ids: missingIds,
+    duplicate_dropped_observation_ids: duplicateDroppedIds,
+    phantom_dropped_observation_ids: phantomDroppedIds,
+    invalid_dropped_observations: invalidDropped,
     count_mismatches: countMismatches,
   }
 }
