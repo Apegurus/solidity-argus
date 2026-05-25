@@ -2,10 +2,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
+import {
+  DROPPED_OBSERVATION_REASONS,
+  type DroppedObservation,
+} from "../shared/dropped-observations"
 import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { isNonEmptyString } from "../shared/type-guards"
+import { stableHash } from "../state/projectors"
 import type { CanonicalFinding } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
 
@@ -21,6 +26,10 @@ export interface DedupedFindingsArtifact {
   deduped_by: string
   findings_count: number
   findings: CanonicalFinding[]
+  dropped_observations_count: number
+  dropped_observations: DroppedObservation[]
+  content_hash: string
+  revision: number
 }
 
 async function loadRawFindings(
@@ -45,6 +54,46 @@ function missingRawFindings(runId: string): string {
   })
 }
 
+function parseDroppedObservations(raw: unknown): DroppedObservation[] | null {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) return null
+
+  const validReasons = new Set<string>(DROPPED_OBSERVATION_REASONS)
+  const dropped: DroppedObservation[] = []
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return null
+    const record = item as Record<string, unknown>
+    if (typeof record.observation_id !== "string" || record.observation_id.length === 0) return null
+    if (typeof record.reason !== "string" || !validReasons.has(record.reason)) return null
+    const drop: DroppedObservation = {
+      observation_id: record.observation_id,
+      reason: record.reason as DroppedObservation["reason"],
+    }
+    if (typeof record.note === "string" && record.note.length > 0) {
+      drop.note = record.note
+    }
+    dropped.push(drop)
+  }
+  return dropped
+}
+
+function semanticHash(
+  findings: CanonicalFinding[],
+  droppedObservations: DroppedObservation[],
+): string {
+  return stableHash(JSON.stringify({ findings, dropped_observations: droppedObservations }))
+}
+
+async function loadExistingArtifact(path: string): Promise<DedupedFindingsArtifact | null> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"))
+    if (!parsed || typeof parsed !== "object") return null
+    return parsed as DedupedFindingsArtifact
+  } catch {
+    return null
+  }
+}
+
 export async function executePersistDeduped(
   args: PersistDedupedArgs,
   context: ToolContext,
@@ -59,6 +108,7 @@ export async function executePersistDeduped(
   }
 
   let findings: CanonicalFinding[]
+  let droppedObservations: DroppedObservation[] = []
   try {
     const parsed = JSON.parse(args.deduped_findings)
     findings = Array.isArray(parsed) ? parsed : parsed.findings
@@ -67,6 +117,17 @@ export async function executePersistDeduped(
         success: false,
         error: "deduped_findings must be a JSON array or an object with a findings array",
       })
+    }
+    if (!Array.isArray(parsed)) {
+      const parsedDropped = parseDroppedObservations(parsed.dropped_observations)
+      if (!parsedDropped) {
+        return JSON.stringify({
+          success: false,
+          error:
+            "dropped_observations must be an array of { observation_id, reason, note? } entries with a valid reason",
+        })
+      }
+      droppedObservations = parsedDropped
     }
   } catch (err) {
     return JSON.stringify({
@@ -84,7 +145,7 @@ export async function executePersistDeduped(
     return missingRawFindings(args.run_id)
   }
 
-  const lineage = validateFindingLineage(rawFindings, findings)
+  const lineage = validateFindingLineage(rawFindings, findings, droppedObservations)
   if (!lineage.valid) {
     return JSON.stringify({
       success: false,
@@ -95,8 +156,26 @@ export async function executePersistDeduped(
         duplicate_observation_ids: lineage.duplicate_observation_ids,
         phantom_observation_ids: lineage.phantom_observation_ids,
         missing_observation_ids: lineage.missing_observation_ids,
+        duplicate_dropped_observation_ids: lineage.duplicate_dropped_observation_ids,
+        phantom_dropped_observation_ids: lineage.phantom_dropped_observation_ids,
+        invalid_dropped_observations: lineage.invalid_dropped_observations,
         count_mismatches: lineage.count_mismatches,
       },
+    })
+  }
+
+  const contentHash = semanticHash(findings, droppedObservations)
+  const existingArtifact = await loadExistingArtifact(dedupedPath)
+  if (existingArtifact?.content_hash === contentHash) {
+    return JSON.stringify({
+      success: true,
+      idempotent: true,
+      path: dedupedPath,
+      findings_count: findings.length,
+      dropped_observations_count: droppedObservations.length,
+      schema_version: SCHEMA_VERSION,
+      content_hash: contentHash,
+      revision: existingArtifact.revision ?? 1,
     })
   }
 
@@ -107,6 +186,10 @@ export async function executePersistDeduped(
     deduped_by: context.agent ?? "scribe",
     findings_count: findings.length,
     findings,
+    dropped_observations_count: droppedObservations.length,
+    dropped_observations: droppedObservations,
+    content_hash: contentHash,
+    revision: (existingArtifact?.revision ?? 0) + 1,
   }
 
   await mkdir(dirname(dedupedPath), { recursive: true })
@@ -117,7 +200,10 @@ export async function executePersistDeduped(
     success: true,
     path: dedupedPath,
     findings_count: findings.length,
+    dropped_observations_count: droppedObservations.length,
     schema_version: SCHEMA_VERSION,
+    content_hash: contentHash,
+    revision: artifact.revision,
   })
 }
 
