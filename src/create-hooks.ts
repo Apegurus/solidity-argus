@@ -25,6 +25,7 @@ import {
 import { createRunJournal } from "./features/persistent-state/run-journal"
 import { pruneStaleRuns } from "./features/persistent-state/run-pruner"
 import { createAgentTracker } from "./hooks/agent-tracker"
+import { createAuditSpecialistWatchdog } from "./hooks/audit-specialist-watchdog"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createConfigHandler } from "./hooks/config-handler"
 import { getTokenBudgetForAgent } from "./hooks/context-budget"
@@ -124,6 +125,7 @@ export type Hooks = Pick<
   | "chat.message"
   | "experimental.chat.system.transform"
   | "experimental.session.compacting"
+  | "experimental.text.complete"
   | "tool.execute.after"
   | "event"
 > & {
@@ -166,6 +168,7 @@ export function createHooks(args: {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
       dispose: releaseInstanceLock,
@@ -766,6 +769,16 @@ export function createHooks(args: {
       )
     : undefined
 
+  const auditSpecialistWatchdog = isHookEnabled("audit-specialist-watchdog")
+    ? safeCreateHook(
+        () =>
+          createAuditSpecialistWatchdog({
+            getAgentForSession: agentTracker.getAgentForSession,
+          }),
+        "audit-specialist-watchdog",
+      )
+    : undefined
+
   const toolTrackingHook = isHookEnabled("tool-tracking")
     ? safeCreateHook(
         () =>
@@ -1030,6 +1043,11 @@ export function createHooks(args: {
             sessionId: input.sessionID,
           })
           if (block) output.context.push(block)
+        }
+      : undefined,
+    "experimental.text.complete": auditSpecialistWatchdog
+      ? async (input, output) => {
+          await auditSpecialistWatchdog(input, output)
         }
       : undefined,
     "tool.execute.after": toolTrackingHook
