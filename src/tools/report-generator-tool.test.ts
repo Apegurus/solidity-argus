@@ -1484,6 +1484,81 @@ test("preflight warn mode emits lineage warning for semantic dedup without obser
   expect(result.report).toContain("observation_ids")
 })
 
+test("preflight warn mode emits lineage warning for partial observation ids", async () => {
+  const rawReportInput = makeReportInput([
+    makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({ id: "raw-2", check: "unchecked-call", file: "src/Vault.sol", lines: [20, 22] }),
+  ])
+
+  const partialReportInput = makeReportInput([
+    makeFinding({
+      id: "deduped-1",
+      check: "reentrancy-withdraw",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+      observation_ids: ["obs-raw-1"],
+      observation_count: 1,
+    }),
+    makeFinding({
+      id: "deduped-2",
+      check: "unchecked-call",
+      file: "src/Vault.sol",
+      lines: [20, 22],
+    }),
+  ])
+
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_001,
+      payload: {},
+    },
+    ...rawReportInput.findings.map((finding, index) => ({
+      type: "finding.added" as const,
+      run_id: "test-run-1",
+      seq: index + 2,
+      session_id: "session-1",
+      tool_call_id: `finding-${index + 1}`,
+      source: "sentinel",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_002 + index,
+      payload: finding,
+    })),
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 4,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_004,
+      payload: {},
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "PartialLineage",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(partialReportInput),
+      preflight_policy: "warn",
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+    { readEvents: async () => events },
+  )
+
+  expect(result.report).toContain("Completeness Warning")
+  expect(result.report).toContain("partial dedup lineage")
+  expect(result.report).toContain("observation_ids")
+  expect(result.report).not.toContain("Finding parity mismatch")
+})
+
 test("preflight accepts semantic dedup when observation_ids cover raw findings", async () => {
   const rawReportInput = makeReportInput([
     makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),

@@ -270,6 +270,19 @@ test("prefers deduped-findings.json over per-run report-input and state", async 
     projectDir: dir,
   })
 
+  await writeRunArtifact(dir, runId, "findings.json", {
+    findings: [
+      {
+        ...makeFinding(1, {
+          id: "RAW-1",
+          observation_id: "obs-raw-1",
+          issue_fingerprint: "issue-raw-1",
+          observation_fingerprint: "obs-fingerprint-raw-1",
+        }),
+      },
+    ],
+  })
+
   await writeRunArtifact(dir, runId, "deduped-findings.json", {
     run_id: runId,
     findings: [
@@ -284,6 +297,8 @@ test("prefers deduped-findings.json over per-run report-input and state", async 
         confidence: "High",
         impact: "deduped impact",
         recommendation: "deduped recommendation",
+        observation_ids: ["obs-raw-1"],
+        observation_count: 1,
       },
     ],
   })
@@ -307,4 +322,36 @@ test("prefers deduped-findings.json over per-run report-input and state", async 
     expect(finding?.recommendation).toBe("deduped recommendation")
     expect(parsed.reportInput.scope).toEqual(["src/PerRun.sol"])
   }
+})
+
+test("rejects invalid deduped-findings lineage instead of returning stale data", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "findings.json", {
+    findings: [
+      {
+        ...makeFinding(1, {
+          id: "RAW-1",
+          observation_id: "obs-raw-1",
+          issue_fingerprint: "issue-raw-1",
+          observation_fingerprint: "obs-fingerprint-raw-1",
+        }),
+      },
+    ],
+  })
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: runId,
+    findings: [
+      {
+        ...makeFinding(2, { id: "DEDUPED-1", check: "from-deduped" }),
+        observation_ids: ["obs-missing"],
+        observation_count: 1,
+      },
+    ],
+  })
+
+  expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
+    "Invalid deduped findings lineage",
+  )
 })
