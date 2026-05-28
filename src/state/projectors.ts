@@ -12,7 +12,9 @@ import {
 import type {
   AuditPhase,
   AuditState,
+  CoverageAttemptState,
   Finding,
+  FindingCounts,
   FuzzCounterexample,
   SoloditResult,
   ToolExecution,
@@ -97,6 +99,48 @@ function resolveFindingsCount(payload: Record<string, unknown>): number {
 
 function resolveToolSuccess(payload: Record<string, unknown>): boolean {
   return payload.success !== false
+}
+
+const FINDING_COUNT_FIELDS = [
+  "rawObservations",
+  "recordedFindings",
+  "dedupedFindings",
+  "actionableFindings",
+  "nonActionableFindings",
+] as const
+
+function asFindingCounts(value: unknown): FindingCounts | undefined {
+  if (!isRecord(value)) return undefined
+  const counts: FindingCounts = {}
+  for (const field of FINDING_COUNT_FIELDS) {
+    const count = value[field]
+    if (
+      typeof count === "number" &&
+      Number.isFinite(count) &&
+      Number.isInteger(count) &&
+      count >= 0
+    ) {
+      counts[field] = count
+    }
+  }
+  return Object.keys(counts).length > 0 ? counts : undefined
+}
+
+function asCoverageAttempt(value: unknown): CoverageAttemptState | undefined {
+  if (!isRecord(value)) return undefined
+  if (
+    value.status !== "pending" &&
+    value.status !== "run" &&
+    value.status !== "skipped" &&
+    value.status !== "failed"
+  ) {
+    return undefined
+  }
+  return {
+    status: value.status,
+    attemptedAt: typeof value.attemptedAt === "number" ? value.attemptedAt : undefined,
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+  }
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -321,6 +365,7 @@ export function projectToolExecutions(events: AuditEvent[]): CanonicalToolExecut
         endTime: existing?.endTime,
         success: existing?.success ?? false,
         findingsCount: existing?.findingsCount ?? 0,
+        findingCounts: existing?.findingCounts,
       })
       continue
     }
@@ -340,6 +385,7 @@ export function projectToolExecutions(events: AuditEvent[]): CanonicalToolExecut
       endTime: event.timestamp,
       success: resolveToolSuccess(payload),
       findingsCount: resolveFindingsCount(payload),
+      findingCounts: asFindingCounts(payload.findingCounts),
       run_id: event.run_id,
       schema_version: event.schema_version,
     })
@@ -408,6 +454,8 @@ export function projectReportInput(
     asFuzzCounterexamples,
   )
   const coverageReport = extractLatestFromPayload(events, "coverageReport", asCoverageReport)
+  const coverageAttempt = extractLatestFromPayload(events, "coverageAttempt", asCoverageAttempt)
+  const findingCounts = extractLatestFromPayload(events, "findingCounts", asFindingCounts)
   const gasHotspots = extractLatestFromPayload(events, "gasHotspots", asGasHotspots)
   const proxyContracts = extractLatestFromPayload(events, "proxyContracts", asProxyContracts)
   const patternVersion = extractLatestFromPayload(events, "patternVersion", asString)
@@ -424,10 +472,12 @@ export function projectReportInput(
     projectDir,
     findings,
     toolsExecuted,
+    findingCounts,
     scope,
     soloditResults,
     fuzzCounterexamples,
     coverageReport,
+    coverageAttempt,
     gasHotspots,
     proxyContracts,
     patternVersion,

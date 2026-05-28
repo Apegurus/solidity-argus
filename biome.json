@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**", "tests/**", "!**/lib", "!**/node_modules", "!**/cache", "!**/out"]
+    "includes": [
+      "src/**",
+      "tests/**",
+      "!.worktrees",
+      "!**/lib",
+      "!**/node_modules",
+      "!**/cache",
+      "!**/out"
+    ]
   },
   "formatter": {
     "enabled": true,

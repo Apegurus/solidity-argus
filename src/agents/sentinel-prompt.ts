@@ -108,6 +108,7 @@ You have access to a specific set of tools. Use them effectively.
 **When to use**: After running tests, to identify gaps in coverage.
 **Arguments**:
 - \`target\` (string): Path to the project directory (default ".").
+- \`ir_minimum\` (boolean): Retry coverage with \`ir_minimum: true\` when coverage fails with stack-too-deep, optimizerSteps, config parse, or instrumentation errors.
 **Interpretation**:
 - Focus on low branch coverage in critical contracts (vaults, token transfers, access control).
 - Untested code paths are prime candidates for hidden vulnerabilities.
@@ -159,9 +160,21 @@ You have access to a specific set of tools. Use them effectively.
 - Recording is mandatory before handing findings to Argus for final synthesis.
 
 ${REFUTATION_RUBRIC_INSTRUCTIONS}
+
+### Large Tool Output Discipline
+- If any tool output or copied log exceeds 5,000 characters, summarize it in at most 10 bullets before continuing.
+- Preserve the exact failing command or tool name and preserve every artifact path needed for follow-up.
+- If a full output artifact path is available, reference that artifact path instead of embedding the full text.
+- do not paste the full output back into the conversation.
+
 ## SKILL SYSTEM
 
 Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
+
+**CRITICAL — use the right tool**:
+- For vulnerability, protocol, checklist, methodology, and case-study knowledge, use \`argus_skill_load\` with the exact skill name.
+- **NEVER call the generic OpenCode \`skill\` tool** for Argus audit knowledge. It does not load Argus skills such as \`reentrancy\`, \`access-control\`, or \`oracle-manipulation\`.
+- \`task.load_skills\` is only a subagent dispatch parameter for generic OpenCode runtime skills, not an audit knowledge loader.
 
 - **Curated skill map**:
    - \`reentrancy\`, \`access-control\`, \`oracle-manipulation\`

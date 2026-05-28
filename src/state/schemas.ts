@@ -1,3 +1,7 @@
+import {
+  DROPPED_OBSERVATION_REASONS,
+  type DroppedObservation,
+} from "../shared/dropped-observations"
 import { isRecord } from "../shared/type-guards"
 import {
   VALID_AGENTS,
@@ -8,7 +12,9 @@ import {
 import type {
   ArgusAgentName,
   AuditPhase,
+  CoverageAttemptState,
   Finding,
+  FindingCounts,
   FindingSeverity,
   FuzzCounterexample,
   SoloditResult,
@@ -110,7 +116,9 @@ export interface ReportInput {
   schema_version: string
   projectDir: string
   findings: CanonicalFinding[]
+  dropped_observations?: DroppedObservation[]
   toolsExecuted: CanonicalToolExecution[]
+  findingCounts?: FindingCounts
   scope: string[]
   soloditResults?: SoloditResult[]
   fuzzCounterexamples?: FuzzCounterexample[]
@@ -120,6 +128,128 @@ export interface ReportInput {
   patternVersion?: string
   skillsLoaded?: string[]
   unavailableTools?: string[]
+  coverageAttempt?: CoverageAttemptState
+}
+
+const FINDING_COUNT_FIELDS = [
+  "rawObservations",
+  "recordedFindings",
+  "dedupedFindings",
+  "actionableFindings",
+  "nonActionableFindings",
+] as const
+
+const COVERAGE_ATTEMPT_STATUSES = new Set(["pending", "run", "skipped", "failed"])
+
+function pushFindingCountsErrors(errors: ValidationError[], raw: unknown, prefix: string): void {
+  if (raw == null) return
+  if (!isRecord(raw)) {
+    errors.push({
+      field: prefix,
+      code: "invalid",
+      message: `${prefix} must be an object when provided`,
+    })
+    return
+  }
+
+  for (const field of FINDING_COUNT_FIELDS) {
+    const value = raw[field]
+    if (value == null) continue
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      errors.push({
+        field: `${prefix}.${field}`,
+        code: "invalid",
+        message: `${prefix}.${field} must be a non-negative integer when provided`,
+      })
+    }
+  }
+}
+
+function pushCoverageAttemptErrors(errors: ValidationError[], raw: unknown): void {
+  if (raw == null) return
+  if (!isRecord(raw)) {
+    errors.push({
+      field: "coverageAttempt",
+      code: "invalid",
+      message: "coverageAttempt must be an object when provided",
+    })
+    return
+  }
+
+  if (typeof raw.status !== "string" || !COVERAGE_ATTEMPT_STATUSES.has(raw.status)) {
+    errors.push({
+      field: "coverageAttempt.status",
+      code: "enum",
+      message: "coverageAttempt.status must be one of: pending, run, skipped, failed",
+    })
+  }
+
+  if (
+    raw.attemptedAt != null &&
+    (typeof raw.attemptedAt !== "number" ||
+      !Number.isInteger(raw.attemptedAt) ||
+      raw.attemptedAt <= 0)
+  ) {
+    errors.push({
+      field: "coverageAttempt.attemptedAt",
+      code: "invalid",
+      message: "coverageAttempt.attemptedAt must be a positive integer when provided",
+    })
+  }
+
+  if (raw.reason != null && (typeof raw.reason !== "string" || raw.reason.trim().length === 0)) {
+    errors.push({
+      field: "coverageAttempt.reason",
+      code: "invalid",
+      message: "coverageAttempt.reason must be a non-empty string when provided",
+    })
+  }
+}
+
+function pushDroppedObservationsErrors(errors: ValidationError[], raw: unknown): void {
+  if (raw == null) return
+  if (!Array.isArray(raw)) {
+    errors.push({
+      field: "dropped_observations",
+      code: "invalid",
+      message: "dropped_observations must be an array when provided",
+    })
+    return
+  }
+
+  const validReasons = new Set<string>(DROPPED_OBSERVATION_REASONS)
+  for (const [index, entry] of raw.entries()) {
+    if (!isRecord(entry)) {
+      errors.push({
+        field: `dropped_observations[${index}]`,
+        code: "type",
+        message: "dropped_observations entries must be objects",
+      })
+      continue
+    }
+    if (typeof entry.observation_id !== "string" || entry.observation_id.trim().length === 0) {
+      errors.push({
+        field: `dropped_observations[${index}].observation_id`,
+        code: "required",
+        message: "observation_id is required and must be a non-empty string",
+      })
+    }
+    if (typeof entry.reason !== "string" || !validReasons.has(entry.reason)) {
+      errors.push({
+        field: `dropped_observations[${index}].reason`,
+        code: "enum",
+        message:
+          "reason must be one of: out-of-scope, false-positive, merged-into, non-actionable-noise",
+      })
+    }
+    if (entry.note != null && typeof entry.note !== "string") {
+      errors.push({
+        field: `dropped_observations[${index}].note`,
+        code: "invalid",
+        message: "note must be a string when provided",
+      })
+    }
+  }
 }
 
 function pushRequiredRootStringError(
@@ -269,7 +399,8 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     errors.push({
       field: "reported_by_agent",
       code: "enum",
-      message: "reported_by_agent must be one of: argus, sentinel, pythia, scribe, unknown",
+      message:
+        "reported_by_agent must be one of: argus, sentinel, pythia, audit-specialist, scribe, unknown",
     })
   }
 
@@ -362,6 +493,8 @@ export function validateCanonicalToolExecution(
     })
   }
 
+  pushFindingCountsErrors(errors, raw.findingCounts, "findingCounts")
+
   if (typeof raw.run_id !== "string" || raw.run_id.trim().length === 0) {
     errors.push({
       field: "run_id",
@@ -415,6 +548,10 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
       message: `schema_version must be ${SCHEMA_VERSION}`,
     })
   }
+
+  pushFindingCountsErrors(errors, raw.findingCounts, "findingCounts")
+  pushCoverageAttemptErrors(errors, raw.coverageAttempt)
+  pushDroppedObservationsErrors(errors, raw.dropped_observations)
 
   if (!Array.isArray(raw.scope) || !raw.scope.every((item) => typeof item === "string")) {
     errors.push({

@@ -1,6 +1,55 @@
 # Changelog
 
-## 0.5.9 (unreleased)
+## 0.6.2 (2026-05-25)
+
+### Features
+- Added the specialist repetition watchdog and exposed the text-completion hook so Argus can interrupt repeated specialist loops and surface completion behavior through the plugin hook system.
+
+### Fixes
+- Made deduped report artifacts idempotent with stable semantic hashing, while preserving dropped-observation lineage through persistence and report reads.
+- Hardened lineage validation diagnostics for invalid deduped artifacts, including mapped/dropped observation overlap.
+- Improved contract analysis fallback by trying declared contract names when direct target resolution fails.
+- Classified Forge coverage unknown-configuration-key failures without mutating Foundry configuration or suggesting unrelated IR retries.
+
+### Internal
+- Carried the v0.6.2 follow-up plan into repository documentation and stabilized temporary-state cleanup assertions.
+
+## 0.6.1 (2026-05-23)
+
+### Fixes
+- Added a strict Argus direct-tool budget so the orchestrator delegates broad audits instead of spending all 50 OpenCode steps on direct `bash`/`read` reconnaissance, which could trigger OpenCode's max-steps assistant-prefill path on Anthropic models.
+- Enforced one audit-specialist profile per task, with anti-loop checkpoints and structured handoff fields so Argus can synthesize specialist leads without bundled-profile drift.
+- Required fresh approved Themis validation after remediation, preventing `remediated` dispositions from closing an audit without an approved follow-up verdict.
+- Added strict report scope validation so `argus_generate_report` rejects findings outside the audited scope when `preflight_policy` is `strict-fail`.
+- Exposed `quality_gate_policy` in the `argus_generate_report` tool schema so Scribe and Argus can request strict report-quality enforcement through the actual tool surface.
+- Added paged `argus_read_findings` retrieval with `findings_offset` and `findings_limit` to keep large audit state readable without truncating canonical data.
+- Retried Forge coverage with `--ir-minimum` for stack-too-deep, optimizer, config parse, and instrumentation failures.
+- Required Pythia to perform bounded source reads before applying historical precedent and to avoid recording precedent-only findings.
+- Added per-subagent task dispatch counts to dynamic Argus context for clearer audit-progress tracking.
+
+## 0.6.0 (2026-05-19)
+
+### Features
+- Added the `audit-specialist` adversarial review agent, giving Argus a profile-driven specialist pass for access control, math precision, invariants, economic security, execution tracing, periphery review, first-principles review, and broad vector scanning.
+- Added the bundled attack-vector deck and specialist-profile skills, expanding the curated knowledge base to 91 SKILL.md files across vulnerability patterns, methodology, protocol patterns, checklists, references, and case studies.
+
+### Improvements
+- Updated Argus, Themis, README, AGENTS, configuration defaults, state schemas, and skill resolution to recognize the 6-agent audit pipeline and audit-specialist tool access.
+- Added regression and end-to-end coverage for audit-specialist registration, prompt boundaries, skill loading, finding recording, report generation, and full audit flows.
+
+## 0.5.11 (2026-05-18)
+
+### Fixes
+- Reporting gates now require successful key-tool executions instead of counting failed attempts as complete, and the audit enforcer shares the same key-tool logic as report generation.
+- Report generation now preserves canonical finding wording and renders source excerpts for readable findings, improving audit report evidence fidelity.
+- Slither analysis now attempts direct Foundry/via-IR analysis before falling back to flattening, while preserving stderr on direct failures.
+- Forge coverage now supports `match_path`, explicit `ir_minimum`, and automatic `--ir-minimum` retry for stack-too-deep failures.
+- Themis validation is now a resolved disposition gate: Argus remains final judge, but finalization requires an approved, remediated, or explicitly overridden Themis disposition.
+
+### Tools
+- Added `argus_themis_disposition` for recording Argus' final disposition of Themis validation verdicts.
+
+## 0.5.9 (2026-05-17)
 
 ### Fixes
 - Hotfix: correct Sentinel/Pythia/Scribe default models from invalid `anthropic/claude-sonnet-4-7` to registry-valid `anthropic/claude-sonnet-4-6`, preventing `ProviderModelNotFoundError` during Argus background dispatch. Confirmed all default model IDs exist in the OpenCode model registry.

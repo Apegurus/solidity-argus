@@ -5,10 +5,14 @@ import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeCoverageArgs = {
   target?: string
+  match_path?: string
+  ir_minimum?: boolean
 }
 
 type NormalizedForgeCoverageArgs = {
   target: string
+  match_path?: string
+  ir_minimum: boolean
 }
 
 type ForgeCoverageFile = {
@@ -36,6 +40,8 @@ type ForgeCoverageResult = {
   report: ForgeCoverageReport
   executionTime: number
   error?: string
+  hint?: string
+  suggested_command?: string
 }
 
 export type ForgeCommandRunner = (
@@ -53,7 +59,65 @@ const EMPTY_SUMMARY: ForgeCoverageSummary = {
 function normalizeArgs(args: ForgeCoverageArgs, context: ToolContext): NormalizedForgeCoverageArgs {
   return {
     target: args.target ?? resolveProjectDir(context),
+    match_path: args.match_path,
+    ir_minimum: args.ir_minimum ?? false,
   }
+}
+
+function buildCoverageCommand(args: NormalizedForgeCoverageArgs, forceIrMinimum = false): string[] {
+  const command = ["forge", "coverage", "--report", "summary"]
+  if (args.match_path) command.push("--match-path", args.match_path)
+  if (args.ir_minimum || forceIrMinimum) command.push("--ir-minimum")
+  return command
+}
+
+function isStackTooDeep(stderr: string): boolean {
+  return /stack too deep/i.test(stderr)
+}
+
+function isUnknownConfigKey(stderr: string): boolean {
+  return /unknown key/i.test(stderr)
+}
+
+function classifyCoverageFailure(
+  stderr: string,
+  args: NormalizedForgeCoverageArgs,
+): Pick<ForgeCoverageResult, "hint" | "suggested_command"> | undefined {
+  if (isUnknownConfigKey(stderr)) {
+    return {
+      hint:
+        `Forge coverage failed for ${args.target} because foundry.toml contains an unknown foundry.toml key. ` +
+        "Review coverage-compatible Foundry configuration manually; Argus will not edit foundry.toml.",
+      suggested_command: buildCoverageCommand(args).join(" "),
+    }
+  }
+
+  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
+
+  if (
+    !/(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
+      stderr,
+    )
+  ) {
+    return undefined
+  }
+
+  return {
+    hint:
+      `Forge coverage failed for ${args.target} while parsing or instrumenting project configuration. ` +
+      "If foundry.toml uses optimizerSteps or unsupported optimizer settings, run a scoped coverage command or temporarily adjust coverage-only config manually; Argus will not edit foundry.toml.",
+    suggested_command: command,
+  }
+}
+
+function shouldRetryWithIrMinimum(stderr: string): boolean {
+  return (
+    isStackTooDeep(stderr) ||
+    (!isUnknownConfigKey(stderr) &&
+      /(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
+        stderr,
+      ))
+  )
 }
 
 function parsePercent(input: string): number {
@@ -148,23 +212,38 @@ export async function executeForgeCoverage(
   const normalizedArgs = normalizeArgs(args, context)
   context.metadata({ title: `Run forge coverage: ${normalizedArgs.target}` })
 
-  const fail = (error: string): ForgeCoverageResult => ({
+  const fail = (
+    error: string,
+    diagnostics?: Pick<ForgeCoverageResult, "hint" | "suggested_command">,
+  ): ForgeCoverageResult => ({
     success: false,
     report: { files: [], summary: { ...EMPTY_SUMMARY } },
     executionTime: Date.now() - startedAt,
     error,
+    ...diagnostics,
   })
 
   try {
-    const runResult = await runCommand(["forge", "coverage"], {
+    let runResult = await runCommand(buildCoverageCommand(normalizedArgs), {
       signal: context.abort,
       cwd: normalizedArgs.target,
     })
 
+    if (
+      runResult.exitCode !== 0 &&
+      !normalizedArgs.ir_minimum &&
+      shouldRetryWithIrMinimum(runResult.stderr)
+    ) {
+      runResult = await runCommand(buildCoverageCommand(normalizedArgs, true), {
+        signal: context.abort,
+        cwd: normalizedArgs.target,
+      })
+    }
+
     if (runResult.exitCode !== 0) {
-      return fail(
-        runResult.stderr.trim() || `forge coverage exited with code ${runResult.exitCode}`,
-      )
+      const error =
+        runResult.stderr.trim() || `forge coverage exited with code ${runResult.exitCode}`
+      return fail(error, classifyCoverageFailure(error, normalizedArgs))
     }
 
     let report: ForgeCoverageReport
@@ -193,6 +272,8 @@ export const forgeCoverageTool = tool({
     "Run forge coverage analysis and return structured per-file coverage metrics (lines, statements, branches, functions).",
   args: {
     target: tool.schema.string().optional(),
+    match_path: tool.schema.string().optional(),
+    ir_minimum: tool.schema.boolean().optional(),
   },
   async execute(args, context) {
     const result = await executeForgeCoverage(args, context)

@@ -20,6 +20,7 @@ import type {
   ArgusAgentName,
   AuditState,
   Finding,
+  FindingCounts,
   FindingSeverity,
   FuzzCounterexample,
   SoloditResult,
@@ -428,6 +429,21 @@ function processFuzzResult(parsed: Record<string, unknown>, state: AuditState): 
   }
 }
 
+function countReadFindingsResult(parsed: Record<string, unknown>): number {
+  const summary = toRecord(parsed.summary)
+  if (
+    summary &&
+    typeof summary.findingsCount === "number" &&
+    Number.isFinite(summary.findingsCount)
+  ) {
+    return Math.max(0, summary.findingsCount)
+  }
+
+  const reportInput = toRecord(parsed.reportInput)
+  const findings = reportInput?.findings
+  return Array.isArray(findings) ? findings.length : 0
+}
+
 function processSoloditResult(parsed: Record<string, unknown>, state: AuditState): void {
   const query = typeof parsed.query === "string" ? parsed.query : ""
   const results = Array.isArray(parsed.results) ? parsed.results : []
@@ -452,14 +468,38 @@ function processSoloditResult(parsed: Record<string, unknown>, state: AuditState
   })
 }
 
-function recordToolExecution(state: AuditState, toolName: string, findingsCount: number): void {
+function buildFindingCounts(state: AuditState, findingsCount: number): FindingCounts {
+  return {
+    rawObservations: Math.max(0, findingsCount),
+    recordedFindings: state.findings.length,
+  }
+}
+
+function readErrorReason(record: Record<string, unknown>): string | undefined {
+  if (typeof record.error === "string" && record.error.trim().length > 0) return record.error
+  const errorRecord = toRecord(record.error)
+  if (typeof errorRecord?.message === "string" && errorRecord.message.trim().length > 0) {
+    return errorRecord.message
+  }
+  if (typeof record.stderr === "string" && record.stderr.trim().length > 0) return record.stderr
+  return undefined
+}
+
+function recordToolExecution(
+  state: AuditState,
+  toolName: string,
+  findingsCount: number,
+  success: boolean,
+  findingCounts?: FindingCounts,
+): void {
   const now = Date.now()
   state.toolsExecuted.push({
     tool: toolName,
     startTime: now,
     endTime: now,
-    success: true,
+    success,
     findingsCount,
+    findingCounts,
   })
 }
 
@@ -603,7 +643,7 @@ export function createToolTrackingHook(
       }
 
       if (resolved) {
-        recordToolExecution(resolved.state, "task", 0)
+        recordToolExecution(resolved.state, "task", 0, true, buildFindingCounts(resolved.state, 0))
         onStateChanged?.({ tool: "task", findingsCount: 0, sessionId: input.sessionID })
       }
 
@@ -711,6 +751,7 @@ export function createToolTrackingHook(
     let findingsCount = 0
     let completedSuccess = false
     let completionError: string | undefined
+    let completedRecord: Record<string, unknown> | null = null
 
     try {
       if (input.tool === "argus_skill_load") {
@@ -765,6 +806,7 @@ export function createToolTrackingHook(
           }
           return
         }
+        completedRecord = record
 
         switch (input.tool) {
           case "argus_slither_analyze": {
@@ -814,6 +856,9 @@ export function createToolTrackingHook(
               projectDir,
             )
             break
+          case "argus_read_findings":
+            findingsCount = countReadFindingsResult(record)
+            break
           case "argus_analyze_contract": {
             processContractAnalyzerResult(record, auditState)
             const filePath = (input.args as Record<string, unknown>)?.file_path as string
@@ -857,9 +902,16 @@ export function createToolTrackingHook(
             break
           }
           case "argus_forge_coverage": {
+            const now = Date.now()
             const reportObj = toRecord(record.report)
             const files = reportObj?.files
-            if (Array.isArray(files)) {
+            if (record.success === false) {
+              auditState.coverageAttempt = {
+                status: "failed",
+                attemptedAt: now,
+                reason: readErrorReason(record),
+              }
+            } else if (Array.isArray(files)) {
               auditState.coverageReport = {
                 files: files
                   .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
@@ -870,6 +922,13 @@ export function createToolTrackingHook(
                     branchesPct: typeof f.branchesPct === "number" ? f.branchesPct : 0,
                     functionsPct: typeof f.functionsPct === "number" ? f.functionsPct : 0,
                   })),
+              }
+              auditState.coverageAttempt = { status: "run", attemptedAt: now }
+            } else {
+              auditState.coverageAttempt = {
+                status: "failed",
+                attemptedAt: now,
+                reason: "coverage report was missing or invalid",
               }
             }
             break
@@ -945,10 +1004,12 @@ export function createToolTrackingHook(
           }
         }
 
-        completedSuccess = true
+        completedSuccess = record.success !== false
       }
 
-      recordToolExecution(auditState, input.tool, findingsCount)
+      const findingCounts = buildFindingCounts(auditState, findingsCount)
+      auditState.findingCounts = findingCounts
+      recordToolExecution(auditState, input.tool, findingsCount, completedSuccess, findingCounts)
 
       const nextPhase = inferPhaseAdvancement(auditState, input.tool)
       if (nextPhase) {
@@ -985,6 +1046,8 @@ export function createToolTrackingHook(
               break
             case "argus_forge_coverage":
               if (auditState.coverageReport) enrichment.coverageReport = auditState.coverageReport
+              if (auditState.coverageAttempt)
+                enrichment.coverageAttempt = auditState.coverageAttempt
               break
             case "argus_gas_analysis":
               if (auditState.gasHotspots) enrichment.gasHotspots = auditState.gasHotspots
@@ -998,6 +1061,11 @@ export function createToolTrackingHook(
             case "argus_check_patterns":
               if (auditState.patternVersion) enrichment.patternVersion = auditState.patternVersion
               break
+            case "argus_themis_disposition":
+              if (completedRecord?.themisDisposition) {
+                enrichment.themisDisposition = completedRecord.themisDisposition
+              }
+              break
           }
         }
         await emitToSink(
@@ -1005,6 +1073,7 @@ export function createToolTrackingHook(
           buildEvent("tool.completed", runId, sessionId, toolCallId, {
             tool: input.tool,
             findingsCount,
+            findingCounts: completedSuccess ? auditState.findingCounts : undefined,
             success: completedSuccess,
             ...(completionError ? { error: completionError } : {}),
             ...enrichment,

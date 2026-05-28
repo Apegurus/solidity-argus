@@ -9,6 +9,7 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
       argus: {},
       sentinel: {},
       pythia: {},
+      auditSpecialist: {},
       scribe: {},
       themis: {},
     },

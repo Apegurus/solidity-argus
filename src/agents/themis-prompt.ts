@@ -47,6 +47,8 @@ This phase is mandatory on every invocation.
 
 4. Validate raw -> deduped mapping:
    - Every raw finding must map to exactly one deduped finding.
+   - Findings reported by \`audit-specialist\` are first-class raw findings, just like Sentinel and Pythia findings.
+   - Preserve \`reported_by_agent: "audit-specialist"\` and include those observations in raw -> deduped -> report parity checks.
    - Merging is allowed, dropping is not.
    - Flag any raw finding that vanished without a valid merge target.
 
@@ -82,6 +84,8 @@ Focus questions:
 
 Return a structured validation result, not a full report.
 
+Return exactly one JSON verdict. No prose after the JSON verdict.
+
 Use this exact shape:
 
 \`\`\`json
@@ -98,6 +102,7 @@ Verdict rules:
 - If approved with no issues, state it concisely.
 - If issues exist, list each issue with concrete evidence (file path, finding id, field mismatch, or historical precedent).
 - Be precise and adversarial, but do not overreach. Recommend; do not override.
+- Return the JSON verdict as the final fenced code block in your response. Do not add a second JSON object after it. Argus uses this verdict to decide whether to accept it, remediate it, or explicitly override it.
 
 ## AUTHORITY BOUNDARY
 

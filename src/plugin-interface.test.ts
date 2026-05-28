@@ -12,6 +12,7 @@ function makeManagers(): Managers {
       dispatch: () => "task-1",
       cancel: () => {},
       getResult: async () => null,
+      getTaskStatus: async () => undefined,
       onComplete: () => {},
       getActiveCount: () => 0,
     },
@@ -45,11 +46,12 @@ describe("createPluginInterface", () => {
     expect(result.config).toBeDefined()
     expect(result["experimental.chat.system.transform"]).toBeDefined()
     expect(result["experimental.session.compacting"]).toBeDefined()
+    expect(result["experimental.text.complete"]).toBeDefined()
     expect(result["tool.execute.after"]).toBeDefined()
     expect(result.event).toBeDefined()
   })
 
-  it("tool map has 15 entries", () => {
+  it("tool map has 16 entries", () => {
     const config = ArgusConfigSchema.parse({})
     const tools = createTools(config)
     const hooks = createHooks({
@@ -60,7 +62,7 @@ describe("createPluginInterface", () => {
     })
 
     const result = createPluginInterface({ tools, hooks })
-    expect(Object.keys(result.tool)).toHaveLength(15)
+    expect(Object.keys(result.tool)).toHaveLength(16)
   })
 
   it("omits disabled hooks from interface", () => {
@@ -111,6 +113,7 @@ describe("createPluginInterface", () => {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }
@@ -133,6 +136,7 @@ describe("createPluginInterface", () => {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }
@@ -157,6 +161,7 @@ describe("createPluginInterface", () => {
       "chat.message": chatMessageHook as unknown as Hooks["chat.message"],
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }
@@ -179,6 +184,7 @@ describe("createPluginInterface", () => {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }

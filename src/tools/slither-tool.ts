@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
@@ -63,6 +71,8 @@ export type SlitherAnalyzeResult = {
   executionTime: number
   errors: string[]
   error?: string
+  hint?: string
+  suggested_command?: string
 }
 
 function mapSeverity(impact?: string): FindingSeverity {
@@ -149,6 +159,50 @@ const FALLBACK_TRIGGERS = [
 function shouldTryFlattenFallback(errors: string[], stderr: string): boolean {
   const combined = [...errors, stderr].join(" ")
   return FALLBACK_TRIGGERS.some((trigger) => combined.includes(trigger))
+}
+
+function isMixedPragmaSlitherFailure(errors: string[], stderr: string): boolean {
+  const combined = [...errors, stderr].join(" ")
+  return (
+    /(CryticCompileError|Slither exited with code 1)/i.test(combined) &&
+    /(solc|pragma|requires different compiler version|different compiler version|compiler version)/i.test(
+      combined,
+    )
+  )
+}
+
+function containsSolidityFile(dir: string): boolean {
+  try {
+    for (const entry of readdirSync(dir)) {
+      const fullPath = join(dir, entry)
+      const stat = statSync(fullPath)
+      if (stat.isFile() && entry.endsWith(".sol")) return true
+      if (stat.isDirectory() && containsSolidityFile(fullPath)) return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+function mixedPragmaDiagnostics(
+  args: SlitherArgs,
+  projectDir: string,
+  errors: string[],
+  stderr: string,
+): Pick<SlitherAnalyzeResult, "hint" | "suggested_command"> | undefined {
+  if (!isMixedPragmaSlitherFailure(errors, stderr)) return undefined
+
+  const target = resolve(projectDir, args.target)
+  const srcCandidate = join(target, "src")
+  const suggestion =
+    existsSync(srcCandidate) && containsSolidityFile(srcCandidate) ? srcCandidate : undefined
+  return {
+    hint: "Try narrowing target to a single-pragma subdirectory and check foundry.toml/remappings for mixed compiler or vendored dependency scope issues.",
+    suggested_command: suggestion
+      ? buildCommand({ ...args, target: suggestion }).join(" ")
+      : undefined,
+  }
 }
 
 const parseSolcVersion = parseSolcVersionShared
@@ -470,26 +524,6 @@ export async function executeSlitherAnalyze(
     }
   }
 
-  if (args.via_ir) {
-    const fallbackResult = await flattenFallback(args, context, {
-      ...getDefaultFlattenDeps(),
-      runCommand,
-      cwd: projectDir,
-    })
-    if (fallbackResult) return fallbackResult
-    return {
-      success: false,
-      findingsCount: 0,
-      findings: [],
-      executionTime: Date.now() - startedAt,
-      errors: [
-        "via_ir enabled — flatten fallback failed. Ensure forge and solc-select are installed.",
-      ],
-      error:
-        "Project uses via_ir which is incompatible with Slither direct analysis. Flatten fallback also failed.",
-    }
-  }
-
   const command = buildCommand(args)
 
   try {
@@ -508,7 +542,8 @@ export async function executeSlitherAnalyze(
       payload = JSON.parse(runResult.stdout) as SlitherPayload
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown parse error"
-      if (shouldTryFlattenFallback(errors, runResult.stderr)) {
+      const diagnostics = mixedPragmaDiagnostics(args, projectDir, errors, runResult.stderr)
+      if (!diagnostics && (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))) {
         const fallbackResult = await flattenFallback(args, context, {
           ...getDefaultFlattenDeps(),
           runCommand,
@@ -523,6 +558,7 @@ export async function executeSlitherAnalyze(
         executionTime: Date.now() - startedAt,
         errors,
         error: `Slither output parse error: ${message}`,
+        ...diagnostics,
       }
     }
 
@@ -533,7 +569,14 @@ export async function executeSlitherAnalyze(
     const findings = parseFindings(payload)
     const success = findings.length > 0 || (runResult.exitCode === 0 && payload.success !== false)
 
-    if (!success && findings.length === 0 && shouldTryFlattenFallback(errors, runResult.stderr)) {
+    const diagnostics = mixedPragmaDiagnostics(args, projectDir, errors, runResult.stderr)
+
+    if (
+      !success &&
+      findings.length === 0 &&
+      !diagnostics &&
+      (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))
+    ) {
       const fallbackResult = await flattenFallback(args, context, {
         ...getDefaultFlattenDeps(),
         runCommand,
@@ -548,6 +591,7 @@ export async function executeSlitherAnalyze(
       findings,
       executionTime: Date.now() - startedAt,
       errors,
+      ...diagnostics,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"

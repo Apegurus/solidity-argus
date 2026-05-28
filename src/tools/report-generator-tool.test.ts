@@ -199,6 +199,9 @@ function makeFinding(overrides: Partial<Finding>): Finding {
     source: overrides.source ?? "slither",
     observation_ids: overrides.observation_ids,
     observation_count: overrides.observation_count,
+    impact: overrides.impact,
+    recommendation: overrides.recommendation,
+    proofOfConcept: overrides.proofOfConcept,
     sources: overrides.sources,
     reported_by_agents: overrides.reported_by_agents,
     remediation: overrides.remediation,
@@ -209,6 +212,7 @@ function makeFinding(overrides: Partial<Finding>): Finding {
 test("reportGeneratorTool uses tool() helper contract", () => {
   expect(reportGeneratorTool.description.length).toBeGreaterThan(0)
   expect(reportGeneratorTool.args).toBeDefined()
+  expect(Object.keys(reportGeneratorTool.args)).toContain("quality_gate_policy")
   expect(typeof reportGeneratorTool.execute).toBe("function")
 })
 
@@ -364,6 +368,88 @@ test("executeReportGeneration default threshold includes Informational findings"
   expect(result.report).toContain("### Missing Event · severity: Low · evidence: High")
   expect(result.report).toContain("### Floating Pragma · severity: Informational · evidence: High")
   expect(result.report).toContain("| Informational | 1 |")
+})
+
+test("executeReportGeneration renders canonical finding fields exactly", async () => {
+  const finding = makeFinding({
+    id: "f-deadline",
+    check: "missing-deadline-parameter-on-wrap-unwrap",
+    severity: "Informational",
+    confidence: "Medium",
+    description:
+      "wrap() and unwrap() already implement slippage protection via minWAlphaOut and minAlphaOut; the remaining gap is that neither function accepts a deadline parameter.",
+    file: "src/WAlpha.sol",
+    lines: [172, 228],
+    source: "manual",
+    recommendation:
+      "Add deadline parameters while preserving the existing minWAlphaOut and minAlphaOut slippage checks.",
+  })
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "FidelityFixture",
+      scope: ["src/WAlpha.sol"],
+      report_input: JSON.stringify(makeReportInput([finding], { toolsExecuted: [] })),
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+  )
+
+  expect(result.findingsCount.informational).toBe(1)
+  expect(result.findingsCount.low).toBe(0)
+  expect(result.report).toContain("**Severity**: Informational")
+  expect(result.report).toContain(finding.description)
+  expect(result.report).toContain(finding.recommendation as string)
+  expect(result.report).not.toContain("do not accept a deadline or minSharesOut / minAlphaOut")
+  expect(result.report).not.toContain("lack slippage protection")
+})
+
+test("executeReportGeneration includes source excerpts for findings when files are readable", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-source-"))
+  const sourceDir = path.join(tempDir, "src")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(
+    path.join(sourceDir, "WAlpha.sol"),
+    [
+      "pragma solidity ^0.8.20;",
+      "contract WAlpha {",
+      "    function setFeeReceiver(address newReceiver) external {",
+      "        if (newReceiver == address(0)) revert WAlpha_ZeroAddress();",
+      "    }",
+      "}",
+    ].join("\n"),
+  )
+
+  try {
+    const finding = makeFinding({
+      id: "f-zero",
+      check: "no-zero-coldkey-check-on-set-fee-receiver",
+      severity: "Informational",
+      confidence: "High",
+      description: "setFeeReceiver validates address(0); the missing pre-check is coldkey mapping.",
+      file: "src/WAlpha.sol",
+      lines: [3, 4],
+      source: "manual",
+    })
+    const input = makeReportInput([finding], { toolsExecuted: [] })
+    input.projectDir = tempDir
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "SourceExcerptFixture",
+        scope: ["src/WAlpha.sol"],
+        report_input: JSON.stringify(input),
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+    )
+
+    expect(result.report).toContain("**Source Excerpt**")
+    expect(result.report).toContain("function setFeeReceiver(address newReceiver) external")
+    expect(result.report).toContain("if (newReceiver == address(0)) revert WAlpha_ZeroAddress();")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test("executeReportGeneration supports disabling executive summary", async () => {
@@ -905,7 +991,14 @@ test("executeReportGeneration writes report to disk and returns filePath", async
       context,
       {
         loadConfig: () => ({
-          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
           tools: {},
           knowledge: {
             scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -987,7 +1080,14 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
       context,
       {
         loadConfig: () => ({
-          agents: { argus: {}, sentinel: {}, pythia: {}, scribe: {}, themis: {} },
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
           tools: {},
           knowledge: {
             scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
@@ -1380,6 +1480,81 @@ test("preflight warn mode emits lineage warning for semantic dedup without obser
   expect(result.report).toContain("observation_ids")
 })
 
+test("preflight warn mode emits lineage warning for partial observation ids", async () => {
+  const rawReportInput = makeReportInput([
+    makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({ id: "raw-2", check: "unchecked-call", file: "src/Vault.sol", lines: [20, 22] }),
+  ])
+
+  const partialReportInput = makeReportInput([
+    makeFinding({
+      id: "deduped-1",
+      check: "reentrancy-withdraw",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+      observation_ids: ["obs-raw-1"],
+      observation_count: 1,
+    }),
+    makeFinding({
+      id: "deduped-2",
+      check: "unchecked-call",
+      file: "src/Vault.sol",
+      lines: [20, 22],
+    }),
+  ])
+
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_001,
+      payload: {},
+    },
+    ...rawReportInput.findings.map((finding, index) => ({
+      type: "finding.added" as const,
+      run_id: "test-run-1",
+      seq: index + 2,
+      session_id: "session-1",
+      tool_call_id: `finding-${index + 1}`,
+      source: "sentinel",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_002 + index,
+      payload: finding,
+    })),
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 4,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_004,
+      payload: {},
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "PartialLineage",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(partialReportInput),
+      preflight_policy: "warn",
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+    { readEvents: async () => events },
+  )
+
+  expect(result.report).toContain("Completeness Warning")
+  expect(result.report).toContain("partial dedup lineage")
+  expect(result.report).toContain("observation_ids")
+  expect(result.report).not.toContain("Finding parity mismatch")
+})
+
 test("preflight accepts semantic dedup when observation_ids cover raw findings", async () => {
   const rawReportInput = makeReportInput([
     makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
@@ -1485,6 +1660,49 @@ test("preflight strict-fail throws when event read fails", async () => {
       },
     ),
   ).rejects.toThrow("unable to read event stream")
+})
+
+test("preflight strict-fail rejects findings outside requested scope", async () => {
+  const reportInput = makeReportInput([
+    makeFinding({ file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({ id: "out-of-scope", file: "src/Token.sol", lines: [1, 3] }),
+  ])
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1,
+      payload: {},
+    },
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 2,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 2,
+      payload: {},
+    },
+  ]
+
+  expect(
+    executeReportGeneration(
+      {
+        project_name: "StrictScopeTest",
+        scope: ["src/Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+        preflight_policy: "strict-fail",
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+      { readEvents: async () => events },
+    ),
+  ).rejects.toThrow("findings outside audited scope")
 })
 
 test("strict-fail rejects report_input run_id that uses ses_ session identifier", async () => {

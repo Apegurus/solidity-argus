@@ -9,6 +9,7 @@ import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { computeMissingKeyTools } from "../shared/key-tools"
+import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
@@ -38,6 +39,8 @@ type ReportGeneratorArgs = {
   preflight_policy?: PreflightPolicy
   tool_coverage_policy?: ToolCoveragePolicy
   run_id?: string
+  revision?: number
+  force?: boolean
 }
 
 type FindingsCount = {
@@ -129,6 +132,30 @@ async function checkDuplicateWrite(
     // Cannot read existing file; allow write
   }
   return null
+}
+
+async function checkSafeForceOverwrite(
+  filePath: string,
+  runId: string,
+): Promise<{ code: string; message: string } | null> {
+  if (!existsSync(filePath)) return null
+  try {
+    const existingContent = await Bun.file(filePath).text()
+    const existingRunId = extractReportRunId(existingContent)
+    if (existingRunId === runId) return null
+    return {
+      code: "INSECURE_OVERWRITE_REFUSED",
+      message:
+        existingRunId == null
+          ? `Refusing to force overwrite ${filePath}: existing file has no Argus report metadata.`
+          : `Refusing to force overwrite ${filePath}: existing report belongs to run_id "${existingRunId}", not "${runId}".`,
+    }
+  } catch (err) {
+    return {
+      code: "INSECURE_OVERWRITE_REFUSED",
+      message: `Refusing to force overwrite ${filePath}: existing file could not be read (${err instanceof Error ? err.message : String(err)}).`,
+    }
+  }
 }
 
 const THRESHOLD_WEIGHT: Record<SeverityThreshold, number> = {
@@ -299,6 +326,7 @@ const VALID_AGENT_VALUES = new Set<ArgusAgentName>([
   "argus",
   "sentinel",
   "pythia",
+  "audit-specialist",
   "scribe",
   "unknown",
 ])
@@ -598,6 +626,7 @@ function parseReportInputPayload(
       try {
         const dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as {
           findings?: unknown[]
+          dropped_observations?: unknown[]
           deduped_by?: string
         }
         if (Array.isArray(dedupedArtifact.findings) && dedupedArtifact.findings.length > 0) {
@@ -623,6 +652,9 @@ function parseReportInputPayload(
             ...baseInput,
             run_id: effectiveRunId,
             findings: normalizedFindings,
+            dropped_observations: Array.isArray(dedupedArtifact.dropped_observations)
+              ? dedupedArtifact.dropped_observations
+              : baseInput.dropped_observations,
           }
           normalizeToolsExecutedDefaults(merged, effectiveRunId, diagnostics)
           if (typeof merged.seq !== "number" || (merged.seq as number) < 0) {
@@ -736,8 +768,41 @@ function formatLocation(finding: Finding): string {
   return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`
 }
 
+function sourceExcerpt(projectDir: string, finding: Finding): string | null {
+  if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return null
+  const start = finding.lines[0]
+  const end = finding.lines[1]
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start <= 0 || end < start) {
+    return null
+  }
+  const absolutePath = path.isAbsolute(finding.file)
+    ? finding.file
+    : path.join(projectDir, finding.file)
+  if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) return null
+  const contents = readFileSync(absolutePath, "utf-8").split(/\r?\n/)
+  const excerpt = contents.slice(start - 1, end).join("\n")
+  return excerpt.trim().length > 0 ? excerpt : null
+}
+
 function shouldIncludeFinding(finding: Finding, threshold: SeverityThreshold): boolean {
   return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold]
+}
+
+function normalizeScopePath(value: string): string {
+  return value.replace(/^\.\//, "").replace(/\/+$|\\+$/g, "")
+}
+
+function isFindingInScope(finding: Finding, scope: string[]): boolean {
+  if (scope.length === 0) return true
+  const file = normalizeScopePath(finding.file)
+  return scope.some((entry) => {
+    const scoped = normalizeScopePath(entry)
+    return file === scoped || file.startsWith(`${scoped}/`)
+  })
+}
+
+function collectOutOfScopeFindings(findings: Finding[], scope: string[]): Finding[] {
+  return findings.filter((finding) => !isFindingInScope(finding, scope))
 }
 
 function calculateCounts(findings: Finding[]): FindingsCount {
@@ -884,36 +949,22 @@ function splitFindingsByTier(
   return { findings: findingsTier, leads: leadsTier }
 }
 
-function hasDedupLineage(findings: Finding[]): boolean {
-  return findings.some((finding) => {
-    const observationIds = (finding as { observation_ids?: unknown }).observation_ids
-    return Array.isArray(observationIds) && observationIds.length > 0
-  })
-}
-
-function observationIdsForFinding(finding: Finding): string[] {
+function hasObservationIds(finding: Finding): boolean {
   const observationIds = (finding as { observation_ids?: unknown }).observation_ids
-  if (Array.isArray(observationIds)) {
-    return observationIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-  }
-  return typeof finding.observation_id === "string" && finding.observation_id.length > 0
-    ? [finding.observation_id]
-    : []
+  return Array.isArray(observationIds) && observationIds.length > 0
 }
 
-function compareObservationLineage(
-  eventFindings: Finding[],
-  reportFindings: Finding[],
-): { missing: string[]; extra: string[]; matches: boolean } {
-  const expected = new Set(eventFindings.flatMap(observationIdsForFinding))
-  const actual = new Set(reportFindings.flatMap(observationIdsForFinding))
-  const missing = Array.from(expected)
-    .filter((id) => !actual.has(id))
-    .sort((a, b) => a.localeCompare(b))
-  const extra = Array.from(actual)
-    .filter((id) => !expected.has(id))
-    .sort((a, b) => a.localeCompare(b))
-  return { missing, extra, matches: missing.length === 0 && extra.length === 0 }
+function hasCompleteDedupLineage(findings: Finding[]): boolean {
+  return findings.length > 0 && findings.every(hasObservationIds)
+}
+
+function hasPartialDedupLineage(findings: Finding[]): boolean {
+  const withLineage = findings.some(hasObservationIds)
+  const withoutLineage = findings.some((finding) => {
+    const observationIds = (finding as { observation_ids?: unknown }).observation_ids
+    return !Array.isArray(observationIds) || observationIds.length === 0
+  })
+  return withLineage && withoutLineage
 }
 
 export function validateReportQuality(
@@ -1036,7 +1087,7 @@ function buildRecommendations(counts: FindingsCount): string[] {
   return items
 }
 
-function buildFindingsSection(findings: Finding[]): string {
+function buildFindingsSection(findings: Finding[], projectDir: string): string {
   if (findings.length === 0) {
     return ""
   }
@@ -1051,6 +1102,15 @@ function buildFindingsSection(findings: Finding[]): string {
     lines.push(`**Severity**: ${finding.severity}`)
     lines.push(`**Confidence**: ${finding.confidence}`)
     lines.push(`**Location**: ${formatLocation(finding)}`)
+    const excerpt = sourceExcerpt(projectDir, finding)
+    if (excerpt) {
+      lines.push("")
+      lines.push("**Source Excerpt**:")
+      lines.push("")
+      lines.push("```solidity")
+      lines.push(excerpt)
+      lines.push("```")
+    }
     lines.push("")
     lines.push(`**Description**: ${renderFindingBody(finding)}`)
     lines.push("")
@@ -1322,7 +1382,7 @@ export function renderReportMarkdown(
     "Approach: Findings are normalized, split into Findings/Leads by confidence threshold, deterministically ordered by confidence/severity/file/line, and validated against report quality gates before emission.",
   )
 
-  const findingsSection = buildFindingsSection(findings)
+  const findingsSection = buildFindingsSection(findings, input.projectDir)
   if (findingsSection.length > 0) {
     sections.push(findingsSection)
   }
@@ -1363,6 +1423,18 @@ export async function executeReportGeneration(
   const expectedRunId = resolveExpectedRunId(args, context, deps)
   let confidenceThreshold = 80
   let loadedConfig: ArgusConfig | undefined
+  const invalidRegenerationOptions =
+    args.force === true && args.revision != null
+      ? {
+          code: "INVALID_REGENERATION_OPTIONS",
+          message: "force and revision must not both be set.",
+        }
+      : args.revision != null && (!Number.isInteger(args.revision) || args.revision < 2)
+        ? {
+            code: "INVALID_REGENERATION_OPTIONS",
+            message: "revision must be an integer greater than or equal to 2.",
+          }
+        : null
 
   // Ensure report-input.json is materialized before attempting disk lookup.
   // Scribe may call generate_report without calling read_findings first,
@@ -1395,6 +1467,17 @@ export async function executeReportGeneration(
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
   const warningBullets: string[] = []
+  const scope = args.scope.length > 0 ? args.scope : reportInput.scope
+  const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
+  const outOfScopeFindings = collectOutOfScopeFindings(finalFindings, scope)
+  if (outOfScopeFindings.length > 0) {
+    const locations = outOfScopeFindings.map(formatLocation).join(", ")
+    const message = `findings outside audited scope: ${locations}`
+    if (preflightPolicy === "strict-fail") {
+      throw new Error(`Preflight failed (strict-fail): ${message}`)
+    }
+    warningBullets.push(`- ${message}`)
+  }
 
   // Hard gate: refuse to generate a report if key audit tools have not been executed
   if (toolCoveragePolicy !== "skip") {
@@ -1443,15 +1526,45 @@ export async function executeReportGeneration(
 
     const eventFindings = dedupeFindingsForFinalOutput(projectFindings(events))
     const inputFindings = dedupeFindingsForFinalOutput(reportInput.findings)
-    const hasLineage = hasDedupLineage(reportInput.findings)
-    const shouldCheckParity = eventFindings.length === inputFindings.length || hasLineage
+    const hasLineage = hasCompleteDedupLineage(reportInput.findings)
+    const partialLineage = hasPartialDedupLineage(reportInput.findings)
+    const shouldCheckParity =
+      !partialLineage && (eventFindings.length === inputFindings.length || hasLineage)
+    const lineage = hasLineage
+      ? validateFindingLineage(
+          projectFindings(events),
+          reportInput.findings,
+          reportInput.dropped_observations,
+        )
+      : null
     const parity = shouldCheckParity
-      ? hasLineage
-        ? compareObservationLineage(projectFindings(events), reportInput.findings)
-        : compareIssueFingerprintSets(eventFindings, inputFindings)
-      : { missing: [], extra: [], matches: true }
+      ? lineage
+        ? {
+            missing: lineage.missing_observation_ids,
+            extra: lineage.phantom_observation_ids,
+            duplicates: lineage.duplicate_observation_ids,
+            countMismatches: lineage.count_mismatches,
+            matches: lineage.valid,
+          }
+        : {
+            ...compareIssueFingerprintSets(eventFindings, inputFindings),
+            duplicates: [],
+            countMismatches: [],
+          }
+      : { missing: [], extra: [], duplicates: [], countMismatches: [], matches: true }
 
-    if (!shouldCheckParity) {
+    if (partialLineage) {
+      const partialSummary = `event_findings=${eventFindings.length}, report_findings=${inputFindings.length}`
+      if (preflightPolicy === "strict-fail") {
+        throw new Error(
+          `Preflight failed (strict-fail): finding parity not verifiable (${partialSummary}; partial observation_ids)`,
+        )
+      }
+
+      warningBullets.push(
+        `- Finding parity not verifiable: ${partialSummary}; partial dedup lineage means some findings lack observation_ids`,
+      )
+    } else if (!shouldCheckParity) {
       const unverifiableSummary = `event_findings=${eventFindings.length}, report_findings=${inputFindings.length}`
       if (preflightPolicy === "strict-fail") {
         throw new Error(
@@ -1480,6 +1593,14 @@ export async function executeReportGeneration(
       if (parity.extra.length > 0) {
         warningBullets.push(`- Extra ${parityLabel}: ${parity.extra.join(", ")}`)
       }
+      if (parity.duplicates.length > 0) {
+        warningBullets.push(`- Duplicate ${parityLabel}: ${parity.duplicates.join(", ")}`)
+      }
+      if (parity.countMismatches.length > 0) {
+        warningBullets.push(
+          `- Observation count mismatches: ${parity.countMismatches.map((item) => item.check).join(", ")}`,
+        )
+      }
     }
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Preflight failed (strict-fail)")) {
@@ -1501,8 +1622,6 @@ export async function executeReportGeneration(
     ].join("\n")
   }
 
-  const scope = args.scope.length > 0 ? args.scope : reportInput.scope
-  const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
   const findings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
@@ -1552,6 +1671,7 @@ export async function executeReportGeneration(
     date: new Date(auditDate),
     outputDir: ".opencode/reports/",
     runId: runId || undefined,
+    revision: args.revision,
   })
 
   const result: ReportGenerationResult = {
@@ -1562,6 +1682,11 @@ export async function executeReportGeneration(
     contentHash,
     qualityGates,
     contractDiagnostics: diagnostics,
+  }
+
+  if (invalidRegenerationOptions) {
+    result.error = invalidRegenerationOptions
+    return result
   }
 
   try {
@@ -1578,14 +1703,28 @@ export async function executeReportGeneration(
       }
       return result
     }
-    const fullPath = path.join(resolvedOutput, canonicalFilename)
+    const { filePath: fullPath } = resolveReportPath({
+      contractName: args.project_name,
+      date: new Date(auditDate),
+      outputDir: resolvedOutput,
+      runId: runId || undefined,
+      revision: args.revision,
+    })
 
     // Single-writer policy: check for duplicate writes with same run_id
     if (runId) {
-      const duplicateError = await checkDuplicateWrite(fullPath, runId)
-      if (duplicateError) {
-        result.error = duplicateError
-        return result
+      if (args.force === true) {
+        const forceError = await checkSafeForceOverwrite(fullPath, runId)
+        if (forceError) {
+          result.error = forceError
+          return result
+        }
+      } else {
+        const duplicateError = await checkDuplicateWrite(fullPath, runId)
+        if (duplicateError) {
+          result.error = duplicateError
+          return result
+        }
       }
     }
 
@@ -1615,6 +1754,10 @@ export const reportGeneratorTool = tool({
       .enum(["critical", "high", "medium", "low", "informational"])
       .default("informational"),
     preflight_policy: tool.schema.enum(["warn", "strict-fail"]).optional(),
+    quality_gate_policy: tool.schema
+      .enum(["warn", "strict-fail"])
+      .optional()
+      .describe("Controls whether report quality gate violations warn or fail generation."),
     tool_coverage_policy: tool.schema
       .enum(["enforce", "warn", "skip"])
       .optional()
@@ -1627,6 +1770,18 @@ export const reportGeneratorTool = tool({
       .optional()
       .describe(
         "The canonical run ID from <argus-context>. The tool reads the materialized report-input.json from disk using this ID.",
+      ),
+    revision: tool.schema
+      .number()
+      .optional()
+      .describe(
+        "Caller-supplied report revision. Must be an integer >= 2 and writes a -r{revision} file.",
+      ),
+    force: tool.schema
+      .boolean()
+      .optional()
+      .describe(
+        "Overwrite only the base canonical report path when existing Argus metadata matches the same run_id.",
       ),
   },
   async execute(args, context) {

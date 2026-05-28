@@ -1,14 +1,25 @@
 import { describe, expect, test } from "bun:test"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import path from "node:path"
+import path, { dirname } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { checkRemoteVersion } from "../../src/cli/commands/doctor"
-import { SCHEMA_VERSION } from "../../src/state/schemas"
+import { createAuditArtifactResolver } from "../../src/shared/audit-artifact-resolver"
+import { type CanonicalFinding, SCHEMA_VERSION } from "../../src/state/schemas"
 import type { Finding } from "../../src/state/types"
 import { executePersistDeduped } from "../../src/tools/persist-deduped-tool"
 import { executeRecordFinding } from "../../src/tools/record-finding-tool"
 import { executeReportGeneration } from "../../src/tools/report-generator-tool"
+
+function writeRawFindings(projectDir: string, runId: string, findings: Finding[]): void {
+  const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
+  mkdirSync(dirname(findingsFile), { recursive: true })
+  writeFileSync(
+    findingsFile,
+    JSON.stringify({ findings: findings as unknown as CanonicalFinding[] }, null, 2),
+  )
+}
 
 const RUBRIC_TRACE = `**Rubric Trace** · Confidence: 90
 
@@ -68,13 +79,42 @@ async function recordFinding(
   return result.findings[0] as Finding
 }
 
+async function recordFindings(
+  projectDir: string,
+  runId: string,
+  findings: Record<string, unknown>[],
+): Promise<Finding[]> {
+  const payload = await executeRecordFinding(
+    { findings: JSON.stringify(findings) },
+    createMockContext(projectDir, runId, "sentinel"),
+  )
+  const result = JSON.parse(payload) as { success: boolean; findings: Finding[]; error?: string }
+
+  expect(result.success).toBe(true)
+  expect(result.error).toBeUndefined()
+  expect(result.findings).toHaveLength(findings.length)
+
+  return result.findings as Finding[]
+}
+
 async function renderRecordedFindings(
   projectDir: string,
   runId: string,
   findings: Finding[],
 ): Promise<string> {
+  writeRawFindings(projectDir, runId, findings)
+
+  const dedupedFindings = findings.map((f) => {
+    const canonical = f as unknown as CanonicalFinding
+    return {
+      ...f,
+      observation_ids: [canonical.observation_id],
+      observation_count: 1,
+    }
+  })
+
   const persistPayload = await executePersistDeduped(
-    { run_id: runId, deduped_findings: JSON.stringify(findings) },
+    { run_id: runId, deduped_findings: JSON.stringify(dedupedFindings) },
     createMockContext(projectDir, runId, "scribe"),
   )
   const persistResult = JSON.parse(persistPayload) as { success: boolean; error?: string }
@@ -102,28 +142,30 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
   test("scored finding round-trips through record → persist → render with tier split", async () => {
     const runId = uniqueRunId("e2e-rubric")
     await withProject(runId, async (projectDir) => {
-      const high = await recordFinding(projectDir, runId, {
-        check: "reentrancy-high",
-        description: RUBRIC_TRACE,
-        file: "Vault.sol",
-        lines: [42, 50],
-        severity: "High",
-        confidence: "High",
-        source: "manual",
-        confidence_score: 90,
-      })
-      const low = await recordFinding(projectDir, runId, {
-        check: "reentrancy-low",
-        description: RUBRIC_TRACE.replace("Confidence: 90", "Confidence: 60"),
-        file: "Router.sol",
-        lines: [10, 20],
-        severity: "Medium",
-        confidence: "Low",
-        source: "manual",
-        confidence_score: 60,
-      })
+      const recorded = await recordFindings(projectDir, runId, [
+        {
+          check: "reentrancy-high",
+          description: RUBRIC_TRACE,
+          file: "Vault.sol",
+          lines: [42, 50],
+          severity: "High",
+          confidence: "High",
+          source: "manual",
+          confidence_score: 90,
+        },
+        {
+          check: "reentrancy-low",
+          description: RUBRIC_TRACE.replace("Confidence: 90", "Confidence: 60"),
+          file: "Router.sol",
+          lines: [10, 20],
+          severity: "Medium",
+          confidence: "Low",
+          source: "manual",
+          confidence_score: 60,
+        },
+      ])
 
-      const markdown = await renderRecordedFindings(projectDir, runId, [high, low])
+      const markdown = await renderRecordedFindings(projectDir, runId, recorded)
 
       expect(markdown).toContain("## Findings")
       expect(markdown).toContain("## Leads")

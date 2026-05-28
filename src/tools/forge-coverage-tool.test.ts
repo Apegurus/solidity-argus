@@ -48,7 +48,7 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
     { target: "." },
     context,
     async (command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
-      expect(command).toEqual(["forge", "coverage"])
+      expect(command).toEqual(["forge", "coverage", "--report", "summary"])
       expect(options.signal).toBe(context.abort)
       expect(options.cwd).toBe(".")
       return { stdout, stderr: "", exitCode: 0 }
@@ -80,6 +80,78 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
   })
   expect(metadataCalls[0]?.title).toContain("forge coverage")
   expect(result.executionTime).toBeGreaterThanOrEqual(0)
+})
+
+test("executeForgeCoverage forwards match_path and ir_minimum flags", async () => {
+  const { context } = createContext()
+  const stdout =
+    "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) |"
+
+  const result = await executeForgeCoverage(
+    { target: ".", match_path: "test/WAlpha.t.sol", ir_minimum: true },
+    context,
+    async (command, options) => {
+      expect(command).toEqual([
+        "forge",
+        "coverage",
+        "--report",
+        "summary",
+        "--match-path",
+        "test/WAlpha.t.sol",
+        "--ir-minimum",
+      ])
+      expect(options.cwd).toBe(".")
+      return { stdout, stderr: "", exitCode: 0 }
+    },
+  )
+
+  expect(result.success).toBe(true)
+})
+
+test("executeForgeCoverage retries stack-too-deep failures with ir_minimum", async () => {
+  const { context } = createContext()
+  const commands: string[][] = []
+  const stdout =
+    "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) |"
+
+  const result = await executeForgeCoverage({ target: "." }, context, async (command) => {
+    commands.push(command)
+    if (commands.length === 1) {
+      return { stdout: "", stderr: "Compiler error: Stack too deep", exitCode: 1 }
+    }
+    return { stdout, stderr: "", exitCode: 0 }
+  })
+
+  expect(result.success).toBe(true)
+  expect(commands).toEqual([
+    ["forge", "coverage", "--report", "summary"],
+    ["forge", "coverage", "--report", "summary", "--ir-minimum"],
+  ])
+})
+
+test("executeForgeCoverage retries optimizer instrumentation failures with ir_minimum", async () => {
+  const { context } = createContext()
+  const commands: string[][] = []
+  const stdout =
+    "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) | 100.00% (1/1) |"
+
+  const result = await executeForgeCoverage({ target: "." }, context, async (command) => {
+    commands.push(command)
+    if (commands.length === 1) {
+      return {
+        stdout: "",
+        stderr: "failed to parse foundry.toml: optimizerSteps unsupported during instrumentation",
+        exitCode: 1,
+      }
+    }
+    return { stdout, stderr: "", exitCode: 0 }
+  })
+
+  expect(result.success).toBe(true)
+  expect(commands).toEqual([
+    ["forge", "coverage", "--report", "summary"],
+    ["forge", "coverage", "--report", "summary", "--ir-minimum"],
+  ])
 })
 
 test("executeForgeCoverage handles missing forge binary gracefully", async () => {
@@ -133,6 +205,85 @@ test("executeForgeCoverage handles AbortSignal cancellation", async () => {
 
   expect(result.success).toBe(false)
   expect(result.error).toBe("forge coverage aborted")
+})
+
+test("executeForgeCoverage returns hint for optimizerSteps coverage failure", async () => {
+  const { context } = createContext()
+  const stderr =
+    "Error: failed to parse foundry.toml: optimizerSteps is not supported during coverage instrumentation"
+
+  const result = await executeForgeCoverage(
+    { target: "/tmp/project", match_path: "test/Vault.t.sol" },
+    context,
+    async () => ({ stdout: "", stderr, exitCode: 1 }),
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toContain("Forge coverage failed for /tmp/project")
+  expect(result.hint).toContain("optimizerSteps")
+  expect(result.suggested_command).toBe(
+    "forge coverage --report summary --match-path test/Vault.t.sol --ir-minimum",
+  )
+})
+
+test("executeForgeCoverage classifies unknown foundry config keys without mutating config", async () => {
+  const { context } = createContext()
+  const stderr = "Error: failed to parse foundry.toml: unknown key `optimizer_steps`"
+  const commands: string[][] = []
+
+  const result = await executeForgeCoverage(
+    { target: "/tmp/project" },
+    context,
+    async (command) => {
+      commands.push(command)
+      return { stdout: "", stderr, exitCode: 1 }
+    },
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toContain("unknown foundry.toml key")
+  expect(result.hint).toContain("Argus will not edit foundry.toml")
+  expect(result.suggested_command).toBe("forge coverage --report summary")
+  expect(commands).toEqual([["forge", "coverage", "--report", "summary"]])
+})
+
+test("executeForgeCoverage classifies bare unknown foundry config keys", async () => {
+  const { context } = createContext()
+  const stderr = "Error: unknown key `optimizer_steps`"
+  const commands: string[][] = []
+
+  const result = await executeForgeCoverage(
+    { target: "/tmp/project" },
+    context,
+    async (command) => {
+      commands.push(command)
+      return { stdout: "", stderr, exitCode: 1 }
+    },
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toContain("unknown foundry.toml key")
+  expect(result.suggested_command).toBe("forge coverage --report summary")
+  expect(commands).toEqual([["forge", "coverage", "--report", "summary"]])
+})
+
+test("executeForgeCoverage preserves generic forge stderr without hint", async () => {
+  const { context } = createContext()
+  const stderr = "forge coverage aborted"
+
+  const result = await executeForgeCoverage({ target: "/tmp/project" }, context, async () => ({
+    stdout: "",
+    stderr,
+    exitCode: 1,
+  }))
+
+  expect(result.success).toBe(false)
+  expect(result.error).toBe(stderr)
+  expect(result.hint).toBeUndefined()
+  expect(result.suggested_command).toBeUndefined()
 })
 
 test("executeForgeCoverage resolves cwd from context when target is omitted", async () => {

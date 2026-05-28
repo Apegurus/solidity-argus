@@ -145,6 +145,31 @@ test("returns file reference with truncated=true when output exceeds threshold",
   }
 })
 
+test("returns an inline findings page for large report inputs", async () => {
+  const dir = await makeTempDir()
+  const findings = Array.from({ length: 200 }, (_, i) => ({
+    ...makeFinding(i),
+    description: `Finding ${i}: ${"X".repeat(200)} vulnerability description padding.`,
+    recommendation: `Recommendation for finding ${i}. ${"Y".repeat(100)}`,
+  }))
+
+  await writeAuditState(dir, makeAuditState({ findings }))
+
+  const payload = await executeReadFindings(
+    { run_id: "run-test", findings_offset: 20, findings_limit: 5 },
+    createContext(dir),
+  )
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  expect(parsed.truncated).toBe(false)
+  if (!parsed.truncated) {
+    expect(parsed.reportInput.findings).toHaveLength(5)
+    expect(parsed.reportInput.findings[0]?.file).toBe("src/Contract20.sol")
+    expect(parsed.reportInput.findingsPage).toEqual({ offset: 20, limit: 5, total: 200 })
+  }
+})
+
 test("throws when no audit state exists", async () => {
   const dir = await makeTempDir()
 
@@ -245,6 +270,19 @@ test("prefers deduped-findings.json over per-run report-input and state", async 
     projectDir: dir,
   })
 
+  await writeRunArtifact(dir, runId, "findings.json", {
+    findings: [
+      {
+        ...makeFinding(1, {
+          id: "RAW-1",
+          observation_id: "obs-raw-1",
+          issue_fingerprint: "issue-raw-1",
+          observation_fingerprint: "obs-fingerprint-raw-1",
+        }),
+      },
+    ],
+  })
+
   await writeRunArtifact(dir, runId, "deduped-findings.json", {
     run_id: runId,
     findings: [
@@ -259,6 +297,8 @@ test("prefers deduped-findings.json over per-run report-input and state", async 
         confidence: "High",
         impact: "deduped impact",
         recommendation: "deduped recommendation",
+        observation_ids: ["obs-raw-1"],
+        observation_count: 1,
       },
     ],
   })
@@ -282,4 +322,36 @@ test("prefers deduped-findings.json over per-run report-input and state", async 
     expect(finding?.recommendation).toBe("deduped recommendation")
     expect(parsed.reportInput.scope).toEqual(["src/PerRun.sol"])
   }
+})
+
+test("rejects invalid deduped-findings lineage instead of returning stale data", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "findings.json", {
+    findings: [
+      {
+        ...makeFinding(1, {
+          id: "RAW-1",
+          observation_id: "obs-raw-1",
+          issue_fingerprint: "issue-raw-1",
+          observation_fingerprint: "obs-fingerprint-raw-1",
+        }),
+      },
+    ],
+  })
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: runId,
+    findings: [
+      {
+        ...makeFinding(2, { id: "DEDUPED-1", check: "from-deduped" }),
+        observation_ids: ["obs-missing"],
+        observation_count: 1,
+      },
+    ],
+  })
+
+  expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
+    "Invalid deduped findings lineage",
+  )
 })

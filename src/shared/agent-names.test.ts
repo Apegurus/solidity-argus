@@ -8,8 +8,10 @@ import {
   isSubagent,
 } from "./agent-names"
 
-test("ARGUS_FAMILY contains all 5 agents", () => {
-  expect(ARGUS_FAMILY).toEqual(new Set(["argus", "sentinel", "pythia", "scribe", "themis"]))
+test("ARGUS_FAMILY contains all 6 agents", () => {
+  expect(ARGUS_FAMILY).toEqual(
+    new Set(["argus", "sentinel", "pythia", "audit-specialist", "scribe", "themis"]),
+  )
 })
 
 test("ARGUS_ORCHESTRATOR is argus", () => {
@@ -17,12 +19,15 @@ test("ARGUS_ORCHESTRATOR is argus", () => {
 })
 
 test("ARGUS_SUBAGENTS excludes argus", () => {
-  expect(ARGUS_SUBAGENTS).toEqual(new Set(["sentinel", "pythia", "scribe", "themis"]))
+  expect(ARGUS_SUBAGENTS).toEqual(
+    new Set(["sentinel", "pythia", "audit-specialist", "scribe", "themis"]),
+  )
 })
 
 test("isArgusFamily checks membership", () => {
   expect(isArgusFamily("argus")).toBe(true)
   expect(isArgusFamily("sentinel")).toBe(true)
+  expect(isArgusFamily("audit-specialist")).toBe(true)
   expect(isArgusFamily("unknown")).toBe(false)
 })
 
@@ -33,5 +38,6 @@ test("isOrchestratorAgent checks membership", () => {
 
 test("isSubagent checks membership", () => {
   expect(isSubagent("sentinel")).toBe(true)
+  expect(isSubagent("audit-specialist")).toBe(true)
   expect(isSubagent("argus")).toBe(false)
 })

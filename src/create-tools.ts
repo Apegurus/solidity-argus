@@ -15,6 +15,7 @@ import { reportGeneratorTool } from "./tools/report-generator-tool"
 import { slitherTool } from "./tools/slither-tool"
 import { createSoloditSearchTool } from "./tools/solodit-search-tool"
 import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
+import { themisDispositionTool } from "./tools/themis-disposition-tool"
 
 export function createTools(config: ArgusConfig): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {
@@ -31,6 +32,7 @@ export function createTools(config: ArgusConfig): Record<string, ToolDefinition>
     argus_read_findings: readFindingsTool,
     argus_persist_deduped: persistDedupedTool,
     argus_generate_report: reportGeneratorTool,
+    argus_themis_disposition: themisDispositionTool,
     argus_sync_knowledge: syncKnowledgeTool,
   }
 

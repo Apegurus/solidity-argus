@@ -70,8 +70,12 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
    - \`project_name\`: the project name
    - \`scope\`: list of audited files
    - \`run_id\`: the run ID (the tool reads your persisted deduped findings from disk and resolves the canonical envelope automatically)
+   - \`preflight_policy: "strict-fail"\`
+   - \`quality_gate_policy: "strict-fail"\`
 
    **DO NOT** pass \`report_input\`, \`findings\`, \`toolsExecuted\`, \`session_id\`, or any other field — the tool reads them from durable state on disk. Passing them risks contract-mismatch failures.
+
+   Before this call, verify that every deduped finding file is inside the audited scope. Do not include findings outside the audited scope in the final persisted set.
 
 6. **Limitations disclosure**: If any tool failed or was absent, add a \`## Limitations\` section.
 
@@ -94,6 +98,11 @@ Before generating the report, verify:
 ## SKILL SYSTEM
 
 Use \`argus_skill_load\` only when needed to improve report quality and consistency.
+
+**CRITICAL — use the right tool**:
+- For report templates, severity rubrics, checklists, exploit references, and audit methodology, use \`argus_skill_load\` with the exact skill name.
+- **NEVER call the generic OpenCode \`skill\` tool** for Argus report knowledge. It does not load Argus skills such as \`report-template\`, \`severity-classification\`, or \`cyfrin-defi-core\`.
+- \`task.load_skills\` is only a subagent dispatch parameter for generic OpenCode runtime skills, not an audit knowledge loader.
 
 - **Curated skill map**:
    - \`report-template\`, \`severity-classification\`

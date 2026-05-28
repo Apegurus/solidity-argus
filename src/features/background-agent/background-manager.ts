@@ -1,7 +1,12 @@
-import type { BackgroundManager } from "../../managers/types"
+import type {
+  BackgroundFailureDiagnostic,
+  BackgroundManager,
+  BackgroundTaskDiagnostic,
+  BackgroundTaskStatus,
+} from "../../managers/types"
 import { createLogger } from "../../shared/logger"
 
-type TaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
+type TaskStatus = BackgroundTaskStatus
 type CompletionCallback = (taskId: string, result: unknown) => void
 
 export interface BackgroundTaskOptions {
@@ -23,6 +28,66 @@ interface TaskInfo {
   result?: unknown
   error?: unknown
   callbacks: Set<CompletionCallback>
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === "string") return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+export function classifyBackgroundFailure(
+  error: unknown,
+  task?: Pick<TaskInfo, "status" | "prompt">,
+): BackgroundFailureDiagnostic {
+  if (task?.status === "cancelled") {
+    return {
+      category: "cancelled",
+      retry_recommendation: "do_not_retry",
+      summary: "Background task was cancelled before completion.",
+    }
+  }
+
+  const text = errorText(error)
+  const lower = text.toLowerCase()
+  if (text.includes("This model does not support assistant message prefill")) {
+    return {
+      category: "model_error",
+      retry_recommendation: "retry_with_changes",
+      summary: "Provider rejected assistant prefill; retry with a fresh or shorter prompt.",
+    }
+  }
+  if (lower.includes("timed out")) {
+    const likelySizeRelated = (task?.prompt.length ?? 0) > 5_000
+    return {
+      category: "timeout",
+      retry_recommendation: likelySizeRelated ? "retry_with_changes" : "safe_to_retry",
+      summary: likelySizeRelated
+        ? "Background task timed out; retry with a shorter prompt or narrower scope."
+        : "Background task timed out; retrying is safe if upstream services are healthy.",
+    }
+  }
+  if (
+    lower.includes("argus tool") ||
+    lower.includes("command failed") ||
+    lower.includes("tool error") ||
+    lower.includes('"success":false')
+  ) {
+    return {
+      category: "tool_error",
+      retry_recommendation: "retry_with_changes",
+      summary: "Background task failed inside a tool or command invocation.",
+    }
+  }
+  return {
+    category: "unknown",
+    retry_recommendation: "retry_with_changes",
+    summary: text.length > 0 ? text : "Background task failed for an unknown reason.",
+  }
 }
 
 export type Dispatcher = (
@@ -185,6 +250,23 @@ export function createBackgroundManager(
     return Promise.resolve(task.result)
   }
 
+  function getTaskStatus(taskId: string): Promise<BackgroundTaskDiagnostic | undefined> {
+    const task = tasks.get(taskId)
+    if (!task) return Promise.resolve(undefined)
+
+    if (task.status === "completed") {
+      return Promise.resolve({ status: task.status, result: task.result })
+    }
+    if (task.status === "failed" || task.status === "cancelled") {
+      return Promise.resolve({
+        status: task.status,
+        error: task.error,
+        diagnostic: classifyBackgroundFailure(task.error, task),
+      })
+    }
+    return Promise.resolve({ status: task.status })
+  }
+
   function onComplete(
     taskIdOrCallback: string | CompletionCallback,
     callback?: CompletionCallback,
@@ -227,6 +309,7 @@ export function createBackgroundManager(
     dispatch,
     cancel,
     getResult,
+    getTaskStatus,
     onComplete,
     getActiveCount,
   }

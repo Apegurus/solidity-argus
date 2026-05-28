@@ -18,10 +18,14 @@ import {
   materializeReportInput,
 } from "./features/persistent-state/findings-materializer"
 import { recordRun, updateRunStatus } from "./features/persistent-state/global-run-index"
-import { finalizeRun } from "./features/persistent-state/run-finalizer"
+import {
+  finalizeRun,
+  hasResolvedThemisDispositionAfterReport,
+} from "./features/persistent-state/run-finalizer"
 import { createRunJournal } from "./features/persistent-state/run-journal"
 import { pruneStaleRuns } from "./features/persistent-state/run-pruner"
 import { createAgentTracker } from "./hooks/agent-tracker"
+import { createAuditSpecialistWatchdog } from "./hooks/audit-specialist-watchdog"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createConfigHandler } from "./hooks/config-handler"
 import { getTokenBudgetForAgent } from "./hooks/context-budget"
@@ -121,6 +125,7 @@ export type Hooks = Pick<
   | "chat.message"
   | "experimental.chat.system.transform"
   | "experimental.session.compacting"
+  | "experimental.text.complete"
   | "tool.execute.after"
   | "event"
 > & {
@@ -163,6 +168,7 @@ export function createHooks(args: {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
       dispose: releaseInstanceLock,
@@ -628,6 +634,11 @@ export function createHooks(args: {
             (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
 
           if (runSink && !runSink.isFinalized) {
+            const events = await runSink.readAll()
+            if (!hasResolvedThemisDispositionAfterReport(events)) {
+              return
+            }
+
             try {
               const idleFinalization = await finalizeRun(
                 auditState.sessionId,
@@ -755,6 +766,16 @@ export function createHooks(args: {
         () =>
           createCompactionHook((sessionId?: string) => getAuditState(sessionId), getReconContext),
         "compaction",
+      )
+    : undefined
+
+  const auditSpecialistWatchdog = isHookEnabled("audit-specialist-watchdog")
+    ? safeCreateHook(
+        () =>
+          createAuditSpecialistWatchdog({
+            getAgentForSession: agentTracker.getAgentForSession,
+          }),
+        "audit-specialist-watchdog",
       )
     : undefined
 
@@ -1024,6 +1045,11 @@ export function createHooks(args: {
           if (block) output.context.push(block)
         }
       : undefined,
+    "experimental.text.complete": auditSpecialistWatchdog
+      ? async (input, output) => {
+          await auditSpecialistWatchdog(input, output)
+        }
+      : undefined,
     "tool.execute.after": toolTrackingHook
       ? async (input, output) => {
           const toolName = typeof input.tool === "string" ? input.tool : ""
@@ -1092,11 +1118,13 @@ export function createHooks(args: {
               )
             }
 
-            // Trigger finalization immediately after report generation.
-            // The session.idle handler also checks reportGenerated, but in
-            // `opencode run` mode the process may exit before another idle
-            // event fires.  Finalizing here guarantees the run is closed.
-            if (state.reportGenerated) {
+            // The report is materialized here, but finalization waits until
+            // Argus records a resolved Themis disposition.
+          }
+
+          if (toolName === "argus_themis_disposition") {
+            const state = getAuditState(input.sessionID)
+            if (state?.reportGenerated) {
               const runSink =
                 eventSinksByRunId.get(state.sessionId) ??
                 (input.sessionID
@@ -1120,12 +1148,12 @@ export function createHooks(args: {
                   )
                   if (!reportFinalization.invariantsPassed) {
                     logger.warn(
-                      `Report-triggered finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                      `Themis-disposition finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
                     )
                   }
                 } catch (error) {
                   logger.warn(
-                    `Report-triggered finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+                    `Themis-disposition finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
                   )
                 }
               }

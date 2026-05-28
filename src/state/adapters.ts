@@ -247,9 +247,9 @@ export function normalizeToCanonicalFinding(
       : "manual"
 
   const reportedByAgentRaw =
+    options.reportedByAgent ??
     (typeof input.reported_by_agent === "string" ? input.reported_by_agent : undefined) ??
     (typeof input.reportedByAgent === "string" ? input.reportedByAgent : undefined) ??
-    options.reportedByAgent ??
     "unknown"
   const reportedByAgent: ArgusAgentName = VALID_AGENTS.has(reportedByAgentRaw as ArgusAgentName)
     ? (reportedByAgentRaw as ArgusAgentName)

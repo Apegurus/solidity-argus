@@ -14,3 +14,4 @@ export type HookName =
   | "tool-output-truncator"
   | "audit-continuation"
   | "system-prompt"
+  | "audit-specialist-watchdog"

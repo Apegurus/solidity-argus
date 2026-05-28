@@ -2,6 +2,7 @@ export const ARGUS_ORCHESTRATOR: ReadonlySet<string> = new Set(["argus"])
 export const ARGUS_SUBAGENTS: ReadonlySet<string> = new Set([
   "sentinel",
   "pythia",
+  "audit-specialist",
   "scribe",
   "themis",
 ])

@@ -1,5 +1,20 @@
 import type { AuditState } from "../state/types"
 
+export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
+
+export type BackgroundFailureDiagnostic = {
+  category: "model_error" | "tool_error" | "timeout" | "cancelled" | "unknown"
+  retry_recommendation: "safe_to_retry" | "retry_with_changes" | "do_not_retry"
+  summary: string
+}
+
+export type BackgroundTaskDiagnostic = {
+  status: BackgroundTaskStatus
+  result?: unknown
+  error?: unknown
+  diagnostic?: BackgroundFailureDiagnostic
+}
+
 /**
  * BackgroundManager interface
  * Handles dispatching and managing background agent tasks
@@ -26,6 +41,12 @@ export interface BackgroundManager {
    * @returns Promise resolving to the task result
    */
   getResult(taskId: string): Promise<unknown>
+
+  /**
+   * Get task status and structured diagnostics for completed, failed, queued, and cancelled tasks.
+   * Unknown task IDs resolve to undefined.
+   */
+  getTaskStatus(taskId: string): Promise<BackgroundTaskDiagnostic | undefined>
 
   /**
    * Register a callback to be invoked when a task completes

@@ -23,15 +23,22 @@ export const UNAVAILABLE_TO_KEY_TOOL: Record<string, string> = {
   solodit: "solodit",
 }
 
+type ToolCoverageRecord = {
+  tool: string
+  success?: boolean
+}
+
 /**
  * Compute which key tools have not yet been executed, excusing any that are
  * declared unavailable.
  */
 export function computeMissingKeyTools(
-  toolsExecuted: Array<{ tool: string }>,
+  toolsExecuted: ToolCoverageRecord[],
   unavailableTools?: string[],
 ): string[] {
-  const executedShortNames = new Set(toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool))
+  const executedShortNames = new Set(
+    toolsExecuted.filter((t) => t.success === true).map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
+  )
   const excused = new Set(
     (unavailableTools ?? []).map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean),
   )
