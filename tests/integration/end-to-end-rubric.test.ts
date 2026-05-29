@@ -10,7 +10,8 @@ import { type CanonicalFinding, SCHEMA_VERSION } from "../../src/state/schemas"
 import type { Finding } from "../../src/state/types"
 import { executePersistDeduped } from "../../src/tools/persist-deduped-tool"
 import { executeRecordFinding } from "../../src/tools/record-finding-tool"
-import { executeReportGeneration } from "../../src/tools/report-generator-tool"
+import { executeReportGeneration, renderReportMarkdown } from "../../src/tools/report-generator-tool"
+import type { ReportInput } from "../../src/state/schemas"
 
 function writeRawFindings(projectDir: string, runId: string, findings: Finding[]): void {
   const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
@@ -171,7 +172,7 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
       expect(markdown).toContain("## Leads")
       expect(markdown).toMatch(/\[90\]/)
       expect(markdown.indexOf("[90]")).toBeLessThan(markdown.indexOf("## Leads"))
-      expect(markdown.slice(markdown.indexOf("## Leads"))).not.toMatch(/\[60\]/)
+      expect(markdown.slice(markdown.indexOf("## Leads"))).toMatch(/\[60\]/)
       expect(markdown).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
       expect(markdown).not.toContain("no rubric trace")
     })
@@ -222,6 +223,54 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
 
   test("SCHEMA_VERSION is still 2.0.0 (no schema bump)", () => {
     expect(SCHEMA_VERSION).toBe("2.0.0")
+  })
+
+  function makeFinding(overrides: Partial<CanonicalFinding>): CanonicalFinding {
+    const key = overrides.check ?? "x"
+    return {
+      id: `obs:${key}`,
+      check: "x",
+      description: "**Rubric Trace** · Verdict: CONFIRMED · Confidence: 90\n\n---\n\nbody",
+      file: "src/A.sol",
+      lines: [1, 2],
+      severity: "Medium",
+      confidence: "Medium",
+      source: "manual",
+      run_id: "run-e2e-1",
+      seq: 1,
+      schema_version: SCHEMA_VERSION,
+      observation_id: `obs:${key}`,
+      issue_fingerprint: `fp-${key}`,
+      observation_fingerprint: `ofp-${key}`,
+      reported_by_agent: "sentinel",
+      ...overrides,
+    } as CanonicalFinding
+  }
+
+  test("no candidate is ever silently dropped — REJECTED_DEMOTED appear in report", () => {
+    // Construct a ReportInput with three findings: one CONFIRMED, one DEMOTED, one REJECTED_DEMOTED
+    const input: ReportInput = {
+      run_id: "run-e2e-1",
+      seq: 0,
+      session_id: "ses_test",
+      tool_call_id: "call-e2e-1",
+      source: "test",
+      schema_version: SCHEMA_VERSION,
+      projectDir: "/tmp",
+      scope: ["src/"],
+      toolsExecuted: [],
+      findings: [
+        makeFinding({ check: "real-vuln", rubric_verdict: "CONFIRMED", confidence_score: 90 }),
+        makeFinding({ check: "edge-case", rubric_verdict: "DEMOTED", confidence_score: 60 }),
+        makeFinding({ check: "guard-found", rubric_verdict: "REJECTED_DEMOTED", confidence_score: 20 }),
+      ],
+    }
+
+    const md = renderReportMarkdown(input)
+
+    expect(md).toContain("Real Vuln")    // CONFIRMED
+    expect(md).toContain("Edge Case")    // DEMOTED
+    expect(md).toContain("Guard Found")  // REJECTED_DEMOTED — must NOT be dropped
   })
 
   test("doctor's checkRemoteVersion integrates without throwing", async () => {
