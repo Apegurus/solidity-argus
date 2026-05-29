@@ -288,7 +288,8 @@ describe("renderer — [NN] prefix in Leads tier", () => {
     ({
       id: "obs:1",
       check: "test-finding",
-      description: "**Rubric Trace** · Verdict: REJECTED_DEMOTED · Confidence: 25\n\n- ...\n\n---\n\nbody",
+      description:
+        "**Rubric Trace** · Verdict: REJECTED_DEMOTED · Confidence: 25\n\n- ...\n\n---\n\nbody",
       file: "src/A.sol",
       lines: [1, 2],
       severity: "Low",
@@ -327,9 +328,7 @@ describe("renderer — [NN] prefix in Leads tier", () => {
   })
 
   test("[NN] prefix appears in Findings-tier header (regression)", () => {
-    const findings = [
-      baseFinding({ confidence_score: 90, rubric_verdict: "CONFIRMED" }),
-    ]
+    const findings = [baseFinding({ confidence_score: 90, rubric_verdict: "CONFIRMED" })]
     const md = renderReportMarkdown(baseInput(findings))
     expect(md).toContain("## Findings")
     expect(md).toMatch(/### \[90\]/)

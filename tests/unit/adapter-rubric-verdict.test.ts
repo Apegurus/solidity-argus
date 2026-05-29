@@ -47,9 +47,7 @@ describe("normalizeToCanonicalFinding — rubric_verdict passthrough", () => {
       { reportedByAgent: "sentinel" },
     )
     expect(
-      diagnostics.some(
-        (d) => d.code === "field.dropped" && d.field === "rubric_verdict",
-      ),
+      diagnostics.some((d) => d.code === "field.dropped" && d.field === "rubric_verdict"),
     ).toBe(false)
   })
 })

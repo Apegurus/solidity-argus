@@ -1128,11 +1128,9 @@ function buildFindingsSection(findings: Finding[], projectDir: string): string {
   return lines.join("\n")
 }
 
-function renderFindingHeader(finding: Finding, tier: "finding" | "lead"): string {
+function renderFindingHeader(finding: Finding, _tier: "finding" | "lead"): string {
   const prefix =
-    typeof finding.confidence_score === "number"
-      ? `[${finding.confidence_score}] `
-      : ""
+    typeof finding.confidence_score === "number" ? `[${finding.confidence_score}] ` : ""
   return `### ${prefix}${normalizeTitle(finding.check)} · severity: ${finding.severity} · evidence: ${finding.confidence}`
 }
 

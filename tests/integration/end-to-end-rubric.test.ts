@@ -6,12 +6,15 @@ import path, { dirname } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { checkRemoteVersion } from "../../src/cli/commands/doctor"
 import { createAuditArtifactResolver } from "../../src/shared/audit-artifact-resolver"
+import type { ReportInput } from "../../src/state/schemas"
 import { type CanonicalFinding, SCHEMA_VERSION } from "../../src/state/schemas"
 import type { Finding } from "../../src/state/types"
 import { executePersistDeduped } from "../../src/tools/persist-deduped-tool"
 import { executeRecordFinding } from "../../src/tools/record-finding-tool"
-import { executeReportGeneration, renderReportMarkdown } from "../../src/tools/report-generator-tool"
-import type { ReportInput } from "../../src/state/schemas"
+import {
+  executeReportGeneration,
+  renderReportMarkdown,
+} from "../../src/tools/report-generator-tool"
 
 function writeRawFindings(projectDir: string, runId: string, findings: Finding[]): void {
   const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
@@ -262,15 +265,19 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
       findings: [
         makeFinding({ check: "real-vuln", rubric_verdict: "CONFIRMED", confidence_score: 90 }),
         makeFinding({ check: "edge-case", rubric_verdict: "DEMOTED", confidence_score: 60 }),
-        makeFinding({ check: "guard-found", rubric_verdict: "REJECTED_DEMOTED", confidence_score: 20 }),
+        makeFinding({
+          check: "guard-found",
+          rubric_verdict: "REJECTED_DEMOTED",
+          confidence_score: 20,
+        }),
       ],
     }
 
     const md = renderReportMarkdown(input)
 
-    expect(md).toContain("Real Vuln")    // CONFIRMED
-    expect(md).toContain("Edge Case")    // DEMOTED
-    expect(md).toContain("Guard Found")  // REJECTED_DEMOTED — must NOT be dropped
+    expect(md).toContain("Real Vuln") // CONFIRMED
+    expect(md).toContain("Edge Case") // DEMOTED
+    expect(md).toContain("Guard Found") // REJECTED_DEMOTED — must NOT be dropped
   })
 
   test("doctor's checkRemoteVersion integrates without throwing", async () => {
