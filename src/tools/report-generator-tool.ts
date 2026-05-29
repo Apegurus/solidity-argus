@@ -1130,7 +1130,7 @@ function buildFindingsSection(findings: Finding[], projectDir: string): string {
 
 function renderFindingHeader(finding: Finding, tier: "finding" | "lead"): string {
   const prefix =
-    tier === "finding" && typeof finding.confidence_score === "number"
+    typeof finding.confidence_score === "number"
       ? `[${finding.confidence_score}] `
       : ""
   return `### ${prefix}${normalizeTitle(finding.check)} · severity: ${finding.severity} · evidence: ${finding.confidence}`

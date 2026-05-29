@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { CanonicalFinding, ReportInput } from "../../src/state/schemas"
+import { SCHEMA_VERSION } from "../../src/state/schemas"
 import {
   executeReportGeneration,
   renderReportMarkdown,
@@ -135,7 +136,7 @@ describe("report-generator tier splitting", () => {
     expect(report).not.toMatch(/\[\d{1,3}\]/)
   })
 
-  test("Leads section header omits the [NN] prefix even when confidence_score is present (pashov D1)", () => {
+  test("Leads section header includes the [NN] prefix when confidence_score is present", () => {
     const report = renderReportMarkdown(
       reportInput([f({ confidence_score: 60, description: "Below-threshold lead" })]),
       { projectName: "Tier Test", threshold: 80 },
@@ -145,7 +146,7 @@ describe("report-generator tier splitting", () => {
     expect(leadsIdx).toBeGreaterThan(-1)
     const leadsSection = report.slice(leadsIdx)
     expect(leadsSection).toContain("Below-threshold lead")
-    expect(leadsSection).not.toMatch(/\[60\]/)
+    expect(leadsSection).toMatch(/\[60\]/)
   })
 
   test("D3: footer shows rubric adoption when all findings have trace", () => {
@@ -279,5 +280,90 @@ describe("report-generator tier splitting", () => {
     expect(findingsIdx).toBeGreaterThan(-1)
     expect(result.report.indexOf("CONFIG-70")).toBeGreaterThan(findingsIdx)
     expect(leadsIdx === -1 || result.report.indexOf("CONFIG-70") < leadsIdx).toBe(true)
+  })
+})
+
+describe("renderer — [NN] prefix in Leads tier", () => {
+  const baseFinding = (overrides: Partial<CanonicalFinding> = {}): CanonicalFinding =>
+    ({
+      id: "obs:1",
+      check: "test-finding",
+      description: "**Rubric Trace** · Verdict: REJECTED_DEMOTED · Confidence: 25\n\n- ...\n\n---\n\nbody",
+      file: "src/A.sol",
+      lines: [1, 2],
+      severity: "Low",
+      confidence: "Low",
+      source: "manual",
+      run_id: "run-1",
+      seq: 1,
+      schema_version: SCHEMA_VERSION,
+      observation_id: "obs:1",
+      issue_fingerprint: "fp1",
+      observation_fingerprint: "ofp1",
+      reported_by_agent: "sentinel",
+      confidence_score: 25,
+      rubric_verdict: "REJECTED_DEMOTED",
+      ...overrides,
+    }) as CanonicalFinding
+
+  const baseInput = (findings: CanonicalFinding[]): ReportInput => ({
+    run_id: "run-1",
+    seq: 0,
+    session_id: "ses_test",
+    tool_call_id: "call-1",
+    source: "test",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp",
+    findings,
+    toolsExecuted: [],
+    scope: ["src/"],
+  })
+
+  test("[NN] prefix appears in Leads-tier header for findings with confidence_score", () => {
+    const findings = [baseFinding({ confidence_score: 25 })]
+    const md = renderReportMarkdown(baseInput(findings))
+    expect(md).toContain("## Leads")
+    expect(md).toMatch(/### \[25\]/)
+  })
+
+  test("[NN] prefix appears in Findings-tier header (regression)", () => {
+    const findings = [
+      baseFinding({ confidence_score: 90, rubric_verdict: "CONFIRMED" }),
+    ]
+    const md = renderReportMarkdown(baseInput(findings))
+    expect(md).toContain("## Findings")
+    expect(md).toMatch(/### \[90\]/)
+  })
+
+  test("Leads section renders REJECTED_DEMOTED findings (no drop)", () => {
+    const findings = [
+      baseFinding({
+        check: "rejected-finding",
+        rubric_verdict: "REJECTED_DEMOTED",
+        confidence_score: 10,
+      }),
+    ]
+    const md = renderReportMarkdown(baseInput(findings))
+    expect(md).toContain("Rejected Finding")
+    expect(md).toContain("## Leads")
+  })
+
+  test("adoption footer counts include both CONFIRMED and DEMOTED traces", () => {
+    const findings = [
+      baseFinding({
+        rubric_verdict: "CONFIRMED",
+        confidence_score: 95,
+      }),
+      baseFinding({
+        id: "obs:2",
+        observation_id: "obs:2",
+        issue_fingerprint: "fp2",
+        observation_fingerprint: "ofp2",
+        rubric_verdict: "REJECTED_DEMOTED",
+        confidence_score: 20,
+      }),
+    ]
+    const md = renderReportMarkdown(baseInput(findings))
+    expect(md).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
   })
 })
