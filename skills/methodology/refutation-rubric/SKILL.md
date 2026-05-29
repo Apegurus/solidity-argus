@@ -69,17 +69,19 @@ Every recorded finding has exactly one `rubric_verdict` value:
 - **DEMOTED**: cleared some gates, demoted at others → `record_finding` with full rubric trace and `confidence_score ≤ 75` (lands in Leads)
 - **REJECTED_DEMOTED**: failed a hard gate, hit a Safe Pattern, or hit a Do Not Report category → `record_finding` with full rubric trace and `confidence_score ≤ 30` (lands at the bottom of Leads). **This verdict replaces the prior "REJECTED = drop" semantics — we never drop findings, because argus users may lack a human auditor to backfill the missed reasoning.**
 
-## Safe Patterns (DO NOT FLAG)
+## Safe Patterns (DEMOTE to REJECTED_DEMOTED, do not silently drop)
 
-These patterns are NOT vulnerabilities. Do not record findings for them unless you have specific concrete reasoning that overrides:
+These patterns are LIKELY not vulnerabilities, but the agent's pattern recognition can be wrong. Record each match with `rubric_verdict="REJECTED_DEMOTED"` and `confidence_score ≤ 30`. The Refutation quote MUST point to the actual pattern in the contract (e.g., the `nonReentrant` modifier on the specific function). Note in the rubric trace why this might still matter:
 
-- `unchecked` blocks in Solidity 0.8+ where the math is provably bounded
-- Native arithmetic in Solidity 0.8+ (`+`, `-`, `*`, `/`) where the compiler inserts overflow checks outside `unchecked` blocks
-- MINIMUM_LIQUIDITY burn on first deposit (UniswapV2 pattern)
-- SafeERC20 calls (`safeTransfer` / `safeTransferFrom`)
-- `nonReentrant` modifier present and applicable to the function (only flag if you can prove cross-contract attack bypass)
-- Two-step admin transfer (Ownable2Step pattern)
-- Consistent protocol-favoring rounding (unless compounding or zero-rounding edge case)
+- `unchecked` blocks in Solidity 0.8+ where the math is provably bounded — **might still matter** if the bound depends on user-controllable state
+- Native arithmetic in Solidity 0.8+ — **might still matter** at downcast boundaries (`uint256` → `uint128`)
+- MINIMUM_LIQUIDITY burn on first deposit (UniswapV2 pattern) — **might still matter** with fee-on-transfer or rebasing pair tokens
+- SafeERC20 calls (`safeTransfer` / `safeTransferFrom`) — **might still matter** if the wrapped ERC20 has fee-on-transfer or blacklist behavior the calling code does not handle
+- `nonReentrant` modifier present and applicable to the function — **might still matter** for read-only reentrancy (state observed by a different protocol mid-call) or cross-contract reentrancy via a callback into a different `nonReentrant`-protected contract on the same shared state
+- Two-step admin transfer (Ownable2Step pattern) — **might still matter** if `acceptOwnership` can be front-run or if the pending owner can grief
+- Consistent protocol-favoring rounding — **might still matter** under compounding, zero-rounding edge cases, or when accumulated dust crosses a threshold
+
+If you can prove the "might still matter" path is real, escalate to a CONFIRMED finding with full rubric trace and the proof.
 
 ## Do Not Report
 
