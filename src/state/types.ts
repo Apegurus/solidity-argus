@@ -31,6 +31,18 @@ export interface Finding {
    * See docs/superpowers/specs/2026-05-16-findings-rubric-and-self-update-design.md §5.3.
    */
   confidence_score?: number
+  /**
+   * Optional rubric verdict from the 4-gate refutation rubric.
+   *
+   * - "CONFIRMED": cleared all 4 gates (confidence ≥ 80 typical)
+   * - "DEMOTED": cleared some gates, demoted at others (confidence ≤ 75 typical)
+   * - "REJECTED_DEMOTED": failed a hard gate or hit a pre-filter (Safe Pattern,
+   *   Do Not Report category); confidence ≤ 30 cap. Kept for user visibility
+   *   rather than dropped — see plan 2026-05-29-pr5-mitigation-a-demote-not-drop.md.
+   *
+   * Backward compatible: pre-rubric findings omit this field and still validate.
+   */
+  rubric_verdict?: "CONFIRMED" | "DEMOTED" | "REJECTED_DEMOTED"
   description: string
   file: string // relative file path
   lines: [number, number] // [start, end]
