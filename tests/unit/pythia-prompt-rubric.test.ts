@@ -27,4 +27,15 @@ describe("pythia prompt rubric instructions", () => {
     expect(promptText).toContain('argus_skill_load({ name: "refutation-rubric" })')
     expect(promptText).not.toContain('{ skill: "refutation-rubric" }')
   })
+
+  test("rubric instructions do NOT instruct dropping the candidate on REJECTED", () => {
+    expect(PYTHIA_PROMPT).not.toContain("drop the candidate")
+    expect(PYTHIA_PROMPT).not.toContain("Do NOT call `argus_record_finding`")
+  })
+
+  test("rubric instructions DO instruct recording with REJECTED_DEMOTED verdict", () => {
+    expect(PYTHIA_PROMPT).toContain("REJECTED_DEMOTED")
+    expect(PYTHIA_PROMPT).toContain("rubric_verdict")
+    expect(PYTHIA_PROMPT).toMatch(/confidence_score\s*[≤<=]+\s*30/)
+  })
 })
