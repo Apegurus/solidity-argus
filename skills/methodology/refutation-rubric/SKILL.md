@@ -17,32 +17,32 @@ This skill is REQUIRED reading at audit start for Sentinel and Pythia.
 
 Construct the strongest argument that the finding is wrong. Find the guard, check, or constraint that kills the attack. **You must quote the exact line of code that blocks (or fails to block) the claimed step.**
 
-- Concrete refutation (specific guard blocks the exact claimed step) → **REJECTED** (drop; or DEMOTE if a related code smell remains)
+- Concrete refutation (specific guard blocks the exact claimed step) → **REJECTED_DEMOTED** (record with `rubric_verdict="REJECTED_DEMOTED"` and `confidence_score ≤ 30`; the quoted guard goes in the Refutation quote so a human reviewer can verify the guard is real and effective)
 - Speculative refutation ("probably wouldn't happen") → **clears**, continue to Gate 2
 
 ## Gate 2 — Reachability
 
 Prove the vulnerable state exists in a live deployment.
 
-- Structurally impossible (an enforced invariant prevents it) → **REJECTED**
-- Requires privileged actions outside normal operation → **DEMOTE**
+- Structurally impossible (an enforced invariant prevents it) → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; quote the invariant in the Refutation quote so the reviewer can verify it is enforced rather than merely conventional)
+- Requires privileged actions outside normal operation → **DEMOTE** (`confidence_score ≤ 75`)
 - Achievable through normal usage or common token behaviors → **clears**, continue to Gate 3
 
 ## Gate 3 — Trigger
 
 Prove an unprivileged actor executes the attack.
 
-- Only trusted roles can trigger → **DEMOTE**
-- Costs (gas, capital) exceed extraction → **REJECTED**
+- Only trusted roles can trigger → **DEMOTE** (`confidence_score ≤ 75`)
+- Costs (gas, capital) exceed extraction → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; this is the most fragile gate — LLM cost calculations ignore flash loans, MEV efficiency, repeated extraction, TVL growth, and cross-protocol composability. Always demote rather than drop, so human reviewers can audit your cost reasoning.)
 - Unprivileged actor triggers profitably → **clears**, continue to Gate 4
 
 ## Gate 4 — Impact
 
 Prove material harm to an identifiable victim.
 
-- Self-harm only → **REJECTED**
-- Dust-level, no compounding → **DEMOTE**
-- Material loss to identifiable victim → **CONFIRMED**
+- Self-harm only → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; functions like `selfDestruct` or `burn` are usually intentional, but document who "self" is — a multisig signer under social engineering, or an admin under key compromise, both look like "self-harm" from a static viewpoint)
+- Dust-level, no compounding → **DEMOTE** (`confidence_score ≤ 75`)
+- Material loss to identifiable victim → **CONFIRMED** (`confidence_score ≥ 80`)
 
 ## Confidence Scoring
 
