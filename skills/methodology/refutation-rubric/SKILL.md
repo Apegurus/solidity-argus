@@ -83,17 +83,19 @@ These patterns are LIKELY not vulnerabilities, but the agent's pattern recogniti
 
 If you can prove the "might still matter" path is real, escalate to a CONFIRMED finding with full rubric trace and the proof.
 
-## Do Not Report
+## Audit Noise (REJECTED_DEMOTED with documentation)
 
-Out of scope for security audits. Drop these at source — they are noise:
+These categories are often out of scope for security audits but argus users (solo devs, OSS maintainers, bounty hunters, CI/CD pipelines) frequently lack the context to recognize when a "noise" finding is actually material. Record each at `rubric_verdict="REJECTED_DEMOTED"` and `confidence_score ≤ 30` with the rubric trace stating which noise category it fell into AND why a user might still want to see it. Do not drop at source.
 
-- Linter / compiler warnings
-- Gas micro-optimizations (e.g. `++i` vs `i++`)
-- Naming or NatSpec issues
-- Admin privileges that are by design
-- Missing events without a concrete exploit path
-- Centralization concerns without a concrete exploit path
-- Implausible preconditions — EXCEPT: fee-on-transfer, rebasing, and blacklisting tokens ARE plausible for any contract that accepts arbitrary ERC20 tokens
+- **Linter / compiler warnings** — might still matter if the warning is about a deprecated cryptographic primitive or a known compiler bug for the target chain
+- **Gas micro-optimizations** (e.g. `++i` vs `i++`) — might still matter inside an unbounded loop on user-controllable iteration count
+- **Naming or NatSpec issues** — might still matter if the misnaming creates a behavioral expectation mismatch (e.g., `transferFrom` that actually mints)
+- **Admin privileges that are by design** — **always record**; "by design" is a judgment the agent cannot fully verify without protocol documentation, and the argus user often does NOT know admin can rug. Quote the admin function in the Refutation quote so the user can make their own call.
+- **Missing events without a concrete exploit path** — might still matter for off-chain indexer reliability, missing audit trails on admin actions, or governance proposal traceability
+- **Centralization concerns without a concrete exploit path** — **always record**; same logic as admin-by-design. The user may not realize the protocol is centralized.
+- **Implausible preconditions** — EXCEPT: fee-on-transfer, rebasing, and blacklisting tokens ARE plausible for any contract that accepts arbitrary ERC20 tokens. Treat these as Gate 2 reachability concerns, not noise.
+
+The override remains: if you find evidence that the "might still matter" path is real, escalate to a CONFIRMED finding with proof.
 
 ## Rubric Trace Format
 
