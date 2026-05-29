@@ -99,17 +99,17 @@ The override remains: if you find evidence that the "might still matter" path is
 
 ## Rubric Trace Format
 
-All 4 gate lines MUST be present in every recorded trace. REJECTED findings are not recorded (no trace at all). For DEMOTE and CONFIRMED findings, every gate was evaluated and has a result.
+All 4 gate lines MUST be present in every recorded trace. CONFIRMED, DEMOTED, and REJECTED_DEMOTED findings are all recorded — only the verdict and confidence cap differ. No finding is ever silently dropped.
 
 Every recorded finding MUST include a rubric trace as a markdown prefix in the `description` field. Format:
 
 ```
-**Rubric Trace** · Confidence: <integer 0-100>
+**Rubric Trace** · Verdict: <CONFIRMED|DEMOTED|REJECTED_DEMOTED> · Confidence: <integer 0-100>
 
-- Refutation: <cleared|demoted|rejected> — <one-line reasoning>
-- Reachability: <cleared|demoted|rejected> — <one-line reasoning>
-- Trigger: <cleared|demoted|rejected> — <one-line reasoning>
-- Impact: <cleared|demoted|confirmed> — <one-line reasoning>
+- Refutation: <cleared|demoted|rejected_demoted> — <one-line reasoning>
+- Reachability: <cleared|demoted|rejected_demoted> — <one-line reasoning>
+- Trigger: <cleared|demoted|rejected_demoted> — <one-line reasoning>
+- Impact: <cleared|demoted|rejected_demoted|confirmed> — <one-line reasoning>
 
 **Refutation quote:** `<exact code line from the file under audit>` — <one sentence on why this quoted code does or does not block the attack>
 
@@ -118,7 +118,11 @@ Every recorded finding MUST include a rubric trace as a markdown prefix in the `
 <the actual finding description starts here>
 ```
 
-The Refutation quote MUST be a real line from the contract under audit, copied verbatim. Fabricated quotes are the worst possible failure mode of this rubric — they directly mislead the human reviewer.
+The Verdict in the header MUST match the structured `rubric_verdict` field passed to `argus_record_finding`.
+
+The Refutation quote MUST be a real line from the contract under audit, copied verbatim. Fabricated quotes are the worst possible failure mode of this rubric — they directly mislead the human reviewer. A REJECTED_DEMOTED verdict with a fabricated quote is worse than a dropped finding because the reader trusts what looks like evidence of a guard.
+
+For REJECTED_DEMOTED findings sourced from Safe Patterns or Audit Noise categories (not from a specific gate), use `pre-filter` instead of a gate name on the matching trace line, e.g.: `- Refutation: pre-filter (Safe Pattern: nonReentrant) — quoted modifier blocks single-function reentrancy but read-only reentrancy not analyzed`.
 
 ## Cross-Contract Echo (single-agent guidance)
 
