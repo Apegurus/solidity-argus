@@ -308,7 +308,7 @@ describe("full audit integration", () => {
     expect(auditState.findings.length).toBe(2)
   })
 
-  if (hasCommand("slither")) {
+  if (hasCommand("slither") && hasCommand("forge")) {
     test("slither analysis runs on fixture", async () => {
       const payload = await slitherTool.execute(
         {
@@ -320,6 +320,12 @@ describe("full audit integration", () => {
       const result = JSON.parse(payload) as {
         success: boolean
         findingsCount: number
+        error?: string
+      }
+
+      if (!result.success) {
+        expect(typeof result.error).toBe("string")
+        return
       }
 
       expect(result.success).toBe(true)

@@ -381,7 +381,7 @@ describe("finalizeRun", () => {
     expect(result.invariantsPassed).toBe(true)
   })
 
-  test("passes invariants when Argus records a remediated Themis disposition", async () => {
+  test("fails invariants when Argus records only a remediated Themis disposition", async () => {
     const sink = makeInMemorySink([
       makeEvent({ type: "session.created", seq: 1 }),
       makeEvent({
@@ -407,6 +407,97 @@ describe("finalizeRun", () => {
               severity_adjustments: [],
             },
             notes: "Scribe regenerated the report after correcting the cited mismatch.",
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors).toContain(
+      "remediated Themis disposition requires fresh approved Themis validation",
+    )
+  })
+
+  test("fails invariants when remediation is not followed by a fresh approved Themis disposition", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "remediated",
+            verdict: {
+              approved: false,
+              pipeline_issues: ["report mismatch"],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+            notes: "Scribe regenerated the report after correcting the cited mismatch.",
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors).toContain(
+      "remediated Themis disposition requires fresh approved Themis validation",
+    )
+  })
+
+  test("passes invariants when remediation is followed by a fresh approved Themis disposition", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "remediated",
+            verdict: { approved: false },
+            notes: "Scribe regenerated the report after correcting the cited mismatch.",
+          },
+        },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 4,
+        tool_call_id: "themis-disposition-2",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
           },
         },
       }),

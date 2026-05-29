@@ -75,10 +75,25 @@ function isStackTooDeep(stderr: string): boolean {
   return /stack too deep/i.test(stderr)
 }
 
+function isUnknownConfigKey(stderr: string): boolean {
+  return /unknown key/i.test(stderr)
+}
+
 function classifyCoverageFailure(
   stderr: string,
   args: NormalizedForgeCoverageArgs,
 ): Pick<ForgeCoverageResult, "hint" | "suggested_command"> | undefined {
+  if (isUnknownConfigKey(stderr)) {
+    return {
+      hint:
+        `Forge coverage failed for ${args.target} because foundry.toml contains an unknown foundry.toml key. ` +
+        "Review coverage-compatible Foundry configuration manually; Argus will not edit foundry.toml.",
+      suggested_command: buildCoverageCommand(args).join(" "),
+    }
+  }
+
+  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
+
   if (
     !/(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
       stderr,
@@ -87,13 +102,22 @@ function classifyCoverageFailure(
     return undefined
   }
 
-  const command = buildCoverageCommand({ ...args, ir_minimum: true }).join(" ")
   return {
     hint:
       `Forge coverage failed for ${args.target} while parsing or instrumenting project configuration. ` +
       "If foundry.toml uses optimizerSteps or unsupported optimizer settings, run a scoped coverage command or temporarily adjust coverage-only config manually; Argus will not edit foundry.toml.",
     suggested_command: command,
   }
+}
+
+function shouldRetryWithIrMinimum(stderr: string): boolean {
+  return (
+    isStackTooDeep(stderr) ||
+    (!isUnknownConfigKey(stderr) &&
+      /(optimizerSteps|unsupported optimizer|config parse|failed to parse|instrumentation)/i.test(
+        stderr,
+      ))
+  )
 }
 
 function parsePercent(input: string): number {
@@ -208,7 +232,7 @@ export async function executeForgeCoverage(
     if (
       runResult.exitCode !== 0 &&
       !normalizedArgs.ir_minimum &&
-      isStackTooDeep(runResult.stderr)
+      shouldRetryWithIrMinimum(runResult.stderr)
     ) {
       runResult = await runCommand(buildCoverageCommand(normalizedArgs, true), {
         signal: context.abort,

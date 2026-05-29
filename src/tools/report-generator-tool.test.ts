@@ -212,6 +212,7 @@ function makeFinding(overrides: Partial<Finding>): Finding {
 test("reportGeneratorTool uses tool() helper contract", () => {
   expect(reportGeneratorTool.description.length).toBeGreaterThan(0)
   expect(reportGeneratorTool.args).toBeDefined()
+  expect(Object.keys(reportGeneratorTool.args)).toContain("quality_gate_policy")
   expect(typeof reportGeneratorTool.execute).toBe("function")
 })
 
@@ -1483,6 +1484,81 @@ test("preflight warn mode emits lineage warning for semantic dedup without obser
   expect(result.report).toContain("observation_ids")
 })
 
+test("preflight warn mode emits lineage warning for partial observation ids", async () => {
+  const rawReportInput = makeReportInput([
+    makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({ id: "raw-2", check: "unchecked-call", file: "src/Vault.sol", lines: [20, 22] }),
+  ])
+
+  const partialReportInput = makeReportInput([
+    makeFinding({
+      id: "deduped-1",
+      check: "reentrancy-withdraw",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+      observation_ids: ["obs-raw-1"],
+      observation_count: 1,
+    }),
+    makeFinding({
+      id: "deduped-2",
+      check: "unchecked-call",
+      file: "src/Vault.sol",
+      lines: [20, 22],
+    }),
+  ])
+
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_001,
+      payload: {},
+    },
+    ...rawReportInput.findings.map((finding, index) => ({
+      type: "finding.added" as const,
+      run_id: "test-run-1",
+      seq: index + 2,
+      session_id: "session-1",
+      tool_call_id: `finding-${index + 1}`,
+      source: "sentinel",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_002 + index,
+      payload: finding,
+    })),
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 4,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_700_000_000_004,
+      payload: {},
+    },
+  ]
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "PartialLineage",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(partialReportInput),
+      preflight_policy: "warn",
+      tool_coverage_policy: "skip",
+    },
+    createContext(),
+    { readEvents: async () => events },
+  )
+
+  expect(result.report).toContain("Completeness Warning")
+  expect(result.report).toContain("partial dedup lineage")
+  expect(result.report).toContain("observation_ids")
+  expect(result.report).not.toContain("Finding parity mismatch")
+})
+
 test("preflight accepts semantic dedup when observation_ids cover raw findings", async () => {
   const rawReportInput = makeReportInput([
     makeFinding({ id: "raw-1", check: "reentrancy-eth", file: "src/Vault.sol", lines: [10, 15] }),
@@ -1588,6 +1664,49 @@ test("preflight strict-fail throws when event read fails", async () => {
       },
     ),
   ).rejects.toThrow("unable to read event stream")
+})
+
+test("preflight strict-fail rejects findings outside requested scope", async () => {
+  const reportInput = makeReportInput([
+    makeFinding({ file: "src/Vault.sol", lines: [10, 15] }),
+    makeFinding({ id: "out-of-scope", file: "src/Token.sol", lines: [1, 3] }),
+  ])
+  const events = [
+    {
+      type: "session.created" as const,
+      run_id: "test-run-1",
+      seq: 1,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1,
+      payload: {},
+    },
+    {
+      type: "session.deleted" as const,
+      run_id: "test-run-1",
+      seq: 2,
+      session_id: "session-1",
+      source: "argus",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 2,
+      payload: {},
+    },
+  ]
+
+  expect(
+    executeReportGeneration(
+      {
+        project_name: "StrictScopeTest",
+        scope: ["src/Vault.sol"],
+        report_input: JSON.stringify(reportInput),
+        preflight_policy: "strict-fail",
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+      { readEvents: async () => events },
+    ),
+  ).rejects.toThrow("findings outside audited scope")
 })
 
 test("strict-fail rejects report_input run_id that uses ses_ session identifier", async () => {

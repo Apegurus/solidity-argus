@@ -84,6 +84,8 @@ Focus questions:
 
 Return a structured validation result, not a full report.
 
+Return exactly one JSON verdict. No prose after the JSON verdict.
+
 Use this exact shape:
 
 \`\`\`json

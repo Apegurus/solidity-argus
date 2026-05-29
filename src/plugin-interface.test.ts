@@ -46,6 +46,7 @@ describe("createPluginInterface", () => {
     expect(result.config).toBeDefined()
     expect(result["experimental.chat.system.transform"]).toBeDefined()
     expect(result["experimental.session.compacting"]).toBeDefined()
+    expect(result["experimental.text.complete"]).toBeDefined()
     expect(result["tool.execute.after"]).toBeDefined()
     expect(result.event).toBeDefined()
   })
@@ -112,6 +113,7 @@ describe("createPluginInterface", () => {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }
@@ -134,6 +136,7 @@ describe("createPluginInterface", () => {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }
@@ -158,6 +161,7 @@ describe("createPluginInterface", () => {
       "chat.message": chatMessageHook as unknown as Hooks["chat.message"],
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }
@@ -180,6 +184,7 @@ describe("createPluginInterface", () => {
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
       "experimental.session.compacting": undefined,
+      "experimental.text.complete": undefined,
       "tool.execute.after": undefined,
       event: undefined,
     }

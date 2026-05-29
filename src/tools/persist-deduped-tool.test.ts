@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -145,6 +145,102 @@ test("executePersistDeduped rejects invalid lineage without writing", async () =
       { check: "dedup-a", observation_count: 1, observation_ids_length: 2 },
     ])
     expect(existsSync(dedupedPath)).toBe(false)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped accepts object payload with dropped observations", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-dropped-"))
+  try {
+    const runId = "run-dropped"
+    writeRawFindings(tempDir, runId, [
+      finding({ id: "raw-a", observation_id: "obs-a" }),
+      finding({ id: "raw-b", observation_id: "obs-b" }),
+    ])
+    const deduped = [finding({ id: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 })]
+    const payload = {
+      findings: deduped,
+      dropped_observations: [
+        { observation_id: "obs-b", reason: "false-positive", note: "not exploitable" },
+      ],
+    }
+
+    const output = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: JSON.stringify(payload) },
+        context(tempDir),
+      ),
+    )
+
+    const artifact = JSON.parse(
+      readFileSync(createAuditArtifactResolver(runId, tempDir).paths().dedupedFindingsFile, "utf8"),
+    )
+    expect(output.success).toBe(true)
+    expect(output.dropped_observations_count).toBe(1)
+    expect(artifact.dropped_observations).toEqual(payload.dropped_observations)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped is idempotent for identical semantic content", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-idempotent-"))
+  try {
+    const runId = "run-idempotent"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const deduped = [finding({ id: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 })]
+
+    const first = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: JSON.stringify({ findings: deduped }) },
+        context(tempDir),
+      ),
+    )
+    const dedupedPath = createAuditArtifactResolver(runId, tempDir).paths().dedupedFindingsFile
+    const firstArtifact = JSON.parse(readFileSync(dedupedPath, "utf8"))
+
+    const second = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: JSON.stringify({ findings: deduped }) },
+        context(tempDir),
+      ),
+    )
+    const secondArtifact = JSON.parse(readFileSync(dedupedPath, "utf8"))
+
+    expect(first.success).toBe(true)
+    expect(second).toMatchObject({ success: true, idempotent: true })
+    expect(secondArtifact.deduped_at).toBe(firstArtifact.deduped_at)
+    expect(secondArtifact.content_hash).toBe(firstArtifact.content_hash)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped is idempotent for semantically identical key order changes", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-key-order-"))
+  try {
+    const runId = "run-key-order"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+
+    const firstPayload = `{"findings":[{"id":"dedup-a","check":"dedup-a","severity":"Medium","confidence":"High","description":"dedup-a","file":"src/Vault.sol","lines":[1,1],"source":"manual","run_id":"run-1","seq":1,"schema_version":"${SCHEMA_VERSION}","observation_id":"obs-dedup-a","issue_fingerprint":"issue-dedup-a","observation_fingerprint":"obsfp-dedup-a","reported_by_agent":"sentinel","observation_ids":["obs-a"],"observation_count":1}]}`
+    const secondPayload = `{"findings":[{"observation_count":1,"observation_ids":["obs-a"],"reported_by_agent":"sentinel","observation_fingerprint":"obsfp-dedup-a","issue_fingerprint":"issue-dedup-a","observation_id":"obs-dedup-a","schema_version":"${SCHEMA_VERSION}","seq":1,"run_id":"run-1","source":"manual","lines":[1,1],"file":"src/Vault.sol","description":"dedup-a","confidence":"High","severity":"Medium","check":"dedup-a","id":"dedup-a"}]}`
+
+    const first = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: firstPayload },
+        context(tempDir),
+      ),
+    )
+    const second = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: secondPayload },
+        context(tempDir),
+      ),
+    )
+
+    expect(first.success).toBe(true)
+    expect(second).toMatchObject({ success: true, idempotent: true })
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

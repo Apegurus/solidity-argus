@@ -74,6 +74,35 @@ test("executeContractAnalyzer calls extractContractInfo using basename contract 
   expect(result.error).toBeUndefined()
 })
 
+test("executeContractAnalyzer falls back to declared contract name when basename inspect fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+
+  const filePath = join(root, "contracts", "PositionRouter.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(filePath, "contract Router { function run() external {} }\n")
+
+  const calls: string[] = []
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(),
+    {
+      extractInfo: async (contractName) => {
+        calls.push(contractName)
+        if (contractName === "PositionRouter") {
+          return { ...createBaseProfile(), name: contractName, error: "Failed to inspect ABI" }
+        }
+        return { ...createBaseProfile(), name: contractName }
+      },
+    },
+  )
+
+  expect(calls).toEqual(["PositionRouter", "Router"])
+  expect(result.name).toBe("Router")
+  expect(result.error).toBeUndefined()
+})
+
 test("executeContractAnalyzer enriches risk indicators from source text and OZ imports", async () => {
   const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
   tempDirs.push(root)

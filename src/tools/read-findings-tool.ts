@@ -3,6 +3,11 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
+import {
+  DROPPED_OBSERVATION_REASONS,
+  type DroppedObservation,
+} from "../shared/dropped-observations"
+import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { defaultRootResolver } from "../shared/path-root-resolver"
 import { resolveProjectDir } from "../shared/project-utils"
@@ -12,6 +17,8 @@ import type { AuditState } from "../state/types"
 
 type ReadFindingsArgs = {
   run_id: string
+  findings_offset?: number
+  findings_limit?: number
 }
 
 type ReportFinding = Omit<
@@ -42,6 +49,11 @@ type CompactReportInput = Omit<
   run_id: string
   findings: ReportFinding[]
   toolsExecuted: ReportToolExecution[]
+  findingsPage?: {
+    offset: number
+    limit: number
+    total: number
+  }
 }
 
 type ReadFindingsInlineResult = {
@@ -98,17 +110,38 @@ function stripInternalKeys(obj: object, keysToStrip: ReadonlySet<string>): Recor
   return result
 }
 
-function buildCompactInput(reportInput: ReportInput): CompactReportInput {
+function normalizePageArgs(args: ReadFindingsArgs): { offset: number; limit: number } | null {
+  if (args.findings_offset == null && args.findings_limit == null) return null
+
+  const offset = args.findings_offset ?? 0
+  const limit = args.findings_limit ?? 50
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error("findings_offset must be a non-negative integer")
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new Error("findings_limit must be an integer between 1 and 500")
+  }
+  return { offset, limit }
+}
+
+function buildCompactInput(
+  reportInput: ReportInput,
+  page: { offset: number; limit: number } | null = null,
+): CompactReportInput {
+  const rawFindings = page
+    ? reportInput.findings.slice(page.offset, page.offset + page.limit)
+    : reportInput.findings
   return {
     run_id: reportInput.run_id,
     projectDir: reportInput.projectDir,
-    findings: reportInput.findings.map(
-      (f) => stripInternalKeys(f, FINDING_INTERNAL_KEYS) as ReportFinding,
-    ),
+    findings: rawFindings.map((f) => stripInternalKeys(f, FINDING_INTERNAL_KEYS) as ReportFinding),
     toolsExecuted: reportInput.toolsExecuted.map(
       (t) => stripInternalKeys(t, TOOL_EXECUTION_INTERNAL_KEYS) as ReportToolExecution,
     ),
     scope: reportInput.scope,
+    ...(reportInput.dropped_observations && {
+      dropped_observations: reportInput.dropped_observations,
+    }),
     ...(reportInput.soloditResults && { soloditResults: reportInput.soloditResults }),
     ...(reportInput.fuzzCounterexamples && {
       fuzzCounterexamples: reportInput.fuzzCounterexamples,
@@ -118,6 +151,13 @@ function buildCompactInput(reportInput: ReportInput): CompactReportInput {
     ...(reportInput.proxyContracts && { proxyContracts: reportInput.proxyContracts }),
     ...(reportInput.patternVersion && { patternVersion: reportInput.patternVersion }),
     ...(reportInput.skillsLoaded && { skillsLoaded: reportInput.skillsLoaded }),
+    ...(page && {
+      findingsPage: {
+        offset: page.offset,
+        limit: page.limit,
+        total: reportInput.findings.length,
+      },
+    }),
   }
 }
 
@@ -243,6 +283,39 @@ function readNewestSessionState(argusRoot: string): AuditState | null {
   return null
 }
 
+function readRawFindings(projectDir: string, runId: string): CanonicalFinding[] | null {
+  const findingsFile = createAuditArtifactResolver(runId, projectDir).paths().findingsFile
+  try {
+    const parsed = JSON.parse(readFileSync(findingsFile, "utf8")) as { findings?: unknown }
+    return Array.isArray(parsed.findings) ? (parsed.findings as CanonicalFinding[]) : null
+  } catch {
+    return null
+  }
+}
+
+function parseDroppedObservations(raw: unknown): DroppedObservation[] | null {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) return null
+
+  const validReasons = new Set<string>(DROPPED_OBSERVATION_REASONS)
+  const dropped: DroppedObservation[] = []
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return null
+    const record = item as Record<string, unknown>
+    if (typeof record.observation_id !== "string" || record.observation_id.length === 0) return null
+    if (typeof record.reason !== "string" || !validReasons.has(record.reason)) return null
+    const drop: DroppedObservation = {
+      observation_id: record.observation_id,
+      reason: record.reason as DroppedObservation["reason"],
+    }
+    if (typeof record.note === "string" && record.note.length > 0) {
+      drop.note = record.note
+    }
+    dropped.push(drop)
+  }
+  return dropped
+}
+
 function readAuditStateAsReportInput(projectDir: string, runId: string): ReportInput {
   const logger = createLogger()
   const argusRoot = defaultRootResolver.writeRoot(projectDir)
@@ -251,10 +324,35 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   try {
     const dedupedRaw = JSON.parse(readFileSync(dedupedFile, "utf8")) as {
       findings?: unknown[]
+      dropped_observations?: unknown[]
       run_id?: string
     }
     if (Array.isArray(dedupedRaw.findings) && dedupedRaw.findings.length > 0) {
       logger.debug(`Loaded deduped findings from: ${dedupedFile}`)
+      const rawFindings = readRawFindings(projectDir, runId)
+      if (!rawFindings) {
+        throw new Error(
+          `Cannot verify deduped lineage because .argus/runs/${runId}/findings.json is missing or invalid`,
+        )
+      }
+
+      const droppedObservations = parseDroppedObservations(dedupedRaw.dropped_observations)
+      if (!droppedObservations) {
+        throw new Error(
+          "Invalid deduped findings artifact: dropped_observations must be an array of valid dropped observation entries",
+        )
+      }
+
+      const lineage = validateFindingLineage(
+        rawFindings,
+        dedupedRaw.findings as CanonicalFinding[],
+        droppedObservations,
+      )
+      if (!lineage.valid) {
+        throw new Error(
+          `Invalid deduped findings lineage: missing=${lineage.missing_observation_ids.length}, extra=${lineage.phantom_observation_ids.length}, duplicates=${lineage.duplicate_observation_ids.length}, dropped_extra=${lineage.phantom_dropped_observation_ids.length}, dropped_duplicates=${lineage.duplicate_dropped_observation_ids.length}, mapped_dropped_overlap=${lineage.overlapping_mapped_dropped_observation_ids.length}, invalid_dropped=${lineage.invalid_dropped_observations.length}, count_mismatches=${lineage.count_mismatches.length}`,
+        )
+      }
 
       const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
       let baseReportInput: Partial<ReportInput> = {}
@@ -266,6 +364,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
         ...baseReportInput,
         run_id: dedupedRaw.run_id ?? runId,
         findings: dedupedRaw.findings as CanonicalFinding[],
+        dropped_observations: droppedObservations,
         toolsExecuted: baseReportInput.toolsExecuted ?? [],
         scope: baseReportInput.scope ?? [],
         projectDir: baseReportInput.projectDir ?? projectDir,
@@ -276,7 +375,14 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
         schema_version: SCHEMA_VERSION,
       } as ReportInput
     }
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.startsWith("Cannot verify deduped lineage") ||
+        error.message.startsWith("Invalid deduped findings"))
+    ) {
+      throw error
+    }
     logger.debug(`No deduped findings at ${dedupedFile}`)
   }
 
@@ -339,7 +445,8 @@ export async function executeReadFindings(
 
   const projectDir = resolveProjectDir(context)
   const reportInput = readAuditStateAsReportInput(projectDir, runId)
-  const compactInput = buildCompactInput(reportInput)
+  const page = normalizePageArgs(args)
+  const compactInput = buildCompactInput(reportInput, page)
 
   const inlineJson = JSON.stringify({
     success: true,
@@ -383,6 +490,14 @@ export const readFindingsTool = tool({
     "Read the materialized ReportInput artifact from disk for a given run. Returns the canonical findings, tools executed, scope, and all enrichment data. Scribe should call this before generating the report.",
   args: {
     run_id: tool.schema.string().describe("The run ID to read findings for."),
+    findings_offset: tool.schema
+      .number()
+      .optional()
+      .describe("Optional zero-based finding offset for paged inline retrieval."),
+    findings_limit: tool.schema
+      .number()
+      .optional()
+      .describe("Optional finding page size for inline retrieval (1-500)."),
   },
   async execute(args, context) {
     return executeReadFindings(args, context)

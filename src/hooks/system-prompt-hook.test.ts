@@ -203,6 +203,44 @@ describe("buildDynamicContext", () => {
     )
   })
 
+  it("renders per-subagent task dispatch counts in the tool ledger", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          {
+            tool: "task",
+            startTime: 1000,
+            endTime: 1010,
+            success: true,
+            findingsCount: 0,
+            subagent_type: "sentinel",
+          },
+          {
+            tool: "task",
+            startTime: 1020,
+            endTime: 1035,
+            success: true,
+            findingsCount: 0,
+            subagent_type: "audit-specialist",
+          },
+          {
+            tool: "task",
+            startTime: 1040,
+            endTime: 1060,
+            success: false,
+            findingsCount: 0,
+            subagent_type: "audit-specialist",
+          },
+        ],
+      }),
+      "argus",
+    )
+
+    expect(context).toContain("task dispatches=3")
+    expect(context).toContain("sentinel=1")
+    expect(context).toContain("audit-specialist=2")
+  })
+
   it("renders additive finding counts when present", () => {
     const context = buildDynamicContext(
       makeAuditState({
