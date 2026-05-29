@@ -45,11 +45,23 @@ describe("refutation-rubric skill", () => {
     expect(raw).toContain("**Refutation quote:**")
   })
 
-  test("specifies verdicts (CONFIRMED, DEMOTE, REJECTED)", () => {
+  test("specifies all three verdicts (CONFIRMED, DEMOTED, REJECTED_DEMOTED)", () => {
     const raw = readFileSync(SKILL_PATH, "utf8")
     expect(raw).toContain("CONFIRMED")
-    expect(raw).toContain("DEMOTE")
-    expect(raw).toContain("REJECTED")
+    expect(raw).toContain("DEMOTED")
+    expect(raw).toContain("REJECTED_DEMOTED")
+  })
+
+  test("does NOT instruct dropping findings", () => {
+    const raw = readFileSync(SKILL_PATH, "utf8")
+    // The new semantics never drop. These phrases from the prior version must be gone.
+    expect(raw).not.toMatch(/\bdrop\b.*candidate/i)
+    expect(raw).not.toMatch(/Do NOT call.*record_finding/i)
+  })
+
+  test("documents that REJECTED_DEMOTED caps at confidence ≤30", () => {
+    const raw = readFileSync(SKILL_PATH, "utf8")
+    expect(raw).toMatch(/REJECTED_DEMOTED[^\n]*30/)
   })
 
   test("specifies confidence scoring rules with concrete deductions", () => {
@@ -61,10 +73,19 @@ describe("refutation-rubric skill", () => {
     expect(raw).toMatch(/\b80\b/)
   })
 
-  test("includes safe-patterns and do-not-report sections", () => {
+  test("Safe Patterns section now demotes rather than drops", () => {
     const raw = readFileSync(SKILL_PATH, "utf8")
-    expect(raw).toMatch(/##\s+Safe Patterns/)
-    expect(raw).toMatch(/##\s+Do Not Report/)
+    expect(raw).toMatch(/##\s+Safe Patterns.*do not silently drop/i)
+    // Each Safe Pattern bullet documents a 'might still matter' escalation path
+    expect(raw).toMatch(/might still matter/i)
+  })
+
+  test("Audit Noise section replaces Do Not Report and demotes rather than drops", () => {
+    const raw = readFileSync(SKILL_PATH, "utf8")
+    expect(raw).toMatch(/##\s+Audit Noise/)
+    // 'admin-by-design' and 'centralization' are always-record categories
+    expect(raw).toMatch(/Admin privileges that are by design/i)
+    expect(raw).toMatch(/always record/i)
   })
 
   test("refutation-rubric is discoverable by argus-skill-resolver", async () => {
@@ -92,5 +113,10 @@ describe("refutation-rubric skill", () => {
     )
     const raw = readFileSync(path, "utf8")
     expect(raw).toContain("refutation-rubric")
+  })
+
+  test("Rubric Trace Format requires Verdict line in header", () => {
+    const raw = readFileSync(SKILL_PATH, "utf8")
+    expect(raw).toMatch(/Verdict:\s*<CONFIRMED\|DEMOTED\|REJECTED_DEMOTED>/)
   })
 })
