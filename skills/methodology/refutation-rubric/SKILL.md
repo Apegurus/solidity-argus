@@ -46,23 +46,28 @@ Prove material harm to an identifiable victim.
 
 ## Confidence Scoring
 
-Pass the resulting score to `argus_record_finding` as the `confidence_score` field (integer, 0-100).
+Pass the resulting score to `argus_record_finding` as the `confidence_score` field (integer, 0-100). Also pass `rubric_verdict` (string enum) so the reporter can group findings deterministically.
 
 Start at **100**, then deduct:
 
 - Partial attack path: **-20**
 - Bounded non-compounding impact: **-15**
 - Requires specific (but achievable) state: **-10**
-- Demoted at any gate (not REJECTED): take min(current, 75) → typical Lead range
+- Demoted at any gate (not REJECTED_DEMOTED): take min(current, 75) → typical Lead range with `rubric_verdict="DEMOTED"`
+- REJECTED_DEMOTED at any gate, Safe Pattern, or Do Not Report: take min(current, 30) → bottom of Leads with `rubric_verdict="REJECTED_DEMOTED"`
+
+The default reporter splits at `confidence_score ≥ 80` (Findings) vs `< 80` (Leads). The threshold is configurable via `reporting.confidenceThreshold`. REJECTED_DEMOTED entries always land in Leads under the default threshold.
 
 Confidence ≥ 80 → goes in `## Findings` section of the report with a `Fix` block.
 Confidence < 80 → goes in `## Leads` section, description only, no `Fix`.
 
 ## Verdicts
 
-- **CONFIRMED**: cleared all 4 gates → record_finding with rubric trace in description
-- **DEMOTE**: cleared some gates, demoted at others → record_finding (becomes a Lead based on confidence)
-- **REJECTED**: failed a hard gate → do NOT call record_finding
+Every recorded finding has exactly one `rubric_verdict` value:
+
+- **CONFIRMED**: cleared all 4 gates → `record_finding` with full rubric trace and `confidence_score ≥ 80`
+- **DEMOTED**: cleared some gates, demoted at others → `record_finding` with full rubric trace and `confidence_score ≤ 75` (lands in Leads)
+- **REJECTED_DEMOTED**: failed a hard gate, hit a Safe Pattern, or hit a Do Not Report category → `record_finding` with full rubric trace and `confidence_score ≤ 30` (lands at the bottom of Leads). **This verdict replaces the prior "REJECTED = drop" semantics — we never drop findings, because argus users may lack a human auditor to backfill the missed reasoning.**
 
 ## Safe Patterns (DO NOT FLAG)
 
