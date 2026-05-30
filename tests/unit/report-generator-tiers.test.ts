@@ -366,3 +366,137 @@ describe("renderer — [NN] prefix in Leads tier", () => {
     expect(md).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
   })
 })
+
+describe("executive summary — Findings/Leads breakdown (adj_5)", () => {
+  const makeFinding = (overrides: Partial<CanonicalFinding> & { id: string }): CanonicalFinding =>
+    ({
+      check: "test-check",
+      description: "desc",
+      file: "src/A.sol",
+      lines: [1, 2],
+      severity: "High",
+      confidence: "Medium",
+      source: "manual",
+      run_id: "run-1",
+      seq: 1,
+      schema_version: SCHEMA_VERSION,
+      observation_id: overrides.id,
+      issue_fingerprint: `fp-${overrides.id}`,
+      observation_fingerprint: `ofp-${overrides.id}`,
+      reported_by_agent: "sentinel",
+      ...overrides,
+    }) as CanonicalFinding
+
+  const baseInput = (findings: CanonicalFinding[]): ReportInput => ({
+    run_id: "run-1",
+    seq: 0,
+    session_id: "ses_test",
+    tool_call_id: "call-1",
+    source: "test",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp",
+    findings,
+    toolsExecuted: [],
+    scope: ["src/"],
+  })
+
+  test("High Lead is counted in Total column, not lost from exec summary", () => {
+    const findings = [
+      makeFinding({ id: "high-confirmed", severity: "High", confidence_score: 90 }),
+      makeFinding({ id: "high-demoted", severity: "High", confidence_score: 25 }),
+    ]
+    const md = renderReportMarkdown(baseInput(findings))
+    // 3-column layout: | Severity | Findings | Leads | Total |
+    expect(md).toMatch(/\| High \| 1 \| 1 \| 2 \|/)
+  })
+
+  test("Critical Lead surfaces in exec summary Total even with zero Findings tier", () => {
+    const findings = [makeFinding({ id: "crit-lead", severity: "Critical", confidence_score: 20 })]
+    const md = renderReportMarkdown(baseInput(findings))
+    expect(md).toMatch(/\| Critical \| 0 \| 1 \| 1 \|/)
+  })
+
+  test("exec summary header reflects 3-column layout", () => {
+    const findings = [makeFinding({ id: "f1", severity: "High", confidence_score: 90 })]
+    const md = renderReportMarkdown(baseInput(findings))
+    expect(md).toContain("| Severity | Findings | Leads | Total |")
+  })
+})
+
+describe("renderFindingHeader — heading sanitization (adj_10)", () => {
+  const makeFinding = (check: string): CanonicalFinding =>
+    ({
+      id: "obs:1",
+      check,
+      description: "desc",
+      file: "src/A.sol",
+      lines: [1, 2],
+      severity: "High",
+      confidence: "Medium",
+      source: "manual",
+      run_id: "run-1",
+      seq: 1,
+      schema_version: SCHEMA_VERSION,
+      observation_id: "obs:1",
+      issue_fingerprint: "fp1",
+      observation_fingerprint: "ofp1",
+      reported_by_agent: "sentinel",
+    }) as CanonicalFinding
+
+  const baseInput = (findings: CanonicalFinding[]): ReportInput => ({
+    run_id: "run-1",
+    seq: 0,
+    session_id: "ses_test",
+    tool_call_id: "call-1",
+    source: "test",
+    schema_version: SCHEMA_VERSION,
+    projectDir: "/tmp",
+    findings,
+    toolsExecuted: [],
+    scope: ["src/"],
+  })
+
+  test("strips backticks from check field (no inline code in heading)", () => {
+    const md = renderReportMarkdown(baseInput([makeFinding("foo`evil`bar")]))
+    expect(md).not.toContain("`evil`")
+  })
+
+  test("strips HTML brackets from check field (no inline HTML injection)", () => {
+    const md = renderReportMarkdown(
+      baseInput([makeFinding("safe <img src=x onerror=alert(1)> name")]),
+    )
+    expect(md).not.toContain("<img")
+    expect(md).not.toContain("onerror")
+  })
+
+  test("strips Markdown link syntax from check field", () => {
+    const md = renderReportMarkdown(baseInput([makeFinding("name [click](http://evil.com) more")]))
+    expect(md).not.toContain("[click]")
+    expect(md).not.toContain("](http://evil.com)")
+  })
+
+  test("strips heading marker chars from check field (no forged headings)", () => {
+    const md = renderReportMarkdown(baseInput([makeFinding("foo ## Forged Header bar")]))
+    expect(md).not.toMatch(/^## Forged Header/m)
+  })
+
+  test("strips CRLF from check field (heading stays on one line)", () => {
+    const md = renderReportMarkdown(baseInput([makeFinding("foo\n## evil\nbar")]))
+    const findingHeadings = md
+      .split("\n")
+      .filter((l) => l.startsWith("### ") && l.includes("· severity:"))
+    expect(findingHeadings.length).toBe(1)
+    // Strip the leading `### ` so we don't false-match on the heading marker itself
+    expect(findingHeadings[0]?.slice(4)).not.toContain("##")
+  })
+
+  test("strips table pipe from check field (no row break)", () => {
+    const md = renderReportMarkdown(baseInput([makeFinding("foo|bar")]))
+    expect(md).toContain("### Foo Bar")
+  })
+
+  test("preserves normal kebab-case check names", () => {
+    const md = renderReportMarkdown(baseInput([makeFinding("reentrancy-eth")]))
+    expect(md).toContain("### Reentrancy Eth")
+  })
+})

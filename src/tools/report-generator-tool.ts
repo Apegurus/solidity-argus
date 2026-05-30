@@ -753,9 +753,14 @@ function parseReportInputPayload(
   )
 }
 
+// Strips Markdown/HTML-sensitive chars so LLM-controlled `check` values cannot
+// forge sections, links, code spans, or inline HTML in the rendered H3 heading.
+const HEADING_DANGEROUS_CHARS = /[\r\n\t`*<>[\]()#\\|]+/g
+
 function normalizeTitle(check: string): string {
   if (!check || typeof check !== "string") return "Unknown Check"
-  return check
+  const sanitized = check.replace(HEADING_DANGEROUS_CHARS, " ")
+  return sanitized
     .split(/[-_\s]+/)
     .filter((part) => part.length > 0)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
@@ -1325,7 +1330,10 @@ export function renderReportMarkdown(
   const tiers = splitFindingsByTier(reportFindings, confidenceThreshold)
   const findings = sortFindingsByConfidence(tiers.findings)
   const leads = sortFindingsByConfidence(tiers.leads)
-  const counts = calculateCounts(findings)
+  // Executive summary reflects discovery (Findings + Leads); body splits them by tier.
+  const counts = calculateCounts(reportFindings)
+  const findingsTierCounts = calculateCounts(findings)
+  const leadsTierCounts = calculateCounts(leads)
   const runStartTime = toolsExecuted.reduce(
     (earliest, exec) =>
       typeof exec.startTime === "number" &&
@@ -1348,13 +1356,21 @@ export function renderReportMarkdown(
       `This report summarizes security findings identified for ${projectName} based on static analysis, testing, and pattern-based review.`,
     )
     sections.push("")
-    sections.push("| Severity | Count |")
-    sections.push("| --- | ---: |")
-    sections.push(`| Critical | ${counts.critical} |`)
-    sections.push(`| High | ${counts.high} |`)
-    sections.push(`| Medium | ${counts.medium} |`)
-    sections.push(`| Low | ${counts.low} |`)
-    sections.push(`| Informational | ${counts.informational} |`)
+    sections.push("| Severity | Findings | Leads | Total |")
+    sections.push("| --- | ---: | ---: | ---: |")
+    sections.push(
+      `| Critical | ${findingsTierCounts.critical} | ${leadsTierCounts.critical} | ${counts.critical} |`,
+    )
+    sections.push(
+      `| High | ${findingsTierCounts.high} | ${leadsTierCounts.high} | ${counts.high} |`,
+    )
+    sections.push(
+      `| Medium | ${findingsTierCounts.medium} | ${leadsTierCounts.medium} | ${counts.medium} |`,
+    )
+    sections.push(`| Low | ${findingsTierCounts.low} | ${leadsTierCounts.low} | ${counts.low} |`)
+    sections.push(
+      `| Informational | ${findingsTierCounts.informational} | ${leadsTierCounts.informational} | ${counts.informational} |`,
+    )
     sections.push("")
     sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`)
   }
@@ -1623,7 +1639,9 @@ export async function executeReportGeneration(
   const findings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
-  const qualityGates = validateReportQuality(findings, qualityGatePolicy)
+  // Quality gates apply to the Findings tier only; Leads are description-only per rubric.
+  const { findings: confirmedFindings } = splitFindingsByTier(findings, confidenceThreshold)
+  const qualityGates = validateReportQuality(confirmedFindings, qualityGatePolicy)
   if (!qualityGates.passed && qualityGatePolicy === "strict-fail") {
     throw new Error(
       `Report quality gates failed: ${JSON.stringify({ passed: false, violations: qualityGates.violations })}`,

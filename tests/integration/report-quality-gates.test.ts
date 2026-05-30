@@ -33,6 +33,12 @@ function makeFinding(overrides: Partial<Finding> & Record<string, unknown>): Fin
     source: (overrides.source as Finding["source"]) ?? "manual",
     remediation: overrides.remediation as string | undefined,
     exploitReference: overrides.exploitReference as string | undefined,
+    ...(typeof overrides.confidence_score === "number"
+      ? { confidence_score: overrides.confidence_score }
+      : {}),
+    ...(typeof overrides.rubric_verdict === "string"
+      ? { rubric_verdict: overrides.rubric_verdict as Finding["rubric_verdict"] }
+      : {}),
     ...(typeof overrides.impact === "string" ? { impact: overrides.impact } : {}),
     ...(typeof overrides.recommendation === "string"
       ? { recommendation: overrides.recommendation }
@@ -221,6 +227,115 @@ describe("report quality gates", () => {
     }
 
     expect(thrown).toContain("severity-justification.missing-recommendation")
+  })
+
+  test("strict mode does NOT fail when High Lead (below confidence threshold) lacks enrichment", async () => {
+    // Regression: adj_4 (.reviews/PR-5-2026-05-29.md) — gate must skip Leads tier.
+    const findings: Finding[] = [
+      makeFinding({
+        id: "high-lead-no-enrichment",
+        check: "high-lead-demoted",
+        severity: "High",
+        confidence_score: 25,
+        rubric_verdict: "REJECTED_DEMOTED",
+        description:
+          "**Rubric Trace** · Verdict: REJECTED_DEMOTED · Confidence: 25\n\n- Refutation: rejected_demoted — guard exists\n- Reachability: cleared\n- Trigger: cleared\n- Impact: cleared\n\n**Refutation quote:** `require(msg.sender == owner)`\n\n---\n\nbody",
+      }),
+    ]
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "LeadStrictGate",
+        scope: ["src/Default.sol"],
+        quality_gate_policy: "strict-fail",
+        report_input: JSON.stringify({
+          run_id: "test-run-1",
+          seq: findings.length,
+          session_id: "session-1",
+          tool_call_id: "tc-report",
+          source: "test",
+          schema_version: SCHEMA_VERSION,
+          projectDir: "/tmp/project",
+          findings: findings.map((f, i) => ({
+            ...f,
+            run_id: "test-run-1",
+            seq: i + 1,
+            session_id: "session-1",
+            tool_call_id: "tc-1",
+            source: f.source ?? "manual",
+            schema_version: SCHEMA_VERSION,
+            observation_id: `obs-${f.id ?? i}`,
+            issue_fingerprint: `issue-${f.id ?? i}`,
+            observation_fingerprint: `obs-fp-${f.id ?? i}`,
+            reported_by_agent: "sentinel" as const,
+          })),
+          toolsExecuted: [],
+          scope: ["src/Default.sol"],
+        }),
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+    )
+
+    expect(result.report).toContain("# Security Audit Report — LeadStrictGate")
+    expect(result.report).toContain("## Leads")
+    expect(result.qualityGates.passed).toBe(true)
+  })
+
+  test("strict mode STILL fails for confirmed-tier High finding missing impact (regression)", async () => {
+    const findings: Finding[] = [
+      makeFinding({
+        id: "high-confirmed-no-impact",
+        check: "high-confirmed",
+        severity: "High",
+        confidence_score: 95,
+        rubric_verdict: "CONFIRMED",
+        impact: "",
+        recommendation: "Specific remediation guidance.",
+        proofOfConcept: "specific PoC",
+      }),
+    ]
+
+    let thrown = ""
+    try {
+      await executeReportGeneration(
+        {
+          project_name: "ConfirmedStrictGate",
+          scope: ["src/Default.sol"],
+          quality_gate_policy: "strict-fail",
+          report_input: JSON.stringify({
+            run_id: "test-run-1",
+            seq: findings.length,
+            session_id: "session-1",
+            tool_call_id: "tc-report",
+            source: "test",
+            schema_version: SCHEMA_VERSION,
+            projectDir: "/tmp/project",
+            findings: findings.map((f, i) => ({
+              ...f,
+              run_id: "test-run-1",
+              seq: i + 1,
+              session_id: "session-1",
+              tool_call_id: "tc-1",
+              source: f.source ?? "manual",
+              schema_version: SCHEMA_VERSION,
+              observation_id: `obs-${f.id ?? i}`,
+              issue_fingerprint: `issue-${f.id ?? i}`,
+              observation_fingerprint: `obs-fp-${f.id ?? i}`,
+              reported_by_agent: "sentinel" as const,
+            })),
+            toolsExecuted: [],
+            scope: ["src/Default.sol"],
+          }),
+          tool_coverage_policy: "skip",
+        },
+        createContext(),
+      )
+    } catch (error) {
+      thrown = error instanceof Error ? error.message : String(error)
+    }
+
+    expect(thrown).toContain("severity-justification.missing-impact")
   })
 
   test("warn mode continues and emits machine-readable violations", async () => {
