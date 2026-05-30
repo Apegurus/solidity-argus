@@ -1,6 +1,6 @@
 ---
 name: refutation-rubric
-description: Four-gate validation rubric (Refutation, Reachability, Trigger, Impact) that Sentinel and Pythia must apply before emitting any finding. Forces evidence-quoting and false-positive suppression. Use during finding identification, severity assignment, and confidence scoring.
+description: Four-gate validation rubric (Refutation, Reachability, Trigger, Impact) that Sentinel, Pythia, and Audit Specialist must apply before emitting any finding. Forces evidence-quoting and false-positive suppression. Use during finding identification, severity assignment, and confidence scoring.
 category: methodology
 source: pashov/skills (judging.md)
 source_url: https://github.com/pashov/skills/blob/master/solidity-auditor/references/judging.md
@@ -9,9 +9,9 @@ source_license: MIT
 
 # Refutation Rubric — 4-Gate Finding Validation
 
-Every candidate finding passes four sequential gates before being recorded via `argus_record_finding`. Fail any gate → REJECTED (drop, do not record) or DEMOTE (record as Lead). Later gates are not evaluated for failed findings.
+Every candidate finding passes four sequential gates before being recorded via `argus_record_finding`. Fail any gate → **REJECTED_DEMOTED** (record as Lead with `rubric_verdict="REJECTED_DEMOTED"` and `confidence_score ≤ 30`) or **DEMOTED** (record as Lead with `rubric_verdict="DEMOTED"` and `confidence_score ≤ 75`). Later gates are not evaluated for demoted findings — but every finding is recorded, never silently dropped.
 
-This skill is REQUIRED reading at audit start for Sentinel and Pythia.
+This skill is REQUIRED reading at audit start for Sentinel, Pythia, and Audit Specialist.
 
 ## Gate 1 — Refutation
 
