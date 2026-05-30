@@ -1,6 +1,8 @@
 import { normalizeFilePath } from "../shared/path-utils"
 import { isRecord } from "../shared/type-guards"
 import {
+  isValidConfidenceScore,
+  isValidRubricVerdict,
   VALID_AGENTS,
   VALID_CONFIDENCES,
   VALID_SEVERITIES,
@@ -321,15 +323,38 @@ export function normalizeToCanonicalFinding(
     normalizePositiveInteger(input.observationCount) ??
     observationIds?.length
 
+  const confidenceScorePresent = "confidence_score" in input
+  const confidenceScoreValid =
+    confidenceScorePresent && isValidConfidenceScore(input.confidence_score)
+  if (confidenceScorePresent && !confidenceScoreValid) {
+    diagnostics.push({
+      level: "warn",
+      code: "field.invalid",
+      message: `Dropped invalid confidence_score (must be integer 0-100): ${JSON.stringify(input.confidence_score)}`,
+      field: "confidence_score",
+    })
+  }
+
+  const rubricVerdictPresent = "rubric_verdict" in input
+  const rubricVerdictValid = rubricVerdictPresent && isValidRubricVerdict(input.rubric_verdict)
+  if (rubricVerdictPresent && !rubricVerdictValid) {
+    diagnostics.push({
+      level: "warn",
+      code: "field.invalid",
+      message: `Dropped invalid rubric_verdict (must be CONFIRMED, DEMOTED, or REJECTED_DEMOTED): ${JSON.stringify(input.rubric_verdict)}`,
+      field: "rubric_verdict",
+    })
+  }
+
   const canonical: CanonicalFinding = {
     id: observationId,
     check,
     severity: VALID_SEVERITIES.has(severity) ? severity : "Informational",
     confidence: VALID_CONFIDENCES.has(confidence) ? confidence : "Low",
-    ...("confidence_score" in input
+    ...(confidenceScoreValid
       ? { confidence_score: input.confidence_score as CanonicalFinding["confidence_score"] }
       : {}),
-    ...("rubric_verdict" in input
+    ...(rubricVerdictValid
       ? { rubric_verdict: input.rubric_verdict as CanonicalFinding["rubric_verdict"] }
       : {}),
     description,

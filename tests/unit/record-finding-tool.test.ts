@@ -89,11 +89,40 @@ describe("argus_record_finding input schema", () => {
     expect(response.success).toBe(true)
   })
 
-  test("rejects confidence_score out of range", async () => {
+  test("drops out-of-range confidence_score but records the finding (never-drop)", async () => {
     const response = await recordFinding(baseFinding({ confidence_score: 101 }))
 
-    expect(response.success).toBe(false)
-    expect(String(response.error)).toContain("confidence_score")
+    expect(response.success).toBe(true)
+    const findings = response.findings as Array<Record<string, unknown>>
+    expect(findings.length).toBe(1)
+    expect(findings[0]?.confidence_score).toBeUndefined()
+  })
+
+  test("drops floating-point confidence_score but records the finding", async () => {
+    const response = await recordFinding(baseFinding({ confidence_score: 50.5 }))
+
+    expect(response.success).toBe(true)
+    const findings = response.findings as Array<Record<string, unknown>>
+    expect(findings[0]?.confidence_score).toBeUndefined()
+  })
+
+  test("drops NaN confidence_score but records the finding", async () => {
+    const response = await recordFinding(baseFinding({ confidence_score: Number.NaN }))
+
+    expect(response.success).toBe(true)
+    const findings = response.findings as Array<Record<string, unknown>>
+    expect(findings[0]?.confidence_score).toBeUndefined()
+  })
+
+  test("drops invalid rubric_verdict but records the finding", async () => {
+    const response = await recordFinding(
+      baseFinding({ rubric_verdict: "BOGUS", confidence_score: 85 }),
+    )
+
+    expect(response.success).toBe(true)
+    const findings = response.findings as Array<Record<string, unknown>>
+    expect(findings[0]?.rubric_verdict).toBeUndefined()
+    expect(findings[0]?.confidence_score).toBe(85)
   })
 
   test("accepts input without confidence_score (backward compat)", async () => {
@@ -149,5 +178,77 @@ describe("argus_record_finding input schema", () => {
     expect((findingEvent?.payload as Record<string, unknown> | undefined)?.confidence_score).toBe(
       85,
     )
+  })
+
+  test("tool tracking hook preserves rubric_verdict before durable sink emission", async () => {
+    const state = createAuditState()
+    const sink = createMemorySink(state.sessionId)
+    const toolResponse = await recordFinding(
+      baseFinding({ confidence_score: 25, rubric_verdict: "REJECTED_DEMOTED" }),
+    )
+    const hook = createToolTrackingHook(() => state, undefined, {
+      getEventSink: () => sink,
+      getAgentName: () => "sentinel",
+      projectDir: process.cwd(),
+    })
+
+    await hook({
+      tool: "argus_record_finding",
+      args: {},
+      result: JSON.stringify(toolResponse),
+      sessionID: "session-record-finding",
+      callID: "call-record-finding",
+    })
+
+    expect(state.findings[0]?.rubric_verdict).toBe("REJECTED_DEMOTED")
+    const findingEvent = sink.events.find((event) => event.type === "finding.added")
+    expect((findingEvent?.payload as Record<string, unknown> | undefined)?.rubric_verdict).toBe(
+      "REJECTED_DEMOTED",
+    )
+  })
+
+  test("tool tracking hook scrubs malformed confidence_score injected via raw payload", async () => {
+    const state = createAuditState()
+    const sink = createMemorySink(state.sessionId)
+    const hook = createToolTrackingHook(() => state, undefined, {
+      getEventSink: () => sink,
+      getAgentName: () => "sentinel",
+      projectDir: process.cwd(),
+    })
+
+    const malformedResponse = {
+      success: true,
+      count: 1,
+      schema_version: "2.0.0",
+      findings: [
+        {
+          check: "test-check",
+          description: "test",
+          file: "src/A.sol",
+          lines: [1, 2],
+          severity: "Low",
+          confidence: "Medium",
+          source: "manual",
+          confidence_score: Number.POSITIVE_INFINITY,
+          rubric_verdict: "NOT_A_REAL_VERDICT",
+          reported_by_agent: "sentinel",
+        },
+      ],
+    }
+
+    await hook({
+      tool: "argus_record_finding",
+      args: {},
+      result: JSON.stringify(malformedResponse),
+      sessionID: "session-record-finding",
+      callID: "call-record-finding",
+    })
+
+    expect(state.findings[0]?.confidence_score).toBeUndefined()
+    expect(state.findings[0]?.rubric_verdict).toBeUndefined()
+    const findingEvent = sink.events.find((event) => event.type === "finding.added")
+    const payload = findingEvent?.payload as Record<string, unknown> | undefined
+    expect(payload?.confidence_score).toBeUndefined()
+    expect(payload?.rubric_verdict).toBeUndefined()
   })
 })

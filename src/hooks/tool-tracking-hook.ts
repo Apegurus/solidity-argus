@@ -11,6 +11,7 @@ import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import { createLogger } from "../shared/logger"
 import { normalizeFilePath } from "../shared/path-utils"
 import { safeEmitToSink } from "../shared/safe-emit"
+import { isValidConfidenceScore, isValidRubricVerdict } from "../shared/validation-constants"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import type { FindingStore } from "../state/finding-store"
 import { createFindingStore } from "../state/finding-store"
@@ -349,8 +350,12 @@ function processToolResult(
     }
 
     if (config.extractOptionalFields) {
-      findingPayload.confidence_score =
-        typeof item.confidence_score === "number" ? item.confidence_score : undefined
+      findingPayload.confidence_score = isValidConfidenceScore(item.confidence_score)
+        ? item.confidence_score
+        : undefined
+      findingPayload.rubric_verdict = isValidRubricVerdict(item.rubric_verdict)
+        ? item.rubric_verdict
+        : undefined
       findingPayload.impact = typeof item.impact === "string" ? item.impact : undefined
       findingPayload.recommendation =
         typeof item.recommendation === "string" ? item.recommendation : undefined
