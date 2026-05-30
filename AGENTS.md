@@ -32,7 +32,7 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 ## audit-specialist
 
 **Role**: Profile-driven adversarial specialist auditor
-**Description**: Runs focused deep/adversarial passes under profiles such as vector-scan, access-control, math-precision, invariant, economic-security, execution-trace, periphery, and first-principles. Combines Sentinel-style analysis and verification tools with Pythia-style historical research. Records only confirmed findings; returns unproven trails as LEAD blocks.
+**Description**: Runs focused deep/adversarial passes under profiles such as vector-scan, access-control, math-precision, invariant, economic-security, execution-trace, periphery, and first-principles. Combines Sentinel-style analysis and verification tools with Pythia-style historical research. Subject to the 4-gate refutation rubric: every candidate is persisted via `argus_record_finding` with a `rubric_verdict` (CONFIRMED → Findings tier; DEMOTED / REJECTED_DEMOTED → Leads tier). Textual `LEAD` blocks in the structured output are for Argus's planning/handoff and do not replace recording.
 **Model**: anthropic/claude-sonnet-4-6
 **Tools**: argus_skill_load, argus_check_patterns, argus_solodit_search, argus_analyze_contract, argus_slither_analyze, argus_proxy_detection, argus_forge_test, argus_forge_fuzz, argus_forge_coverage, argus_gas_analysis, argus_record_finding, skill
 

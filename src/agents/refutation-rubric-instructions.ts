@@ -1,5 +1,5 @@
 /**
- * Shared prompt instructions appended to Sentinel and Pythia prompts.
+ * Shared prompt instructions appended to Sentinel, Pythia, and Audit Specialist prompts.
  *
  * Instructs source agents to apply the 4-gate refutation-rubric skill
  * before recording any finding. The text intentionally references the
