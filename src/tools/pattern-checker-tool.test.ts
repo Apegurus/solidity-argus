@@ -8,7 +8,7 @@ import {
   type PatternCheckResult,
   patternCheckerTool,
 } from "./pattern-checker-tool"
-import { extractDetectionRulesFromSkills } from "./pattern-loader"
+import { extractDetectionRulesFromSkills, type PatternLoaderResult } from "./pattern-loader"
 import { PATTERN_CATEGORIES, type PatternCategory } from "./pattern-schema"
 
 const SKILLS_DIR = join(dirname(dirname(__dirname)), "skills")
@@ -386,10 +386,6 @@ test("CATEGORY_TO_SWC preserves all 6 existing entries", async () => {
   expect(categoryToSwcStr).toContain('"integer-overflow": ["SWC-101"]')
 })
 test("executePatternCheck detects lack-of-precision in logic-error category", async () => {
-  // Debug: inspect the raw pattern loader output
-  const loaderResult: PatternLoaderResult =
-    extractDetectionRulesFromSkills(SKILLS_DIR);
-
   const result = await executePatternCheck(
     {
       target: "tests/fixtures/pattern-corpus/precision-loss-positive.sol",
