@@ -772,24 +772,46 @@ function normalizeTitle(check: string): string {
     .join(" ")
 }
 
+// Security: strips CR/LF and Markdown-structural characters from inline values
+// (e.g. finding.file) so a tool/LLM-controlled path cannot break out of its line or
+// forge report structure when interpolated into Markdown. Legitimate file paths
+// never contain these characters.
+const INLINE_DANGEROUS_CHARS = /[\r\n\t`*<>[\]#|\\]+/g
+
+function sanitizeInlineField(value: string): string {
+  return value.replace(INLINE_DANGEROUS_CHARS, " ").trim()
+}
+
 function formatLocation(finding: Finding): string {
   if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2)
     return "unknown location"
-  return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`
+  return `${sanitizeInlineField(finding.file)}:${finding.lines[0]}-${finding.lines[1]}`
 }
 
 // Security: neutralizes Markdown-structure injection from LLM/tool-controlled body
-// text. Normalizes CR/LF and strips leading ATX heading markers so a finding body
-// cannot forge sections ("## Findings") or fake entries ("### [99] Forged"). The
-// rubric trace uses **bold**, "·", "-" bullets, and "---" (never ATX headings), so
-// legitimate traces are preserved unchanged.
+// text. Normalizes CR/LF, strips leading ATX heading markers ("## Findings"),
+// neutralizes Setext heading underlines (a line of only "=" or "-" directly beneath
+// a non-blank text line, which promotes it to H1/H2), and appends a closing fence
+// for any unbalanced code fence so a body cannot swallow downstream report sections.
+// A "---" preceded by a blank line is a thematic break (the rubric-trace separator)
+// and is preserved.
 function sanitizeBodyMarkdown(text: string): string {
   if (!text) return text
-  return text
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/^(\s*)#{1,6}[ \t]+/, "$1"))
-    .join("\n")
+  const out: string[] = []
+  for (const rawLine of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const line = rawLine.replace(/^(\s*)#{1,6}[ \t]+/, "$1")
+    if (/^[ \t]*(=+|-+)[ \t]*$/.test(line)) {
+      const prev = out[out.length - 1]
+      if (prev !== undefined && prev.trim().length > 0) {
+        out.push("")
+        continue
+      }
+    }
+    out.push(line)
+  }
+  if (out.filter((line) => /^ {0,3}`{3,}/.test(line)).length % 2 === 1) out.push("```")
+  if (out.filter((line) => /^ {0,3}~{3,}/.test(line)).length % 2 === 1) out.push("~~~")
+  return out.join("\n")
 }
 
 function sourceExcerpt(projectDir: string, finding: Finding): string | null {
@@ -1441,7 +1463,7 @@ export function renderReportMarkdown(
   sections.push("- Pattern Analysis")
   sections.push("- Solodit research cross-referencing")
   sections.push(
-    "Approach: Findings are normalized, split into Findings/Leads by confidence threshold, deterministically ordered by confidence/severity/file/line, and validated against report quality gates before emission.",
+    "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; results are deterministically ordered by confidence/severity/file/line and validated against report quality gates before emission.",
   )
 
   const findingsSection = buildFindingsSection(findings, input.projectDir)
