@@ -4,6 +4,7 @@ import {
 } from "../shared/dropped-observations"
 import { isRecord } from "../shared/type-guards"
 import {
+  isValidRubricVerdict,
   VALID_AGENTS,
   VALID_CONFIDENCES,
   VALID_SEVERITIES,
@@ -382,8 +383,7 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
   }
 
   if ("rubric_verdict" in (raw as Record<string, unknown>)) {
-    const validVerdicts = new Set(["CONFIRMED", "DEMOTED", "REJECTED_DEMOTED"])
-    if (typeof raw.rubric_verdict !== "string" || !validVerdicts.has(raw.rubric_verdict)) {
+    if (!isValidRubricVerdict(raw.rubric_verdict)) {
       errors.push({
         field: "rubric_verdict",
         code: "enum",
