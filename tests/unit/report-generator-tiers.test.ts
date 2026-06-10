@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
+import type { ArgusConfig } from "../../src/config/types"
 import type { CanonicalFinding, ReportInput } from "../../src/state/schemas"
 import { SCHEMA_VERSION } from "../../src/state/schemas"
 import {
@@ -58,6 +59,46 @@ function reportInput(findings: CanonicalFinding[]): ReportInput {
     findings,
     toolsExecuted: [],
     scope: ["Vault.sol"],
+  }
+}
+
+function completeTrace(
+  verdict: "CONFIRMED" | "DEMOTED" | "REJECTED_DEMOTED",
+  conf: number,
+  body: string,
+): string {
+  return (
+    `**Rubric Trace** · Verdict: ${verdict} · Confidence: ${conf}\n\n` +
+    "- Refutation: cleared — no guard in the call path\n" +
+    "- Reachability: cleared — reachable in normal operation\n" +
+    "- Trigger: cleared — unprivileged caller\n" +
+    "- Impact: confirmed — material loss to depositors\n\n" +
+    "**Refutation quote:** `function claim() external {}` — no guard blocks the step\n\n" +
+    `---\n\n${body}`
+  )
+}
+
+function makeConfig(confidenceThreshold: number): ArgusConfig {
+  return {
+    agents: { argus: {}, sentinel: {}, pythia: {}, auditSpecialist: {}, scribe: {}, themis: {} },
+    tools: {},
+    knowledge: {
+      scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+      autoSync: true,
+      skillPrecedence: "bundled-first",
+    },
+    reporting: {
+      confidenceThreshold,
+      format: "markdown",
+      severityThreshold: "low",
+      gasAnalysis: false,
+      output_dir: "/tmp/argus-report-generator-tiers/",
+    },
+    solodit: { enabled: true, port: 54173 },
+    disabled_hooks: [],
+    hooks: {},
+    cli: {},
+    background: { max_concurrent: 3 },
   }
 }
 
@@ -153,12 +194,12 @@ describe("report-generator tier splitting", () => {
     const withTrace1 = f({
       id: "trace-1",
       confidence_score: 90,
-      description: "**Rubric Trace** · Confidence: 90\n\n- Refutation: cleared\n\n---\n\nbug",
+      description: completeTrace("CONFIRMED", 90, "bug"),
     })
     const withTrace2 = f({
       id: "trace-2",
       confidence_score: 90,
-      description: "**Rubric Trace** · Confidence: 90\n\n- Refutation: cleared\n\n---\n\nbug2",
+      description: completeTrace("CONFIRMED", 90, "bug2"),
     })
     const report = renderReportMarkdown(reportInput([withTrace1, withTrace2]), { threshold: 80 })
     expect(report).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
@@ -168,7 +209,7 @@ describe("report-generator tier splitting", () => {
     const withTrace = f({
       id: "with",
       confidence_score: 90,
-      description: "**Rubric Trace** · Confidence: 90\n\n---\n\nbug",
+      description: completeTrace("CONFIRMED", 90, "bug"),
     })
     const withoutTrace1 = f({
       id: "without-1",
@@ -196,7 +237,7 @@ describe("report-generator tier splitting", () => {
       reportInput([
         f({
           confidence_score: 90,
-          description: "**Rubric Trace** · Confidence: 90\n\n---\n\nlegit bug",
+          description: completeTrace("CONFIRMED", 90, "legit bug"),
         }),
       ]),
       { threshold: 80 },
@@ -244,34 +285,7 @@ describe("report-generator tier splitting", () => {
       },
       createContext(),
       {
-        loadConfig: () => ({
-          agents: {
-            argus: {},
-            sentinel: {},
-            pythia: {},
-            auditSpecialist: {},
-            scribe: {},
-            themis: {},
-          },
-          tools: {},
-          knowledge: {
-            scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
-            autoSync: true,
-            skillPrecedence: "bundled-first" as const,
-          },
-          reporting: {
-            confidenceThreshold: 60,
-            format: "markdown" as const,
-            severityThreshold: "low" as const,
-            gasAnalysis: false,
-            output_dir: "/tmp/argus-report-generator-tiers/",
-          },
-          solodit: { enabled: true, port: 54173 },
-          disabled_hooks: [],
-          hooks: {},
-          cli: {},
-          background: { max_concurrent: 3 },
-        }),
+        loadConfig: () => makeConfig(60),
       },
     )
 
@@ -281,6 +295,112 @@ describe("report-generator tier splitting", () => {
     expect(result.report.indexOf("CONFIG-70")).toBeGreaterThan(findingsIdx)
     expect(leadsIdx === -1 || result.report.indexOf("CONFIG-70") < leadsIdx).toBe(true)
   })
+
+  test("verdict-first: CONFIRMED with below-threshold score still lands in Findings (adj_1)", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({
+          id: "confirmed-low",
+          confidence_score: 10,
+          rubric_verdict: "CONFIRMED",
+          description: "CONFIRMED-LOW-SCORE",
+        }),
+      ]),
+      { projectName: "Verdict Routing", threshold: 80 },
+    )
+    const findingsIdx = report.indexOf("## Findings")
+    const leadsIdx = report.indexOf("## Leads")
+    expect(findingsIdx).toBeGreaterThan(-1)
+    expect(report.indexOf("CONFIRMED-LOW-SCORE")).toBeGreaterThan(findingsIdx)
+    expect(leadsIdx === -1 || report.indexOf("CONFIRMED-LOW-SCORE") < leadsIdx).toBe(true)
+  })
+
+  test("verdict-first: REJECTED_DEMOTED with high or missing score stays in Leads (adj_1)", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({
+          id: "rej-high",
+          confidence_score: 95,
+          rubric_verdict: "REJECTED_DEMOTED",
+          description: "REJECTED-HIGH-SCORE",
+        }),
+        f({
+          id: "rej-unscored",
+          rubric_verdict: "REJECTED_DEMOTED",
+          description: "REJECTED-NO-SCORE",
+        }),
+      ]),
+      { projectName: "Verdict Routing", threshold: 80 },
+    )
+    const leadsIdx = report.indexOf("## Leads")
+    expect(leadsIdx).toBeGreaterThan(-1)
+    expect(report.indexOf("REJECTED-HIGH-SCORE")).toBeGreaterThan(leadsIdx)
+    expect(report.indexOf("REJECTED-NO-SCORE")).toBeGreaterThan(leadsIdx)
+  })
+
+  test("boundary: score === threshold stays in Findings; threshold-1 is a Lead (adj_16)", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({ id: "at", confidence_score: 80, description: "AT-THRESHOLD" }),
+        f({ id: "below", confidence_score: 79, description: "BELOW-THRESHOLD" }),
+      ]),
+      { projectName: "Boundary", threshold: 80 },
+    )
+    const findingsIdx = report.indexOf("## Findings")
+    const leadsIdx = report.indexOf("## Leads")
+    expect(findingsIdx).toBeGreaterThan(-1)
+    expect(leadsIdx).toBeGreaterThan(findingsIdx)
+    expect(report.indexOf("AT-THRESHOLD")).toBeLessThan(leadsIdx)
+    expect(report.indexOf("BELOW-THRESHOLD")).toBeGreaterThan(leadsIdx)
+  })
+
+  test("provenance appendix counts both Findings and Leads (adj_2)", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({ id: "prov-conf", confidence_score: 90, source: "slither", description: "PROV-CONF" }),
+        f({ id: "prov-lead", confidence_score: 20, source: "manual", description: "PROV-LEAD" }),
+      ]),
+      { projectName: "Provenance", threshold: 80 },
+    )
+    const appendixIdx = report.indexOf("## Appendix: Data Provenance")
+    expect(appendixIdx).toBeGreaterThan(-1)
+    const appendix = report.slice(appendixIdx)
+    expect(appendix).toContain("Findings included in report: 2")
+    expect(appendix).toContain("| slither | 1 |")
+    expect(appendix).toContain("| manual | 1 |")
+  })
+
+  test("parity: returned tier counts agree with the rendered executive summary (adj_4 guard)", async () => {
+    const result = await executeReportGeneration(
+      {
+        project_name: "Parity",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(
+          reportInput([
+            f({ id: "par-conf", severity: "High", confidence_score: 90, description: "PAR-CONF" }),
+            f({
+              id: "par-lead",
+              severity: "Critical",
+              confidence_score: 20,
+              description: "PAR-LEAD",
+            }),
+          ]),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+      { loadConfig: () => makeConfig(80) },
+    )
+
+    expect(result.findingsCount.high).toBe(1)
+    expect(result.findingsCount.critical).toBe(0)
+    expect(result.leadsTierCount.critical).toBe(1)
+    expect(result.leadsTierCount.high).toBe(0)
+    expect(result.totalCount.high).toBe(1)
+    expect(result.totalCount.critical).toBe(1)
+    expect(result.report).toMatch(/\| Critical \| 0 \| 1 \| 1 \|/)
+    expect(result.report).toMatch(/\| High \| 1 \| 0 \| 1 \|/)
+  })
 })
 
 describe("renderer — [NN] prefix in Leads tier", () => {
@@ -288,8 +408,7 @@ describe("renderer — [NN] prefix in Leads tier", () => {
     ({
       id: "obs:1",
       check: "test-finding",
-      description:
-        "**Rubric Trace** · Verdict: REJECTED_DEMOTED · Confidence: 25\n\n- ...\n\n---\n\nbody",
+      description: completeTrace("REJECTED_DEMOTED", 25, "body"),
       file: "src/A.sol",
       lines: [1, 2],
       severity: "Low",

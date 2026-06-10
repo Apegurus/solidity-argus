@@ -251,4 +251,49 @@ describe("argus_record_finding input schema", () => {
     expect(payload?.confidence_score).toBeUndefined()
     expect(payload?.rubric_verdict).toBeUndefined()
   })
+
+  test("tool tracking hook scrubs NaN confidence_score (serialized to null) and null rubric_verdict", async () => {
+    const state = createAuditState()
+    const sink = createMemorySink(state.sessionId)
+    const hook = createToolTrackingHook(() => state, undefined, {
+      getEventSink: () => sink,
+      getAgentName: () => "sentinel",
+      projectDir: process.cwd(),
+    })
+
+    const malformedResponse = {
+      success: true,
+      count: 1,
+      schema_version: "2.0.0",
+      findings: [
+        {
+          check: "test-check",
+          description: "test",
+          file: "src/A.sol",
+          lines: [1, 2],
+          severity: "Low",
+          confidence: "Medium",
+          source: "manual",
+          confidence_score: Number.NaN,
+          rubric_verdict: null,
+          reported_by_agent: "sentinel",
+        },
+      ],
+    }
+
+    await hook({
+      tool: "argus_record_finding",
+      args: {},
+      result: JSON.stringify(malformedResponse),
+      sessionID: "session-record-finding",
+      callID: "call-record-finding",
+    })
+
+    expect(state.findings[0]?.confidence_score).toBeUndefined()
+    expect(state.findings[0]?.rubric_verdict).toBeUndefined()
+    const findingEvent = sink.events.find((event) => event.type === "finding.added")
+    const payload = findingEvent?.payload as Record<string, unknown> | undefined
+    expect(payload?.confidence_score).toBeUndefined()
+    expect(payload?.rubric_verdict).toBeUndefined()
+  })
 })

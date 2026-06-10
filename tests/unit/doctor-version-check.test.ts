@@ -96,4 +96,68 @@ describe("checkRemoteVersion", () => {
     expect(r.status).toBe("skipped")
     expect(elapsed).toBeLessThan(500)
   })
+
+  test("returns skipped when remote version contains ANSI/control characters", async () => {
+    replaceFetch(
+      mock(
+        async () =>
+          new Response(JSON.stringify({ version: "1.2.3\u001b[31mInjected" }), { status: 200 }),
+      ),
+    )
+
+    const r = await checkRemoteVersion({ localVersion: "1.2.3" })
+
+    expect(r.status).toBe("skipped")
+  })
+
+  test("returns skipped when remote version is not valid semver", async () => {
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "not-a-version" }), { status: 200 })),
+    )
+
+    const r = await checkRemoteVersion({ localVersion: "1.2.3" })
+
+    expect(r.status).toBe("skipped")
+  })
+
+  test("returns skipped when local version is not valid semver", async () => {
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "1.2.3" }), { status: 200 })),
+    )
+
+    const r = await checkRemoteVersion({ localVersion: "garbage" })
+
+    expect(r.status).toBe("skipped")
+    if (r.status !== "skipped") throw new Error("expected skipped")
+    expect(r.reason).toContain("local version")
+  })
+
+  test("returns skipped when the registry response exceeds the size cap", async () => {
+    const bloated = JSON.stringify({ version: "1.2.3", pad: "x".repeat(70 * 1024) })
+    replaceFetch(mock(async () => new Response(bloated, { status: 200 })))
+
+    const r = await checkRemoteVersion({ localVersion: "1.2.3" })
+
+    expect(r.status).toBe("skipped")
+  })
+
+  test("treats a local prerelease as older than the released remote version", async () => {
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "1.0.0" }), { status: 200 })),
+    )
+
+    const r = await checkRemoteVersion({ localVersion: "1.0.0-beta.1" })
+
+    expect(r.status).toBe("outdated")
+  })
+
+  test("treats a local release as newer than a remote prerelease", async () => {
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "1.0.0-beta.1" }), { status: 200 })),
+    )
+
+    const r = await checkRemoteVersion({ localVersion: "1.0.0" })
+
+    expect(r.status).toBe("ahead")
+  })
 })

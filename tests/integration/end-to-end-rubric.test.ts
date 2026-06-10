@@ -25,7 +25,7 @@ function writeRawFindings(projectDir: string, runId: string, findings: Finding[]
   )
 }
 
-const RUBRIC_TRACE = `**Rubric Trace** · Confidence: 90
+const RUBRIC_TRACE = `**Rubric Trace** · Verdict: CONFIRMED · Confidence: 90
 
 - Refutation: cleared — no guard found in the call path
 - Reachability: cleared — any unprivileged caller can reach via claim()
@@ -197,7 +197,7 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
 
       const markdown = await renderRecordedFindings(projectDir, runId, [finding])
 
-      expect(markdown).toContain("**Rubric Trace** · Confidence: 90")
+      expect(markdown).toContain("**Rubric Trace** · Verdict: CONFIRMED · Confidence: 90")
       expect(markdown).toContain("**Refutation quote:**")
       expect(markdown).toContain("function claim() external nonReentrant")
     })
@@ -233,7 +233,11 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
     return {
       id: `obs:${key}`,
       check: "x",
-      description: "**Rubric Trace** · Verdict: CONFIRMED · Confidence: 90\n\n---\n\nbody",
+      description:
+        "**Rubric Trace** · Verdict: CONFIRMED · Confidence: 90\n\n" +
+        "- Refutation: cleared — no guard\n- Reachability: cleared — reachable\n" +
+        "- Trigger: cleared — unprivileged\n- Impact: confirmed — material loss\n\n" +
+        "**Refutation quote:** `function f() external {}` — no guard\n\n---\n\nbody",
       file: "src/A.sol",
       lines: [1, 2],
       severity: "Medium",

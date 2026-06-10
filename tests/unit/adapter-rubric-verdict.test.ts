@@ -80,6 +80,51 @@ describe("normalizeToCanonicalFinding — rubric_verdict passthrough", () => {
       ),
     ).toBe(true)
   })
+
+  test("drops null rubric_verdict value with warn diagnostic", () => {
+    const { data, diagnostics } = normalizeToCanonicalFinding(
+      { ...minimalInput, rubric_verdict: null },
+      "run-1",
+      1,
+      { reportedByAgent: "sentinel" },
+    )
+    expect(data.rubric_verdict).toBeUndefined()
+    expect(
+      diagnostics.some(
+        (d) => d.level === "warn" && d.code === "field.invalid" && d.field === "rubric_verdict",
+      ),
+    ).toBe(true)
+  })
+
+  test("drops undefined-present rubric_verdict value with warn diagnostic", () => {
+    const { data, diagnostics } = normalizeToCanonicalFinding(
+      { ...minimalInput, rubric_verdict: undefined },
+      "run-1",
+      1,
+      { reportedByAgent: "sentinel" },
+    )
+    expect(data.rubric_verdict).toBeUndefined()
+    expect(
+      diagnostics.some(
+        (d) => d.level === "warn" && d.code === "field.invalid" && d.field === "rubric_verdict",
+      ),
+    ).toBe(true)
+  })
+
+  test("drops empty-string rubric_verdict value with warn diagnostic", () => {
+    const { data, diagnostics } = normalizeToCanonicalFinding(
+      { ...minimalInput, rubric_verdict: "" },
+      "run-1",
+      1,
+      { reportedByAgent: "sentinel" },
+    )
+    expect(data.rubric_verdict).toBeUndefined()
+    expect(
+      diagnostics.some(
+        (d) => d.level === "warn" && d.code === "field.invalid" && d.field === "rubric_verdict",
+      ),
+    ).toBe(true)
+  })
 })
 
 describe("normalizeToCanonicalFinding — confidence_score validation", () => {
