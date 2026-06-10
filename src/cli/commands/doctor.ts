@@ -34,7 +34,7 @@ const MAX_REGISTRY_BODY_BYTES = 64 * 1024
 // they are compared or printed to the terminal (blocks registry-sourced terminal
 // injection).
 const SEMVER_REGEX =
-  /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/
 
 export type VersionCheckResult =
   | { status: "up-to-date"; remoteVersion: string; localVersion: string }
@@ -552,7 +552,9 @@ export const doctorCommand: CliCommand = {
           )
           break
         case "skipped":
-          cliOutput.log("· version check skipped (network unavailable)")
+          cliOutput.log(
+            `· version check skipped (${versionCheck.reason.replace(/[^\x20-\x7e]/g, " ")})`,
+          )
           break
       }
     } else {
