@@ -118,6 +118,18 @@ describe("checkRemoteVersion", () => {
     const r = await checkRemoteVersion({ localVersion: "1.2.3" })
 
     expect(r.status).toBe("skipped")
+    if (r.status !== "skipped") throw new Error("expected skipped")
+    expect(r.reason).toContain("invalid version")
+  })
+
+  test("returns skipped when remote version has leading zeros (non-canonical semver)", async () => {
+    replaceFetch(
+      mock(async () => new Response(JSON.stringify({ version: "01.0.0" }), { status: 200 })),
+    )
+
+    const r = await checkRemoteVersion({ localVersion: "1.2.3" })
+
+    expect(r.status).toBe("skipped")
   })
 
   test("returns skipped when local version is not valid semver", async () => {
@@ -139,6 +151,28 @@ describe("checkRemoteVersion", () => {
     const r = await checkRemoteVersion({ localVersion: "1.2.3" })
 
     expect(r.status).toBe("skipped")
+    if (r.status !== "skipped") throw new Error("expected skipped")
+    expect(r.reason).toMatch(/too large|size cap/)
+  })
+
+  test("returns skipped when Content-Length exceeds the cap even with a small body", async () => {
+    const fakeRes = {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-length" ? String(128 * 1024) : null,
+      },
+      body: null,
+      json: async () => ({ version: "1.2.3" }),
+    } as unknown as Response
+    replaceFetch(mock(async () => fakeRes))
+
+    const r = await checkRemoteVersion({ localVersion: "1.2.3" })
+
+    expect(r.status).toBe("skipped")
+    if (r.status !== "skipped") throw new Error("expected skipped")
+    expect(r.reason).toMatch(/too large|size cap/)
   })
 
   test("treats a local prerelease as older than the released remote version", async () => {

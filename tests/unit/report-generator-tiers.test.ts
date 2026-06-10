@@ -401,6 +401,54 @@ describe("report-generator tier splitting", () => {
     expect(result.report).toMatch(/\| Critical \| 0 \| 1 \| 1 \|/)
     expect(result.report).toMatch(/\| High \| 1 \| 0 \| 1 \|/)
   })
+
+  test("verdict-first: DEMOTED with above-threshold score still lands in Leads (adj_7)", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({
+          id: "demoted-high",
+          confidence_score: 95,
+          rubric_verdict: "DEMOTED",
+          description: "DEMOTED-HIGH-SCORE",
+        }),
+      ]),
+      { projectName: "Verdict Routing", threshold: 80 },
+    )
+    const leadsIdx = report.indexOf("## Leads")
+    expect(leadsIdx).toBeGreaterThan(-1)
+    expect(report.indexOf("DEMOTED-HIGH-SCORE")).toBeGreaterThan(leadsIdx)
+  })
+
+  test("Leads section includes a sanitized Location line (adj_10/adj_1)", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({
+          id: "lead-loc",
+          confidence_score: 20,
+          file: "src/A.sol\n## Forged Heading",
+          lines: [1, 2],
+          description: "lead body",
+        }),
+      ]),
+      { projectName: "Leads Location", threshold: 80 },
+    )
+    const leadsIdx = report.indexOf("## Leads")
+    expect(leadsIdx).toBeGreaterThan(-1)
+    expect(report.slice(leadsIdx)).toContain("**Location**:")
+    expect(report).not.toMatch(/^## Forged Heading/m)
+  })
+
+  test("hasRubricTrace rejects a trace missing a gate label (adj_12)", () => {
+    const partialTrace =
+      "**Rubric Trace** · Verdict: CONFIRMED · Confidence: 90\n\n" +
+      "- Refutation: cleared\n- Reachability: cleared\n- Impact: confirmed\n\n" +
+      "**Refutation quote:** `require(x)` — y\n\n---\n\nbody"
+    const report = renderReportMarkdown(
+      reportInput([f({ confidence_score: 90, description: partialTrace })]),
+      { threshold: 80 },
+    )
+    expect(report).toMatch(/⚠️ no rubric trace/)
+  })
 })
 
 describe("renderer — [NN] prefix in Leads tier", () => {
@@ -617,5 +665,42 @@ describe("renderFindingHeader — heading sanitization (adj_10)", () => {
   test("preserves normal kebab-case check names", () => {
     const md = renderReportMarkdown(baseInput([makeFinding("reentrancy-eth")]))
     expect(md).toContain("### Reentrancy Eth")
+  })
+})
+
+describe("body markdown sanitization (adj_2/adj_8)", () => {
+  test("strips ATX heading markers from a description body", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({ confidence_score: 90, description: "intro line\n## Forged Findings\nmore" }),
+      ]),
+      { threshold: 80 },
+    )
+    expect(report).not.toMatch(/^## Forged Findings/m)
+  })
+
+  test("neutralizes Setext underline headings in a body", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({
+          confidence_score: 90,
+          description: "real body\n\nForged Section\n=============\n\ntail",
+        }),
+      ]),
+      { threshold: 80 },
+    )
+    expect(report).not.toMatch(/^=+\s*$/m)
+    expect(report).toContain("tail")
+  })
+
+  test("balances an unclosed code fence in a body so it cannot swallow the report", () => {
+    const report = renderReportMarkdown(
+      reportInput([
+        f({ confidence_score: 90, description: "body text\n```\nopener never closed" }),
+      ]),
+      { threshold: 80 },
+    )
+    const fenceLines = report.split("\n").filter((line) => /^ {0,3}`{3,}/.test(line)).length
+    expect(fenceLines % 2).toBe(0)
   })
 })

@@ -1057,6 +1057,7 @@ test("executeReportGeneration returns write error when disk write fails", async 
   expect(result.filePath).toBeUndefined()
   expect(result.error?.code).toBe("WRITE_FAILED")
   expect(result.report).toContain("# Security Audit Report — WriteFailTest")
+  expect(result.report).toContain("Config load failed")
   expect(result.findingsCount.low).toBe(1)
 })
 
