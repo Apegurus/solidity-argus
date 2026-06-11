@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { ensureRunArtifactsMaterialized } from "../features/persistent-state/findings-materializer"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import {
   DROPPED_OBSERVATION_REASONS,
@@ -52,6 +53,28 @@ function missingRawFindings(runId: string): string {
     error: "MissingRawFindingsError",
     message: `Cannot verify deduped lineage because .argus/runs/${runId}/findings.json is missing or invalid`,
   })
+}
+
+// Phantom observation_ids are references in the deduped set that do not exist in the
+// run's canonical findings.json. Classifying each id by its minting format points the
+// caller at the artifact it likely came from instead of just rejecting opaquely.
+function diagnosePhantomObservationIds(
+  phantomIds: string[],
+  runId: string,
+): Array<{ id: string; likely_source: string }> {
+  const classify = (id: string): string => {
+    if (id.startsWith("ses_")) {
+      return "OpenCode session id — a subagent session reference, not a canonical observation_id"
+    }
+    if (id.startsWith(`${runId}:`)) {
+      return "adapter fallback id (runId:seq:hash) — likely a stale seq from this run's journal"
+    }
+    if (id.includes(":")) {
+      return "tool-call-scoped id (toolCallId:index) — may belong to a different session or run"
+    }
+    return "unrecognized provenance — not minted by this run"
+  }
+  return phantomIds.map((id) => ({ id, likely_source: classify(id) }))
 }
 
 function parseDroppedObservations(raw: unknown): DroppedObservation[] | null {
@@ -139,6 +162,10 @@ export async function executePersistDeduped(
   const projectDir = resolveProjectDir(context)
   const resolver = createAuditArtifactResolver(args.run_id, projectDir)
   const dedupedPath = resolver.paths().dedupedFindingsFile
+  await ensureRunArtifactsMaterialized(args.run_id, projectDir, context.sessionID, {
+    reportInput: false,
+    warn: (msg) => logger.debug(msg),
+  })
   const rawFindings = await loadRawFindings(args.run_id, projectDir)
 
   if (!rawFindings) {
@@ -147,9 +174,19 @@ export async function executePersistDeduped(
 
   const lineage = validateFindingLineage(rawFindings, findings, droppedObservations)
   if (!lineage.valid) {
+    const phantomDiagnostic =
+      lineage.phantom_observation_ids.length > 0
+        ? diagnosePhantomObservationIds(lineage.phantom_observation_ids, args.run_id)
+        : undefined
     return JSON.stringify({
       success: false,
       error: "LineageError",
+      ...(phantomDiagnostic
+        ? {
+            phantom_diagnostic: phantomDiagnostic,
+            hint: `Call argus_read_findings(run_id="${args.run_id}") to obtain the canonical observation_ids; deduped findings may only reference ids present in .argus/runs/${args.run_id}/findings.json.`,
+          }
+        : {}),
       lineage: {
         raw_count: lineage.raw_count,
         mapped_count: lineage.mapped_count,

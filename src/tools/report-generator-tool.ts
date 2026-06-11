@@ -23,6 +23,12 @@ import {
 import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { ArgusAgentName, AuditState, Finding, FindingSeverity } from "../state/types"
+import {
+  assignStableFindingIds,
+  loadFindingIdRegistry,
+  persistFindingIdRegistry,
+  SEVERITY_ID_PREFIX,
+} from "./finding-id-registry"
 import { checkReportPreflight } from "./report-preflight"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
@@ -1173,15 +1179,11 @@ function buildRecommendations(counts: FindingsCount): string[] {
   return items
 }
 
-const SEVERITY_ID_PREFIX: Record<FindingSeverity, string> = {
-  Critical: "CRIT",
-  High: "HIGH",
-  Medium: "MED",
-  Low: "LOW",
-  Informational: "INFO",
-}
-
-function buildFindingsSection(findings: Finding[], projectDir: string): string {
+function buildFindingsSection(
+  findings: Finding[],
+  projectDir: string,
+  idAssignments?: ReadonlyMap<string, string>,
+): string {
   if (findings.length === 0) {
     return ""
   }
@@ -1194,8 +1196,12 @@ function buildFindingsSection(findings: Finding[], projectDir: string): string {
     const impact = getFindingImpact(finding)
     const seq = (severityCounters[finding.severity] ?? 0) + 1
     severityCounters[finding.severity] = seq
+    const assigned = idAssignments?.get(finding.id)
+    const displayId = assigned
+      ? `[${assigned}]`
+      : `[${SEVERITY_ID_PREFIX[finding.severity]}-${seq}]`
 
-    lines.push(renderFindingHeader(finding, `[${SEVERITY_ID_PREFIX[finding.severity]}-${seq}]`))
+    lines.push(renderFindingHeader(finding, displayId))
     lines.push(`**Severity**: ${finding.severity}`)
     lines.push(`**Confidence**: ${finding.confidence}`)
     lines.push(`**Location**: ${formatLocation(finding)}`)
@@ -1265,7 +1271,10 @@ function renderAdoptionFooter(findings: Finding[]): string {
   return `\n\n---\n\n_Rubric: ${withTrace}/${findings.length} findings include 4-gate trace_\n`
 }
 
-function buildLeadsSection(findings: Finding[]): string {
+function buildLeadsSection(
+  findings: Finding[],
+  idAssignments?: ReadonlyMap<string, string>,
+): string {
   if (findings.length === 0) {
     return ""
   }
@@ -1275,7 +1284,9 @@ function buildLeadsSection(findings: Finding[]): string {
 
   for (const finding of findings) {
     leadSeq += 1
-    lines.push(renderFindingHeader(finding, `[LEAD-${leadSeq}]`))
+    const assigned = idAssignments?.get(finding.id)
+    const displayId = assigned ? `[${assigned}]` : `[LEAD-${leadSeq}]`
+    lines.push(renderFindingHeader(finding, displayId))
     lines.push(`**Location**: ${formatLocation(finding)}`)
     lines.push("")
     lines.push(`**Description**: ${renderFindingBody(finding)}`)
@@ -1419,6 +1430,9 @@ export type RenderReportOptions = {
   scope?: string[]
   preflightWarningSection?: string | null
   runId?: string
+  // Stable identity -> bare display id ("CRIT-1") map. When omitted, sections fall
+  // back to sequential per-severity numbering.
+  idAssignments?: ReadonlyMap<string, string>
 }
 
 export function renderReportMarkdown(
@@ -1506,11 +1520,11 @@ export function renderReportMarkdown(
     "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; the Findings tier is ordered severity-first (confidence breaks ties) while the Leads tier is ordered by confidence, both falling back to file/line for determinism, and validated against report quality gates before emission.",
   )
 
-  const findingsSection = buildFindingsSection(findings, input.projectDir)
+  const findingsSection = buildFindingsSection(findings, input.projectDir, options.idAssignments)
   if (findingsSection.length > 0) {
     sections.push(findingsSection)
   }
-  const leadsSection = buildLeadsSection(leads)
+  const leadsSection = buildLeadsSection(leads, options.idAssignments)
   if (leadsSection.length > 0) {
     sections.push(leadsSection)
   }
@@ -1563,21 +1577,19 @@ export async function executeReportGeneration(
           }
         : null
 
-  // Ensure report-input.json is materialized before attempting disk lookup.
-  // Scribe may call generate_report without calling read_findings first,
-  // or read_findings may have materialized under a different run_id.
+  // Re-project report-input.json from the event stream so completeness/parity never
+  // reads a stale projection left by an earlier turn. Idempotent; when there is no
+  // event stream (e.g. an inline report_input payload in tests) it throws and we fall
+  // back to the existing on-disk artifact or the provided payload.
   if (typeof expectedRunId === "string" && expectedRunId.length > 0) {
     const projectDir = resolveProjectDir(context)
-    const resolver = createAuditArtifactResolver(expectedRunId, projectDir)
-    if (!existsSync(resolver.paths().reportInputFile)) {
-      try {
-        const { materializeReportInput } = await import(
-          "../features/persistent-state/findings-materializer"
-        )
-        await materializeReportInput(expectedRunId, projectDir, context.sessionID)
-      } catch {
-        /* Best-effort: parseReportInputPayload will produce a clear error if the file is still missing */
-      }
+    try {
+      const { materializeReportInput } = await import(
+        "../features/persistent-state/findings-materializer"
+      )
+      await materializeReportInput(expectedRunId, projectDir, context.sessionID)
+    } catch {
+      /* Best-effort: parseReportInputPayload will produce a clear error if the file is still missing */
     }
   }
 
@@ -1632,7 +1644,7 @@ export async function executeReportGeneration(
   try {
     const readEventsFn = deps.readEvents ?? readEvents
     const events = await readEventsFn(reportInput.run_id, reportInput.projectDir)
-    const preflightResult = checkReportPreflight(events)
+    const preflightResult = checkReportPreflight(events, { allowLiveAudit: true })
     if (!preflightResult.passed) {
       if (preflightPolicy === "strict-fail") {
         const parts: string[] = []
@@ -1797,6 +1809,21 @@ export async function executeReportGeneration(
   if (runId.startsWith("ses_")) {
     throw new Error("Report generation requires canonical run_id; received OpenCode session id")
   }
+
+  // Assign citable IDs from the per-run registry so they stay stable across revisions.
+  // New findings are numbered in render order, matching the report's own tier sorting.
+  let idAssignments: Map<string, string> | undefined
+  if (runId.length > 0) {
+    const idProjectDir = resolveProjectDir(context)
+    const existingIdMap = await loadFindingIdRegistry(runId, idProjectDir)
+    idAssignments = assignStableFindingIds(
+      sortFindingsBySeverityThenConfidence(confirmedFindings),
+      sortFindingsByConfidence(leadFindings),
+      existingIdMap,
+    )
+    await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
+  }
+
   const reportMarkdown = renderReportMarkdown(reportInput, {
     projectName: args.project_name,
     include_executive_summary: includeExecutiveSummary,
@@ -1805,6 +1832,7 @@ export async function executeReportGeneration(
     scope,
     preflightWarningSection,
     runId,
+    idAssignments,
   })
   const contentHash = stableHash(reportMarkdown)
   const { filename: canonicalFilename } = resolveReportPath({

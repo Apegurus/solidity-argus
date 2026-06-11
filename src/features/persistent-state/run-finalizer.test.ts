@@ -258,8 +258,50 @@ describe("finalizeRun", () => {
     expect((latest?.payload as { status?: string } | undefined)?.status).toBe("finalized")
   })
 
-  test("fails invariants when generated report contains a completeness warning", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "argus-finalizer-warning-"))
+  test("strict-fail completenessPolicy fails invariants on a report completeness warning", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "argus-finalizer-warning-strict-"))
+    const reportPath = join(dir, "warn-report.md")
+    writeFileSync(
+      reportPath,
+      [
+        "# Security Audit Report — WarningFixture",
+        "",
+        "## ⚠ Completeness Warning",
+        "",
+        "- Finding parity mismatch: missing=1, extra=0",
+      ].join("\n"),
+    )
+
+    try {
+      const sink = makeInMemorySink([
+        makeEvent({ type: "session.created", seq: 1 }),
+        makeEvent({
+          type: "tool.completed",
+          seq: 2,
+          tool_call_id: "report-tool-1",
+          payload: {
+            tool: "argus_generate_report",
+            success: true,
+            filePath: reportPath,
+          },
+        }),
+      ])
+
+      const result = await finalizeRun(RUN_ID, dir, sink, { completenessPolicy: "strict-fail" })
+
+      expect(result.invariantsPassed).toBe(false)
+      expect(result.errors).toContain("generated report contains Completeness Warning")
+      const latest = sink.getEvents().at(-1)
+      expect((latest?.payload as { status?: string } | undefined)?.status).toBe(
+        "failed-finalization",
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("warn completenessPolicy (default) keeps a report completeness warning informational", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "argus-finalizer-warning-warn-"))
     const reportPath = join(dir, "warn-report.md")
     writeFileSync(
       reportPath,
@@ -289,12 +331,8 @@ describe("finalizeRun", () => {
 
       const result = await finalizeRun(RUN_ID, dir, sink)
 
-      expect(result.invariantsPassed).toBe(false)
-      expect(result.errors).toContain("generated report contains Completeness Warning")
-      const latest = sink.getEvents().at(-1)
-      expect((latest?.payload as { status?: string } | undefined)?.status).toBe(
-        "failed-finalization",
-      )
+      expect(result.errors).not.toContain("generated report contains Completeness Warning")
+      expect(result.warnings).toContain("generated report contains Completeness Warning")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

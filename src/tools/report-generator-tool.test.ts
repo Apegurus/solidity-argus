@@ -1233,7 +1233,10 @@ test("preflight warn mode adds Completeness Warning section", async () => {
 
   expect(result.report).toContain("\u26A0 Completeness Warning")
   expect(result.report).toContain("incomplete orchestration state")
-  expect(result.report).toContain("Missing lifecycle")
+  // allowLiveAudit suppresses the expected mid-audit session.deleted gap but must
+  // still surface real integrity issues such as orphaned tools.
+  expect(result.report).toContain("Orphaned tools: orphan-call-2")
+  expect(result.report).not.toContain("Missing lifecycle")
 })
 
 test("executeReportGeneration normalizes incomplete toolsExecuted in report_input", async () => {
@@ -2113,6 +2116,90 @@ test("executeReportGeneration accepts Scribe-style deduped findings without cano
     expect(result.report).toContain("Complete loss of all deposited funds via reentrant withdraw")
     expect(result.report).toContain("Add nonReentrant modifier")
     expect(result.report).not.toContain("Impact details were not provided")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("citable finding IDs stay stable across report revisions", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-stable-ids-"))
+  const runId = "run-stable-ids"
+  const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+
+  const idByTitle = (report: string): Map<string, string> => {
+    const map = new Map<string, string>()
+    const re = /^### \[([A-Za-z]+-\d+)\] (.+?) · severity:/gm
+    for (let m = re.exec(report); m !== null; m = re.exec(report)) {
+      map.set(m[2] as string, m[1] as string)
+    }
+    return map
+  }
+
+  const finding = (id: string, check: string, line: number): Finding =>
+    ({
+      id,
+      check,
+      severity: "Critical",
+      confidence: "High",
+      description: `${check} description`,
+      file: "src/Vault.sol",
+      lines: [line, line],
+      source: "manual",
+      impact: "impact",
+      recommendation: "recommendation",
+    }) as Finding
+
+  try {
+    const rev1 = await executeReportGeneration(
+      {
+        project_name: "StableIds",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        report_input: JSON.stringify(
+          makeReportInput([finding("alpha", "alpha-bug", 10), finding("bravo", "bravo-bug", 20)], {
+            run_id: runId,
+            scope: ["src/Vault.sol"],
+          }),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+    const ids1 = idByTitle(rev1.report)
+    const alphaId = ids1.get("Alpha Bug")
+    const bravoId = ids1.get("Bravo Bug")
+    expect(alphaId).toBeDefined()
+    expect(bravoId).toBeDefined()
+    expect(alphaId).not.toBe(bravoId)
+
+    // Revision 2 inserts "charlie" which sorts FIRST by line number. It must not steal
+    // alpha's/bravo's existing IDs — they stay pinned, charlie takes the next free number.
+    const rev2 = await executeReportGeneration(
+      {
+        project_name: "StableIds",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        revision: 2,
+        report_input: JSON.stringify(
+          makeReportInput(
+            [
+              finding("alpha", "alpha-bug", 10),
+              finding("bravo", "bravo-bug", 20),
+              finding("charlie", "charlie-bug", 5),
+            ],
+            { run_id: runId, scope: ["src/Vault.sol"] },
+          ),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+    const ids2 = idByTitle(rev2.report)
+    expect(ids2.get("Alpha Bug")).toBe(alphaId as string)
+    expect(ids2.get("Bravo Bug")).toBe(bravoId as string)
+    expect(ids2.get("Charlie Bug")).toBeDefined()
+    expect(ids2.get("Charlie Bug")).not.toBe(alphaId as string)
+    expect(ids2.get("Charlie Bug")).not.toBe(bravoId as string)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
