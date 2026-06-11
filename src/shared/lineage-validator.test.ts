@@ -152,3 +152,34 @@ test("validateFindingLineage rejects invalid dropped observation reasons and dup
     { observation_id: "obs-a", reason: "invalid-reason" },
   ])
 })
+
+// Documents the P0-1 deduped-universe contract: report parity and persist-deduped both
+// validate against the deduped findings.json, whose singular observation_id is the
+// representative survivor. An observation collapsed into observation_ids[] is NOT part of
+// the raw universe, so the deduped set may neither reference nor drop a collapsed id.
+test("validateFindingLineage rejects dropping a collapsed (non-representative) observation", () => {
+  const raw = [
+    finding({
+      id: "rep",
+      observation_id: "obs-rep",
+      observation_ids: ["obs-rep", "obs-collapsed"],
+      observation_count: 2,
+    }),
+  ]
+  const deduped = [
+    finding({
+      id: "rep",
+      observation_id: "obs-rep",
+      observation_ids: ["obs-rep"],
+      observation_count: 1,
+    }),
+  ]
+
+  expect(validateFindingLineage(raw, deduped).valid).toBe(true)
+
+  const droppingCollapsed = validateFindingLineage(raw, deduped, [
+    { observation_id: "obs-collapsed", reason: "merged-into" },
+  ])
+  expect(droppingCollapsed.valid).toBe(false)
+  expect(droppingCollapsed.phantom_dropped_observation_ids).toEqual(["obs-collapsed"])
+})
