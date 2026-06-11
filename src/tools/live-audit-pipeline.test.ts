@@ -126,3 +126,160 @@ test("generates a clean live report from events without session.deleted", async 
     rmSync(tempDir, { recursive: true, force: true })
   }
 })
+
+async function writeJournal(runId: string, dir: string, events: AuditEvent[]): Promise<void> {
+  const journalFile = createAuditArtifactResolver(runId, dir).paths().journalFile
+  await mkdir(dirname(journalFile), { recursive: true })
+  await writeFile(journalFile, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`)
+}
+
+async function writeDeduped(
+  runId: string,
+  dir: string,
+  findings: Array<Record<string, unknown>>,
+): Promise<void> {
+  const dedupedFile = createAuditArtifactResolver(runId, dir).paths().dedupedFindingsFile
+  await mkdir(dirname(dedupedFile), { recursive: true })
+  await writeFile(
+    dedupedFile,
+    JSON.stringify({ run_id: runId, findings, dropped_observations: [] }, null, 2),
+  )
+}
+
+// P0-1 regression: report parity must validate deduped lineage against the deduped raw
+// universe (findings.json = dedupe(projectFindings)) that argus_persist_deduped uses, not
+// the un-deduped projectFindings(events). obs-a and obs-b share issue-shared so they
+// collapse to one survivor (primary obs-a); the report previously flagged the collapsed
+// obs-b as a "missing observation" because it compared against the raw projection.
+test("report parity validates deduped lineage against the deduped raw universe, not the raw projection (P0-1)", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-parity-dedup-"))
+  const runId = "run-live"
+  try {
+    const events: AuditEvent[] = [
+      event("session.created", 1, { scope: ["src/Vault.sol"] }),
+      event(
+        "finding.added",
+        2,
+        finding({ seq: 2, id: "a", observation_id: "obs-a", issue_fingerprint: "issue-shared" }),
+      ),
+      event(
+        "finding.added",
+        3,
+        finding({
+          seq: 3,
+          id: "b",
+          observation_id: "obs-b",
+          issue_fingerprint: "issue-shared",
+          check: "reentrancy-cei",
+        }),
+      ),
+      event(
+        "finding.added",
+        4,
+        finding({
+          seq: 4,
+          id: "c",
+          observation_id: "obs-c",
+          issue_fingerprint: "issue-other",
+          check: "missing-access-control",
+          severity: "Medium",
+        }),
+      ),
+      event("session.idle", 5, { reason: "audit-paused" }),
+    ]
+    await writeJournal(runId, tempDir, events)
+    await writeDeduped(runId, tempDir, [
+      {
+        ...finding({ seq: 2, id: "a", observation_id: "obs-a", issue_fingerprint: "issue-shared" }),
+        id: "issue-shared",
+        observation_ids: ["obs-a"],
+        observation_count: 1,
+      },
+      {
+        ...finding({
+          seq: 4,
+          id: "c",
+          observation_id: "obs-c",
+          issue_fingerprint: "issue-other",
+          check: "missing-access-control",
+          severity: "Medium",
+        }),
+        id: "issue-other",
+        observation_ids: ["obs-c"],
+        observation_count: 1,
+      },
+    ])
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "ParityVault",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        tool_coverage_policy: "skip",
+      },
+      context(tempDir),
+    )
+
+    expect(result.report).not.toContain("⚠ Completeness Warning")
+    expect(result.report).not.toContain("Finding parity mismatch")
+    expect(result.report).not.toContain("obs-b")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+// Guard against over-correction: a GENUINE Scribe omission (a deduped raw observation
+// that the deduped set never references and never drops) must still surface as a parity
+// gap. The fix narrows the raw universe to the deduped set; it must not suppress real gaps.
+test("report parity still flags a genuine deduped-lineage gap (P0-1 no-suppression)", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-parity-gap-"))
+  const runId = "run-live"
+  try {
+    const events: AuditEvent[] = [
+      event("session.created", 1, { scope: ["src/Vault.sol"] }),
+      event(
+        "finding.added",
+        2,
+        finding({ seq: 2, id: "a", observation_id: "obs-a", issue_fingerprint: "issue-shared" }),
+      ),
+      event(
+        "finding.added",
+        3,
+        finding({
+          seq: 3,
+          id: "c",
+          observation_id: "obs-c",
+          issue_fingerprint: "issue-other",
+          check: "missing-access-control",
+          severity: "Medium",
+        }),
+      ),
+      event("session.idle", 4, { reason: "audit-paused" }),
+    ]
+    await writeJournal(runId, tempDir, events)
+    await writeDeduped(runId, tempDir, [
+      {
+        ...finding({ seq: 2, id: "a", observation_id: "obs-a", issue_fingerprint: "issue-shared" }),
+        id: "issue-shared",
+        observation_ids: ["obs-a"],
+        observation_count: 1,
+      },
+    ])
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "GapVault",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        tool_coverage_policy: "skip",
+      },
+      context(tempDir),
+    )
+
+    expect(result.report).toContain("⚠ Completeness Warning")
+    expect(result.report).toContain("Finding parity mismatch")
+    expect(result.report).toContain("obs-c")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})

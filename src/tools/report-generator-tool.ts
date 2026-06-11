@@ -1676,7 +1676,7 @@ export async function executeReportGeneration(
       !partialLineage && (eventFindings.length === inputFindings.length || hasLineage)
     const lineage = hasLineage
       ? validateFindingLineage(
-          projectFindings(events),
+          eventFindings,
           reportInput.findings,
           reportInput.dropped_observations,
         )
