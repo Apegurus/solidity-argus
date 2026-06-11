@@ -232,7 +232,7 @@ describe("EventSink", () => {
     expect(events[0]?.type).toBe("session.created")
   })
 
-  test("markFinalized still allows run.finalized event", async () => {
+  test("markFinalized still allows a run.finalized event after newer events", async () => {
     const projectDir = makeTempDir()
     const sink = createEventSink(RUN_ID, projectDir)
 
@@ -244,6 +244,21 @@ describe("EventSink", () => {
     const events = await sink.readAll()
     expect(events).toHaveLength(2)
     expect(events[1]?.type).toBe("run.finalized")
+  })
+
+  test("concurrent run.finalized appends write exactly one run.finalized", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+    await sink.append(makeEvent({ type: "session.created" }))
+
+    await Promise.all([
+      sink.append(makeEvent({ type: "run.finalized" })),
+      sink.append(makeEvent({ type: "run.finalized" })),
+    ])
+
+    const events = await sink.readAll()
+    expect(events.filter((event) => event.type === "run.finalized")).toHaveLength(1)
+    expect(sink.isFinalized).toBe(true)
   })
 
   test("finalization persists across process restart via marker file", async () => {
@@ -276,12 +291,23 @@ describe("EventSink", () => {
     const sink2 = createEventSink(RUN_ID, projectDir)
     expect(sink2.isFinalized).toBe(true)
 
-    // run.finalized is still allowed even on a persisted-finalized sink
+    // run.finalized after newer events is a legitimate re-finalization and is allowed.
     await sink2.append(makeEvent({ type: "run.finalized" }))
 
     const events = await sink2.readAll()
     expect(events).toHaveLength(2)
     expect(events[1]?.type).toBe("run.finalized")
+  })
+
+  test("drops a duplicate run.finalized that directly follows another", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+    await sink.append(makeEvent({ type: "session.created" }))
+    await sink.append(makeEvent({ type: "run.finalized" }))
+    await sink.append(makeEvent({ type: "run.finalized" }))
+
+    const events = await sink.readAll()
+    expect(events.filter((event) => event.type === "run.finalized")).toHaveLength(1)
   })
 
   test("finalization marker disk file exists after markFinalized", async () => {
