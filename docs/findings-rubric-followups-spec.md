@@ -60,6 +60,8 @@ Dogfood verification artifacts: `.argus/runs/9757deb4-…/` (`findings.json`, `d
 
 **Watch out**: do not weaken the lineage validator to hide the gap — completeness must be provable, not suppressed.
 
+**Resolution (implemented, `78676f4`)**: the root cause was narrower than dual-scheme minting. The report's completeness check validated deduped lineage against the *raw* `projectFindings(events)` universe, while `argus_persist_deduped` validated against the *deduped* `findings.json`. Observations collapsed by `dedupeFindingsForFinalOutput` (same `issue_fingerprint`) therefore surfaced as false `missing` ids. Fix: validate against the already-computed deduped `eventFindings` so both checks share one raw universe. The lineage validator is unchanged, so genuine gaps still surface (covered by a no-suppression regression test). The `${sessionId}:n` vs `${toolCallId}:n` ids reconcile correctly once both sides use the deduped universe — no minting change was required.
+
 ---
 
 ## P0-2: Finalization Gap
@@ -133,10 +135,10 @@ Status of every root-caused defect from the investigation + dogfood:
 | 4 | Stale `missing=N` from polluted report-input | ✅ Fixed (PR #5) | `report-generator-tool` |
 | 6 | Citable-ID instability across revisions | ✅ Fixed (PR #5) | `finding-id-registry` |
 | 3a | Phantom-ID rejection diagnostics | ✅ Fixed (PR #5) | `persist-deduped-tool` |
-| 3b | **Dual-ID minting / unreconciled observations** | ⛔ **P0 (this branch)** | tool-tracking-hook, adapters, lineage-validator |
-| F | **Finalization gap (no run.finalized)** | ⛔ **P0 (this branch)** | create-hooks, run-finalizer, event-hook |
-| E | **generate_report regeneration ergonomics** | ⛔ **P1 (this branch)** | report-generator-tool, scribe-prompt |
-| 9 | Session-state isolation `(sessionID, run_id)` | ⛔ **P1 (this branch)** | create-managers, create-hooks |
+| 3b | Parity validated against the raw (un-deduped) projection → false `missing=N` | ✅ Fixed (this branch, `78676f4`) | report-generator-tool (validate against deduped `eventFindings`) |
+| F | **Finalization gap (no run.finalized)** | ✅ Fixed (this branch, `161b992`) | create-hooks (event-stream finalize gate, not siloed `reportGenerated`) |
+| E | **generate_report regeneration ergonomics** | ✅ Fixed (this branch, `a97cc75`) | report-generator-tool (prescriptive errors + structured `revision<2`), scribe-prompt |
+| 9 | Session-state isolation (reused finalized session) | ✅ Fixed (this branch, `ade78f4`) | create-hooks (finalized-run stale guard) |
 | 5 | Slither `--exclude-detectors` invalid | ⛔ P2 | slither-tool |
 | 8 | Scribe latency | ⛔ Backlog | scribe enrichment |
 | U | Stable-ID display gap (cosmetic) | ⛔ P3 | finding-id-registry |
@@ -147,11 +149,11 @@ Status of every root-caused defect from the investigation + dogfood:
 
 ## Release-Readiness Checklist (v0.7.0)
 
-- [ ] P0-1 dual-ID: live audit produces a report with **no** parity Completeness Warning.
-- [ ] P0-2 finalization: warn-level-complete run reaches `run.finalized` (regression test).
-- [ ] P1-1 ergonomics: `revision`-only regeneration works; no duplicate-write retry burst.
-- [ ] P1-2 isolation: reused session does not inherit prior-run state (regression test).
-- [ ] Full `bun test` green, `tsc --noEmit` clean, `biome check .` clean.
-- [ ] Fresh dogfood on VulnerableVault finalizes cleanly end-to-end.
+- [x] P0-1 parity: report validates deduped lineage against the deduped universe (matches `persist_deduped`). Verified clean against the real run-`9757deb4` event stream that previously showed `missing=25`.
+- [x] P0-2 finalization: report + resolved disposition across sessions reaches `run.finalized` (regression test in `create-hooks.test.ts`).
+- [x] P1-1 ergonomics: prescriptive regeneration errors; `revision<2` returns a structured error (no fatal throw); Scribe prompt documents the revision-bump workflow.
+- [x] P1-2 isolation: a reused finalized session starts a fresh run (regression test in `create-hooks.test.ts`).
+- [x] Full `bun test` green (1701 pass / 3 skip / 0 fail), `tsc --noEmit` clean, `biome check .` clean.
+- [ ] Fresh **live** dogfood on VulnerableVault finalizes cleanly end-to-end (recorded-stream validation done; live agent-loop run still recommended before tag).
 - [ ] Version bump `0.7.0-dev` → `0.7.0` and changelog.
 - [ ] Revert global `~/.config/opencode/opencode.json` `solidity-argus` from the `file://` worktree path before release.
