@@ -628,22 +628,20 @@ export function createHooks(args: {
           )
         }
 
-        if (auditState.reportGenerated) {
-          const runSink =
-            eventSinksByRunId.get(auditState.sessionId) ??
-            (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
+        // Finalize on idle from the run event stream (report followed by a resolved Themis
+        // disposition), independent of auditState.reportGenerated which is siloed per session.
+        const idleRunSink =
+          eventSinksByRunId.get(auditState.sessionId) ??
+          (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
 
-          if (runSink && !runSink.isFinalized) {
-            const events = await runSink.readAll()
-            if (!hasResolvedThemisDispositionAfterReport(events)) {
-              return
-            }
-
+        if (idleRunSink && !idleRunSink.isFinalized) {
+          const idleEvents = await idleRunSink.readAll()
+          if (hasResolvedThemisDispositionAfterReport(idleEvents)) {
             try {
               const idleFinalization = await finalizeRun(
                 auditState.sessionId,
                 auditState.projectDir,
-                runSink,
+                idleRunSink,
               )
               updateRunStatus(
                 auditState.sessionId,
@@ -1124,37 +1122,45 @@ export function createHooks(args: {
 
           if (toolName === "argus_themis_disposition") {
             const state = getAuditState(input.sessionID)
-            if (state?.reportGenerated) {
+            if (state && state.sessionId.length > 0) {
+              // Finalize from the run's event stream, not state.reportGenerated. The report
+              // is generated in Scribe's session while the resolved disposition may be
+              // recorded from another session, so the disposition session's reportGenerated
+              // flag is unreliable. Prefer the sink that received this event, then the run sink.
               const runSink =
-                eventSinksByRunId.get(state.sessionId) ??
                 (input.sessionID
                   ? (eventSinksByOpencodeSession.get(input.sessionID) ?? null)
-                  : null)
+                  : null) ??
+                eventSinksByRunId.get(state.sessionId) ??
+                null
 
-              if (runSink) {
-                try {
-                  const reportFinalization = await finalizeRun(
-                    state.sessionId,
-                    state.projectDir,
-                    runSink,
-                  )
-                  updateRunStatus(
-                    state.sessionId,
-                    reportFinalization.invariantsPassed ? "finalized" : "failed",
-                  ).catch((err) =>
+              if (runSink && !runSink.isFinalized) {
+                const events = await runSink.readAll()
+                if (hasResolvedThemisDispositionAfterReport(events)) {
+                  try {
+                    const reportFinalization = await finalizeRun(
+                      state.sessionId,
+                      state.projectDir,
+                      runSink,
+                    )
+                    updateRunStatus(
+                      state.sessionId,
+                      reportFinalization.invariantsPassed ? "finalized" : "failed",
+                    ).catch((err) =>
+                      logger.warn(
+                        `Failed to update run status: ${err instanceof Error ? err.message : String(err)}`,
+                      ),
+                    )
+                    if (!reportFinalization.invariantsPassed) {
+                      logger.warn(
+                        `Themis-disposition finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                      )
+                    }
+                  } catch (error) {
                     logger.warn(
-                      `Failed to update run status: ${err instanceof Error ? err.message : String(err)}`,
-                    ),
-                  )
-                  if (!reportFinalization.invariantsPassed) {
-                    logger.warn(
-                      `Themis-disposition finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                      `Themis-disposition finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
                     )
                   }
-                } catch (error) {
-                  logger.warn(
-                    `Themis-disposition finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
-                  )
                 }
               }
             }

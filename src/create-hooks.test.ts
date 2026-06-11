@@ -580,6 +580,89 @@ describe("createHooks", () => {
     expect(finalizationEvent?.payload?.invariantsPassed).toBe(true)
   })
 
+  // P0-2 regression: the report runs in Scribe's session and the resolved Themis
+  // disposition is recorded from a different session, so reportGenerated lives only on
+  // Scribe's state copy. Finalization must key on the run event stream, not the
+  // disposition session's siloed reportGenerated flag.
+  it("finalizes run when report and resolved disposition arrive on different sessions", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-cross-session-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+    const managers = makeManagers()
+    managers.auditStateManager.load = async () => activeState
+    managers.auditStateManager.get = () => activeState
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-orchestrator" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-orchestrator")
+
+    const freshRunId = await waitForRunId("oc-orchestrator")
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-scribe",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: freshRunId,
+          filePath: ".argus/reports/cross.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+        sessionID: "oc-orchestrator",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    const journalPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    const events = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+    const finalizationEvent = [...events].reverse().find((event) => event.type === "run.finalized")
+
+    expect(finalizationEvent).toBeDefined()
+    expect(finalizationEvent?.payload?.status).toBe("finalized")
+  })
+
   it("finalizes run on session.idle after successful report generation", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-idle-finalize-${Date.now()}`
