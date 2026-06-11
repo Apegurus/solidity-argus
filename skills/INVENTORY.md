@@ -1,7 +1,8 @@
 # Argus Knowledge Base Inventory
 
 Generated: 2026-02-20
-Total SKILL.md files: 91
+Last updated: 2026-05-28 (added 6 2025+ vulnerability patterns)
+Total SKILL.md files: 97
 
 ## Vulnerability Patterns
 | File | Source(s) | Topic | Word Count |
@@ -16,9 +17,13 @@ Total SKILL.md files: 91
 | vulnerability-patterns/delegatecall-untrusted-callee/SKILL.md | kadenzipfel | Delegatecall to Untrusted Callee | 356 |
 | vulnerability-patterns/dos-gas-limit/SKILL.md | kadenzipfel | DoS with Block Gas Limit | 355 |
 | vulnerability-patterns/dos-revert/SKILL.md | kadenzipfel | DoS with (Unexpected) Revert | 481 |
+| vulnerability-patterns/eip1271-isvalidsignature-spoof/SKILL.md | Argus (EIP-1271, CC0) | EIP-1271 isValidSignature Spoofing | 1005 |
+| vulnerability-patterns/eip7702-setcode-delegation/SKILL.md | Argus (EIP-7702, CC0) | EIP-7702 SetCode Delegation Risks | 1115 |
+| vulnerability-patterns/erc4337-account-abstraction/SKILL.md | Argus (ERC-4337 + ERC-7562, CC0) | ERC-4337 Account Abstraction | 1575 |
 | vulnerability-patterns/erc4626-exchange-rate-manipulation/SKILL.md | BailSec | ERC4626 Exchange Rate Manipulation | 381 |
 | vulnerability-patterns/fee-on-transfer-tokens/SKILL.md | BailSec | Fee-on-Transfer Token Incompatibility | 540 |
 | vulnerability-patterns/flash-loan-attacks/SKILL.md | DeFiFoFum, kadenzipfel | Flash Loan Attack Exploits | 1116 |
+| vulnerability-patterns/flashloan-reorg-mev/SKILL.md | Argus (DeFiHackLabs, MIT) | Flash-loan + Reorg + MEV Attacks | 1707 |
 | vulnerability-patterns/floating-pragma/SKILL.md | kadenzipfel | Floating Pragma | 301 |
 | vulnerability-patterns/front-running-attacks/SKILL.md | Argus | Front-Running and MEV Vulnerabilities | 1147 |
 | vulnerability-patterns/gas-optimization-patterns/SKILL.md | Argus | Gas Optimization Vulnerability Patterns | 1219 |
@@ -37,12 +42,14 @@ Total SKILL.md files: 91
 | vulnerability-patterns/oracle-manipulation/SKILL.md | DeFiFoFum, kadenzipfel | Oracle Manipulation Exploits | 1126 |
 | vulnerability-patterns/outdated-compiler-version/SKILL.md | kadenzipfel | Outdated Compiler Version | 342 |
 | vulnerability-patterns/overflow-underflow/SKILL.md | kadenzipfel | Integer Overflow and Underflow | 385 |
+| vulnerability-patterns/permit2-allowance-abuse/SKILL.md | Argus (Uniswap Permit2, MIT) | Permit2 Allowance Abuse | 995 |
 | vulnerability-patterns/proxy-vulnerabilities/SKILL.md | Argus | Proxy Pattern Vulnerabilities | 1063 |
 | vulnerability-patterns/reentrancy/SKILL.md | DeFiFoFum, kadenzipfel | Reentrancy Exploits | 1160 |
 | vulnerability-patterns/shadowing-state-variables/SKILL.md | kadenzipfel | Shadowing State Variables | 404 |
 | vulnerability-patterns/share-accounting-desynchronization/SKILL.md | BailSec | Share Accounting Desynchronization | 390 |
 | vulnerability-patterns/signature-malleability/SKILL.md | kadenzipfel | Signature Malleability | 370 |
 | vulnerability-patterns/stateful-parameter-update-drift/SKILL.md | BailSec | Stateful Parameter Update Drift | 388 |
+| vulnerability-patterns/transient-storage-aliasing/SKILL.md | Argus (EIP-1153, CC0) | EIP-1153 Transient Storage Aliasing | 959 |
 | vulnerability-patterns/unbounded-return-data/SKILL.md | kadenzipfel | Unbounded Return Data | 389 |
 | vulnerability-patterns/unchecked-return-values/SKILL.md | kadenzipfel | Unchecked Return Values | 331 |
 | vulnerability-patterns/unencrypted-private-data-on-chain/SKILL.md | kadenzipfel | Unencrypted Private Data On-Chain | 360 |
