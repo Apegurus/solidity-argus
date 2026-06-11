@@ -1823,7 +1823,12 @@ export async function executeReportGeneration(
       sortFindingsByConfidence(leadFindings),
       existingIdMap,
     )
-    await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
+    // Do not mutate the durable ID registry on an error path: an invalid regeneration
+    // request returns INVALID_REGENERATION_OPTIONS without writing a report, so it must
+    // not rewrite finding-id-map.json either.
+    if (!invalidRegenerationOptions) {
+      await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
+    }
   }
 
   const reportMarkdown = renderReportMarkdown(reportInput, {
