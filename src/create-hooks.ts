@@ -40,6 +40,7 @@ import type { AuditStateManager, Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { createLogger } from "./shared/logger"
 import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { createAuditState } from "./state/audit-state"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
@@ -227,6 +228,9 @@ export function createHooks(args: {
   const debouncedSavesBySession = new Map<string, ReturnType<typeof createDebouncedSave>>()
 
   const pendingActivations = new Set<string>()
+  // Sessions reset for a fresh run after their prior run finalized — recovery must not
+  // resume the closed run's persisted state for these (P1-2 cross-run isolation).
+  const sessionsResetForFreshRun = new Set<string>()
 
   function getSessionManager(sessionId: string): AuditStateManager {
     let manager = sessionManagers.get(sessionId)
@@ -290,7 +294,19 @@ export function createHooks(args: {
   }
 
   async function activateSession(sessionId: string): Promise<void> {
-    if (activatedSessions.has(sessionId)) return
+    if (activatedSessions.has(sessionId)) {
+      // Finalized-run stale guard: if this session was activated for a run that has since
+      // been finalized, a new audit in the same OpenCode session must start a fresh run
+      // rather than inherit the closed run's findings/phase. Reset only on a finalized sink
+      // — not on reportGenerated, which is valid between report generation and disposition.
+      const priorRunId = getAuditState(sessionId)?.sessionId
+      const priorSink = priorRunId ? eventSinksByRunId.get(priorRunId) : undefined
+      if (!priorSink?.isFinalized) return
+      activatedSessions.delete(sessionId)
+      eventSinksByOpencodeSession.delete(sessionId)
+      setAuditState(createAuditState(projectDir).state, sessionId)
+      sessionsResetForFreshRun.add(sessionId)
+    }
     if (pendingActivations.has(sessionId)) return
 
     const auditState = getAuditState(sessionId)
@@ -389,6 +405,12 @@ export function createHooks(args: {
           success: recoveredState !== null,
           findingsCount: recoveredState?.findings.length ?? 0,
         })
+      }
+
+      // A session reset for a fresh run must not resume the finalized run's persisted
+      // state, even if that snapshot predates a recorded report/disposition.
+      if (sessionsResetForFreshRun.delete(sessionId)) {
+        recoveredState = null
       }
 
       const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000

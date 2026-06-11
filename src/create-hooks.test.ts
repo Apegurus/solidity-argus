@@ -663,6 +663,82 @@ describe("createHooks", () => {
     expect(finalizationEvent?.payload?.status).toBe("finalized")
   })
 
+  // P1-2 regression: a finalized run must not bleed into a new audit started in the same
+  // OpenCode session. Re-activating the session after finalization must start a fresh run
+  // rather than reuse the closed run's state.
+  it("starts a fresh run when a finalized session is reused for a new audit", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-reuse-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+    const managers = makeManagers()
+    managers.auditStateManager.load = async () => activeState
+    managers.auditStateManager.get = () => activeState
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-reuse" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-reuse")
+    const firstRunId = await waitForRunId("oc-reuse")
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-reuse",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: firstRunId,
+          filePath: ".argus/reports/reuse.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+        sessionID: "oc-reuse",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await activateArgusSession(hooks, "oc-reuse")
+    const secondRunId = await waitForRunId("oc-reuse")
+
+    expect(secondRunId).not.toBe(firstRunId)
+  })
+
   it("finalizes run on session.idle after successful report generation", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-idle-finalize-${Date.now()}`
