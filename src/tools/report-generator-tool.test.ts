@@ -293,16 +293,11 @@ test("executeReportGeneration creates complete markdown report with findings by 
   expect(result.report).toContain("## Findings")
   expect(result.report).toContain("## Recommendations")
   expect(result.report).toContain("## Appendix")
-  expect(result.report).toContain("### Critical")
-  expect(result.report).toContain("### High")
-  expect(result.report).toContain("### Medium")
-  expect(result.report).toContain("### Low")
-  expect(result.report).toContain("### Informational")
-  expect(result.report).toContain("### [CRIT-1] Critical Bug")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth")
-  expect(result.report).toContain("### [MED-1] Unsafe Cast")
-  expect(result.report).toContain("### [LOW-1] Missing Event")
-  expect(result.report).toContain("### [INFO-1] Naming")
+  expect(result.report).toContain("### [CRIT-1] Critical Bug · severity: Critical · evidence: High")
+  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth · severity: High · evidence: Medium")
+  expect(result.report).toContain("### [MED-1] Unsafe Cast · severity: Medium · evidence: High")
+  expect(result.report).toContain("### [LOW-1] Missing Event · severity: Low · evidence: Low")
+  expect(result.report).toContain("### [INFO-1] Naming · severity: Informational · evidence: Low")
   expect(result.report).toContain("**Location**: src/Core.sol:4-9")
   expect(result.report).toContain("| Critical | 1 |")
   expect(result.report).toContain("| High | 1 |")
@@ -341,12 +336,10 @@ test("executeReportGeneration applies medium severity threshold", async () => {
     informational: 0,
   })
 
-  expect(result.report).toContain("### High")
-  expect(result.report).toContain("### Medium")
-  expect(result.report).not.toContain("### Low")
-  expect(result.report).not.toContain("### Informational")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth")
-  expect(result.report).toContain("### [MED-1] Unsafe Cast")
+  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth · severity: High · evidence: High")
+  expect(result.report).toContain("### [MED-1] Unsafe Cast · severity: Medium · evidence: High")
+  expect(result.report).not.toContain("severity: Low")
+  expect(result.report).not.toContain("severity: Informational")
 })
 
 test("executeReportGeneration default threshold includes Informational findings", async () => {
@@ -372,8 +365,10 @@ test("executeReportGeneration default threshold includes Informational findings"
     low: 1,
     informational: 1,
   })
-  expect(result.report).toContain("### [LOW-1] Missing Event")
-  expect(result.report).toContain("### [INFO-1] Floating Pragma")
+  expect(result.report).toContain("### [LOW-1] Missing Event · severity: Low · evidence: High")
+  expect(result.report).toContain(
+    "### [INFO-1] Floating Pragma · severity: Informational · evidence: High",
+  )
   expect(result.report).toContain("| Informational | 1 |")
 })
 
@@ -504,7 +499,8 @@ test("executeReportGeneration handles empty findings after threshold filtering",
     low: 0,
     informational: 0,
   })
-  expect(result.report).toContain("No findings meet the configured severity threshold.")
+  expect(result.report).not.toContain("## Findings")
+  expect(result.report).not.toContain("## Leads")
   expect(result.report).toContain("| Critical | 0 |")
 })
 
@@ -1012,6 +1008,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
             skillPrecedence: "bundled-first" as const,
           },
           reporting: {
+            confidenceThreshold: 80,
             format: "markdown" as const,
             severityThreshold: "low" as const,
             gasAnalysis: false,
@@ -1033,7 +1030,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
 
     const content = await Bun.file(result.filePath ?? "").text()
     expect(content).toContain("# Security Audit Report — DiskWriteTest")
-    expect(content).toContain("### [HIGH-1] Disk Write Test")
+    expect(content).toContain("### [HIGH-1] Disk Write Test · severity: High · evidence: High")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -1062,6 +1059,7 @@ test("executeReportGeneration returns write error when disk write fails", async 
   expect(result.filePath).toBeUndefined()
   expect(result.error?.code).toBe("WRITE_FAILED")
   expect(result.report).toContain("# Security Audit Report — WriteFailTest")
+  expect(result.report).toContain("Config load failed")
   expect(result.findingsCount.low).toBe(1)
 })
 
@@ -1100,6 +1098,7 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
             skillPrecedence: "bundled-first" as const,
           },
           reporting: {
+            confidenceThreshold: 80,
             format: "markdown" as const,
             severityThreshold: "low" as const,
             gasAnalysis: false,
@@ -1234,7 +1233,10 @@ test("preflight warn mode adds Completeness Warning section", async () => {
 
   expect(result.report).toContain("\u26A0 Completeness Warning")
   expect(result.report).toContain("incomplete orchestration state")
-  expect(result.report).toContain("Missing lifecycle")
+  // allowLiveAudit suppresses the expected mid-audit session.deleted gap but must
+  // still surface real integrity issues such as orphaned tools.
+  expect(result.report).toContain("Orphaned tools: orphan-call-2")
+  expect(result.report).not.toContain("Missing lifecycle")
 })
 
 test("executeReportGeneration normalizes incomplete toolsExecuted in report_input", async () => {
@@ -1370,7 +1372,9 @@ test("durable-evidence report path renders without undefined when synthesis text
   )
 
   expect(result.report).toContain("# Security Audit Report — DurableOnlyNoSynthesis")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
+  expect(result.report).toContain(
+    "### [HIGH-1] Reentrancy Withdraw · severity: High · evidence: High",
+  )
   expect(result.report).not.toContain("undefined")
 })
 
@@ -2038,7 +2042,9 @@ test("executeReportGeneration falls back to run_id disk report-input.json", asyn
 
     expect(result.run_id).toBe(runId)
     expect(result.findingsCount.high).toBe(1)
-    expect(result.report).toContain("### [HIGH-1] Disk Fallback Check")
+    expect(result.report).toContain(
+      "### [HIGH-1] Disk Fallback Check · severity: High · evidence: High",
+    )
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -2110,6 +2116,90 @@ test("executeReportGeneration accepts Scribe-style deduped findings without cano
     expect(result.report).toContain("Complete loss of all deposited funds via reentrant withdraw")
     expect(result.report).toContain("Add nonReentrant modifier")
     expect(result.report).not.toContain("Impact details were not provided")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("citable finding IDs stay stable across report revisions", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-stable-ids-"))
+  const runId = "run-stable-ids"
+  const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+
+  const idByTitle = (report: string): Map<string, string> => {
+    const map = new Map<string, string>()
+    const re = /^### \[([A-Za-z]+-\d+)\] (.+?) · severity:/gm
+    for (let m = re.exec(report); m !== null; m = re.exec(report)) {
+      map.set(m[2] as string, m[1] as string)
+    }
+    return map
+  }
+
+  const finding = (id: string, check: string, line: number): Finding =>
+    ({
+      id,
+      check,
+      severity: "Critical",
+      confidence: "High",
+      description: `${check} description`,
+      file: "src/Vault.sol",
+      lines: [line, line],
+      source: "manual",
+      impact: "impact",
+      recommendation: "recommendation",
+    }) as Finding
+
+  try {
+    const rev1 = await executeReportGeneration(
+      {
+        project_name: "StableIds",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        report_input: JSON.stringify(
+          makeReportInput([finding("alpha", "alpha-bug", 10), finding("bravo", "bravo-bug", 20)], {
+            run_id: runId,
+            scope: ["src/Vault.sol"],
+          }),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+    const ids1 = idByTitle(rev1.report)
+    const alphaId = ids1.get("Alpha Bug")
+    const bravoId = ids1.get("Bravo Bug")
+    expect(alphaId).toBeDefined()
+    expect(bravoId).toBeDefined()
+    expect(alphaId).not.toBe(bravoId)
+
+    // Revision 2 inserts "charlie" which sorts FIRST by line number. It must not steal
+    // alpha's/bravo's existing IDs — they stay pinned, charlie takes the next free number.
+    const rev2 = await executeReportGeneration(
+      {
+        project_name: "StableIds",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        revision: 2,
+        report_input: JSON.stringify(
+          makeReportInput(
+            [
+              finding("alpha", "alpha-bug", 10),
+              finding("bravo", "bravo-bug", 20),
+              finding("charlie", "charlie-bug", 5),
+            ],
+            { run_id: runId, scope: ["src/Vault.sol"] },
+          ),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+    const ids2 = idByTitle(rev2.report)
+    expect(ids2.get("Alpha Bug")).toBe(alphaId as string)
+    expect(ids2.get("Bravo Bug")).toBe(bravoId as string)
+    expect(ids2.get("Charlie Bug")).toBeDefined()
+    expect(ids2.get("Charlie Bug")).not.toBe(alphaId as string)
+    expect(ids2.get("Charlie Bug")).not.toBe(bravoId as string)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

@@ -212,13 +212,13 @@ export const recordFindingTool = tool({
       .string()
       .optional()
       .describe(
-        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
+        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: confidence_score (integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold, default 80, render in Findings; lower scores render in Leads), rubric_verdict ("CONFIRMED"|"DEMOTED"|"REJECTED_DEMOTED" — the structured 4-gate verdict from refutation-rubric; agents applying the rubric MUST set this alongside confidence_score so the reporter can group findings deterministically), impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
       ),
     findings: tool.schema
       .string()
       .optional()
       .describe(
-        "Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.",
+        'Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Optional confidence_score is an integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold (default 80) render in Findings, lower scores render in Leads. Optional rubric_verdict ("CONFIRMED"|"DEMOTED"|"REJECTED_DEMOTED") is the structured 4-gate verdict — agents applying the rubric MUST set this alongside confidence_score so the reporter can group findings deterministically. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.',
       ),
   },
   async execute(args, context) {

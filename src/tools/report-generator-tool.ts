@@ -23,6 +23,12 @@ import {
 import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
 import type { ArgusAgentName, AuditState, Finding, FindingSeverity } from "../state/types"
+import {
+  assignStableFindingIds,
+  loadFindingIdRegistry,
+  persistFindingIdRegistry,
+  SEVERITY_ID_PREFIX,
+} from "./finding-id-registry"
 import { checkReportPreflight } from "./report-preflight"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
@@ -53,7 +59,12 @@ type FindingsCount = {
 
 export type ReportGenerationResult = {
   report: string
+  /** Findings-tier counts only (confirmed/above-threshold); matches `qualityGates` scope. */
   findingsCount: FindingsCount
+  /** Leads-tier counts (demoted/below-threshold). */
+  leadsTierCount: FindingsCount
+  /** Combined Findings + Leads counts (the executive-summary Total column). */
+  totalCount: FindingsCount
   filename: string
   run_id: string
   contentHash: string
@@ -156,16 +167,6 @@ async function checkSafeForceOverwrite(
       message: `Refusing to force overwrite ${filePath}: existing file could not be read (${err instanceof Error ? err.message : String(err)}).`,
     }
   }
-}
-
-const SEVERITY_ORDER: FindingSeverity[] = ["Critical", "High", "Medium", "Low", "Informational"]
-
-const SEVERITY_PREFIX: Record<FindingSeverity, string> = {
-  Critical: "CRIT",
-  High: "HIGH",
-  Medium: "MED",
-  Low: "LOW",
-  Informational: "INFO",
 }
 
 const THRESHOLD_WEIGHT: Record<SeverityThreshold, number> = {
@@ -763,19 +764,60 @@ function parseReportInputPayload(
   )
 }
 
+// Strips Markdown/HTML-sensitive chars so LLM-controlled `check` values cannot
+// forge sections, links, code spans, or inline HTML in the rendered H3 heading.
+const HEADING_DANGEROUS_CHARS = /[\r\n\t`*<>[\]()#\\|]+/g
+
 function normalizeTitle(check: string): string {
   if (!check || typeof check !== "string") return "Unknown Check"
-  return check
+  const sanitized = check.replace(HEADING_DANGEROUS_CHARS, " ")
+  return sanitized
     .split(/[-_\s]+/)
     .filter((part) => part.length > 0)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ")
 }
 
+// Security: strips CR/LF and Markdown-structural characters from inline values
+// (e.g. finding.file) so a tool/LLM-controlled path cannot break out of its line or
+// forge report structure when interpolated into Markdown. Legitimate file paths
+// never contain these characters.
+const INLINE_DANGEROUS_CHARS = /[\r\n\t`*<>[\]#|\\]+/g
+
+function sanitizeInlineField(value: string): string {
+  return value.replace(INLINE_DANGEROUS_CHARS, " ").trim()
+}
+
 function formatLocation(finding: Finding): string {
   if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2)
     return "unknown location"
-  return `${finding.file}:${finding.lines[0]}-${finding.lines[1]}`
+  return `${sanitizeInlineField(finding.file)}:${finding.lines[0]}-${finding.lines[1]}`
+}
+
+// Security: neutralizes Markdown-structure injection from LLM/tool-controlled body
+// text. Normalizes CR/LF, strips leading ATX heading markers ("## Findings"),
+// neutralizes Setext heading underlines (a line of only "=" or "-" directly beneath
+// a non-blank text line, which promotes it to H1/H2), and appends a closing fence
+// for any unbalanced code fence so a body cannot swallow downstream report sections.
+// A "---" preceded by a blank line is a thematic break (the rubric-trace separator)
+// and is preserved.
+function sanitizeBodyMarkdown(text: string): string {
+  if (!text) return text
+  const out: string[] = []
+  for (const rawLine of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const line = rawLine.replace(/^(\s*)#{1,6}[ \t]+/, "$1")
+    if (/^[ \t]*(=+|-+)[ \t]*$/.test(line)) {
+      const prev = out[out.length - 1]
+      if (prev !== undefined && prev.trim().length > 0) {
+        out.push("")
+        continue
+      }
+    }
+    out.push(line)
+  }
+  if (out.filter((line) => /^ {0,3}`{3,}/.test(line)).length % 2 === 1) out.push("```")
+  if (out.filter((line) => /^ {0,3}~{3,}/.test(line)).length % 2 === 1) out.push("~~~")
+  return out.join("\n")
 }
 
 function sourceExcerpt(projectDir: string, finding: Finding): string | null {
@@ -918,6 +960,87 @@ function sortFindingsDeterministically(findings: Finding[]): Finding[] {
   return [...findings].sort(compareFindingsDeterministically)
 }
 
+function sortFindingsByConfidence(findings: Finding[]): Finding[] {
+  return [...findings].sort((a, b) => {
+    const aHas = typeof a.confidence_score === "number"
+    const bHas = typeof b.confidence_score === "number"
+    if (aHas && !bHas) return -1
+    if (!aHas && bHas) return 1
+    if (aHas && bHas && a.confidence_score !== b.confidence_score) {
+      const aScore = a.confidence_score as number
+      const bScore = b.confidence_score as number
+      return bScore - aScore
+    }
+
+    const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+    if (severityDelta !== 0) return severityDelta
+
+    const fileDelta = a.file.localeCompare(b.file)
+    if (fileDelta !== 0) return fileDelta
+
+    const lineDelta = (a.lines[0] ?? 0) - (b.lines[0] ?? 0)
+    if (lineDelta !== 0) return lineDelta
+
+    return a.id.localeCompare(b.id)
+  })
+}
+
+// Severity-first (confidence breaks ties) so the report leads with Criticals.
+// The Leads tier deliberately uses confidence-first order — do not unify them.
+function sortFindingsBySeverityThenConfidence(findings: Finding[]): Finding[] {
+  return [...findings].sort((a, b) => {
+    const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+    if (severityDelta !== 0) return severityDelta
+
+    const aHas = typeof a.confidence_score === "number"
+    const bHas = typeof b.confidence_score === "number"
+    if (aHas && !bHas) return -1
+    if (!aHas && bHas) return 1
+    if (aHas && bHas && a.confidence_score !== b.confidence_score) {
+      const aScore = a.confidence_score as number
+      const bScore = b.confidence_score as number
+      return bScore - aScore
+    }
+
+    const fileDelta = a.file.localeCompare(b.file)
+    if (fileDelta !== 0) return fileDelta
+
+    const lineDelta = (a.lines[0] ?? 0) - (b.lines[0] ?? 0)
+    if (lineDelta !== 0) return lineDelta
+
+    return a.id.localeCompare(b.id)
+  })
+}
+
+// Tier routing is verdict-first: the rubric's structured `rubric_verdict` is the
+// authoritative Findings/Leads signal; `confidence_score` is only a fallback for
+// legacy/unscored findings predating the rubric. This stops a malformed or
+// partially-normalized DEMOTED/REJECTED_DEMOTED record (missing/invalid score)
+// from being promoted into the main Findings section.
+function splitFindingsByTier(
+  findings: Finding[],
+  threshold: number,
+): { findings: Finding[]; leads: Finding[] } {
+  const findingsTier: Finding[] = []
+  const leadsTier: Finding[] = []
+  for (const finding of findings) {
+    const verdict = finding.rubric_verdict
+    if (verdict === "CONFIRMED") {
+      findingsTier.push(finding)
+    } else if (verdict === "DEMOTED" || verdict === "REJECTED_DEMOTED") {
+      leadsTier.push(finding)
+    } else if (
+      typeof finding.confidence_score === "number" &&
+      finding.confidence_score < threshold
+    ) {
+      leadsTier.push(finding)
+    } else {
+      findingsTier.push(finding)
+    }
+  }
+  return { findings: findingsTier, leads: leadsTier }
+}
+
 function hasObservationIds(finding: Finding): boolean {
   const observationIds = (finding as { observation_ids?: unknown }).observation_ids
   return Array.isArray(observationIds) && observationIds.length > 0
@@ -1056,54 +1179,118 @@ function buildRecommendations(counts: FindingsCount): string[] {
   return items
 }
 
-function buildFindingsSection(findings: Finding[], projectDir: string): string {
+function buildFindingsSection(
+  findings: Finding[],
+  projectDir: string,
+  idAssignments?: ReadonlyMap<string, string>,
+): string {
   if (findings.length === 0) {
-    return "## Findings\nNo findings meet the configured severity threshold."
+    return ""
   }
 
   const lines: string[] = ["## Findings"]
+  const severityCounters: Partial<Record<FindingSeverity, number>> = {}
 
-  for (const severity of SEVERITY_ORDER) {
-    const severityFindings = findings.filter((finding) => finding.severity === severity)
-    if (severityFindings.length === 0) {
-      continue
+  for (const finding of findings) {
+    const recommendation = getFindingRecommendation(finding)
+    const impact = getFindingImpact(finding)
+    const seq = (severityCounters[finding.severity] ?? 0) + 1
+    severityCounters[finding.severity] = seq
+    const assigned = idAssignments?.get(finding.id)
+    const displayId = assigned
+      ? `[${assigned}]`
+      : `[${SEVERITY_ID_PREFIX[finding.severity]}-${seq}]`
+
+    lines.push(renderFindingHeader(finding, displayId))
+    lines.push(`**Severity**: ${finding.severity}`)
+    lines.push(`**Confidence**: ${finding.confidence}`)
+    lines.push(`**Location**: ${formatLocation(finding)}`)
+    const excerpt = sourceExcerpt(projectDir, finding)
+    if (excerpt) {
+      lines.push("")
+      lines.push("**Source Excerpt**:")
+      lines.push("")
+      lines.push("```solidity")
+      lines.push(excerpt)
+      lines.push("```")
     }
+    lines.push("")
+    lines.push(`**Description**: ${renderFindingBody(finding)}`)
+    lines.push("")
+    lines.push(`**Impact**: ${sanitizeBodyMarkdown(impact)}`)
+    lines.push("")
+    lines.push(`**Recommendation**: ${sanitizeBodyMarkdown(recommendation)}`)
+    const pocEvidence = getPocEvidence(finding)
+    if (pocEvidence) {
+      lines.push("")
+      lines.push(`**PoC / Evidence**: ${sanitizeBodyMarkdown(pocEvidence)}`)
+    }
+    lines.push("")
+  }
 
-    lines.push(`### ${severity}`)
+  return lines.join("\n")
+}
 
-    severityFindings.forEach((finding, index) => {
-      const prefix = SEVERITY_PREFIX[severity]
-      const findingId = `[${prefix}-${index + 1}]`
-      const title = normalizeTitle(finding.check)
-      const recommendation = getFindingRecommendation(finding)
-      const impact = getFindingImpact(finding)
+function renderFindingHeader(finding: Finding, displayId: string): string {
+  const confidence =
+    typeof finding.confidence_score === "number" ? ` · confidence: ${finding.confidence_score}` : ""
+  return `### ${displayId} ${normalizeTitle(finding.check)} · severity: ${finding.severity}${confidence} · evidence: ${finding.confidence}`
+}
 
-      lines.push(`### ${findingId} ${title}`)
-      lines.push(`**Severity**: ${finding.severity}`)
-      lines.push(`**Confidence**: ${finding.confidence}`)
-      lines.push(`**Location**: ${formatLocation(finding)}`)
-      const excerpt = sourceExcerpt(projectDir, finding)
-      if (excerpt) {
-        lines.push("")
-        lines.push("**Source Excerpt**:")
-        lines.push("")
-        lines.push("```solidity")
-        lines.push(excerpt)
-        lines.push("```")
-      }
-      lines.push("")
-      lines.push(`**Description**: ${finding.description}`)
-      lines.push("")
-      lines.push(`**Impact**: ${impact}`)
-      lines.push("")
-      lines.push(`**Recommendation**: ${recommendation}`)
-      const pocEvidence = getPocEvidence(finding)
-      if (pocEvidence) {
-        lines.push("")
-        lines.push(`**PoC / Evidence**: ${pocEvidence}`)
-      }
-      lines.push("")
-    })
+const RUBRIC_TRACE_HEADER = "**Rubric Trace**"
+const RUBRIC_GATE_LABELS = ["Refutation", "Reachability", "Trigger", "Impact"] as const
+
+// A finding counts as having a rubric trace only when its description carries the
+// full documented structure (refutation-rubric SKILL.md): header line with Verdict
+// + Confidence, all four gate lines, and a Refutation quote. A bare `**Rubric
+// Trace**` prefix is rejected — accepting prefix-only traces let the report
+// overclaim a "4-gate trace" for structurally incomplete findings.
+function hasRubricTrace(f: Finding): boolean {
+  if (typeof f.description !== "string") return false
+  const text = f.description.trimStart()
+  if (!text.startsWith(RUBRIC_TRACE_HEADER)) return false
+  const newlineIdx = text.indexOf("\n")
+  const headerLine = newlineIdx === -1 ? text : text.slice(0, newlineIdx)
+  if (!/\bVerdict:/.test(headerLine) || !/\bConfidence:/.test(headerLine)) return false
+  for (const label of RUBRIC_GATE_LABELS) {
+    if (!new RegExp(`^\\s*-\\s*${label}:`, "m").test(text)) return false
+  }
+  return /\*\*Refutation quote:\*\*/.test(text)
+}
+
+function renderFindingBody(f: Finding): string {
+  const annotation = hasRubricTrace(f)
+    ? ""
+    : "⚠️ no rubric trace — this finding was emitted without applying the 4-gate refutation rubric.\n\n"
+  return annotation + sanitizeBodyMarkdown(f.description ?? "")
+}
+
+function renderAdoptionFooter(findings: Finding[]): string {
+  if (findings.length === 0) return ""
+  const withTrace = findings.filter(hasRubricTrace).length
+  return `\n\n---\n\n_Rubric: ${withTrace}/${findings.length} findings include 4-gate trace_\n`
+}
+
+function buildLeadsSection(
+  findings: Finding[],
+  idAssignments?: ReadonlyMap<string, string>,
+): string {
+  if (findings.length === 0) {
+    return ""
+  }
+
+  const lines: string[] = ["## Leads"]
+  let leadSeq = 0
+
+  for (const finding of findings) {
+    leadSeq += 1
+    const assigned = idAssignments?.get(finding.id)
+    const displayId = assigned ? `[${assigned}]` : `[LEAD-${leadSeq}]`
+    lines.push(renderFindingHeader(finding, displayId))
+    lines.push(`**Location**: ${formatLocation(finding)}`)
+    lines.push("")
+    lines.push(`**Description**: ${renderFindingBody(finding)}`)
+    lines.push("")
   }
 
   return lines.join("\n")
@@ -1235,6 +1422,135 @@ export function buildProvenanceAppendix(
   return lines.join("\n")
 }
 
+export type RenderReportOptions = {
+  threshold?: number
+  projectName?: string
+  include_executive_summary?: boolean
+  severity_threshold?: SeverityThreshold
+  scope?: string[]
+  preflightWarningSection?: string | null
+  runId?: string
+  // Stable identity -> bare display id ("CRIT-1") map. When omitted, sections fall
+  // back to sequential per-severity numbering.
+  idAssignments?: ReadonlyMap<string, string>
+}
+
+export function renderReportMarkdown(
+  input: ReportInput,
+  options: RenderReportOptions = {},
+): string {
+  const projectName = options.projectName ?? "Unknown Project"
+  const includeExecutiveSummary = options.include_executive_summary ?? true
+  const threshold = options.severity_threshold ?? "informational"
+  const confidenceThreshold = options.threshold ?? 80
+  const preflightWarningSection = options.preflightWarningSection ?? null
+  const toolsExecuted = input.toolsExecuted ?? []
+  const state = reportInputToAuditState({ ...input, toolsExecuted })
+  const scope = options.scope ?? input.scope ?? []
+  const finalFindings = dedupeFindingsForFinalOutput(input.findings)
+  const reportFindings = sortFindingsDeterministically(
+    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+  )
+  const tiers = splitFindingsByTier(reportFindings, confidenceThreshold)
+  const findings = sortFindingsBySeverityThenConfidence(tiers.findings)
+  const leads = sortFindingsByConfidence(tiers.leads)
+  // Executive summary reflects discovery (Findings + Leads); body splits them by tier.
+  const counts = calculateCounts(reportFindings)
+  const findingsTierCounts = calculateCounts(findings)
+  const leadsTierCounts = calculateCounts(leads)
+  const runStartTime = toolsExecuted.reduce(
+    (earliest, exec) =>
+      typeof exec.startTime === "number" &&
+      exec.startTime > UNKNOWN_TIMESTAMP_SENTINEL &&
+      exec.startTime < earliest
+        ? exec.startTime
+        : earliest,
+    Number.MAX_SAFE_INTEGER,
+  )
+  const auditDate =
+    runStartTime < Number.MAX_SAFE_INTEGER
+      ? new Date(runStartTime).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10)
+
+  const sections: string[] = [`# Security Audit Report — ${projectName}`]
+
+  if (includeExecutiveSummary) {
+    sections.push("## Executive Summary")
+    sections.push(
+      `This report summarizes security findings identified for ${projectName} based on static analysis, testing, and pattern-based review.`,
+    )
+    sections.push("")
+    sections.push("| Severity | Findings | Leads | Total |")
+    sections.push("| --- | ---: | ---: | ---: |")
+    sections.push(
+      `| Critical | ${findingsTierCounts.critical} | ${leadsTierCounts.critical} | ${counts.critical} |`,
+    )
+    sections.push(
+      `| High | ${findingsTierCounts.high} | ${leadsTierCounts.high} | ${counts.high} |`,
+    )
+    sections.push(
+      `| Medium | ${findingsTierCounts.medium} | ${leadsTierCounts.medium} | ${counts.medium} |`,
+    )
+    sections.push(`| Low | ${findingsTierCounts.low} | ${leadsTierCounts.low} | ${counts.low} |`)
+    sections.push(
+      `| Informational | ${findingsTierCounts.informational} | ${leadsTierCounts.informational} | ${counts.informational} |`,
+    )
+    sections.push("")
+    sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`)
+  }
+
+  sections.push("## Scope")
+  sections.push("Contracts in scope:")
+  if (scope.length === 0) {
+    sections.push("- None provided")
+  } else {
+    for (const contract of scope) {
+      sections.push(`- ${contract}`)
+    }
+  }
+  sections.push(`Audit date: ${auditDate}`)
+
+  sections.push("## Methodology")
+  sections.push("Tools and techniques used:")
+  sections.push("- Slither static analysis")
+  sections.push("- Foundry tests and fuzzing")
+  sections.push("- Pattern Analysis")
+  sections.push("- Solodit research cross-referencing")
+  sections.push(
+    "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; the Findings tier is ordered severity-first (confidence breaks ties) while the Leads tier is ordered by confidence, both falling back to file/line for determinism, and validated against report quality gates before emission.",
+  )
+
+  const findingsSection = buildFindingsSection(findings, input.projectDir, options.idAssignments)
+  if (findingsSection.length > 0) {
+    sections.push(findingsSection)
+  }
+  const leadsSection = buildLeadsSection(leads, options.idAssignments)
+  if (leadsSection.length > 0) {
+    sections.push(leadsSection)
+  }
+
+  sections.push("## Recommendations")
+  for (const item of buildRecommendations(counts)) {
+    sections.push(`- ${item}`)
+  }
+
+  if (preflightWarningSection) {
+    sections.push(preflightWarningSection)
+  }
+
+  const allFindings = [...findings, ...leads]
+  // Provenance must cover every rendered finding (Findings + Leads); passing only
+  // the confirmed tier undercounts visible Leads in appendix counts/source breakdown.
+  sections.push(buildProvenanceAppendix(state, threshold, allFindings))
+
+  const runId = options.runId ?? input.run_id
+  if (runId) {
+    sections.push(buildReportMetadataComment(runId))
+  }
+
+  return sections.join("\n\n") + renderAdoptionFooter(allFindings)
+}
+
 export async function executeReportGeneration(
   args: ReportGeneratorArgs,
   context: ToolContext,
@@ -1245,6 +1561,9 @@ export async function executeReportGeneration(
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
   const toolCoveragePolicy = args.tool_coverage_policy ?? "enforce"
   const expectedRunId = resolveExpectedRunId(args, context, deps)
+  let confidenceThreshold = 80
+  let loadedConfig: ArgusConfig | undefined
+  let configLoadFailed = false
   const invalidRegenerationOptions =
     args.force === true && args.revision != null
       ? {
@@ -1258,30 +1577,40 @@ export async function executeReportGeneration(
           }
         : null
 
-  // Ensure report-input.json is materialized before attempting disk lookup.
-  // Scribe may call generate_report without calling read_findings first,
-  // or read_findings may have materialized under a different run_id.
+  // Re-project report-input.json from the event stream so completeness/parity never
+  // reads a stale projection left by an earlier turn. Idempotent; when there is no
+  // event stream (e.g. an inline report_input payload in tests) it throws and we fall
+  // back to the existing on-disk artifact or the provided payload.
   if (typeof expectedRunId === "string" && expectedRunId.length > 0) {
     const projectDir = resolveProjectDir(context)
-    const resolver = createAuditArtifactResolver(expectedRunId, projectDir)
-    if (!existsSync(resolver.paths().reportInputFile)) {
-      try {
-        const { materializeReportInput } = await import(
-          "../features/persistent-state/findings-materializer"
-        )
-        await materializeReportInput(expectedRunId, projectDir, context.sessionID)
-      } catch {
-        /* Best-effort: parseReportInputPayload will produce a clear error if the file is still missing */
-      }
+    try {
+      const { materializeReportInput } = await import(
+        "../features/persistent-state/findings-materializer"
+      )
+      await materializeReportInput(expectedRunId, projectDir, context.sessionID)
+    } catch {
+      /* Best-effort: parseReportInputPayload will produce a clear error if the file is still missing */
     }
   }
 
   const { reportInput, diagnostics } = parseReportInputPayload(args, context, expectedRunId)
+  try {
+    const loadConfig = deps.loadConfig ?? loadArgusConfig
+    const projectDir = resolveProjectDir(context)
+    loadedConfig = loadConfig(projectDir)
+    confidenceThreshold = loadedConfig.reporting?.confidenceThreshold ?? confidenceThreshold
+  } catch {
+    configLoadFailed = true
+  }
 
   const preflightPolicy = args.preflight_policy ?? "warn"
   let preflightWarningSection: string | null = null
   const warningBullets: string[] = []
-  const state = reportInputToAuditState(reportInput)
+  if (configLoadFailed) {
+    warningBullets.push(
+      `- Config load failed; using default confidence threshold ${confidenceThreshold} for the Findings/Leads split`,
+    )
+  }
   const scope = args.scope.length > 0 ? args.scope : reportInput.scope
   const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
   const outOfScopeFindings = collectOutOfScopeFindings(finalFindings, scope)
@@ -1315,7 +1644,7 @@ export async function executeReportGeneration(
   try {
     const readEventsFn = deps.readEvents ?? readEvents
     const events = await readEventsFn(reportInput.run_id, reportInput.projectDir)
-    const preflightResult = checkReportPreflight(events)
+    const preflightResult = checkReportPreflight(events, { allowLiveAudit: true })
     if (!preflightResult.passed) {
       if (preflightPolicy === "strict-fail") {
         const parts: string[] = []
@@ -1440,13 +1769,22 @@ export async function executeReportGeneration(
   const findings = sortFindingsDeterministically(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
-  const qualityGates = validateReportQuality(findings, qualityGatePolicy)
+  // Quality gates apply to the Findings tier only; Leads are description-only per rubric.
+  const { findings: confirmedFindings, leads: leadFindings } = splitFindingsByTier(
+    findings,
+    confidenceThreshold,
+  )
+  const qualityGates = validateReportQuality(confirmedFindings, qualityGatePolicy)
   if (!qualityGates.passed && qualityGatePolicy === "strict-fail") {
     throw new Error(
       `Report quality gates failed: ${JSON.stringify({ passed: false, violations: qualityGates.violations })}`,
     )
   }
-  const counts = calculateCounts(findings)
+  // findingsCount is scoped to the Findings tier to agree with qualityGates;
+  // leadsTierCount and totalCount expose the Leads and combined sets.
+  const findingsCount = calculateCounts(confirmedFindings)
+  const leadsTierCount = calculateCounts(leadFindings)
+  const totalCount = calculateCounts(findings)
   // Derive audit date from the run's start time for deterministic output.
   // Falls back to the earliest toolsExecuted timestamp, then current date as last resort.
   // Exclude UNKNOWN_TIMESTAMP_SENTINEL (patched-in value for missing timestamps).
@@ -1466,69 +1804,36 @@ export async function executeReportGeneration(
 
   context.metadata({ title: `Generate audit report: ${args.project_name}` })
 
-  const sections: string[] = [`# Security Audit Report — ${args.project_name}`]
-
-  if (includeExecutiveSummary) {
-    sections.push("## Executive Summary")
-    sections.push(
-      `This report summarizes security findings identified for ${args.project_name} based on static analysis, testing, and pattern-based review.`,
-    )
-    sections.push("")
-    sections.push("| Severity | Count |")
-    sections.push("| --- | ---: |")
-    sections.push(`| Critical | ${counts.critical} |`)
-    sections.push(`| High | ${counts.high} |`)
-    sections.push(`| Medium | ${counts.medium} |`)
-    sections.push(`| Low | ${counts.low} |`)
-    sections.push(`| Informational | ${counts.informational} |`)
-    sections.push("")
-    sections.push(`Overall risk assessment: ${overallRiskAssessment(counts)}.`)
-  }
-
-  sections.push("## Scope")
-  sections.push("Contracts in scope:")
-  if (scope.length === 0) {
-    sections.push("- None provided")
-  } else {
-    for (const contract of scope) {
-      sections.push(`- ${contract}`)
-    }
-  }
-  sections.push(`Audit date: ${auditDate}`)
-
-  sections.push("## Methodology")
-  sections.push("Tools and techniques used:")
-  sections.push("- Slither static analysis")
-  sections.push("- Foundry tests and fuzzing")
-  sections.push("- Pattern Analysis")
-  sections.push("- Solodit research cross-referencing")
-  sections.push(
-    "Approach: Findings are normalized, deterministically ordered by severity/file/line, and validated against report quality gates before emission.",
-  )
-
-  sections.push(buildFindingsSection(findings, reportInput.projectDir))
-
-  sections.push("## Recommendations")
-  for (const item of buildRecommendations(counts)) {
-    sections.push(`- ${item}`)
-  }
-
-  if (preflightWarningSection) {
-    sections.push(preflightWarningSection)
-  }
-
-  sections.push(buildProvenanceAppendix(state, threshold, findings))
-
   // Embed report metadata for single-writer policy enforcement
   const runId = expectedRunId ?? reportInput.run_id
   if (runId.startsWith("ses_")) {
     throw new Error("Report generation requires canonical run_id; received OpenCode session id")
   }
-  if (runId) {
-    sections.push(buildReportMetadataComment(runId))
+
+  // Assign citable IDs from the per-run registry so they stay stable across revisions.
+  // New findings are numbered in render order, matching the report's own tier sorting.
+  let idAssignments: Map<string, string> | undefined
+  if (runId.length > 0) {
+    const idProjectDir = resolveProjectDir(context)
+    const existingIdMap = await loadFindingIdRegistry(runId, idProjectDir)
+    idAssignments = assignStableFindingIds(
+      sortFindingsBySeverityThenConfidence(confirmedFindings),
+      sortFindingsByConfidence(leadFindings),
+      existingIdMap,
+    )
+    await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
   }
 
-  const reportMarkdown = sections.join("\n\n")
+  const reportMarkdown = renderReportMarkdown(reportInput, {
+    projectName: args.project_name,
+    include_executive_summary: includeExecutiveSummary,
+    severity_threshold: threshold,
+    threshold: confidenceThreshold,
+    scope,
+    preflightWarningSection,
+    runId,
+    idAssignments,
+  })
   const contentHash = stableHash(reportMarkdown)
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
@@ -1540,7 +1845,9 @@ export async function executeReportGeneration(
 
   const result: ReportGenerationResult = {
     report: reportMarkdown,
-    findingsCount: counts,
+    findingsCount,
+    leadsTierCount,
+    totalCount,
     filename: canonicalFilename,
     run_id: runId,
     contentHash,
@@ -1556,7 +1863,7 @@ export async function executeReportGeneration(
   try {
     const loadConfig = deps.loadConfig ?? loadArgusConfig
     const projectDir = resolveProjectDir(context)
-    const config = loadConfig(projectDir)
+    const config = loadedConfig ?? loadConfig(projectDir)
     const rawOutputDir = config.reporting?.output_dir ?? ".argus/reports/"
     const resolvedOutput = path.resolve(projectDir, rawOutputDir)
     const projectRoot = projectDir.endsWith(path.sep) ? projectDir : projectDir + path.sep

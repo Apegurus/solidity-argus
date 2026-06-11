@@ -15,6 +15,10 @@ export interface PreflightResult {
 
 export interface PreflightOptions {
   requiredTools?: string[]
+  // Treats a report written mid-audit (before session.deleted/run.finalized) as
+  // legitimate instead of a missing-lifecycle gap. Integrity checks are NOT relaxed:
+  // session.created, orphaned-tool, malformed-event, and required-tool all still apply.
+  allowLiveAudit?: boolean
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -57,7 +61,7 @@ export function checkReportPreflight(
   if (!hasSessionCreated(events)) {
     missingLifecycle.push("session.created")
   }
-  if (!hasSessionDeleted(events) && !hasRunFinalized(events)) {
+  if (!options.allowLiveAudit && !hasSessionDeleted(events) && !hasRunFinalized(events)) {
     missingLifecycle.push("session.deleted")
   }
 

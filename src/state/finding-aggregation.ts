@@ -10,6 +10,43 @@ function compareObservations(left: CanonicalFinding, right: CanonicalFinding): n
   return left.observation_id.localeCompare(right.observation_id)
 }
 
+const RUBRIC_VERDICT_RANK: Record<NonNullable<CanonicalFinding["rubric_verdict"]>, number> = {
+  CONFIRMED: 0,
+  DEMOTED: 1,
+  REJECTED_DEMOTED: 2,
+}
+
+function rubricRank(verdict: CanonicalFinding["rubric_verdict"]): number {
+  return verdict ? RUBRIC_VERDICT_RANK[verdict] : 3
+}
+
+// The adjudicated observation (its rubric verdict, confidence, and 4-gate trace
+// description) usually arrives AFTER the raw pattern/static observation it refutes,
+// so picking the earliest-seq observation as the merged representative silently
+// dropped the rubric data. Selecting the strongest-verdict observation instead keeps
+// the rendered verdict, confidence, and trace aligned with the adjudication. Order:
+// strongest verdict, then highest confidence_score, then earliest seq, then id.
+function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFinding {
+  return observations.reduce((best, obs) => {
+    const rankDelta = rubricRank(obs.rubric_verdict) - rubricRank(best.rubric_verdict)
+    if (rankDelta !== 0) return rankDelta < 0 ? obs : best
+    const scoreDelta = (obs.confidence_score ?? -1) - (best.confidence_score ?? -1)
+    if (scoreDelta !== 0) return scoreDelta > 0 ? obs : best
+    if (obs.seq !== best.seq) return obs.seq < best.seq ? obs : best
+    return obs.observation_id.localeCompare(best.observation_id) < 0 ? obs : best
+  })
+}
+
+function maxConfidenceScore(observations: CanonicalFinding[]): number | undefined {
+  let max: number | undefined
+  for (const obs of observations) {
+    if (typeof obs.confidence_score === "number") {
+      max = max === undefined ? obs.confidence_score : Math.max(max, obs.confidence_score)
+    }
+  }
+  return max
+}
+
 function compareFinalFindings(left: CanonicalFinding, right: CanonicalFinding): number {
   const bySeverity = SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity]
   if (bySeverity !== 0) return bySeverity
@@ -38,8 +75,8 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
 
   for (const [issueFingerprint, observations] of byIssue.entries()) {
     const sortedObservations = observations.slice().sort(compareObservations)
-    const base = sortedObservations[0]
-    if (!base) continue
+    if (sortedObservations.length === 0) continue
+    const base = selectPrimaryObservation(sortedObservations)
 
     const highestSeverityObservation = sortedObservations.reduce((best, obs) =>
       SEVERITY_RANK[obs.severity] < SEVERITY_RANK[best.severity] ? obs : best,
@@ -53,7 +90,7 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
       .map((finding) => finding.observation_id)
       .sort((left, right) => left.localeCompare(right))
 
-    merged.push({
+    const mergedFinding: CanonicalFinding = {
       ...base,
       severity: highestSeverityObservation.severity,
       id: issueFingerprint,
@@ -61,7 +98,17 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
       reported_by_agents: reportedByAgents,
       observation_ids: observationIds,
       observation_count: sortedObservations.length,
-    })
+    }
+
+    // base is the strongest-verdict observation, so its rubric_verdict already wins;
+    // confidence_score is taken as the max across the group so the strongest evidence
+    // seen for the issue survives even if it sat on a non-primary observation.
+    const mergedConfidence = maxConfidenceScore(sortedObservations)
+    if (mergedConfidence !== undefined) {
+      mergedFinding.confidence_score = mergedConfidence
+    }
+
+    merged.push(mergedFinding)
   }
 
   return merged.sort(compareFinalFindings)

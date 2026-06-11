@@ -21,6 +21,7 @@ const baseConfig: ArgusConfig = {
     skillPrecedence: "bundled-first",
   },
   reporting: {
+    confidenceThreshold: 80,
     format: "markdown",
     severityThreshold: "low",
     gasAnalysis: false,

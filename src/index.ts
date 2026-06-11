@@ -16,8 +16,8 @@ const ArgusPlugin: Plugin = async (ctx) => {
   const projectDir = ctx.directory ?? process.cwd()
   const config = loadArgusConfig(projectDir)
 
-  const { ARGUS_PLUGIN_VERSION } = await import("./shared/plugin-metadata")
-  console.error(`[argus] v${ARGUS_PLUGIN_VERSION} loaded for ${projectDir}`)
+  const { resolveBuildProvenance, formatBuildBanner } = await import("./shared/plugin-metadata")
+  console.error(`[argus] ${formatBuildBanner(resolveBuildProvenance())} — auditing ${projectDir}`)
 
   if (config.solodit?.enabled !== false) {
     // MCP bootstrap must not block plugin load; the Solodit search tool falls

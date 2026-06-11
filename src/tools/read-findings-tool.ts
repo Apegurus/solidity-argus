@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { ensureRunArtifactsMaterialized } from "../features/persistent-state/findings-materializer"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import {
   DROPPED_OBSERVATION_REASONS,
@@ -444,6 +445,10 @@ export async function executeReadFindings(
   }
 
   const projectDir = resolveProjectDir(context)
+  const logger = createLogger()
+  await ensureRunArtifactsMaterialized(runId, projectDir, context.sessionID, {
+    warn: (msg) => logger.debug(msg),
+  })
   const reportInput = readAuditStateAsReportInput(projectDir, runId)
   const page = normalizePageArgs(args)
   const compactInput = buildCompactInput(reportInput, page)

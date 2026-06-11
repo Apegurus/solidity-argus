@@ -18,6 +18,14 @@ type ExistingFinalizationResult = FinalizationResult & {
   finalizedIndex: number
 }
 
+export interface FinalizeRunOptions {
+  // A report carrying a Completeness Warning was generated in warn mode (strict-fail
+  // throws before writing), so by default the warning stays informational here rather
+  // than hard-failing finalization of an otherwise-valid live run. Pass "strict-fail"
+  // for offline/post-hoc validation that should reject any incomplete report.
+  completenessPolicy?: "warn" | "strict-fail"
+}
+
 export function hasSessionCreated(events: AuditEvent[]): boolean {
   return events.some((event) => event.type === "session.created")
 }
@@ -90,8 +98,8 @@ function isGenerateReportCompletion(event: AuditEvent): boolean {
   return payload.tool === "argus_generate_report" || payload.name === "argus_generate_report"
 }
 
-async function collectReportCompletenessErrors(events: AuditEvent[]): Promise<string[]> {
-  const errors: string[] = []
+async function collectReportCompletenessWarnings(events: AuditEvent[]): Promise<string[]> {
+  const warnings: string[] = []
   const reportEvents = events.filter(isGenerateReportCompletion)
 
   for (const event of reportEvents) {
@@ -102,14 +110,14 @@ async function collectReportCompletenessErrors(events: AuditEvent[]): Promise<st
     try {
       const report = await Bun.file(filePath).text()
       if (report.includes("## ⚠ Completeness Warning")) {
-        errors.push("generated report contains Completeness Warning")
+        warnings.push("generated report contains Completeness Warning")
       }
     } catch {
       // Missing report files are handled by report-generation/tool-tracking gates.
     }
   }
 
-  return errors
+  return warnings
 }
 
 function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
@@ -405,15 +413,18 @@ export async function finalizeRun(
   runId: string,
   projectDir: string,
   sink: EventSink | null,
+  options: FinalizeRunOptions = {},
 ): Promise<FinalizationResult> {
+  const completenessPolicy = options.completenessPolicy ?? "warn"
   const timestamp = Date.now()
   const events = sink ? await sink.readAll() : await readEvents(runId, projectDir)
   const existingResult = parseExistingFinalizationResult(events, runId)
   const hasEventsAfterExistingFinalization =
     existingResult !== null && existingResult.finalizedIndex < events.length - 1
   if (existingResult?.invariantsPassed && !hasEventsAfterExistingFinalization) {
+    const completeness = await collectReportCompletenessWarnings(events)
     const reportErrors = [
-      ...(await collectReportCompletenessErrors(events)),
+      ...(completenessPolicy === "strict-fail" ? completeness : []),
       ...collectReportQualityGateErrors(events),
       ...collectThemisDispositionErrors(events),
     ]
@@ -430,7 +441,12 @@ export async function finalizeRun(
   }
 
   const { errors, warnings } = collectInvariantErrors(events)
-  errors.push(...(await collectReportCompletenessErrors(events)))
+  const completeness = await collectReportCompletenessWarnings(events)
+  if (completenessPolicy === "strict-fail") {
+    errors.push(...completeness)
+  } else {
+    warnings.push(...completeness)
+  }
   errors.push(...collectReportQualityGateErrors(events))
   errors.push(...collectThemisDispositionErrors(events))
   const invariantsPassed = errors.length === 0

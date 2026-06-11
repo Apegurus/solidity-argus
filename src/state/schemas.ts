@@ -4,6 +4,7 @@ import {
 } from "../shared/dropped-observations"
 import { isRecord } from "../shared/type-guards"
 import {
+  isValidRubricVerdict,
   VALID_AGENTS,
   VALID_CONFIDENCES,
   VALID_SEVERITIES,
@@ -363,6 +364,33 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
       code: "enum",
       message: "confidence must be one of: High, Medium, Low",
     })
+  }
+
+  if ("confidence_score" in (raw as Record<string, unknown>)) {
+    if (
+      raw.confidence_score === null ||
+      typeof raw.confidence_score !== "number" ||
+      !Number.isInteger(raw.confidence_score) ||
+      raw.confidence_score < 0 ||
+      raw.confidence_score > 100
+    ) {
+      errors.push({
+        field: "confidence_score",
+        code: "invalid",
+        message: "confidence_score must be an integer between 0 and 100 when provided",
+      })
+    }
+  }
+
+  if ("rubric_verdict" in (raw as Record<string, unknown>)) {
+    if (!isValidRubricVerdict(raw.rubric_verdict)) {
+      errors.push({
+        field: "rubric_verdict",
+        code: "enum",
+        message:
+          "rubric_verdict must be one of: CONFIRMED, DEMOTED, REJECTED_DEMOTED when provided",
+      })
+    }
   }
 
   if (

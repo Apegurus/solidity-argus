@@ -25,6 +25,147 @@ const RED = "\x1b[31m"
 const YELLOW = "\x1b[33m"
 const RESET = "\x1b[0m"
 
+const REGISTRY_URL = "https://registry.npmjs.org/solidity-argus/latest"
+const DEFAULT_TIMEOUT_MS = 3_000
+const MAX_REGISTRY_BODY_BYTES = 64 * 1024
+
+// Strict semver (major.minor.patch + optional prerelease/build), fully anchored so
+// any embedded ANSI/control character fails the match. Gates version strings before
+// they are compared or printed to the terminal (blocks registry-sourced terminal
+// injection).
+const SEMVER_REGEX =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/
+
+export type VersionCheckResult =
+  | { status: "up-to-date"; remoteVersion: string; localVersion: string }
+  | { status: "outdated"; remoteVersion: string; localVersion: string }
+  | { status: "ahead"; remoteVersion: string; localVersion: string }
+  | { status: "skipped"; reason: string }
+
+function parseSemver(
+  value: string,
+): { release: [number, number, number]; prerelease: string[] } | null {
+  const m = SEMVER_REGEX.exec(value)
+  if (!m) return null
+  return {
+    release: [Number(m[1]), Number(m[2]), Number(m[3])],
+    prerelease: m[4] ? m[4].split(".") : [],
+  }
+}
+
+// Semver prerelease precedence: numeric identifiers compare by value, numeric ranks
+// below alphanumeric, alphanumeric compares lexically; a release WITH a prerelease
+// (1.0.0-beta) ranks below the same release WITHOUT one (1.0.0).
+function comparePrerelease(a: string[], b: string[]): -1 | 0 | 1 {
+  if (a.length === 0 && b.length === 0) return 0
+  if (a.length === 0) return 1
+  if (b.length === 0) return -1
+  const len = Math.min(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const ai = a[i] ?? ""
+    const bi = b[i] ?? ""
+    const aNum = /^\d+$/.test(ai)
+    const bNum = /^\d+$/.test(bi)
+    if (aNum && bNum) {
+      const d = Number(ai) - Number(bi)
+      if (d !== 0) return d < 0 ? -1 : 1
+    } else if (aNum !== bNum) {
+      return aNum ? -1 : 1
+    } else {
+      const d = ai.localeCompare(bi)
+      if (d !== 0) return d < 0 ? -1 : 1
+    }
+  }
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1
+  return 0
+}
+
+function compareSemver(a: string, b: string): -1 | 0 | 1 {
+  const pa = parseSemver(a)
+  const pb = parseSemver(b)
+  if (!pa || !pb) return 0
+  for (let i = 0; i < 3; i++) {
+    const x = pa.release[i] ?? 0
+    const y = pb.release[i] ?? 0
+    if (x < y) return -1
+    if (x > y) return 1
+  }
+  return comparePrerelease(pa.prerelease, pb.prerelease)
+}
+
+// Bounds the registry response so a misbehaving registry/proxy cannot OOM the
+// doctor command: rejects an oversized declared Content-Length up front, then
+// streams with a hard byte cap (covering responses that omit Content-Length).
+async function readJsonCapped(res: Response, capBytes: number): Promise<unknown> {
+  const declared = Number(res.headers.get("content-length"))
+  if (Number.isFinite(declared) && declared > capBytes) {
+    throw new Error(`registry response too large (${declared} bytes)`)
+  }
+  const reader = res.body?.getReader()
+  if (!reader) return await res.json()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  let chunk = await reader.read()
+  while (!chunk.done) {
+    if (chunk.value) {
+      total += chunk.value.byteLength
+      if (total > capBytes) {
+        await reader.cancel()
+        throw new Error("registry response exceeded size cap")
+      }
+      chunks.push(chunk.value)
+    }
+    chunk = await reader.read()
+  }
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    merged.set(c, offset)
+    offset += c.byteLength
+  }
+  return JSON.parse(new TextDecoder().decode(merged))
+}
+
+export async function checkRemoteVersion(opts: {
+  localVersion: string
+  timeoutMs?: number
+}): Promise<VersionCheckResult> {
+  const { localVersion, timeoutMs = DEFAULT_TIMEOUT_MS } = opts
+  if (!parseSemver(localVersion)) {
+    return { status: "skipped", reason: "local version is not valid semver" }
+  }
+  const ctrl = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        ctrl.abort()
+        reject(new Error("version check timed out"))
+      }, timeoutMs)
+    })
+    const res = await Promise.race([fetch(REGISTRY_URL, { signal: ctrl.signal }), timeout])
+    if (!res.ok) {
+      return { status: "skipped", reason: `non-200 status: ${res.status}` }
+    }
+    const body = (await readJsonCapped(res, MAX_REGISTRY_BODY_BYTES)) as { version?: unknown }
+    if (typeof body.version !== "string") {
+      return { status: "skipped", reason: "malformed registry response (no version field)" }
+    }
+    if (!parseSemver(body.version)) {
+      return { status: "skipped", reason: "malformed registry response (invalid version)" }
+    }
+    const cmp = compareSemver(localVersion, body.version)
+    if (cmp === 0) return { status: "up-to-date", remoteVersion: body.version, localVersion }
+    if (cmp < 0) return { status: "outdated", remoteVersion: body.version, localVersion }
+    return { status: "ahead", remoteVersion: body.version, localVersion }
+  } catch (err) {
+    return { status: "skipped", reason: err instanceof Error ? err.message : "unknown error" }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function checkBinary(
   name: string,
   versionArgs: string[] = ["--version"],
@@ -391,6 +532,33 @@ export const doctorCommand: CliCommand = {
       for (const warn of driftReport.warnings) {
         cliOutput.log(`${YELLOW}⚠${RESET} Install drift: ${warn}`)
       }
+    }
+
+    const installedVersion = driftReport.current?.version
+    if (installedVersion) {
+      const versionCheck = await checkRemoteVersion({ localVersion: installedVersion })
+      switch (versionCheck.status) {
+        case "up-to-date":
+          cliOutput.log(`${GREEN}✓${RESET} argus is up to date (v${installedVersion})`)
+          break
+        case "outdated":
+          cliOutput.log(
+            `${YELLOW}⚠${RESET} argus v${installedVersion} installed — latest is v${versionCheck.remoteVersion}. Upgrade: \`bun add solidity-argus@latest\``,
+          )
+          break
+        case "ahead":
+          cliOutput.log(
+            `· argus v${installedVersion} (ahead of registry v${versionCheck.remoteVersion}, e.g. local dev build)`,
+          )
+          break
+        case "skipped":
+          cliOutput.log(
+            `· version check skipped (${versionCheck.reason.replace(/[^\x20-\x7e]/g, " ")})`,
+          )
+          break
+      }
+    } else {
+      cliOutput.log("· version check skipped (local version not detected)")
     }
 
     if (projectType === "foundry" && detectViaIr(cwd)) {
