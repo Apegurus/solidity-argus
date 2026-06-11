@@ -136,7 +136,7 @@ async function checkDuplicateWrite(
     if (existingRunId === runId) {
       return {
         code: "DUPLICATE_WRITE_ATTEMPT",
-        message: `Report for run_id "${runId}" already exists at ${filePath}. Single-writer policy (v${SINGLE_WRITER_POLICY_VERSION}) prevents duplicate writes for the same run.`,
+        message: `Report for run_id "${runId}" already exists at ${filePath}. Single-writer policy (v${SINGLE_WRITER_POLICY_VERSION}) prevents duplicate writes for the same run. To publish a corrected report, call argus_generate_report with revision: 2 (writes a -r2 file); do not retry the base write.`,
       }
     }
   } catch {
@@ -1568,12 +1568,14 @@ export async function executeReportGeneration(
     args.force === true && args.revision != null
       ? {
           code: "INVALID_REGENERATION_OPTIONS",
-          message: "force and revision must not both be set.",
+          message:
+            "force and revision must not both be set. To regenerate a corrected report, call argus_generate_report with revision: 2 and omit force.",
         }
       : args.revision != null && (!Number.isInteger(args.revision) || args.revision < 2)
         ? {
             code: "INVALID_REGENERATION_OPTIONS",
-            message: "revision must be an integer greater than or equal to 2.",
+            message:
+              "revision must be an integer >= 2 (the base report is revision 1). To publish a corrected report, pass revision: 2.",
           }
         : null
 
@@ -1835,12 +1837,15 @@ export async function executeReportGeneration(
     idAssignments,
   })
   const contentHash = stableHash(reportMarkdown)
+  // When the regeneration options are already invalid (e.g. revision < 2) resolve the
+  // base path so we return the structured INVALID_REGENERATION_OPTIONS error below rather
+  // than throwing an unstructured ReportPathError on the invalid revision.
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
     date: new Date(auditDate),
     outputDir: ".opencode/reports/",
     runId: runId || undefined,
-    revision: args.revision,
+    revision: invalidRegenerationOptions ? undefined : args.revision,
   })
 
   const result: ReportGenerationResult = {
