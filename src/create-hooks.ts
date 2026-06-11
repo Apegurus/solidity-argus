@@ -228,9 +228,6 @@ export function createHooks(args: {
   const debouncedSavesBySession = new Map<string, ReturnType<typeof createDebouncedSave>>()
 
   const pendingActivations = new Set<string>()
-  // Sessions reset for a fresh run after their prior run finalized — recovery must not
-  // resume the closed run's persisted state for these (P1-2 cross-run isolation).
-  const sessionsResetForFreshRun = new Set<string>()
 
   function getSessionManager(sessionId: string): AuditStateManager {
     let manager = sessionManagers.get(sessionId)
@@ -294,18 +291,22 @@ export function createHooks(args: {
   }
 
   async function activateSession(sessionId: string): Promise<void> {
+    // Finalized-run stale guard: if this session was activated for a run that has since
+    // been finalized, a new audit in the same OpenCode session must start a fresh run
+    // rather than inherit the closed run's findings/phase. Reset only on a finalized sink
+    // — not on reportGenerated, which is valid between report generation and disposition.
+    // forceFreshRun bypasses ALL sink coalescing and recovered-state resumption below so
+    // the fresh run cannot bind to the closed run or to an unrelated active run. It is a
+    // local flag consumed within this activation — no leak-prone cross-activation marker.
+    let forceFreshRun = false
     if (activatedSessions.has(sessionId)) {
-      // Finalized-run stale guard: if this session was activated for a run that has since
-      // been finalized, a new audit in the same OpenCode session must start a fresh run
-      // rather than inherit the closed run's findings/phase. Reset only on a finalized sink
-      // — not on reportGenerated, which is valid between report generation and disposition.
       const priorRunId = getAuditState(sessionId)?.sessionId
       const priorSink = priorRunId ? eventSinksByRunId.get(priorRunId) : undefined
       if (!priorSink?.isFinalized) return
       activatedSessions.delete(sessionId)
       eventSinksByOpencodeSession.delete(sessionId)
       setAuditState(createAuditState(projectDir).state, sessionId)
-      sessionsResetForFreshRun.add(sessionId)
+      forceFreshRun = true
     }
     if (pendingActivations.has(sessionId)) return
 
@@ -321,47 +322,50 @@ export function createHooks(args: {
       const timestamp = Date.now()
       const sessionManager = getSessionManager(sessionId)
 
-      const existingSink = (() => {
-        const directSink = eventSinksByOpencodeSession.get(sessionId)
-        if (directSink) return directSink
+      const existingSink = forceFreshRun
+        ? null
+        : (() => {
+            const directSink = eventSinksByOpencodeSession.get(sessionId)
+            if (directSink) return directSink
 
-        const parentSessionId = agentTracker.getParentSession(sessionId)
-        if (parentSessionId) {
-          const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
-          if (parentSink) return parentSink
-        }
+            const parentSessionId = agentTracker.getParentSession(sessionId)
+            if (parentSessionId) {
+              const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+              if (parentSink) return parentSink
+            }
 
-        const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
-        if (activeSinks.length === 1) return activeSinks[0] ?? null
-        if (activeSinks.length > 1) {
-          // Multiple active sinks — pick the most recently created one.
-          // This handles the case where a stale run's sink was never finalized.
-          const sorted = [...sinkCreatedAtByRunId.entries()]
-            .filter(([rid]) => {
-              const s = eventSinksByRunId.get(rid)
-              return s != null && !s.isFinalized
-            })
-            .sort((a, b) => b[1] - a[1])
-          const newest = sorted[0]
-          return newest ? (eventSinksByRunId.get(newest[0]) ?? null) : null
-        }
-        return null
-      })()
+            const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
+            if (activeSinks.length === 1) return activeSinks[0] ?? null
+            if (activeSinks.length > 1) {
+              // Multiple active sinks — pick the most recently created one.
+              // This handles the case where a stale run's sink was never finalized.
+              const sorted = [...sinkCreatedAtByRunId.entries()]
+                .filter(([rid]) => {
+                  const s = eventSinksByRunId.get(rid)
+                  return s != null && !s.isFinalized
+                })
+                .sort((a, b) => b[1] - a[1])
+              const newest = sorted[0]
+              return newest ? (eventSinksByRunId.get(newest[0]) ?? null) : null
+            }
+            return null
+          })()
 
       // Fallback: if no existing sink found via direct/parent/heuristic lookup,
       // try inheriting the parent's run ID via audit state → eventSinksByRunId.
       // This handles the timing race where the child's activateSession fires before
       // the parent's sink is registered in eventSinksByOpencodeSession.
-      const coalescedSink =
-        existingSink ??
-        (() => {
-          const parentSessionId = agentTracker.getParentSession(sessionId)
-          if (!parentSessionId) return null
-          const parentState = getAuditState(parentSessionId)
-          if (!parentState || parentState.sessionId.length === 0) return null
-          const parentSink = eventSinksByRunId.get(parentState.sessionId)
-          return parentSink && !parentSink.isFinalized ? parentSink : null
-        })()
+      const coalescedSink = forceFreshRun
+        ? null
+        : (existingSink ??
+          (() => {
+            const parentSessionId = agentTracker.getParentSession(sessionId)
+            if (!parentSessionId) return null
+            const parentState = getAuditState(parentSessionId)
+            if (!parentState || parentState.sessionId.length === 0) return null
+            const parentSink = eventSinksByRunId.get(parentState.sessionId)
+            return parentSink && !parentSink.isFinalized ? parentSink : null
+          })())
 
       if (coalescedSink) {
         setEventSink(coalescedSink, sessionId)
@@ -407,9 +411,9 @@ export function createHooks(args: {
         })
       }
 
-      // A session reset for a fresh run must not resume the finalized run's persisted
+      // A session forced into a fresh run must not resume the finalized run's persisted
       // state, even if that snapshot predates a recorded report/disposition.
-      if (sessionsResetForFreshRun.delete(sessionId)) {
+      if (forceFreshRun) {
         recoveredState = null
       }
 
@@ -443,7 +447,7 @@ export function createHooks(args: {
 
       const effectiveState = getAuditState(sessionId) ?? recoveredState
       if (effectiveState) {
-        const raceSink = eventSinksByOpencodeSession.get(sessionId)
+        const raceSink = forceFreshRun ? null : eventSinksByOpencodeSession.get(sessionId)
         if (raceSink) {
           setEventSink(raceSink, sessionId)
           setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
