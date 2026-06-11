@@ -159,25 +159,26 @@ describe("report-generator tier splitting", () => {
     expect(report.indexOf("SCORED-90")).toBeLessThan(report.indexOf("UNSCORED-NO-SCORE"))
   })
 
-  test("scored finding header includes [confidence] prefix", () => {
+  test("scored finding header includes a stable id and confidence annotation", () => {
     const report = renderReportMarkdown(
       reportInput([f({ confidence_score: 85, description: "Header test" })]),
       { projectName: "Tier Test", threshold: 80 },
     )
 
-    expect(report).toMatch(/\[85\]/)
+    expect(report).toContain("### [HIGH-1] Reentrancy · severity: High · confidence: 85")
   })
 
-  test("unscored finding header omits the [confidence] prefix", () => {
+  test("unscored finding header omits the confidence annotation", () => {
     const report = renderReportMarkdown(reportInput([f({ description: "No-score header test" })]), {
       projectName: "Tier Test",
       threshold: 80,
     })
 
+    expect(report).not.toContain("· confidence:")
     expect(report).not.toMatch(/\[\d{1,3}\]/)
   })
 
-  test("Leads section header includes the [NN] prefix when confidence_score is present", () => {
+  test("Leads section header includes a citable id and confidence annotation", () => {
     const report = renderReportMarkdown(
       reportInput([f({ confidence_score: 60, description: "Below-threshold lead" })]),
       { projectName: "Tier Test", threshold: 80 },
@@ -187,7 +188,7 @@ describe("report-generator tier splitting", () => {
     expect(leadsIdx).toBeGreaterThan(-1)
     const leadsSection = report.slice(leadsIdx)
     expect(leadsSection).toContain("Below-threshold lead")
-    expect(leadsSection).toMatch(/\[60\]/)
+    expect(leadsSection).toContain("### [LEAD-1] Reentrancy · severity: High · confidence: 60")
   })
 
   test("D3: footer shows rubric adoption when all findings have trace", () => {
@@ -487,18 +488,20 @@ describe("renderer — [NN] prefix in Leads tier", () => {
     scope: ["src/"],
   })
 
-  test("[NN] prefix appears in Leads-tier header for findings with confidence_score", () => {
+  test("Leads-tier header carries a citable [LEAD-n] id and confidence annotation", () => {
     const findings = [baseFinding({ confidence_score: 25 })]
     const md = renderReportMarkdown(baseInput(findings))
     expect(md).toContain("## Leads")
-    expect(md).toMatch(/### \[25\]/)
+    expect(md).toMatch(/### \[LEAD-1\]/)
+    expect(md).toContain("· confidence: 25")
   })
 
-  test("[NN] prefix appears in Findings-tier header (regression)", () => {
+  test("Findings-tier header carries a stable [SEV-n] id and confidence annotation", () => {
     const findings = [baseFinding({ confidence_score: 90, rubric_verdict: "CONFIRMED" })]
     const md = renderReportMarkdown(baseInput(findings))
     expect(md).toContain("## Findings")
-    expect(md).toMatch(/### \[90\]/)
+    expect(md).toMatch(/### \[LOW-1\]/)
+    expect(md).toContain("· confidence: 90")
   })
 
   test("Leads section renders REJECTED_DEMOTED findings (no drop)", () => {
@@ -659,12 +662,12 @@ describe("renderFindingHeader — heading sanitization (adj_10)", () => {
 
   test("strips table pipe from check field (no row break)", () => {
     const md = renderReportMarkdown(baseInput([makeFinding("foo|bar")]))
-    expect(md).toContain("### Foo Bar")
+    expect(md).toContain("### [HIGH-1] Foo Bar")
   })
 
   test("preserves normal kebab-case check names", () => {
     const md = renderReportMarkdown(baseInput([makeFinding("reentrancy-eth")]))
-    expect(md).toContain("### Reentrancy Eth")
+    expect(md).toContain("### [HIGH-1] Reentrancy Eth")
   })
 })
 

@@ -173,9 +173,9 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
 
       expect(markdown).toContain("## Findings")
       expect(markdown).toContain("## Leads")
-      expect(markdown).toMatch(/\[90\]/)
-      expect(markdown.indexOf("[90]")).toBeLessThan(markdown.indexOf("## Leads"))
-      expect(markdown.slice(markdown.indexOf("## Leads"))).toMatch(/\[60\]/)
+      expect(markdown).toMatch(/· confidence: 90/)
+      expect(markdown.indexOf("· confidence: 90")).toBeLessThan(markdown.indexOf("## Leads"))
+      expect(markdown.slice(markdown.indexOf("## Leads"))).toMatch(/· confidence: 60/)
       expect(markdown).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
       expect(markdown).not.toContain("no rubric trace")
     })

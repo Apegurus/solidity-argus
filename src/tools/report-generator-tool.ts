@@ -979,6 +979,33 @@ function sortFindingsByConfidence(findings: Finding[]): Finding[] {
   })
 }
 
+// Severity-first (confidence breaks ties) so the report leads with Criticals.
+// The Leads tier deliberately uses confidence-first order — do not unify them.
+function sortFindingsBySeverityThenConfidence(findings: Finding[]): Finding[] {
+  return [...findings].sort((a, b) => {
+    const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+    if (severityDelta !== 0) return severityDelta
+
+    const aHas = typeof a.confidence_score === "number"
+    const bHas = typeof b.confidence_score === "number"
+    if (aHas && !bHas) return -1
+    if (!aHas && bHas) return 1
+    if (aHas && bHas && a.confidence_score !== b.confidence_score) {
+      const aScore = a.confidence_score as number
+      const bScore = b.confidence_score as number
+      return bScore - aScore
+    }
+
+    const fileDelta = a.file.localeCompare(b.file)
+    if (fileDelta !== 0) return fileDelta
+
+    const lineDelta = (a.lines[0] ?? 0) - (b.lines[0] ?? 0)
+    if (lineDelta !== 0) return lineDelta
+
+    return a.id.localeCompare(b.id)
+  })
+}
+
 // Tier routing is verdict-first: the rubric's structured `rubric_verdict` is the
 // authoritative Findings/Leads signal; `confidence_score` is only a fallback for
 // legacy/unscored findings predating the rubric. This stops a malformed or
@@ -1146,18 +1173,29 @@ function buildRecommendations(counts: FindingsCount): string[] {
   return items
 }
 
+const SEVERITY_ID_PREFIX: Record<FindingSeverity, string> = {
+  Critical: "CRIT",
+  High: "HIGH",
+  Medium: "MED",
+  Low: "LOW",
+  Informational: "INFO",
+}
+
 function buildFindingsSection(findings: Finding[], projectDir: string): string {
   if (findings.length === 0) {
     return ""
   }
 
   const lines: string[] = ["## Findings"]
+  const severityCounters: Partial<Record<FindingSeverity, number>> = {}
 
   for (const finding of findings) {
     const recommendation = getFindingRecommendation(finding)
     const impact = getFindingImpact(finding)
+    const seq = (severityCounters[finding.severity] ?? 0) + 1
+    severityCounters[finding.severity] = seq
 
-    lines.push(renderFindingHeader(finding))
+    lines.push(renderFindingHeader(finding, `[${SEVERITY_ID_PREFIX[finding.severity]}-${seq}]`))
     lines.push(`**Severity**: ${finding.severity}`)
     lines.push(`**Confidence**: ${finding.confidence}`)
     lines.push(`**Location**: ${formatLocation(finding)}`)
@@ -1187,10 +1225,10 @@ function buildFindingsSection(findings: Finding[], projectDir: string): string {
   return lines.join("\n")
 }
 
-function renderFindingHeader(finding: Finding): string {
-  const prefix =
-    typeof finding.confidence_score === "number" ? `[${finding.confidence_score}] ` : ""
-  return `### ${prefix}${normalizeTitle(finding.check)} · severity: ${finding.severity} · evidence: ${finding.confidence}`
+function renderFindingHeader(finding: Finding, displayId: string): string {
+  const confidence =
+    typeof finding.confidence_score === "number" ? ` · confidence: ${finding.confidence_score}` : ""
+  return `### ${displayId} ${normalizeTitle(finding.check)} · severity: ${finding.severity}${confidence} · evidence: ${finding.confidence}`
 }
 
 const RUBRIC_TRACE_HEADER = "**Rubric Trace**"
@@ -1233,9 +1271,11 @@ function buildLeadsSection(findings: Finding[]): string {
   }
 
   const lines: string[] = ["## Leads"]
+  let leadSeq = 0
 
   for (const finding of findings) {
-    lines.push(renderFindingHeader(finding))
+    leadSeq += 1
+    lines.push(renderFindingHeader(finding, `[LEAD-${leadSeq}]`))
     lines.push(`**Location**: ${formatLocation(finding)}`)
     lines.push("")
     lines.push(`**Description**: ${renderFindingBody(finding)}`)
@@ -1398,7 +1438,7 @@ export function renderReportMarkdown(
     finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
   )
   const tiers = splitFindingsByTier(reportFindings, confidenceThreshold)
-  const findings = sortFindingsByConfidence(tiers.findings)
+  const findings = sortFindingsBySeverityThenConfidence(tiers.findings)
   const leads = sortFindingsByConfidence(tiers.leads)
   // Executive summary reflects discovery (Findings + Leads); body splits them by tier.
   const counts = calculateCounts(reportFindings)
@@ -1463,7 +1503,7 @@ export function renderReportMarkdown(
   sections.push("- Pattern Analysis")
   sections.push("- Solodit research cross-referencing")
   sections.push(
-    "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; results are deterministically ordered by confidence/severity/file/line and validated against report quality gates before emission.",
+    "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; the Findings tier is ordered severity-first (confidence breaks ties) while the Leads tier is ordered by confidence, both falling back to file/line for determinism, and validated against report quality gates before emission.",
   )
 
   const findingsSection = buildFindingsSection(findings, input.projectDir)

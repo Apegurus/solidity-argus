@@ -192,7 +192,7 @@ describe("Audit reporting pipeline end-to-end (Task 6)", () => {
     expect(reportResult.report).toContain("Add OpenZeppelin nonReentrant modifier")
     expect(reportResult.report).toContain("Anyone can swap the price feed pool")
     expect(reportResult.report).toContain(
-      "### Floating Pragma · severity: Informational · evidence: Low",
+      "### [INFO-1] Floating Pragma · severity: Informational · evidence: Low",
     )
     expect(reportResult.report).not.toContain("Impact details were not provided")
     expect(reportResult.report).not.toContain("Recommendation details were not provided")
