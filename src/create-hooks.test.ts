@@ -3,13 +3,14 @@ import { mkdir, mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
-import { createHooks } from "./create-hooks"
+import { createHooks, selectToolResultForParsing } from "./create-hooks"
 import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
 import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/global-run-index"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { createToolResultCache } from "./shared/tool-result-cache"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 
@@ -474,6 +475,90 @@ describe("createHooks", () => {
     }
     expect(findingsArtifact.run_id).toBe(freshRunId)
     expect(findingsArtifact.event_count).toBe(3)
+  })
+
+  it("captures findings from the cache when output.output is truncated", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const activeState = makeAuditState({ sessionId: `run-trunc-${Date.now()}` })
+    const toolResultCache = createToolResultCache()
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        getTaskStatus: async () => undefined,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+        dispose: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+      toolResultCache,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-trunc" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-trunc")
+    const freshRunId = await waitForRunId("oc-trunc")
+
+    const fullResult = JSON.stringify({
+      success: true,
+      patternVersion: "1.0.0",
+      sources: [
+        {
+          matches: [
+            {
+              pattern: "reentrancy",
+              description: "Reentrancy in withdraw",
+              file: "src/VulnerableVault.sol",
+              lines: [10, 20],
+              severity: "High",
+            },
+          ],
+        },
+      ],
+    })
+    toolResultCache.set("oc-trunc", "argus_check_patterns", fullResult)
+
+    const truncatedStub = '{"success":true,"sources":[{"matches":[{"pattern":"reentr'
+    type AfterHook = NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>
+    await (hooks["tool.execute.after"] as AfterHook)(
+      {
+        tool: "argus_check_patterns",
+        sessionID: "oc-trunc",
+        callID: "call-trunc",
+        args: {},
+      } as Parameters<AfterHook>[0],
+      { title: "", output: truncatedStub, metadata: {} } as Parameters<AfterHook>[1],
+    )
+
+    expect(toolResultCache.size()).toBe(0)
+
+    await hooks.event?.({
+      event: { type: "session.deleted", properties: { info: { id: "oc-trunc" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
+    const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
+      event_count: number
+    }
+    expect(findingsArtifact.event_count).toBeGreaterThanOrEqual(3)
   })
 
   it("materializes findings artifact when report generation completes before session deletion", async () => {
@@ -1265,5 +1350,34 @@ describe("createHooks", () => {
     hooks.dispose?.()
     const listenersAfterDispose = process.listenerCount("exit")
     expect(listenersAfterDispose).toBe(listenersBefore)
+  })
+})
+
+describe("selectToolResultForParsing", () => {
+  it("prefers the captured full result over a truncated output.output", () => {
+    const cache = createToolResultCache()
+    const full = '{"success":true,"sources":[{"matches":[{"pattern":"reentrancy"}]}]}'
+    cache.set("ses_1", "argus_check_patterns", full)
+
+    const truncated = '{"success":true,"sources":[{"matches":[{"pattern":"reentr'
+    const selected = selectToolResultForParsing(truncated, "ses_1", "argus_check_patterns", cache)
+
+    expect(selected).toBe(full)
+    expect(cache.size()).toBe(0)
+  })
+
+  it("falls back to output.output when the cache has no entry", () => {
+    const cache = createToolResultCache()
+    const raw = '{"success":true}'
+
+    expect(selectToolResultForParsing(raw, "ses_1", "argus_forge_test", cache)).toBe(raw)
+  })
+
+  it("falls back to output.output when sessionID is undefined and does not consume the cache", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_check_patterns", "full")
+
+    expect(selectToolResultForParsing("raw", undefined, "argus_check_patterns", cache)).toBe("raw")
+    expect(cache.size()).toBe(1)
   })
 })

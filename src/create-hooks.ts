@@ -40,6 +40,7 @@ import type { AuditStateManager, Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { createLogger } from "./shared/logger"
 import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { getToolResultCache, type ToolResultCache } from "./shared/tool-result-cache"
 import { createAuditState } from "./state/audit-state"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
@@ -47,6 +48,16 @@ import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
 import { detectProject, type ProjectConfig } from "./utils/project-detector"
 
 const logger = createLogger()
+
+export function selectToolResultForParsing(
+  rawOutput: string,
+  sessionID: string | undefined,
+  tool: string,
+  cache: ToolResultCache,
+): string {
+  const capturedFull = typeof sessionID === "string" ? cache.take(sessionID, tool) : undefined
+  return capturedFull ?? rawOutput
+}
 
 export type AgentTrackerRef = {
   getAgentForSession(sessionID: string): string | undefined
@@ -150,6 +161,7 @@ export function createHooks(args: {
   managers: Managers
   projectDir: string
   isHookEnabled: (name: HookName) => boolean
+  toolResultCache?: ToolResultCache
 }): Hooks {
   // Instance-level mutex: when OpenCode loads the plugin multiple times in the
   // same process (e.g. re-adding "solidity-argus" to global config), only the
@@ -178,6 +190,7 @@ export function createHooks(args: {
   globals[INSTANCE_LOCK] = true
 
   const { config, managers, projectDir, isHookEnabled } = args
+  const toolResultCache = args.toolResultCache ?? getToolResultCache()
   const { auditStateManager } = managers
   const agentTracker = createAgentTracker()
   _agentTrackerRef = agentTracker
@@ -1085,7 +1098,18 @@ export function createHooks(args: {
             await activateSession(input.sessionID)
           }
 
-          const toolOutput = typeof output.output === "string" ? output.output : ""
+          const rawOutput = typeof output.output === "string" ? output.output : ""
+          const toolOutput = selectToolResultForParsing(
+            rawOutput,
+            input.sessionID,
+            toolName,
+            toolResultCache,
+          )
+          if (toolOutput !== rawOutput) {
+            logger.info(
+              `[tool-result] ${toolName}: recovered full result from cache (${toolOutput.length} chars) — output.output was ${rawOutput.length} chars (truncated upstream)`,
+            )
+          }
 
           const recoveryHint = toolErrorRecoveryHandler({
             tool: toolName,
@@ -1193,7 +1217,7 @@ export function createHooks(args: {
           }
 
           if (toolName.startsWith("argus_")) {
-            const outputWithHint = recoveryHint ? `${toolOutput}${recoveryHint}` : toolOutput
+            const outputWithHint = recoveryHint ? `${rawOutput}${recoveryHint}` : rawOutput
             output.output = outputTruncator(outputWithHint)
           }
         }
