@@ -150,6 +150,34 @@ describe("buildDynamicContext", () => {
     expect(context).toContain("Phase: manual-review")
   })
 
+  it("surfaces reporting thresholds when provided", () => {
+    const context = buildDynamicContext(makeAuditState(), "argus", 5000, {
+      confidenceThreshold: 80,
+      severityThreshold: "low",
+    })
+    expect(context).toContain("Reporting: confidenceThreshold=80 severityThreshold=low")
+  })
+
+  it("omits the reporting line when thresholds are not provided", () => {
+    const context = buildDynamicContext(makeAuditState(), "argus")
+    expect(context).not.toContain("Reporting:")
+  })
+
+  it("surfaces an all-zero coverage attempt as a failure with its reason", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        coverageAttempt: {
+          status: "failed",
+          attemptedAt: 1,
+          reason:
+            "forge coverage reported 0% across all metrics — coverage was not measured (no tests executed or contracts were not instrumented).",
+        },
+      }),
+      "argus",
+    )
+    expect(context).toContain("Coverage: failed — forge coverage reported 0% across all metrics")
+  })
+
   it("includes task status with all pending when no tools executed", () => {
     const context = buildDynamicContext(makeAuditState(), "argus")
     expect(context).toContain(
