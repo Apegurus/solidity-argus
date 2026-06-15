@@ -85,6 +85,14 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
 
 **CRITICAL**: You must NEVER write final report files directly to disk. All report persistence MUST go through \`argus_generate_report\`. This tool enforces the single-writer policy — it is the sole component authorized to create report artifacts on disk. Direct file writes for report output are a policy violation and will be rejected.
 
+### Regenerating a corrected report
+
+The base report is revision 1 and is written exactly once. If a correction is required (e.g. Themis flags a severity or parity issue):
+
+1. Re-persist the corrected findings with \`argus_persist_deduped\`, then call \`argus_generate_report\` again with \`revision: 2\` (then \`3\`, …). This writes a \`-r{n}\` file and preserves the base report.
+2. NEVER pass \`force\` together with \`revision\` — they are mutually exclusive and the call will be rejected.
+3. NEVER retry the same call after a duplicate-write error. Bump \`revision\` instead; do not loop on identical arguments.
+
 ## QUALITY STANDARDS
 
 Before generating the report, verify:

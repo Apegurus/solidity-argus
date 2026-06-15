@@ -176,6 +176,43 @@ test("returns non-proxy result with empty indicators", async () => {
   })
 })
 
+test("resolves a relative file_path against the context project dir when project_dir is absent", async () => {
+  const { context } = createContext()
+  let readPath = ""
+  await executeProxyDetection({ file_path: "contracts/Proxy.sol" }, context, async (path) => {
+    readPath = path
+    return ""
+  })
+
+  expect(readPath).toBe("/tmp/project/contracts/Proxy.sol")
+})
+
+test("joins an explicit project_dir with a relative file_path", async () => {
+  const { context } = createContext()
+  let readPath = ""
+  await executeProxyDetection(
+    { file_path: "src/Proxy.sol", project_dir: "/work/repo" },
+    context,
+    async (path) => {
+      readPath = path
+      return ""
+    },
+  )
+
+  expect(readPath).toBe("/work/repo/src/Proxy.sol")
+})
+
+test("uses an absolute file_path as-is", async () => {
+  const { context } = createContext()
+  let readPath = ""
+  await executeProxyDetection({ file_path: "/abs/Proxy.sol" }, context, async (path) => {
+    readPath = path
+    return ""
+  })
+
+  expect(readPath).toBe("/abs/Proxy.sol")
+})
+
 test("handles file-not-found without crashing", async () => {
   const { context } = createContext()
 

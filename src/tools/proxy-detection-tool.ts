@@ -1,5 +1,6 @@
 import { isAbsolute, join } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { resolveProjectDir } from "../shared/project-utils"
 
 type ProxyDetectionArgs = {
   file_path: string
@@ -168,10 +169,8 @@ export async function executeProxyDetection(
 ): Promise<ProxyDetectionResult> {
   context.metadata({ title: `Detect proxy patterns: ${args.file_path}` })
 
-  const fileToRead =
-    args.project_dir && !isAbsolute(args.file_path)
-      ? join(args.project_dir, args.file_path)
-      : args.file_path
+  const baseDir = args.project_dir ?? resolveProjectDir(context)
+  const fileToRead = isAbsolute(args.file_path) ? args.file_path : join(baseDir, args.file_path)
 
   try {
     const source = await readFile(fileToRead)

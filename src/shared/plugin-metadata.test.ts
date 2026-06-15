@@ -4,7 +4,9 @@ import { isAbsolute, join } from "node:path"
 import {
   ARGUS_PLUGIN_ROOT,
   ARGUS_PLUGIN_VERSION,
+  computeBuildProvenance,
   formatBuildBanner,
+  formatBuildId,
   resolveBuildProvenance,
 } from "./plugin-metadata"
 
@@ -55,5 +57,78 @@ describe("resolveBuildProvenance", () => {
     } else {
       expect(gitDirty).toBeUndefined()
     }
+  })
+})
+
+describe("computeBuildProvenance", () => {
+  const version = "0.7.0-dev"
+  const root = "/x/argus"
+
+  test("prefers the build stamp over runtime git (published install)", () => {
+    const provenance = computeBuildProvenance(version, root, {
+      stamp: () => ({ commit: "5e74b08aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dirty: false }),
+      gitShortSha: () => "deadbee",
+      gitDirty: () => true,
+    })
+    expect(provenance.source).toBe("stamp")
+    expect(provenance.gitSha).toBe("5e74b08aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    expect(provenance.gitDirty).toBe(false)
+  })
+
+  test("falls back to runtime git in a source worktree", () => {
+    const provenance = computeBuildProvenance(version, root, {
+      stamp: () => null,
+      gitShortSha: () => "5e74b08",
+      gitDirty: () => true,
+    })
+    expect(provenance.source).toBe("git")
+    expect(provenance.gitSha).toBe("5e74b08")
+    expect(provenance.gitDirty).toBe(true)
+  })
+
+  test("reports version-only when no commit is resolvable", () => {
+    const provenance = computeBuildProvenance(version, root, {
+      stamp: () => null,
+      gitShortSha: () => null,
+      gitDirty: () => false,
+    })
+    expect(provenance.source).toBe("version-only")
+    expect(provenance.gitSha).toBeUndefined()
+    expect(provenance.gitDirty).toBeUndefined()
+  })
+})
+
+describe("formatBuildId", () => {
+  test("embeds the short commit as semver build metadata", () => {
+    expect(
+      formatBuildId({ version: "0.7.0-dev", root: "/x", gitSha: "5e74b08", source: "git" }),
+    ).toBe("0.7.0-dev+g5e74b08")
+  })
+
+  test("marks a dirty worktree", () => {
+    expect(
+      formatBuildId({
+        version: "0.7.0-dev",
+        root: "/x",
+        gitSha: "5e74b08",
+        gitDirty: true,
+        source: "git",
+      }),
+    ).toBe("0.7.0-dev+g5e74b08.dirty")
+  })
+
+  test("truncates a full sha to 12 characters", () => {
+    expect(
+      formatBuildId({
+        version: "0.7.0",
+        root: "/x",
+        gitSha: "5e74b08abcdef0123456789",
+        source: "stamp",
+      }),
+    ).toBe("0.7.0+g5e74b08abcde")
+  })
+
+  test("falls back to the bare version without a commit", () => {
+    expect(formatBuildId({ version: "0.6.2", root: "/x", source: "version-only" })).toBe("0.6.2")
   })
 })

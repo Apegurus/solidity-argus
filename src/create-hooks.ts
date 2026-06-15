@@ -39,13 +39,33 @@ import type { HookName } from "./hooks/types"
 import type { AuditStateManager, Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { createLogger } from "./shared/logger"
-import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { ARGUS_BUILD_PROVENANCE, ARGUS_PLUGIN_BUILD } from "./shared/plugin-metadata"
+import { getToolResultCache, type ToolResultCache } from "./shared/tool-result-cache"
+import { createAuditState } from "./state/audit-state"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
 import { detectProject, type ProjectConfig } from "./utils/project-detector"
 
 const logger = createLogger()
+
+export function selectToolResultForParsing(
+  rawOutput: string,
+  sessionID: string | undefined,
+  tool: string,
+  cache: ToolResultCache,
+): string {
+  if (typeof sessionID !== "string") return rawOutput
+  // Same-tool parallel calls share the (sessionID, tool) key, so match by prefix-extension
+  // (how OpenCode truncates output.output) and consume only the entry belonging to THIS call,
+  // leaving sibling results for their own after-hooks. Never substitute a mis-paired result.
+  // Do NOT simplify to a blind take().
+  const capturedFull = cache.takeMatch(sessionID, tool, rawOutput)
+  if (capturedFull !== undefined && capturedFull.length > rawOutput.length) {
+    return capturedFull
+  }
+  return rawOutput
+}
 
 export type AgentTrackerRef = {
   getAgentForSession(sessionID: string): string | undefined
@@ -149,6 +169,7 @@ export function createHooks(args: {
   managers: Managers
   projectDir: string
   isHookEnabled: (name: HookName) => boolean
+  toolResultCache?: ToolResultCache
 }): Hooks {
   // Instance-level mutex: when OpenCode loads the plugin multiple times in the
   // same process (e.g. re-adding "solidity-argus" to global config), only the
@@ -177,6 +198,7 @@ export function createHooks(args: {
   globals[INSTANCE_LOCK] = true
 
   const { config, managers, projectDir, isHookEnabled } = args
+  const toolResultCache = args.toolResultCache ?? getToolResultCache()
   const { auditStateManager } = managers
   const agentTracker = createAgentTracker()
   _agentTrackerRef = agentTracker
@@ -290,7 +312,23 @@ export function createHooks(args: {
   }
 
   async function activateSession(sessionId: string): Promise<void> {
-    if (activatedSessions.has(sessionId)) return
+    // Finalized-run stale guard: if this session was activated for a run that has since
+    // been finalized, a new audit in the same OpenCode session must start a fresh run
+    // rather than inherit the closed run's findings/phase. Reset only on a finalized sink
+    // — not on reportGenerated, which is valid between report generation and disposition.
+    // forceFreshRun bypasses ALL sink coalescing and recovered-state resumption below so
+    // the fresh run cannot bind to the closed run or to an unrelated active run. It is a
+    // local flag consumed within this activation — no leak-prone cross-activation marker.
+    let forceFreshRun = false
+    if (activatedSessions.has(sessionId)) {
+      const priorRunId = getAuditState(sessionId)?.sessionId
+      const priorSink = priorRunId ? eventSinksByRunId.get(priorRunId) : undefined
+      if (!priorSink?.isFinalized) return
+      activatedSessions.delete(sessionId)
+      eventSinksByOpencodeSession.delete(sessionId)
+      setAuditState(createAuditState(projectDir).state, sessionId)
+      forceFreshRun = true
+    }
     if (pendingActivations.has(sessionId)) return
 
     const auditState = getAuditState(sessionId)
@@ -305,47 +343,50 @@ export function createHooks(args: {
       const timestamp = Date.now()
       const sessionManager = getSessionManager(sessionId)
 
-      const existingSink = (() => {
-        const directSink = eventSinksByOpencodeSession.get(sessionId)
-        if (directSink) return directSink
+      const existingSink = forceFreshRun
+        ? null
+        : (() => {
+            const directSink = eventSinksByOpencodeSession.get(sessionId)
+            if (directSink) return directSink
 
-        const parentSessionId = agentTracker.getParentSession(sessionId)
-        if (parentSessionId) {
-          const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
-          if (parentSink) return parentSink
-        }
+            const parentSessionId = agentTracker.getParentSession(sessionId)
+            if (parentSessionId) {
+              const parentSink = eventSinksByOpencodeSession.get(parentSessionId)
+              if (parentSink) return parentSink
+            }
 
-        const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
-        if (activeSinks.length === 1) return activeSinks[0] ?? null
-        if (activeSinks.length > 1) {
-          // Multiple active sinks — pick the most recently created one.
-          // This handles the case where a stale run's sink was never finalized.
-          const sorted = [...sinkCreatedAtByRunId.entries()]
-            .filter(([rid]) => {
-              const s = eventSinksByRunId.get(rid)
-              return s != null && !s.isFinalized
-            })
-            .sort((a, b) => b[1] - a[1])
-          const newest = sorted[0]
-          return newest ? (eventSinksByRunId.get(newest[0]) ?? null) : null
-        }
-        return null
-      })()
+            const activeSinks = Array.from(eventSinksByRunId.values()).filter((s) => !s.isFinalized)
+            if (activeSinks.length === 1) return activeSinks[0] ?? null
+            if (activeSinks.length > 1) {
+              // Multiple active sinks — pick the most recently created one.
+              // This handles the case where a stale run's sink was never finalized.
+              const sorted = [...sinkCreatedAtByRunId.entries()]
+                .filter(([rid]) => {
+                  const s = eventSinksByRunId.get(rid)
+                  return s != null && !s.isFinalized
+                })
+                .sort((a, b) => b[1] - a[1])
+              const newest = sorted[0]
+              return newest ? (eventSinksByRunId.get(newest[0]) ?? null) : null
+            }
+            return null
+          })()
 
       // Fallback: if no existing sink found via direct/parent/heuristic lookup,
       // try inheriting the parent's run ID via audit state → eventSinksByRunId.
       // This handles the timing race where the child's activateSession fires before
       // the parent's sink is registered in eventSinksByOpencodeSession.
-      const coalescedSink =
-        existingSink ??
-        (() => {
-          const parentSessionId = agentTracker.getParentSession(sessionId)
-          if (!parentSessionId) return null
-          const parentState = getAuditState(parentSessionId)
-          if (!parentState || parentState.sessionId.length === 0) return null
-          const parentSink = eventSinksByRunId.get(parentState.sessionId)
-          return parentSink && !parentSink.isFinalized ? parentSink : null
-        })()
+      const coalescedSink = forceFreshRun
+        ? null
+        : (existingSink ??
+          (() => {
+            const parentSessionId = agentTracker.getParentSession(sessionId)
+            if (!parentSessionId) return null
+            const parentState = getAuditState(parentSessionId)
+            if (!parentState || parentState.sessionId.length === 0) return null
+            const parentSink = eventSinksByRunId.get(parentState.sessionId)
+            return parentSink && !parentSink.isFinalized ? parentSink : null
+          })())
 
       if (coalescedSink) {
         setEventSink(coalescedSink, sessionId)
@@ -391,6 +432,12 @@ export function createHooks(args: {
         })
       }
 
+      // A session forced into a fresh run must not resume the finalized run's persisted
+      // state, even if that snapshot predates a recorded report/disposition.
+      if (forceFreshRun) {
+        recoveredState = null
+      }
+
       const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
       if (recoveredState) {
         const isStale =
@@ -421,7 +468,7 @@ export function createHooks(args: {
 
       const effectiveState = getAuditState(sessionId) ?? recoveredState
       if (effectiveState) {
-        const raceSink = eventSinksByOpencodeSession.get(sessionId)
+        const raceSink = forceFreshRun ? null : eventSinksByOpencodeSession.get(sessionId)
         if (raceSink) {
           setEventSink(raceSink, sessionId)
           setBoundedSink(eventSinksByRunId, sinkCreatedAtByRunId, raceSink.runId, raceSink)
@@ -451,7 +498,9 @@ export function createHooks(args: {
             payload: {
               projectDir: effectiveState.projectDir,
               sessionId: effectiveState.sessionId,
-              plugin_version: ARGUS_PLUGIN_VERSION,
+              plugin_version: ARGUS_PLUGIN_BUILD,
+              build_commit: ARGUS_BUILD_PROVENANCE.gitSha ?? null,
+              build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
               scope: effectiveState.scope,
             },
           })
@@ -628,22 +677,20 @@ export function createHooks(args: {
           )
         }
 
-        if (auditState.reportGenerated) {
-          const runSink =
-            eventSinksByRunId.get(auditState.sessionId) ??
-            (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
+        // Finalize on idle from the run event stream (report followed by a resolved Themis
+        // disposition), independent of auditState.reportGenerated which is siloed per session.
+        const idleRunSink =
+          eventSinksByRunId.get(auditState.sessionId) ??
+          (sessionId ? (eventSinksByOpencodeSession.get(sessionId) ?? null) : null)
 
-          if (runSink && !runSink.isFinalized) {
-            const events = await runSink.readAll()
-            if (!hasResolvedThemisDispositionAfterReport(events)) {
-              return
-            }
-
+        if (idleRunSink && !idleRunSink.isFinalized) {
+          const idleEvents = await idleRunSink.readAll()
+          if (hasResolvedThemisDispositionAfterReport(idleEvents)) {
             try {
               const idleFinalization = await finalizeRun(
                 auditState.sessionId,
                 auditState.projectDir,
-                runSink,
+                idleRunSink,
               )
               updateRunStatus(
                 auditState.sessionId,
@@ -737,6 +784,10 @@ export function createHooks(args: {
     },
     getTokenBudget: getTokenBudgetForAgent,
     getEnforcerReminder: auditEnforcer,
+    getReportingThresholds: () => ({
+      confidenceThreshold: args.config.reporting.confidenceThreshold,
+      severityThreshold: args.config.reporting.severityThreshold,
+    }),
     getReconBlock: () =>
       buildReconContextBlock({
         projectConfig: reconProjectConfig,
@@ -1061,7 +1112,18 @@ export function createHooks(args: {
             await activateSession(input.sessionID)
           }
 
-          const toolOutput = typeof output.output === "string" ? output.output : ""
+          const rawOutput = typeof output.output === "string" ? output.output : ""
+          const toolOutput = selectToolResultForParsing(
+            rawOutput,
+            input.sessionID,
+            toolName,
+            toolResultCache,
+          )
+          if (toolOutput !== rawOutput) {
+            logger.info(
+              `[tool-result] ${toolName}: recovered full result from cache (${toolOutput.length} chars) — output.output was ${rawOutput.length} chars (truncated upstream)`,
+            )
+          }
 
           const recoveryHint = toolErrorRecoveryHandler({
             tool: toolName,
@@ -1124,44 +1186,52 @@ export function createHooks(args: {
 
           if (toolName === "argus_themis_disposition") {
             const state = getAuditState(input.sessionID)
-            if (state?.reportGenerated) {
+            if (state && state.sessionId.length > 0) {
+              // Finalize from the run's event stream, not state.reportGenerated. The report
+              // is generated in Scribe's session while the resolved disposition may be
+              // recorded from another session, so the disposition session's reportGenerated
+              // flag is unreliable. Prefer the sink that received this event, then the run sink.
               const runSink =
-                eventSinksByRunId.get(state.sessionId) ??
                 (input.sessionID
                   ? (eventSinksByOpencodeSession.get(input.sessionID) ?? null)
-                  : null)
+                  : null) ??
+                eventSinksByRunId.get(state.sessionId) ??
+                null
 
-              if (runSink) {
-                try {
-                  const reportFinalization = await finalizeRun(
-                    state.sessionId,
-                    state.projectDir,
-                    runSink,
-                  )
-                  updateRunStatus(
-                    state.sessionId,
-                    reportFinalization.invariantsPassed ? "finalized" : "failed",
-                  ).catch((err) =>
+              if (runSink && !runSink.isFinalized) {
+                const events = await runSink.readAll()
+                if (hasResolvedThemisDispositionAfterReport(events)) {
+                  try {
+                    const reportFinalization = await finalizeRun(
+                      state.sessionId,
+                      state.projectDir,
+                      runSink,
+                    )
+                    updateRunStatus(
+                      state.sessionId,
+                      reportFinalization.invariantsPassed ? "finalized" : "failed",
+                    ).catch((err) =>
+                      logger.warn(
+                        `Failed to update run status: ${err instanceof Error ? err.message : String(err)}`,
+                      ),
+                    )
+                    if (!reportFinalization.invariantsPassed) {
+                      logger.warn(
+                        `Themis-disposition finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                      )
+                    }
+                  } catch (error) {
                     logger.warn(
-                      `Failed to update run status: ${err instanceof Error ? err.message : String(err)}`,
-                    ),
-                  )
-                  if (!reportFinalization.invariantsPassed) {
-                    logger.warn(
-                      `Themis-disposition finalization for run ${state.sessionId} has invariant errors: ${reportFinalization.errors.join("; ")}`,
+                      `Themis-disposition finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
                     )
                   }
-                } catch (error) {
-                  logger.warn(
-                    `Themis-disposition finalization failed for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
-                  )
                 }
               }
             }
           }
 
           if (toolName.startsWith("argus_")) {
-            const outputWithHint = recoveryHint ? `${toolOutput}${recoveryHint}` : toolOutput
+            const outputWithHint = recoveryHint ? `${rawOutput}${recoveryHint}` : rawOutput
             output.output = outputTruncator(outputWithHint)
           }
         }

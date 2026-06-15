@@ -64,6 +64,21 @@ export function isValidRubricVerdict(
   )
 }
 
+export const RUBRIC_CONFIRMED_MIN_SCORE = 80
+
+// CONFIRMED requires confidence_score >= RUBRIC_CONFIRMED_MIN_SCORE; a CONFIRMED finding
+// carrying an explicit sub-threshold score is auto-demoted so verdict-first tiering cannot
+// route a low-confidence finding into the Findings tier.
+export function reconcileRubricVerdict(
+  verdict: Finding["rubric_verdict"],
+  score: Finding["confidence_score"],
+): Finding["rubric_verdict"] {
+  if (verdict === "CONFIRMED" && typeof score === "number" && score < RUBRIC_CONFIRMED_MIN_SCORE) {
+    return "DEMOTED"
+  }
+  return verdict
+}
+
 export const SEVERITY_RANK: Record<FindingSeverity, number> = {
   Critical: 0,
   High: 1,

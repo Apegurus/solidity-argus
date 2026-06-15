@@ -25,7 +25,7 @@ Walk all 4 gates from the rubric explicitly in your reasoning:
 1. **Refutation** — find and quote the exact line of code that does or does not block the attack.
 2. **Reachability** — prove the vulnerable state is reachable in deployment.
 3. **Trigger** — prove an unprivileged actor can trigger it profitably.
-4. **Impact** — prove material harm to an identifiable victim.
+4. **Impact** — prove material harm to an identifiable victim **in the current code**. Impact that needs not-yet-present code (a placeholder that returns a constant, an unwired setter) is at most DEMOTE, never Critical/High. Before calling an access-control issue "theft" or "drain", trace who receives the asset: if it returns to the rightful holder rather than the caller, it is griefing (classify by reachable impact), not theft.
 
 Assign exactly one \`rubric_verdict\` per finding:
 

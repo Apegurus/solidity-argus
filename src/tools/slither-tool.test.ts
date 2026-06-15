@@ -242,7 +242,7 @@ test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async
         "node_modules",
         "--detect",
         "reentrancy-eth,unchecked-transfer",
-        "--exclude-detectors",
+        "--exclude",
         "unused-state",
         "--solc",
         "solc:0.8.24",

@@ -77,6 +77,18 @@ describe("dedupeFindingsForFinalOutput rubric propagation", () => {
     expect(merged.confidence_score).toBe(95)
   })
 
+  test("auto-demotes a merged CONFIRMED whose final confidence_score is below 80", () => {
+    const raw = [
+      makeObs({ seq: 2, rubric_verdict: "CONFIRMED", confidence_score: 72 }),
+      makeObs({ seq: 4, rubric_verdict: "DEMOTED", confidence_score: 55 }),
+    ]
+
+    const merged = dedupeOne(raw)
+
+    expect(merged.rubric_verdict).toBe("DEMOTED")
+    expect(merged.confidence_score).toBe(72)
+  })
+
   test("all-demoted group keeps a non-CONFIRMED verdict so it routes to Leads", () => {
     const raw = [
       makeObs({ seq: 2, rubric_verdict: "DEMOTED", confidence_score: 40 }),
@@ -100,5 +112,53 @@ describe("dedupeFindingsForFinalOutput rubric propagation", () => {
     expect(merged.rubric_verdict).toBeUndefined()
     expect(merged.confidence_score).toBeUndefined()
     expect(merged.observation_count).toBe(2)
+  })
+})
+
+describe("dedupeFindingsForFinalOutput lineage preservation", () => {
+  // Underpins the P0-1 report-parity fix: every raw observation_id must survive into
+  // exactly one merged finding's observation_ids[] (no observation is lost or duplicated
+  // by dedup), so validating report parity against the deduped universe never hides a
+  // genuinely dropped observation.
+  test("every raw observation_id appears in exactly one merged finding's observation_ids", () => {
+    const raw = [
+      makeObs({ seq: 2, observation_id: "o-2", issue_fingerprint: "issue-A" }),
+      makeObs({
+        seq: 3,
+        observation_id: "o-3",
+        issue_fingerprint: "issue-A",
+        check: "reentrancy-cei",
+      }),
+      makeObs({
+        seq: 4,
+        observation_id: "o-4",
+        issue_fingerprint: "issue-B",
+        file: "src/Other.sol",
+      }),
+      makeObs({
+        seq: 5,
+        observation_id: "o-5",
+        issue_fingerprint: "issue-B",
+        file: "src/Other.sol",
+      }),
+      makeObs({
+        seq: 6,
+        observation_id: "o-6",
+        issue_fingerprint: "issue-C",
+        file: "src/Third.sol",
+      }),
+    ]
+
+    const merged = dedupeFindingsForFinalOutput(raw)
+
+    const rawIds = raw.map((f) => f.observation_id).sort()
+    const mappedIds = merged.flatMap((f) => f.observation_ids ?? []).sort()
+    expect(mappedIds).toEqual(rawIds)
+
+    const survivingPrimaries = merged.map((f) => f.observation_id).sort()
+    expect(new Set(survivingPrimaries).size).toBe(merged.length)
+    for (const primary of survivingPrimaries) {
+      expect(rawIds).toContain(primary)
+    }
   })
 })

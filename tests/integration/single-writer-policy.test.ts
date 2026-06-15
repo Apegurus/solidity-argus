@@ -341,6 +341,7 @@ describe("single-writer policy", () => {
 
       expect(first.error).toBeUndefined()
       expect(second.error?.code).toBe("DUPLICATE_WRITE_ATTEMPT")
+      expect(second.error?.message).toContain("revision: 2")
       expect(second.filePath).toBeUndefined()
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
@@ -406,6 +407,25 @@ describe("single-writer policy", () => {
       )
 
       expect(result.error?.code).toBe("INVALID_REGENERATION_OPTIONS")
+      expect(result.error?.message).toContain("revision: 2")
+      expect(result.error?.message).toContain("omit force")
+      expect(result.filePath).toBeUndefined()
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("revision below 2 is rejected with prescriptive guidance", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-revision-low-"))
+    try {
+      const result = await executeReportGeneration(
+        { ...reportArgs("RevisionLowTest", "run-revision-low-test"), revision: 1 },
+        createContext(tempDir),
+        { loadConfig: () => createTestConfig("reports") },
+      )
+
+      expect(result.error?.code).toBe("INVALID_REGENERATION_OPTIONS")
+      expect(result.error?.message).toContain("revision: 2")
       expect(result.filePath).toBeUndefined()
     } finally {
       rmSync(tempDir, { recursive: true, force: true })

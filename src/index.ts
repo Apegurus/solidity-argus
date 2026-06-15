@@ -17,7 +17,11 @@ const ArgusPlugin: Plugin = async (ctx) => {
   const config = loadArgusConfig(projectDir)
 
   const { resolveBuildProvenance, formatBuildBanner } = await import("./shared/plugin-metadata")
-  console.error(`[argus] ${formatBuildBanner(resolveBuildProvenance())} — auditing ${projectDir}`)
+  const buildBanner = `[argus] ${formatBuildBanner(resolveBuildProvenance())} — auditing ${projectDir}`
+  // Emit to stderr (visible at TUI startup) and the file-backed log so an operator can
+  // grep the loaded commit/dir to prove which build is live.
+  console.error(buildBanner)
+  logger.info(buildBanner)
 
   if (config.solodit?.enabled !== false) {
     // MCP bootstrap must not block plugin load; the Solodit search tool falls

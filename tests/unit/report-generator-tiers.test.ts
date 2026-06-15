@@ -203,7 +203,7 @@ describe("report-generator tier splitting", () => {
       description: completeTrace("CONFIRMED", 90, "bug2"),
     })
     const report = renderReportMarkdown(reportInput([withTrace1, withTrace2]), { threshold: 80 })
-    expect(report).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
+    expect(report).toMatch(/Rubric: 2\/2 findings assessed via the 4-gate refutation rubric/)
   })
 
   test("D3: footer counts mixed adoption correctly", () => {
@@ -225,7 +225,7 @@ describe("report-generator tier splitting", () => {
     const report = renderReportMarkdown(reportInput([withTrace, withoutTrace1, withoutTrace2]), {
       threshold: 80,
     })
-    expect(report).toMatch(/Rubric: 1\/3 findings include 4-gate trace/)
+    expect(report).toMatch(/Rubric: 1\/3 findings assessed via the 4-gate refutation rubric/)
   })
 
   test("D3: footer renders 0/0 (or is omitted) when there are no findings", () => {
@@ -297,7 +297,7 @@ describe("report-generator tier splitting", () => {
     expect(leadsIdx === -1 || result.report.indexOf("CONFIG-70") < leadsIdx).toBe(true)
   })
 
-  test("verdict-first: CONFIRMED with below-threshold score still lands in Findings (adj_1)", () => {
+  test("verdict reconcile: CONFIRMED with below-threshold score is demoted to Leads (adj_1)", () => {
     const report = renderReportMarkdown(
       reportInput([
         f({
@@ -309,11 +309,9 @@ describe("report-generator tier splitting", () => {
       ]),
       { projectName: "Verdict Routing", threshold: 80 },
     )
-    const findingsIdx = report.indexOf("## Findings")
     const leadsIdx = report.indexOf("## Leads")
-    expect(findingsIdx).toBeGreaterThan(-1)
-    expect(report.indexOf("CONFIRMED-LOW-SCORE")).toBeGreaterThan(findingsIdx)
-    expect(leadsIdx === -1 || report.indexOf("CONFIRMED-LOW-SCORE") < leadsIdx).toBe(true)
+    expect(leadsIdx).toBeGreaterThan(-1)
+    expect(report.indexOf("CONFIRMED-LOW-SCORE")).toBeGreaterThan(leadsIdx)
   })
 
   test("verdict-first: REJECTED_DEMOTED with high or missing score stays in Leads (adj_1)", () => {
@@ -431,7 +429,7 @@ describe("report-generator tier splitting", () => {
           description: "lead body",
         }),
       ]),
-      { projectName: "Leads Location", threshold: 80 },
+      { projectName: "Leads Location", threshold: 80, scope: ["src/"] },
     )
     const leadsIdx = report.indexOf("## Leads")
     expect(leadsIdx).toBeGreaterThan(-1)
@@ -533,7 +531,7 @@ describe("renderer — [NN] prefix in Leads tier", () => {
       }),
     ]
     const md = renderReportMarkdown(baseInput(findings))
-    expect(md).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
+    expect(md).toMatch(/Rubric: 2\/2 findings assessed via the 4-gate refutation rubric/)
   })
 })
 

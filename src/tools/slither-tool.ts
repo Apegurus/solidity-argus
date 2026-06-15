@@ -131,7 +131,7 @@ function buildCommand(args: SlitherArgs): string[] {
   }
 
   if (args.exclude && args.exclude.length > 0) {
-    command.push("--exclude-detectors", args.exclude.join(","))
+    command.push("--exclude", args.exclude.join(","))
   }
 
   if (args.solc_version) {

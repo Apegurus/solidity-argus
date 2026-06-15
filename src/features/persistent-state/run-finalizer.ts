@@ -1,4 +1,4 @@
-import { ARGUS_PLUGIN_VERSION } from "../../shared/plugin-metadata"
+import { ARGUS_BUILD_PROVENANCE, ARGUS_PLUGIN_BUILD } from "../../shared/plugin-metadata"
 import { validateEventSequence } from "../../state/projectors"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
@@ -467,7 +467,9 @@ export async function finalizeRun(
         errors,
         warnings,
         status: invariantsPassed ? "finalized" : "failed-finalization",
-        plugin_version: ARGUS_PLUGIN_VERSION,
+        plugin_version: ARGUS_PLUGIN_BUILD,
+        build_commit: ARGUS_BUILD_PROVENANCE.gitSha ?? null,
+        build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
       },
     })
     sink.markFinalized()

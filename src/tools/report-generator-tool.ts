@@ -8,13 +8,18 @@ import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/gl
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
-import { computeMissingKeyTools } from "../shared/key-tools"
+import {
+  computeMissingKeyTools,
+  KEY_TOOLS,
+  TOOL_SHORT_NAMES,
+  UNAVAILABLE_TO_KEY_TOOL,
+} from "../shared/key-tools"
 import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
 import { isNonEmptyString } from "../shared/type-guards"
-import { SEVERITY_RANK } from "../shared/validation-constants"
+import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-constants"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import {
   compareIssueFingerprintSets,
@@ -136,7 +141,7 @@ async function checkDuplicateWrite(
     if (existingRunId === runId) {
       return {
         code: "DUPLICATE_WRITE_ATTEMPT",
-        message: `Report for run_id "${runId}" already exists at ${filePath}. Single-writer policy (v${SINGLE_WRITER_POLICY_VERSION}) prevents duplicate writes for the same run.`,
+        message: `Report for run_id "${runId}" already exists at ${filePath}. Single-writer policy (v${SINGLE_WRITER_POLICY_VERSION}) prevents duplicate writes for the same run. To publish a corrected report, call argus_generate_report with revision: 2 (writes a -r2 file); do not retry the base write.`,
       }
     }
   } catch {
@@ -840,16 +845,58 @@ function shouldIncludeFinding(finding: Finding, threshold: SeverityThreshold): b
   return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold]
 }
 
-function normalizeScopePath(value: string): string {
-  return value.replace(/^\.\//, "").replace(/\/+$|\\+$/g, "")
+type NormalizedPath = {
+  value: string
+  base: string
+  isBare: boolean
+  hadTrailingSlash: boolean
 }
 
-function isFindingInScope(finding: Finding, scope: string[]): boolean {
+function normalizePathish(raw: string | undefined): NormalizedPath {
+  const original = (raw ?? "").trim()
+  const hadTrailingSlash = /[\\/]$/.test(original)
+  const value = original
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "")
+  const base = value.split("/").pop() ?? ""
+  return { value, base, isBare: value !== "" && !value.includes("/"), hadTrailingSlash }
+}
+
+function looksLikeDirectoryScope(scoped: NormalizedPath): boolean {
+  if (scoped.value === "" || scoped.value === ".") return true
+  if (scoped.hadTrailingSlash) return true
+  return !scoped.base.includes(".")
+}
+
+function sameFilePath(a: string, b: string): boolean {
+  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`)
+}
+
+function isUnderDirectory(file: string, dir: string): boolean {
+  return file.startsWith(`${dir}/`) || file.includes(`/${dir}/`)
+}
+
+// Conservative scope predicate: a finding is out-of-scope ONLY when its file is
+// concrete (not empty/"unknown") and no scope entry can place it in scope under any
+// path interpretation — exact/suffix-equivalent file, directory containment, or
+// bare-vs-pathed basename ambiguity. Ambiguous cases stay in-scope so a security
+// finding is never silently moved out of the actionable tiers (over-inclusion is the
+// safe failure mode). Do NOT tighten to strict prefix matching.
+export function isFindingInScope(finding: Finding, scope: string[]): boolean {
   if (scope.length === 0) return true
-  const file = normalizeScopePath(finding.file)
+  const file = normalizePathish(finding.file)
+  if (file.value === "" || file.value.toLowerCase() === "unknown") return true
   return scope.some((entry) => {
-    const scoped = normalizeScopePath(entry)
-    return file === scoped || file.startsWith(`${scoped}/`)
+    const scoped = normalizePathish(entry)
+    if (scoped.value === "" || scoped.value === ".") return true
+    const scopeIsDir = looksLikeDirectoryScope(scoped)
+    if (!scopeIsDir && sameFilePath(file.value, scoped.value)) return true
+    if (scopeIsDir && isUnderDirectory(file.value, scoped.value)) return true
+    if (scopeIsDir && file.isBare && file.base.includes(".")) return true
+    if ((file.isBare || scoped.isBare) && file.base === scoped.base) return true
+    return false
   })
 }
 
@@ -1015,8 +1062,9 @@ function sortFindingsBySeverityThenConfidence(findings: Finding[]): Finding[] {
 // Tier routing is verdict-first: the rubric's structured `rubric_verdict` is the
 // authoritative Findings/Leads signal; `confidence_score` is only a fallback for
 // legacy/unscored findings predating the rubric. This stops a malformed or
-// partially-normalized DEMOTED/REJECTED_DEMOTED record (missing/invalid score)
-// from being promoted into the main Findings section.
+// partially-normalized DEMOTED/REJECTED_DEMOTED record (missing/invalid score) from
+// being promoted into the main Findings section. A CONFIRMED verdict carrying an
+// explicit sub-80 score is reconciled to DEMOTED first (CONFIRMED requires >= 80).
 function splitFindingsByTier(
   findings: Finding[],
   threshold: number,
@@ -1024,7 +1072,7 @@ function splitFindingsByTier(
   const findingsTier: Finding[] = []
   const leadsTier: Finding[] = []
   for (const finding of findings) {
-    const verdict = finding.rubric_verdict
+    const verdict = reconcileRubricVerdict(finding.rubric_verdict, finding.confidence_score)
     if (verdict === "CONFIRMED") {
       findingsTier.push(finding)
     } else if (verdict === "DEMOTED" || verdict === "REJECTED_DEMOTED") {
@@ -1258,8 +1306,17 @@ function hasRubricTrace(f: Finding): boolean {
   return /\*\*Refutation quote:\*\*/.test(text)
 }
 
+function hasValidRubricVerdict(f: Finding): boolean {
+  const verdict = f.rubric_verdict
+  return verdict === "CONFIRMED" || verdict === "DEMOTED" || verdict === "REJECTED_DEMOTED"
+}
+
+function wasRubricAssessed(f: Finding): boolean {
+  return hasRubricTrace(f) || hasValidRubricVerdict(f)
+}
+
 function renderFindingBody(f: Finding): string {
-  const annotation = hasRubricTrace(f)
+  const annotation = wasRubricAssessed(f)
     ? ""
     : "⚠️ no rubric trace — this finding was emitted without applying the 4-gate refutation rubric.\n\n"
   return annotation + sanitizeBodyMarkdown(f.description ?? "")
@@ -1267,8 +1324,8 @@ function renderFindingBody(f: Finding): string {
 
 function renderAdoptionFooter(findings: Finding[]): string {
   if (findings.length === 0) return ""
-  const withTrace = findings.filter(hasRubricTrace).length
-  return `\n\n---\n\n_Rubric: ${withTrace}/${findings.length} findings include 4-gate trace_\n`
+  const assessed = findings.filter(wasRubricAssessed).length
+  return `\n\n---\n\n_Rubric: ${assessed}/${findings.length} findings assessed via the 4-gate refutation rubric_\n`
 }
 
 function buildLeadsSection(
@@ -1293,6 +1350,26 @@ function buildLeadsSection(
     lines.push("")
   }
 
+  return lines.join("\n")
+}
+
+function buildOutOfScopeSection(findings: Finding[]): string {
+  if (findings.length === 0) {
+    return ""
+  }
+  const lines: string[] = [
+    "## Out-of-Scope Observations",
+    "These observations fall outside the audited scope and are awareness-only: they are excluded from the actionable Findings/Leads tiers and from the finding counts.",
+  ]
+  let seq = 0
+  for (const finding of findings) {
+    seq += 1
+    lines.push(renderFindingHeader(finding, `[OOS-${seq}]`))
+    lines.push(`**Location**: ${formatLocation(finding)}`)
+    lines.push("")
+    lines.push(`**Description**: ${sanitizeBodyMarkdown(finding.description ?? "")}`)
+    lines.push("")
+  }
   return lines.join("\n")
 }
 
@@ -1435,6 +1512,43 @@ export type RenderReportOptions = {
   idAssignments?: ReadonlyMap<string, string>
 }
 
+const METHODOLOGY_TOOL_LABELS: Record<string, string> = {
+  slither: "Slither static analysis",
+  "forge-test": "Foundry tests and fuzzing",
+  patterns: "Pattern analysis",
+  solodit: "Solodit research cross-referencing",
+  analyzer: "Contract structural analysis",
+}
+
+// Derive the "tools used" list from the execution ledger so the Methodology never claims
+// a tool ran when it did not (e.g. Slither when the binary is absent).
+function buildMethodologyToolLines(
+  toolsExecuted: ReportInput["toolsExecuted"],
+  unavailableTools: ReportInput["unavailableTools"],
+): string[] {
+  const executed = new Set(
+    (toolsExecuted ?? [])
+      .filter((exec) => exec.success === true)
+      .map((exec) => TOOL_SHORT_NAMES[exec.tool] ?? exec.tool),
+  )
+  const lines = KEY_TOOLS.filter((short) => executed.has(short)).map(
+    (short) => `- ${METHODOLOGY_TOOL_LABELS[short] ?? short}`,
+  )
+  lines.push("- Manual review with the 4-gate refutation rubric")
+  const unavailable = Array.from(
+    new Set(
+      (unavailableTools ?? [])
+        .map((short) => UNAVAILABLE_TO_KEY_TOOL[short])
+        .filter((short): short is string => Boolean(short))
+        .map((short) => METHODOLOGY_TOOL_LABELS[short] ?? short),
+    ),
+  )
+  if (unavailable.length > 0) {
+    lines.push(`- Not available in this environment (compensated above): ${unavailable.join(", ")}`)
+  }
+  return lines
+}
+
 export function renderReportMarkdown(
   input: ReportInput,
   options: RenderReportOptions = {},
@@ -1448,13 +1562,19 @@ export function renderReportMarkdown(
   const state = reportInputToAuditState({ ...input, toolsExecuted })
   const scope = options.scope ?? input.scope ?? []
   const finalFindings = dedupeFindingsForFinalOutput(input.findings)
-  const reportFindings = sortFindingsDeterministically(
-    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+  const thresholdedFindings = finalFindings.filter((finding) =>
+    shouldIncludeFinding(finding, threshold),
   )
+  const inScopeFindings = thresholdedFindings.filter((finding) => isFindingInScope(finding, scope))
+  const outOfScopeFindings = sortFindingsDeterministically(
+    thresholdedFindings.filter((finding) => !isFindingInScope(finding, scope)),
+  )
+  const reportFindings = sortFindingsDeterministically(inScopeFindings)
   const tiers = splitFindingsByTier(reportFindings, confidenceThreshold)
   const findings = sortFindingsBySeverityThenConfidence(tiers.findings)
   const leads = sortFindingsByConfidence(tiers.leads)
-  // Executive summary reflects discovery (Findings + Leads); body splits them by tier.
+  // Executive summary, counts, provenance, and the rubric footer reflect in-scope
+  // findings only; out-of-scope observations render in a dedicated appendix.
   const counts = calculateCounts(reportFindings)
   const findingsTierCounts = calculateCounts(findings)
   const leadsTierCounts = calculateCounts(leads)
@@ -1512,10 +1632,9 @@ export function renderReportMarkdown(
 
   sections.push("## Methodology")
   sections.push("Tools and techniques used:")
-  sections.push("- Slither static analysis")
-  sections.push("- Foundry tests and fuzzing")
-  sections.push("- Pattern Analysis")
-  sections.push("- Solodit research cross-referencing")
+  for (const line of buildMethodologyToolLines(input.toolsExecuted, input.unavailableTools)) {
+    sections.push(line)
+  }
   sections.push(
     "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; the Findings tier is ordered severity-first (confidence breaks ties) while the Leads tier is ordered by confidence, both falling back to file/line for determinism, and validated against report quality gates before emission.",
   )
@@ -1532,6 +1651,11 @@ export function renderReportMarkdown(
   sections.push("## Recommendations")
   for (const item of buildRecommendations(counts)) {
     sections.push(`- ${item}`)
+  }
+
+  const outOfScopeSection = buildOutOfScopeSection(outOfScopeFindings)
+  if (outOfScopeSection.length > 0) {
+    sections.push(outOfScopeSection)
   }
 
   if (preflightWarningSection) {
@@ -1568,12 +1692,14 @@ export async function executeReportGeneration(
     args.force === true && args.revision != null
       ? {
           code: "INVALID_REGENERATION_OPTIONS",
-          message: "force and revision must not both be set.",
+          message:
+            "force and revision must not both be set. To regenerate a corrected report, call argus_generate_report with revision: 2 and omit force.",
         }
       : args.revision != null && (!Number.isInteger(args.revision) || args.revision < 2)
         ? {
             code: "INVALID_REGENERATION_OPTIONS",
-            message: "revision must be an integer greater than or equal to 2.",
+            message:
+              "revision must be an integer >= 2 (the base report is revision 1). To publish a corrected report, pass revision: 2.",
           }
         : null
 
@@ -1616,11 +1742,14 @@ export async function executeReportGeneration(
   const outOfScopeFindings = collectOutOfScopeFindings(finalFindings, scope)
   if (outOfScopeFindings.length > 0) {
     const locations = outOfScopeFindings.map(formatLocation).join(", ")
-    const message = `findings outside audited scope: ${locations}`
     if (preflightPolicy === "strict-fail") {
-      throw new Error(`Preflight failed (strict-fail): ${message}`)
+      throw new Error(
+        `Preflight failed (strict-fail): findings outside audited scope: ${locations}`,
+      )
     }
-    warningBullets.push(`- ${message}`)
+    warningBullets.push(
+      `- ${outOfScopeFindings.length} observation(s) outside audited scope moved to the Out-of-Scope Observations appendix: ${locations}`,
+    )
   }
 
   // Hard gate: refuse to generate a report if key audit tools have not been executed
@@ -1676,7 +1805,7 @@ export async function executeReportGeneration(
       !partialLineage && (eventFindings.length === inputFindings.length || hasLineage)
     const lineage = hasLineage
       ? validateFindingLineage(
-          projectFindings(events),
+          eventFindings,
           reportInput.findings,
           reportInput.dropped_observations,
         )
@@ -1821,7 +1950,12 @@ export async function executeReportGeneration(
       sortFindingsByConfidence(leadFindings),
       existingIdMap,
     )
-    await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
+    // Do not mutate the durable ID registry on an error path: an invalid regeneration
+    // request returns INVALID_REGENERATION_OPTIONS without writing a report, so it must
+    // not rewrite finding-id-map.json either.
+    if (!invalidRegenerationOptions) {
+      await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
+    }
   }
 
   const reportMarkdown = renderReportMarkdown(reportInput, {
@@ -1835,12 +1969,15 @@ export async function executeReportGeneration(
     idAssignments,
   })
   const contentHash = stableHash(reportMarkdown)
+  // When the regeneration options are already invalid (e.g. revision < 2) resolve the
+  // base path so we return the structured INVALID_REGENERATION_OPTIONS error below rather
+  // than throwing an unstructured ReportPathError on the invalid revision.
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
     date: new Date(auditDate),
     outputDir: ".opencode/reports/",
     runId: runId || undefined,
-    revision: args.revision,
+    revision: invalidRegenerationOptions ? undefined : args.revision,
   })
 
   const result: ReportGenerationResult = {

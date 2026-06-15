@@ -3,6 +3,8 @@ import { isRecord } from "../shared/type-guards"
 import {
   isValidConfidenceScore,
   isValidRubricVerdict,
+  RUBRIC_CONFIRMED_MIN_SCORE,
+  reconcileRubricVerdict,
   VALID_AGENTS,
   VALID_CONFIDENCES,
   VALID_SEVERITIES,
@@ -346,6 +348,24 @@ export function normalizeToCanonicalFinding(
     })
   }
 
+  const confidenceScoreValue = confidenceScoreValid
+    ? (input.confidence_score as CanonicalFinding["confidence_score"])
+    : undefined
+  const reconciledVerdict = rubricVerdictValid
+    ? reconcileRubricVerdict(
+        input.rubric_verdict as CanonicalFinding["rubric_verdict"],
+        confidenceScoreValue,
+      )
+    : undefined
+  if (rubricVerdictValid && reconciledVerdict !== input.rubric_verdict) {
+    diagnostics.push({
+      level: "warn",
+      code: "field.demoted",
+      message: `Auto-demoted CONFIRMED finding with confidence_score ${JSON.stringify(input.confidence_score)} below ${RUBRIC_CONFIRMED_MIN_SCORE} to DEMOTED`,
+      field: "rubric_verdict",
+    })
+  }
+
   const canonical: CanonicalFinding = {
     id: observationId,
     check,
@@ -354,9 +374,7 @@ export function normalizeToCanonicalFinding(
     ...(confidenceScoreValid
       ? { confidence_score: input.confidence_score as CanonicalFinding["confidence_score"] }
       : {}),
-    ...(rubricVerdictValid
-      ? { rubric_verdict: input.rubric_verdict as CanonicalFinding["rubric_verdict"] }
-      : {}),
+    ...(reconciledVerdict ? { rubric_verdict: reconciledVerdict } : {}),
     description,
     file,
     lines: lines ?? [0, 0],

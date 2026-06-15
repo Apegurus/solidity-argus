@@ -7,6 +7,11 @@ export { estimateTokens }
 
 const DEFAULT_TOKEN_BUDGET = 2000
 
+export type ReportingThresholds = {
+  confidenceThreshold: number
+  severityThreshold: string
+}
+
 export interface SystemPromptHookDeps {
   getAuditState: (sessionId?: string) => AuditState | null
   getAgentForSession: (sessionID: string) => string | undefined
@@ -15,6 +20,7 @@ export interface SystemPromptHookDeps {
   getTokenBudget?: (agent: string, contextPressure: number) => number
   getEnforcerReminder?: (state: AuditState) => string | null
   getReconBlock?: () => string | null
+  getReportingThresholds?: () => ReportingThresholds | undefined
 }
 
 const FALLBACK_DIRECTIVES: Record<string, string> = {
@@ -106,6 +112,7 @@ export function buildDynamicContext(
   auditState: AuditState,
   agent: string,
   tokenBudget: number = DEFAULT_TOKEN_BUDGET,
+  reportingThresholds?: ReportingThresholds,
 ): string {
   const severityCounts = countBySeverity(auditState.findings)
 
@@ -113,15 +120,24 @@ export function buildDynamicContext(
     auditState.toolsExecuted.map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
   )
   const findingCountsLine = buildFindingCountsLine(auditState)
+  const reportingLine = reportingThresholds
+    ? `Reporting: confidenceThreshold=${reportingThresholds.confidenceThreshold} severityThreshold=${reportingThresholds.severityThreshold}`
+    : null
   const taskStatus = KEY_TOOLS.map(
     (t) => `${t}=${executedToolNames.has(t) ? "done" : "pending"}`,
   ).join(" ")
   const unavailable = auditState.unavailableTools ?? []
   const pendingKeyTools = computeMissingKeyTools(auditState.toolsExecuted, unavailable)
+  // The orchestrator's session ledger never records subagent tool runs (those land in the
+  // subagent's session), so once subagents are dispatched, missing key tools are delegated,
+  // not a hard block; true coverage is enforced run-scoped by the report preflight.
+  const dispatchedSubagents = auditState.toolsExecuted.some((exec) => exec.tool === "task")
   const gateStatus =
-    pendingKeyTools.length > 0
-      ? `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
-      : "REPORTING GATE: ALLOWED"
+    pendingKeyTools.length === 0
+      ? "REPORTING GATE: ALLOWED"
+      : dispatchedSubagents
+        ? `REPORTING GATE: DELEGATED \u2014 key-tool coverage runs in subagents and is verified run-scoped at report time; not observed in this orchestrator session: ${pendingKeyTools.join(", ")}`
+        : `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
   const lines: string[] = [
     `<argus-context agent="${agent}">`,
     ...(auditState.sessionId ? [`run_id: ${auditState.sessionId}`] : []),
@@ -130,6 +146,7 @@ export function buildDynamicContext(
     `Contracts: ${auditState.contractsReviewed.length} reviewed`,
     `Findings: Critical=${severityCounts.Critical} High=${severityCounts.High} Medium=${severityCounts.Medium} Low=${severityCounts.Low} Info=${severityCounts.Informational}`,
     ...(findingCountsLine ? [findingCountsLine] : []),
+    ...(reportingLine ? [reportingLine] : []),
     `Tools: ${buildToolsLine(auditState)}`,
     `Tool Ledger: ${buildToolLedgerLine(auditState)}`,
     buildCoverageLine(auditState),
@@ -191,8 +208,9 @@ export function createSystemPromptHook(deps: SystemPromptHookDeps) {
     const currentSystem = output.system.join("\n")
     const pressure = deps.getContextPressure?.(currentSystem, input.sessionID) ?? 0
     const budget = deps.getTokenBudget?.(agent, pressure) ?? DEFAULT_TOKEN_BUDGET
+    const reportingThresholds = deps.getReportingThresholds?.()
 
-    output.system.push(buildDynamicContext(auditState, agent, budget))
+    output.system.push(buildDynamicContext(auditState, agent, budget, reportingThresholds))
 
     if (deps.getReconBlock) {
       const reconBlock = deps.getReconBlock()
