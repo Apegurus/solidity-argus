@@ -38,9 +38,11 @@ Prove an unprivileged actor executes the attack.
 
 ## Gate 4 — Impact
 
-Prove material harm to an identifiable victim.
+Prove material harm to an identifiable victim **in the current code**, not in hypothetical future code — the impact must be reachable in the contract as written.
 
 - Self-harm only → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; functions like `selfDestruct` or `burn` are usually intentional, but document who "self" is — a multisig signer under social engineering, or an admin under key compromise, both look like "self-harm" from a static viewpoint)
+- Impact requires code not yet present (a placeholder returning a constant, an unwired setter, a `// TODO` integration) → **DEMOTE** at most (`confidence_score ≤ 75`): the deployed code has no exploit path, so it is an architectural lead. Never rate Critical/High on impact that depends on a future change landing.
+- Asset flows back to the rightful holder rather than the caller → griefing / forced action, not theft. Classify by reachable impact and do not describe it as "drain" or "steal" (see the access-control skill's value-flow rule).
 - Dust-level, no compounding → **DEMOTE** (`confidence_score ≤ 75`)
 - Material loss to identifiable victim → **CONFIRMED** (`confidence_score ≥ 80`)
 
