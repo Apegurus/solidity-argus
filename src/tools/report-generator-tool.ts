@@ -8,7 +8,12 @@ import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/gl
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
-import { computeMissingKeyTools } from "../shared/key-tools"
+import {
+  computeMissingKeyTools,
+  KEY_TOOLS,
+  TOOL_SHORT_NAMES,
+  UNAVAILABLE_TO_KEY_TOOL,
+} from "../shared/key-tools"
 import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
@@ -1506,6 +1511,43 @@ export type RenderReportOptions = {
   idAssignments?: ReadonlyMap<string, string>
 }
 
+const METHODOLOGY_TOOL_LABELS: Record<string, string> = {
+  slither: "Slither static analysis",
+  "forge-test": "Foundry tests and fuzzing",
+  patterns: "Pattern analysis",
+  solodit: "Solodit research cross-referencing",
+  analyzer: "Contract structural analysis",
+}
+
+// Derive the "tools used" list from the execution ledger so the Methodology never claims
+// a tool ran when it did not (e.g. Slither when the binary is absent).
+function buildMethodologyToolLines(
+  toolsExecuted: ReportInput["toolsExecuted"],
+  unavailableTools: ReportInput["unavailableTools"],
+): string[] {
+  const executed = new Set(
+    (toolsExecuted ?? [])
+      .filter((exec) => exec.success === true)
+      .map((exec) => TOOL_SHORT_NAMES[exec.tool] ?? exec.tool),
+  )
+  const lines = KEY_TOOLS.filter((short) => executed.has(short)).map(
+    (short) => `- ${METHODOLOGY_TOOL_LABELS[short] ?? short}`,
+  )
+  lines.push("- Manual review with the 4-gate refutation rubric")
+  const unavailable = Array.from(
+    new Set(
+      (unavailableTools ?? [])
+        .map((short) => UNAVAILABLE_TO_KEY_TOOL[short])
+        .filter((short): short is string => Boolean(short))
+        .map((short) => METHODOLOGY_TOOL_LABELS[short] ?? short),
+    ),
+  )
+  if (unavailable.length > 0) {
+    lines.push(`- Not available in this environment (compensated above): ${unavailable.join(", ")}`)
+  }
+  return lines
+}
+
 export function renderReportMarkdown(
   input: ReportInput,
   options: RenderReportOptions = {},
@@ -1589,10 +1631,9 @@ export function renderReportMarkdown(
 
   sections.push("## Methodology")
   sections.push("Tools and techniques used:")
-  sections.push("- Slither static analysis")
-  sections.push("- Foundry tests and fuzzing")
-  sections.push("- Pattern Analysis")
-  sections.push("- Solodit research cross-referencing")
+  for (const line of buildMethodologyToolLines(input.toolsExecuted, input.unavailableTools)) {
+    sections.push(line)
+  }
   sections.push(
     "Approach: Findings are normalized, then split into Findings/Leads by rubric verdict (CONFIRMED → Findings; DEMOTED/REJECTED_DEMOTED → Leads), falling back to the confidence threshold for unscored/legacy findings; the Findings tier is ordered severity-first (confidence breaks ties) while the Leads tier is ordered by confidence, both falling back to file/line for determinism, and validated against report quality gates before emission.",
   )

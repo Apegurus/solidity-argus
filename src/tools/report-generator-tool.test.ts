@@ -309,6 +309,64 @@ test("rubric adoption: a finding with neither verdict nor textual trace is flagg
   expect(report).toContain("0/1 findings assessed via the 4-gate refutation rubric")
 })
 
+function methodologySection(report: string): string {
+  const start = report.indexOf("## Methodology")
+  if (start === -1) return ""
+  const end = report.indexOf("\n## ", start + 1)
+  return end === -1 ? report.slice(start) : report.slice(start, end)
+}
+
+test("methodology lists a key tool only when it executed successfully", () => {
+  const finding = makeFinding({ id: "m-1", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = makeReportInput([finding], {
+    toolsExecuted: [
+      { tool: "argus_slither_analyze", success: true, startTime: 1, endTime: 2, findingsCount: 0 },
+      { tool: "argus_check_patterns", success: true, startTime: 1, endTime: 2, findingsCount: 1 },
+    ],
+  })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).toContain("Slither static analysis")
+  expect(methodology).toContain("Pattern analysis")
+})
+
+test("methodology omits a key tool that did not run successfully (no Slither contradiction)", () => {
+  const finding = makeFinding({ id: "m-2", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = makeReportInput([finding], {
+    toolsExecuted: [
+      { tool: "argus_check_patterns", success: true, startTime: 1, endTime: 2, findingsCount: 1 },
+      { tool: "argus_slither_analyze", success: false, startTime: 1, endTime: 2, findingsCount: 0 },
+    ],
+  })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).not.toContain("Slither static analysis")
+  expect(methodology).toContain("Pattern analysis")
+  expect(methodology).toContain("Manual review")
+})
+
+test("methodology notes a key tool declared unavailable", () => {
+  const finding = makeFinding({ id: "m-3", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = {
+    ...makeReportInput([finding], {
+      toolsExecuted: [
+        { tool: "argus_check_patterns", success: true, startTime: 1, endTime: 2, findingsCount: 1 },
+      ],
+    }),
+    unavailableTools: ["slither"],
+  }
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).not.toContain("- Slither static analysis")
+  expect(methodology.toLowerCase()).toContain("not available")
+})
+
 test("reportGeneratorTool uses tool() helper contract", () => {
   expect(reportGeneratorTool.description.length).toBeGreaterThan(0)
   expect(reportGeneratorTool.args).toBeDefined()
