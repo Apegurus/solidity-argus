@@ -297,7 +297,7 @@ describe("report-generator tier splitting", () => {
     expect(leadsIdx === -1 || result.report.indexOf("CONFIG-70") < leadsIdx).toBe(true)
   })
 
-  test("verdict-first: CONFIRMED with below-threshold score still lands in Findings (adj_1)", () => {
+  test("verdict reconcile: CONFIRMED with below-threshold score is demoted to Leads (adj_1)", () => {
     const report = renderReportMarkdown(
       reportInput([
         f({
@@ -309,11 +309,9 @@ describe("report-generator tier splitting", () => {
       ]),
       { projectName: "Verdict Routing", threshold: 80 },
     )
-    const findingsIdx = report.indexOf("## Findings")
     const leadsIdx = report.indexOf("## Leads")
-    expect(findingsIdx).toBeGreaterThan(-1)
-    expect(report.indexOf("CONFIRMED-LOW-SCORE")).toBeGreaterThan(findingsIdx)
-    expect(leadsIdx === -1 || report.indexOf("CONFIRMED-LOW-SCORE") < leadsIdx).toBe(true)
+    expect(leadsIdx).toBeGreaterThan(-1)
+    expect(report.indexOf("CONFIRMED-LOW-SCORE")).toBeGreaterThan(leadsIdx)
   })
 
   test("verdict-first: REJECTED_DEMOTED with high or missing score stays in Leads (adj_1)", () => {

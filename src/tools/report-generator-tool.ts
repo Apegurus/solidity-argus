@@ -19,7 +19,7 @@ import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
 import { isNonEmptyString } from "../shared/type-guards"
-import { SEVERITY_RANK } from "../shared/validation-constants"
+import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-constants"
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import {
   compareIssueFingerprintSets,
@@ -1062,8 +1062,9 @@ function sortFindingsBySeverityThenConfidence(findings: Finding[]): Finding[] {
 // Tier routing is verdict-first: the rubric's structured `rubric_verdict` is the
 // authoritative Findings/Leads signal; `confidence_score` is only a fallback for
 // legacy/unscored findings predating the rubric. This stops a malformed or
-// partially-normalized DEMOTED/REJECTED_DEMOTED record (missing/invalid score)
-// from being promoted into the main Findings section.
+// partially-normalized DEMOTED/REJECTED_DEMOTED record (missing/invalid score) from
+// being promoted into the main Findings section. A CONFIRMED verdict carrying an
+// explicit sub-80 score is reconciled to DEMOTED first (CONFIRMED requires >= 80).
 function splitFindingsByTier(
   findings: Finding[],
   threshold: number,
@@ -1071,7 +1072,7 @@ function splitFindingsByTier(
   const findingsTier: Finding[] = []
   const leadsTier: Finding[] = []
   for (const finding of findings) {
-    const verdict = finding.rubric_verdict
+    const verdict = reconcileRubricVerdict(finding.rubric_verdict, finding.confidence_score)
     if (verdict === "CONFIRMED") {
       findingsTier.push(finding)
     } else if (verdict === "DEMOTED" || verdict === "REJECTED_DEMOTED") {
