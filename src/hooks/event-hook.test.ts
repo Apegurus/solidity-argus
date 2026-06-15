@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import type { EventSink } from "../features/persistent-state/event-sink"
-import { ARGUS_PLUGIN_VERSION } from "../shared/plugin-metadata"
+import { ARGUS_PLUGIN_BUILD } from "../shared/plugin-metadata"
 import type { AuditEvent } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
 import type { EventSubHandler } from "./event-hook"
@@ -216,7 +216,7 @@ describe("createEventHook", () => {
       const payload = sink.events[0]?.payload as Record<string, unknown>
       expect(payload.projectDir).toBe("/tmp/recovered")
       expect(payload.sessionId).toBe("recovered-id")
-      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
       expect(payload.scope).toEqual([])
     })
 
@@ -320,13 +320,13 @@ describe("createEventHook", () => {
       expect(sink.events[1]?.session_id).toBe("oc-del")
       const payload = sink.events[1]?.payload as Record<string, unknown>
       expect(payload.archived).toBe(true)
-      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
 
       expect(sink.events[2]?.type).toBe("run.finalized")
       const finalizationPayload = sink.events[2]?.payload as Record<string, unknown>
       expect(finalizationPayload.invariantsPassed).toBe(true)
       expect(finalizationPayload.status).toBe("finalized")
-      expect(finalizationPayload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+      expect(finalizationPayload.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
     })
 
     it("does not finalize when sibling sessions for same run remain active", async () => {
@@ -431,7 +431,7 @@ describe("createEventHook", () => {
       const payload = finalEvent?.payload as Record<string, unknown>
       expect(payload.invariantsPassed).toBe(true)
       expect(payload.status).toBe("finalized")
-      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+      expect(payload.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
       expect(Array.isArray(payload.warnings)).toBe(true)
       expect(
         (payload.warnings as string[]).some((entry) => entry.includes("orphaned tool.started")),

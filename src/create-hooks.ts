@@ -39,7 +39,7 @@ import type { HookName } from "./hooks/types"
 import type { AuditStateManager, Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { createLogger } from "./shared/logger"
-import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { ARGUS_BUILD_PROVENANCE, ARGUS_PLUGIN_BUILD } from "./shared/plugin-metadata"
 import { getToolResultCache, type ToolResultCache } from "./shared/tool-result-cache"
 import { createAuditState } from "./state/audit-state"
 import { SCHEMA_VERSION } from "./state/schemas"
@@ -498,7 +498,9 @@ export function createHooks(args: {
             payload: {
               projectDir: effectiveState.projectDir,
               sessionId: effectiveState.sessionId,
-              plugin_version: ARGUS_PLUGIN_VERSION,
+              plugin_version: ARGUS_PLUGIN_BUILD,
+              build_commit: ARGUS_BUILD_PROVENANCE.gitSha ?? null,
+              build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
               scope: effectiveState.scope,
             },
           })

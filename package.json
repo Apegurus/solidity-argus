@@ -35,12 +35,14 @@
   "files": [
     "src/",
     "!src/**/*.test.ts",
+    "build-info.json",
     "skills/",
     "README.md",
     "AGENTS.md",
     "LICENSE"
   ],
   "scripts": {
+    "prepack": "bun scripts/stamp-build-info.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",

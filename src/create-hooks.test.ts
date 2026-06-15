@@ -9,7 +9,7 @@ import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/glo
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
-import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { ARGUS_PLUGIN_BUILD } from "./shared/plugin-metadata"
 import { createToolResultCache } from "./shared/tool-result-cache"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
@@ -420,7 +420,7 @@ describe("createHooks", () => {
         w.includes("orphaned tool.started"),
       ),
     ).toBe(true)
-    expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+    expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
   })
 
   it("materializes findings artifact after successful session finalization", async () => {

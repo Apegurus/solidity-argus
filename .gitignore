@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# build provenance stamp (generated at pack time by scripts/stamp-build-info.ts)
+build-info.json
+
 # code coverage
 coverage
 *.lcov
