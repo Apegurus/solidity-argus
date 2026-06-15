@@ -77,6 +77,18 @@ describe("dedupeFindingsForFinalOutput rubric propagation", () => {
     expect(merged.confidence_score).toBe(95)
   })
 
+  test("auto-demotes a merged CONFIRMED whose final confidence_score is below 80", () => {
+    const raw = [
+      makeObs({ seq: 2, rubric_verdict: "CONFIRMED", confidence_score: 72 }),
+      makeObs({ seq: 4, rubric_verdict: "DEMOTED", confidence_score: 55 }),
+    ]
+
+    const merged = dedupeOne(raw)
+
+    expect(merged.rubric_verdict).toBe("DEMOTED")
+    expect(merged.confidence_score).toBe(72)
+  })
+
   test("all-demoted group keeps a non-CONFIRMED verdict so it routes to Leads", () => {
     const raw = [
       makeObs({ seq: 2, rubric_verdict: "DEMOTED", confidence_score: 40 }),

@@ -1,4 +1,4 @@
-import { SEVERITY_RANK } from "../shared/validation-constants"
+import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-constants"
 import type { CanonicalFinding } from "./schemas"
 
 function uniqueSorted(values: string[]): string[] {
@@ -107,6 +107,10 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
     if (mergedConfidence !== undefined) {
       mergedFinding.confidence_score = mergedConfidence
     }
+    mergedFinding.rubric_verdict = reconcileRubricVerdict(
+      mergedFinding.rubric_verdict,
+      mergedFinding.confidence_score,
+    )
 
     merged.push(mergedFinding)
   }

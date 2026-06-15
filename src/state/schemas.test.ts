@@ -254,6 +254,45 @@ describe("normalizeToCanonicalFinding", () => {
 
     expect(result.data.reported_by_agent).toBe("audit-specialist")
   })
+
+  test("auto-demotes a CONFIRMED finding whose confidence_score is below 80", () => {
+    const raw = {
+      check: "access-control-missing",
+      severity: "High",
+      confidence: "High",
+      description: "Sub-threshold CONFIRMED",
+      file: "src/Vault.sol",
+      lines: [10, 12],
+      source: "manual",
+      reported_by_agent: "audit-specialist",
+      rubric_verdict: "CONFIRMED",
+      confidence_score: 72,
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-demote", 1)
+
+    expect(result.data.rubric_verdict).toBe("DEMOTED")
+    expect(result.data.confidence_score).toBe(72)
+  })
+
+  test("keeps a CONFIRMED finding whose confidence_score is at least 80", () => {
+    const raw = {
+      check: "access-control-missing",
+      severity: "High",
+      confidence: "High",
+      description: "At-threshold CONFIRMED",
+      file: "src/Vault.sol",
+      lines: [10, 12],
+      source: "manual",
+      reported_by_agent: "audit-specialist",
+      rubric_verdict: "CONFIRMED",
+      confidence_score: 80,
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-keep", 1)
+
+    expect(result.data.rubric_verdict).toBe("CONFIRMED")
+  })
 })
 
 describe("validateReportInput", () => {
