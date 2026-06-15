@@ -575,6 +575,19 @@ describe("reporting gate in buildDynamicContext", () => {
     expect(context).not.toContain("forge-test,")
   })
 
+  it("reports DELEGATED, not BLOCKED, once subagents have been dispatched", () => {
+    const context = buildDynamicContext(
+      makeAuditState({
+        toolsExecuted: [
+          { tool: "task", startTime: 1, endTime: 2, success: true, findingsCount: 3 },
+        ],
+      }),
+      "argus",
+    )
+    expect(context).toContain("REPORTING GATE: DELEGATED")
+    expect(context).not.toContain("REPORTING GATE: BLOCKED")
+  })
+
   it("truncated context preserves BLOCKED gate signal", () => {
     const context = buildDynamicContext(
       makeAuditState({

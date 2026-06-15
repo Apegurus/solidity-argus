@@ -128,10 +128,16 @@ export function buildDynamicContext(
   ).join(" ")
   const unavailable = auditState.unavailableTools ?? []
   const pendingKeyTools = computeMissingKeyTools(auditState.toolsExecuted, unavailable)
+  // The orchestrator's session ledger never records subagent tool runs (those land in the
+  // subagent's session), so once subagents are dispatched, missing key tools are delegated,
+  // not a hard block; true coverage is enforced run-scoped by the report preflight.
+  const dispatchedSubagents = auditState.toolsExecuted.some((exec) => exec.tool === "task")
   const gateStatus =
-    pendingKeyTools.length > 0
-      ? `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
-      : "REPORTING GATE: ALLOWED"
+    pendingKeyTools.length === 0
+      ? "REPORTING GATE: ALLOWED"
+      : dispatchedSubagents
+        ? `REPORTING GATE: DELEGATED \u2014 key-tool coverage runs in subagents and is verified run-scoped at report time; not observed in this orchestrator session: ${pendingKeyTools.join(", ")}`
+        : `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
   const lines: string[] = [
     `<argus-context agent="${agent}">`,
     ...(auditState.sessionId ? [`run_id: ${auditState.sessionId}`] : []),
