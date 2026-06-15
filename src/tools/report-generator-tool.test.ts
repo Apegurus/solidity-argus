@@ -17,6 +17,7 @@ import {
   normalizeRawFinding,
   parseLocationString,
   type ReportGenerationResult,
+  renderReportMarkdown,
   reportGeneratorTool,
 } from "./report-generator-tool"
 
@@ -113,7 +114,7 @@ function makeReportInput(
         typeof raw.file === "string" && raw.file.trim().length > 0
           ? raw.file
           : (parsedLocation?.file ?? "unknown.sol")
-      const lines =
+      const lines: [number, number] =
         Array.isArray(raw.lines) &&
         raw.lines.length === 2 &&
         typeof raw.lines[0] === "number" &&
@@ -176,8 +177,10 @@ function makeReportInput(
         ((t as unknown as Record<string, unknown>).findingsCount as number) >= 0
           ? ((t as unknown as Record<string, unknown>).findingsCount as number)
           : 0,
-      run_id: (t as unknown as Record<string, unknown>).run_id ?? runId,
-      schema_version: (t as unknown as Record<string, unknown>).schema_version ?? SCHEMA_VERSION,
+      run_id: ((t as unknown as Record<string, unknown>).run_id as string | undefined) ?? runId,
+      schema_version:
+        ((t as unknown as Record<string, unknown>).schema_version as string | undefined) ??
+        SCHEMA_VERSION,
     })),
     scope: overrides?.scope ?? ["Vault.sol"],
     soloditResults: overrides?.soloditResults,
@@ -208,6 +211,32 @@ function makeFinding(overrides: Partial<Finding>): Finding {
     exploitReference: overrides.exploitReference,
   }
 }
+
+test("rubric adoption: a verdict-bearing finding is not warned and counts as assessed", () => {
+  const confirmed = {
+    ...makeFinding({ id: "f-confirmed", description: "Reentrancy in withdraw drains the vault." }),
+    rubric_verdict: "CONFIRMED" as const,
+  }
+  const input = makeReportInput([confirmed], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo" })
+
+  expect(report).not.toContain("no rubric trace")
+  expect(report).toContain("1/1 findings assessed via the 4-gate refutation rubric")
+})
+
+test("rubric adoption: a finding with neither verdict nor textual trace is flagged and uncounted", () => {
+  const bare = makeFinding({
+    id: "f-bare",
+    description: "Some observation recorded without applying the rubric.",
+  })
+  const input = makeReportInput([bare], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo" })
+
+  expect(report).toContain("no rubric trace")
+  expect(report).toContain("0/1 findings assessed via the 4-gate refutation rubric")
+})
 
 test("reportGeneratorTool uses tool() helper contract", () => {
   expect(reportGeneratorTool.description.length).toBeGreaterThan(0)

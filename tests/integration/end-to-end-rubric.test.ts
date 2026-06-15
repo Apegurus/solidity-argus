@@ -176,7 +176,7 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
       expect(markdown).toMatch(/· confidence: 90/)
       expect(markdown.indexOf("· confidence: 90")).toBeLessThan(markdown.indexOf("## Leads"))
       expect(markdown.slice(markdown.indexOf("## Leads"))).toMatch(/· confidence: 60/)
-      expect(markdown).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
+      expect(markdown).toMatch(/Rubric: 2\/2 findings assessed via the 4-gate refutation rubric/)
       expect(markdown).not.toContain("no rubric trace")
     })
   })
@@ -220,7 +220,7 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
       const markdown = await renderRecordedFindings(projectDir, runId, [finding])
 
       expect(markdown).toContain("⚠️ no rubric trace")
-      expect(markdown).toMatch(/Rubric: 0\/1 findings include 4-gate trace/)
+      expect(markdown).toMatch(/Rubric: 0\/1 findings assessed via the 4-gate refutation rubric/)
     })
   })
 

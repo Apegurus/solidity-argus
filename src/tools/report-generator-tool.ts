@@ -1258,8 +1258,17 @@ function hasRubricTrace(f: Finding): boolean {
   return /\*\*Refutation quote:\*\*/.test(text)
 }
 
+function hasValidRubricVerdict(f: Finding): boolean {
+  const verdict = f.rubric_verdict
+  return verdict === "CONFIRMED" || verdict === "DEMOTED" || verdict === "REJECTED_DEMOTED"
+}
+
+function wasRubricAssessed(f: Finding): boolean {
+  return hasRubricTrace(f) || hasValidRubricVerdict(f)
+}
+
 function renderFindingBody(f: Finding): string {
-  const annotation = hasRubricTrace(f)
+  const annotation = wasRubricAssessed(f)
     ? ""
     : "⚠️ no rubric trace — this finding was emitted without applying the 4-gate refutation rubric.\n\n"
   return annotation + sanitizeBodyMarkdown(f.description ?? "")
@@ -1267,8 +1276,8 @@ function renderFindingBody(f: Finding): string {
 
 function renderAdoptionFooter(findings: Finding[]): string {
   if (findings.length === 0) return ""
-  const withTrace = findings.filter(hasRubricTrace).length
-  return `\n\n---\n\n_Rubric: ${withTrace}/${findings.length} findings include 4-gate trace_\n`
+  const assessed = findings.filter(wasRubricAssessed).length
+  return `\n\n---\n\n_Rubric: ${assessed}/${findings.length} findings assessed via the 4-gate refutation rubric_\n`
 }
 
 function buildLeadsSection(

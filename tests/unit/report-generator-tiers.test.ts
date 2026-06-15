@@ -203,7 +203,7 @@ describe("report-generator tier splitting", () => {
       description: completeTrace("CONFIRMED", 90, "bug2"),
     })
     const report = renderReportMarkdown(reportInput([withTrace1, withTrace2]), { threshold: 80 })
-    expect(report).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
+    expect(report).toMatch(/Rubric: 2\/2 findings assessed via the 4-gate refutation rubric/)
   })
 
   test("D3: footer counts mixed adoption correctly", () => {
@@ -225,7 +225,7 @@ describe("report-generator tier splitting", () => {
     const report = renderReportMarkdown(reportInput([withTrace, withoutTrace1, withoutTrace2]), {
       threshold: 80,
     })
-    expect(report).toMatch(/Rubric: 1\/3 findings include 4-gate trace/)
+    expect(report).toMatch(/Rubric: 1\/3 findings assessed via the 4-gate refutation rubric/)
   })
 
   test("D3: footer renders 0/0 (or is omitted) when there are no findings", () => {
@@ -533,7 +533,7 @@ describe("renderer — [NN] prefix in Leads tier", () => {
       }),
     ]
     const md = renderReportMarkdown(baseInput(findings))
-    expect(md).toMatch(/Rubric: 2\/2 findings include 4-gate trace/)
+    expect(md).toMatch(/Rubric: 2\/2 findings assessed via the 4-gate refutation rubric/)
   })
 })
 
