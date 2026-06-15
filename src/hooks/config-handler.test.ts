@@ -234,7 +234,7 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.model).toBe(DEFAULT_MODELS.argus)
-    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-4-7")
+    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-4-8")
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
     expect(config.agent?.pythia?.model).toBe(DEFAULT_MODELS.pythia)
     expect(config.agent?.["audit-specialist"]?.model).toBe(DEFAULT_MODELS.auditSpecialist)

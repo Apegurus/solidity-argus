@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0 (2026-06-15)
+
+### Features
+- Recorded build provenance in the event stream: `plugin_version` now carries a semver build descriptor (`0.7.0+g<sha>[.dirty]`) plus structured `build_commit`/`build_dirty` on session and finalization events, and a `prepack` stamp (`build-info.json`) lets npm-installed builds (which have no `.git`) report the exact commit they were built from.
+- Upgraded the default Argus orchestrator model to `anthropic/claude-opus-4-8`.
+
+### Fixes
+- Report parity now validates deduped lineage against the deduped finding universe (matching `argus_persist_deduped`) instead of the raw projection, eliminating false "missing observation" Completeness Warnings that grew as findings accumulated.
+- Closed a finalization gap where `run.finalized` was never emitted: the `session.idle` and Themis-disposition triggers now gate on run-scoped resolved-disposition state instead of a per-session `reportGenerated` copy, and `EventSink` finalization is idempotent so concurrent paths cannot append duplicate `run.finalized` events.
+- Reused finalized OpenCode sessions now reset stale audit state and bind to the correct run sink (no cross-run binding leakage).
+- Enforced the rubric invariant that a `CONFIRMED` verdict requires `confidence_score >= 80` at ingest, dedup-merge, and report tiering, so a low-confidence finding can no longer reach the Findings tier under verdict-first routing.
+- The report Methodology / tools-used list is now derived from the executed-tools ledger, so a report no longer claims a tool (e.g. Slither) ran when it did not.
+- Regeneration ergonomics: invalid regeneration requests return a structured `INVALID_REGENERATION_OPTIONS` error with corrective guidance and no longer mutate the durable finding ID registry.
+- Corrected the Slither detector-exclusion flag to `--exclude` (the invalid `--exclude-detectors` broke the entire Slither run).
+- Broadened the `lack-of-precision` detection rule to match variable (not only numeric) divisors in division-before-multiplication, with added pattern-corpus coverage.
+
+### Improvements
+- The reporting-gate advisory reports `DELEGATED` once subagents are dispatched (coverage is verified run-scoped at report time) instead of a false `BLOCKED`, since key tools execute in subagent sessions the orchestrator's local ledger cannot observe.
+- Strengthened severity calibration: the refutation rubric now requires impact reachable in the current code (not hypothetical/future code), and the access-control skill adds a value-flow rule distinguishing theft (asset to the caller) from griefing (asset to the rightful holder).
+
 ## 0.6.2 (2026-05-25)
 
 ### Features

@@ -65,7 +65,7 @@ Argus will automatically:
 
 | Agent | Role | Model |
 |-------|------|-------|
-| `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-7 |
+| `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-8 |
 | `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
 | `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
 | `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-4-6 |
@@ -289,7 +289,7 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 ```jsonc
 {
   "agents": {
-    "argus": { "model": "anthropic/claude-opus-4-7" },
+    "argus": { "model": "anthropic/claude-opus-4-8" },
     "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
     "pythia": { "model": "anthropic/claude-sonnet-4-6" },
     "auditSpecialist": { "model": "anthropic/claude-sonnet-4-6" },
