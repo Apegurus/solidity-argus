@@ -536,7 +536,7 @@ describe("createHooks", () => {
     })
     toolResultCache.set("oc-trunc", "argus_check_patterns", fullResult)
 
-    const truncatedStub = '{"success":true,"sources":[{"matches":[{"pattern":"reentr'
+    const truncatedStub = fullResult.slice(0, 45)
     type AfterHook = NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>
     await (hooks["tool.execute.after"] as AfterHook)(
       {
@@ -1359,10 +1359,48 @@ describe("selectToolResultForParsing", () => {
     const full = '{"success":true,"sources":[{"matches":[{"pattern":"reentrancy"}]}]}'
     cache.set("ses_1", "argus_check_patterns", full)
 
-    const truncated = '{"success":true,"sources":[{"matches":[{"pattern":"reentr'
+    const truncated = full.slice(0, 56)
     const selected = selectToolResultForParsing(truncated, "ses_1", "argus_check_patterns", cache)
 
     expect(selected).toBe(full)
+    expect(cache.size()).toBe(0)
+  })
+
+  it("falls back to output.output and preserves a shorter mis-paired entry for its owner", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_solodit_search", "tiny")
+
+    const rawOutput = "a much longer, complete output.output from a different call"
+    const selected = selectToolResultForParsing(rawOutput, "ses_1", "argus_solodit_search", cache)
+
+    expect(selected).toBe(rawOutput)
+    expect(cache.size()).toBe(1)
+  })
+
+  it("falls back to output.output and preserves a cached entry that is not a prefix of it", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_skill_load", "ZZZ a longer but unrelated cached result here")
+
+    const rawOutput = '{"partial'
+    const selected = selectToolResultForParsing(rawOutput, "ses_1", "argus_skill_load", cache)
+
+    expect(selected).toBe(rawOutput)
+    expect(cache.size()).toBe(1)
+  })
+
+  it("recovers the correct result among parallel same-tool calls, regardless of order", () => {
+    const cache = createToolResultCache()
+    const a = '{"call":"a","sources":[{"matches":["reentrancy"]}]}'
+    const b = '{"call":"b","sources":[{"matches":["access-control","oracle"]}]}'
+    cache.set("ses_1", "argus_check_patterns", a)
+    cache.set("ses_1", "argus_check_patterns", b)
+
+    const truncatedB = b.slice(0, 12)
+    const truncatedA = a.slice(0, 12)
+
+    expect(selectToolResultForParsing(truncatedB, "ses_1", "argus_check_patterns", cache)).toBe(b)
+    expect(cache.size()).toBe(1)
+    expect(selectToolResultForParsing(truncatedA, "ses_1", "argus_check_patterns", cache)).toBe(a)
     expect(cache.size()).toBe(0)
   })
 

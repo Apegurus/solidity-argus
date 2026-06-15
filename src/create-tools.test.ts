@@ -103,7 +103,7 @@ describe("withResultCapture", () => {
     const out = await wrapped.execute({} as never, fakeContext("ses_9"))
 
     expect(out).toBe("FULL_RESULT")
-    expect(cache.take("ses_9", "argus_check_patterns")).toBe("FULL_RESULT")
+    expect(cache.takeMatch("ses_9", "argus_check_patterns", "FULL")).toBe("FULL_RESULT")
   })
 
   it("returns the tool result even when the cache write throws", async () => {
@@ -111,7 +111,7 @@ describe("withResultCapture", () => {
       set() {
         throw new Error("boom")
       },
-      take: () => undefined,
+      takeMatch: () => undefined,
       size: () => 0,
     }
     const wrapped = withResultCapture("argus_forge_test", fakeTool("OK"), throwingCache)

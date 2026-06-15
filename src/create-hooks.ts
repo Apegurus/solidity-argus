@@ -55,8 +55,16 @@ export function selectToolResultForParsing(
   tool: string,
   cache: ToolResultCache,
 ): string {
-  const capturedFull = typeof sessionID === "string" ? cache.take(sessionID, tool) : undefined
-  return capturedFull ?? rawOutput
+  if (typeof sessionID !== "string") return rawOutput
+  // Same-tool parallel calls share the (sessionID, tool) key, so match by prefix-extension
+  // (how OpenCode truncates output.output) and consume only the entry belonging to THIS call,
+  // leaving sibling results for their own after-hooks. Never substitute a mis-paired result.
+  // Do NOT simplify to a blind take().
+  const capturedFull = cache.takeMatch(sessionID, tool, rawOutput)
+  if (capturedFull !== undefined && capturedFull.length > rawOutput.length) {
+    return capturedFull
+  }
+  return rawOutput
 }
 
 export type AgentTrackerRef = {
@@ -774,6 +782,10 @@ export function createHooks(args: {
     },
     getTokenBudget: getTokenBudgetForAgent,
     getEnforcerReminder: auditEnforcer,
+    getReportingThresholds: () => ({
+      confidenceThreshold: args.config.reporting.confidenceThreshold,
+      severityThreshold: args.config.reporting.severityThreshold,
+    }),
     getReconBlock: () =>
       buildReconContextBlock({
         projectConfig: reconProjectConfig,
