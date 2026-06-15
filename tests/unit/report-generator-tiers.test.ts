@@ -431,7 +431,7 @@ describe("report-generator tier splitting", () => {
           description: "lead body",
         }),
       ]),
-      { projectName: "Leads Location", threshold: 80 },
+      { projectName: "Leads Location", threshold: 80, scope: ["src/"] },
     )
     const leadsIdx = report.indexOf("## Leads")
     expect(leadsIdx).toBeGreaterThan(-1)

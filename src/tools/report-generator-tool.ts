@@ -840,16 +840,58 @@ function shouldIncludeFinding(finding: Finding, threshold: SeverityThreshold): b
   return FINDING_WEIGHT[finding.severity] >= THRESHOLD_WEIGHT[threshold]
 }
 
-function normalizeScopePath(value: string): string {
-  return value.replace(/^\.\//, "").replace(/\/+$|\\+$/g, "")
+type NormalizedPath = {
+  value: string
+  base: string
+  isBare: boolean
+  hadTrailingSlash: boolean
 }
 
-function isFindingInScope(finding: Finding, scope: string[]): boolean {
+function normalizePathish(raw: string | undefined): NormalizedPath {
+  const original = (raw ?? "").trim()
+  const hadTrailingSlash = /[\\/]$/.test(original)
+  const value = original
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "")
+  const base = value.split("/").pop() ?? ""
+  return { value, base, isBare: value !== "" && !value.includes("/"), hadTrailingSlash }
+}
+
+function looksLikeDirectoryScope(scoped: NormalizedPath): boolean {
+  if (scoped.value === "" || scoped.value === ".") return true
+  if (scoped.hadTrailingSlash) return true
+  return !scoped.base.includes(".")
+}
+
+function sameFilePath(a: string, b: string): boolean {
+  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`)
+}
+
+function isUnderDirectory(file: string, dir: string): boolean {
+  return file.startsWith(`${dir}/`) || file.includes(`/${dir}/`)
+}
+
+// Conservative scope predicate: a finding is out-of-scope ONLY when its file is
+// concrete (not empty/"unknown") and no scope entry can place it in scope under any
+// path interpretation — exact/suffix-equivalent file, directory containment, or
+// bare-vs-pathed basename ambiguity. Ambiguous cases stay in-scope so a security
+// finding is never silently moved out of the actionable tiers (over-inclusion is the
+// safe failure mode). Do NOT tighten to strict prefix matching.
+export function isFindingInScope(finding: Finding, scope: string[]): boolean {
   if (scope.length === 0) return true
-  const file = normalizeScopePath(finding.file)
+  const file = normalizePathish(finding.file)
+  if (file.value === "" || file.value.toLowerCase() === "unknown") return true
   return scope.some((entry) => {
-    const scoped = normalizeScopePath(entry)
-    return file === scoped || file.startsWith(`${scoped}/`)
+    const scoped = normalizePathish(entry)
+    if (scoped.value === "" || scoped.value === ".") return true
+    const scopeIsDir = looksLikeDirectoryScope(scoped)
+    if (!scopeIsDir && sameFilePath(file.value, scoped.value)) return true
+    if (scopeIsDir && isUnderDirectory(file.value, scoped.value)) return true
+    if (scopeIsDir && file.isBare && file.base.includes(".")) return true
+    if ((file.isBare || scoped.isBare) && file.base === scoped.base) return true
+    return false
   })
 }
 
@@ -1305,6 +1347,26 @@ function buildLeadsSection(
   return lines.join("\n")
 }
 
+function buildOutOfScopeSection(findings: Finding[]): string {
+  if (findings.length === 0) {
+    return ""
+  }
+  const lines: string[] = [
+    "## Out-of-Scope Observations",
+    "These observations fall outside the audited scope and are awareness-only: they are excluded from the actionable Findings/Leads tiers and from the finding counts.",
+  ]
+  let seq = 0
+  for (const finding of findings) {
+    seq += 1
+    lines.push(renderFindingHeader(finding, `[OOS-${seq}]`))
+    lines.push(`**Location**: ${formatLocation(finding)}`)
+    lines.push("")
+    lines.push(`**Description**: ${sanitizeBodyMarkdown(finding.description ?? "")}`)
+    lines.push("")
+  }
+  return lines.join("\n")
+}
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
@@ -1457,13 +1519,19 @@ export function renderReportMarkdown(
   const state = reportInputToAuditState({ ...input, toolsExecuted })
   const scope = options.scope ?? input.scope ?? []
   const finalFindings = dedupeFindingsForFinalOutput(input.findings)
-  const reportFindings = sortFindingsDeterministically(
-    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+  const thresholdedFindings = finalFindings.filter((finding) =>
+    shouldIncludeFinding(finding, threshold),
   )
+  const inScopeFindings = thresholdedFindings.filter((finding) => isFindingInScope(finding, scope))
+  const outOfScopeFindings = sortFindingsDeterministically(
+    thresholdedFindings.filter((finding) => !isFindingInScope(finding, scope)),
+  )
+  const reportFindings = sortFindingsDeterministically(inScopeFindings)
   const tiers = splitFindingsByTier(reportFindings, confidenceThreshold)
   const findings = sortFindingsBySeverityThenConfidence(tiers.findings)
   const leads = sortFindingsByConfidence(tiers.leads)
-  // Executive summary reflects discovery (Findings + Leads); body splits them by tier.
+  // Executive summary, counts, provenance, and the rubric footer reflect in-scope
+  // findings only; out-of-scope observations render in a dedicated appendix.
   const counts = calculateCounts(reportFindings)
   const findingsTierCounts = calculateCounts(findings)
   const leadsTierCounts = calculateCounts(leads)
@@ -1541,6 +1609,11 @@ export function renderReportMarkdown(
   sections.push("## Recommendations")
   for (const item of buildRecommendations(counts)) {
     sections.push(`- ${item}`)
+  }
+
+  const outOfScopeSection = buildOutOfScopeSection(outOfScopeFindings)
+  if (outOfScopeSection.length > 0) {
+    sections.push(outOfScopeSection)
   }
 
   if (preflightWarningSection) {
@@ -1627,11 +1700,14 @@ export async function executeReportGeneration(
   const outOfScopeFindings = collectOutOfScopeFindings(finalFindings, scope)
   if (outOfScopeFindings.length > 0) {
     const locations = outOfScopeFindings.map(formatLocation).join(", ")
-    const message = `findings outside audited scope: ${locations}`
     if (preflightPolicy === "strict-fail") {
-      throw new Error(`Preflight failed (strict-fail): ${message}`)
+      throw new Error(
+        `Preflight failed (strict-fail): findings outside audited scope: ${locations}`,
+      )
     }
-    warningBullets.push(`- ${message}`)
+    warningBullets.push(
+      `- ${outOfScopeFindings.length} observation(s) outside audited scope moved to the Out-of-Scope Observations appendix: ${locations}`,
+    )
   }
 
   // Hard gate: refuse to generate a report if key audit tools have not been executed

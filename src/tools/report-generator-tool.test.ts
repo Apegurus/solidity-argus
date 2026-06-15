@@ -14,6 +14,7 @@ import type {
 } from "../state/types"
 import {
   executeReportGeneration,
+  isFindingInScope,
   normalizeRawFinding,
   parseLocationString,
   type ReportGenerationResult,
@@ -212,6 +213,76 @@ function makeFinding(overrides: Partial<Finding>): Finding {
   }
 }
 
+test("isFindingInScope: empty scope is all-in-scope", () => {
+  expect(isFindingInScope(makeFinding({ file: "anything.sol" }), [])).toBe(true)
+})
+
+test("isFindingInScope: unknown/empty file stays in-scope (location is not proof)", () => {
+  expect(isFindingInScope(makeFinding({ file: "unknown" }), ["src/Vault.sol"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "" }), ["src/Vault.sol"])).toBe(true)
+})
+
+test("isFindingInScope: exact and suffix-equivalent paths match", () => {
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["src/Vault.sol"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "Vault.sol" }), ["src/Vault.sol"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["Vault.sol"])).toBe(true)
+})
+
+test("isFindingInScope: bare findings stay in-scope under a directory scope", () => {
+  expect(isFindingInScope(makeFinding({ file: "Vault.sol" }), ["src/"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["src/"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["src"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "lib/src/Vault.sol" }), ["src"])).toBe(true)
+})
+
+test("isFindingInScope: a concrete path disagreeing with a file scope is out-of-scope", () => {
+  expect(isFindingInScope(makeFinding({ file: "src/Token.sol" }), ["src/Vault.sol"])).toBe(false)
+  expect(isFindingInScope(makeFinding({ file: "lib/Vault.sol" }), ["src/Vault.sol"])).toBe(false)
+})
+
+test("isFindingInScope: a bare scope keeps a basename match in-scope (ambiguous)", () => {
+  expect(isFindingInScope(makeFinding({ file: "lib/Vault.sol" }), ["Vault.sol"])).toBe(true)
+})
+
+test("out-of-scope findings render in the appendix, excluded from tiers and counts", () => {
+  const inScope = {
+    ...makeFinding({
+      id: "in-1",
+      severity: "High",
+      file: "src/Vault.sol",
+      description: "In-scope reentrancy.",
+    }),
+    rubric_verdict: "CONFIRMED" as const,
+  }
+  const outOfScope = makeFinding({
+    id: "oos-1",
+    severity: "Informational",
+    file: "lib/Dependency.sol",
+    description: "Observation about an out-of-scope dependency.",
+  })
+  const input = makeReportInput([inScope, outOfScope], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+
+  const oosIdx = report.indexOf("## Out-of-Scope Observations")
+  const findingsIdx = report.indexOf("## Findings")
+  expect(oosIdx).toBeGreaterThan(-1)
+  expect(report.indexOf("lib/Dependency.sol")).toBeGreaterThan(oosIdx)
+  expect(report.slice(findingsIdx, oosIdx)).not.toContain("lib/Dependency.sol")
+  expect(report).toContain("src/Vault.sol")
+  expect(report).toContain("| High | 1 |")
+  expect(report).toContain("| Informational | 0 |")
+})
+
+test("the out-of-scope appendix is omitted when every finding is in scope", () => {
+  const inScope = makeFinding({ id: "in-1", file: "src/Vault.sol", description: "In-scope." })
+  const input = makeReportInput([inScope], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+
+  expect(report).not.toContain("## Out-of-Scope Observations")
+})
+
 test("rubric adoption: a verdict-bearing finding is not warned and counts as assessed", () => {
   const confirmed = {
     ...makeFinding({ id: "f-confirmed", description: "Reentrancy in withdraw drains the vault." }),
@@ -299,7 +370,7 @@ test("executeReportGeneration creates complete markdown report with findings by 
   const result = await executeReportGeneration(
     {
       project_name: "TestVault",
-      scope: ["Vault.sol", "Token.sol"],
+      scope: ["src/"],
       severity_threshold: "informational",
       report_input: JSON.stringify(makeReportInput(findings)),
       tool_coverage_policy: "skip",
