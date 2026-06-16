@@ -249,7 +249,6 @@ export function hasResolvedThemisDispositionAfterReport(events: AuditEvent[]): b
 function collectParentChildIntegrityErrors(events: AuditEvent[]): string[] {
   const errors: string[] = []
   const parentByChild = new Map<string, string>()
-  const correlationByChild = new Map<string, string>()
 
   for (const event of events) {
     const payload = asRecord(event.payload)
@@ -287,14 +286,9 @@ function collectParentChildIntegrityErrors(events: AuditEvent[]): string[] {
       parentByChild.set(childSessionId, parentSessionId)
     }
 
-    const existingCorrelation = correlationByChild.get(childSessionId)
-    if (existingCorrelation && existingCorrelation !== correlationId) {
-      errors.push(
-        `child session ${childSessionId} has inconsistent correlation_id: ${existingCorrelation}, ${correlationId}`,
-      )
-    } else {
-      correlationByChild.set(childSessionId, correlationId)
-    }
+    // Intentionally no one-correlation-per-child invariant: correlation_id is minted per
+    // dispatch, and a child subagent session is legitimately re-dispatched/continued across
+    // remediation rounds, so one child session correctly carries multiple correlation_ids.
   }
 
   return errors

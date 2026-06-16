@@ -9,6 +9,7 @@
 ### Fixes
 - Report parity now validates deduped lineage against the deduped finding universe (matching `argus_persist_deduped`) instead of the raw projection, eliminating false "missing observation" Completeness Warnings that grew as findings accumulated.
 - Closed a finalization gap where `run.finalized` was never emitted: the `session.idle` and Themis-disposition triggers now gate on run-scoped resolved-disposition state instead of a per-session `reportGenerated` copy, and `EventSink` finalization is idempotent so concurrent paths cannot append duplicate `run.finalized` events.
+- Finalization no longer fails on legitimate subagent re-dispatch: the parent-child integrity check required one `correlation_id` per child session, but `correlation_id` is minted per dispatch and a child subagent session is reused/continued across remediation rounds, so remediated runs spuriously finalized with `invariantsPassed: false`. The sound one-parent-per-child and structural missing-`correlation_id` checks are retained.
 - Reused finalized OpenCode sessions now reset stale audit state and bind to the correct run sink (no cross-run binding leakage).
 - Enforced the rubric invariant that a `CONFIRMED` verdict requires `confidence_score >= 80` at ingest, dedup-merge, and report tiering, so a low-confidence finding can no longer reach the Findings tier under verdict-first routing.
 - The report Methodology / tools-used list is now derived from the executed-tools ledger, so a report no longer claims a tool (e.g. Slither) ran when it did not.

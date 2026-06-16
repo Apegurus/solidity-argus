@@ -176,6 +176,82 @@ describe("finalizeRun", () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  test("allows a child session re-dispatched with multiple correlation_ids (session continuation)", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1, session_id: "ses-child" }),
+      makeEvent({
+        type: "tool.started",
+        seq: 2,
+        session_id: "ses-parent",
+        tool_call_id: "task-1",
+        payload: { tool: "task", correlation_id: "corr-1", child_session_id: "ses-child" },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        session_id: "ses-parent",
+        tool_call_id: "task-1",
+        payload: {
+          tool: "task",
+          findingsCount: 0,
+          success: true,
+          correlation_id: "corr-1",
+          child_session_id: "ses-child",
+        },
+      }),
+      makeEvent({
+        type: "tool.started",
+        seq: 4,
+        session_id: "ses-parent",
+        tool_call_id: "task-2",
+        payload: { tool: "task", correlation_id: "corr-2", child_session_id: "ses-child" },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 5,
+        session_id: "ses-parent",
+        tool_call_id: "task-2",
+        payload: {
+          tool: "task",
+          findingsCount: 0,
+          success: true,
+          correlation_id: "corr-2",
+          child_session_id: "ses-child",
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(true)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  test("still fails when a child session is mapped to multiple parents", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1, session_id: "ses-child" }),
+      makeEvent({
+        type: "tool.started",
+        seq: 2,
+        session_id: "ses-parent-a",
+        tool_call_id: "task-1",
+        payload: { tool: "task", correlation_id: "corr-1", child_session_id: "ses-child" },
+      }),
+      makeEvent({
+        type: "tool.started",
+        seq: 3,
+        session_id: "ses-parent-b",
+        tool_call_id: "task-2",
+        payload: { tool: "task", correlation_id: "corr-2", child_session_id: "ses-child" },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors.some((e) => e.includes("multiple parents"))).toBe(true)
+  })
+
   test("warns instead of failing when a child writer lacks a recorded task edge", async () => {
     const sink = makeInMemorySink([
       makeEvent({ type: "session.created", seq: 1, session_id: "ses-parent" }),
