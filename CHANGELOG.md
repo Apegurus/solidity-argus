@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 (2026-06-15)
+## 0.7.0 (2026-06-17)
 
 ### Features
 - Recorded build provenance in the event stream: `plugin_version` now carries a semver build descriptor (`0.7.0+g<sha>[.dirty]`) plus structured `build_commit`/`build_dirty` on session and finalization events, and a `prepack` stamp (`build-info.json`) lets npm-installed builds (which have no `.git`) report the exact commit they were built from.
@@ -16,6 +16,8 @@
 - Regeneration ergonomics: invalid regeneration requests return a structured `INVALID_REGENERATION_OPTIONS` error with corrective guidance and no longer mutate the durable finding ID registry.
 - Corrected the Slither detector-exclusion flag to `--exclude` (the invalid `--exclude-detectors` broke the entire Slither run).
 - Broadened the `lack-of-precision` detection rule to match variable (not only numeric) divisors in division-before-multiplication, with added pattern-corpus coverage.
+- `argus_record_finding` now stamps each observation with a per-call-unique `observation_id`. Previously repeated single-finding calls within one session all collided on `<sessionId>:1`, which let the deduper merge unrelated findings across different files; the response note now describes the transient `tool-local` run_id placeholder rather than conflicting with it.
+- Finding-lineage validation now rejects a deduped finding whose mapped observations span more than one file (`cross_file_merges`), making accidental cross-file merges structurally impossible at persist time.
 
 ### Improvements
 - The reporting-gate advisory reports `DELEGATED` once subagents are dispatched (coverage is verified run-scoped at report time) instead of a false `BLOCKED`, since key tools execute in subagent sessions the orchestrator's local ledger cannot observe.

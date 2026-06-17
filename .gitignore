@@ -45,6 +45,8 @@ docs/assessment.md
 
 # work session artifacts
 .sisyphus/
+.omo/
+.reviews/
 
 # local plugin state
 /.opencode/
@@ -72,6 +74,8 @@ tests/fixtures/vulnerable-vault/.argus/reports/
 tests/fixtures/vulnerable-vault/.argus/runs/
 tests/fixtures/vulnerable-vault/.argus/
 tests/fixtures/vulnerable-vault/test/ReentrancyPoC.t.sol
+tests/fixtures/vulnerable-vault/test/ArgusPoC.t.sol
+tests/fixtures/vulnerable-vault/test/SentinelDrainPoC.t.sol
 
 # claude-generated reports
 .claude/reports/

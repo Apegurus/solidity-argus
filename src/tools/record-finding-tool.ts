@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { isNonEmptyString } from "../shared/type-guards"
 import { normalizeToCanonicalFinding } from "../state/adapters"
@@ -130,6 +131,7 @@ export async function executeRecordFinding(
   const reportedByAgent = normalizeAgent(context.agent)
   const reportedBySessionId = context.sessionID
   const runId = "tool-local"
+  const callToken = randomUUID()
   const projectDir = context.directory ?? process.cwd()
 
   const findings: ReturnType<typeof normalizeToCanonicalFinding>["data"][] = []
@@ -143,7 +145,7 @@ export async function executeRecordFinding(
       {
         reportedByAgent,
         reportedBySessionId,
-        observationId: `${reportedBySessionId}:${index + 1}`,
+        observationId: `${reportedBySessionId}:${callToken}:${index + 1}`,
       },
       projectDir,
     )
@@ -191,7 +193,7 @@ export async function executeRecordFinding(
     count: findings.length,
     findings,
     schema_version: SCHEMA_VERSION,
-    note: "Findings recorded to event journal. The system assigns the canonical run_id automatically — use the run_id from <argus-context> for Scribe dispatch.",
+    note: "Findings recorded to event journal. Each finding's run_id is a transient placeholder (tool-local) that the journal reconciles to the canonical run_id on persistence. Use the run_id from <argus-context> for Scribe dispatch.",
     ...(enrichmentWarnings.length > 0
       ? {
           enrichment_warnings: enrichmentWarnings,
