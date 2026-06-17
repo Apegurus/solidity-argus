@@ -44,6 +44,7 @@ describe("argusSkillLoadTool", () => {
           skillPrecedence: "bundled-first" as const,
         },
         reporting: {
+          confidenceThreshold: 80,
           format: "markdown",
           severityThreshold: "low",
           gasAnalysis: false,
@@ -142,6 +143,7 @@ describe("argusSkillLoadTool", () => {
           skillPrecedence: "bundled-first" as const,
         },
         reporting: {
+          confidenceThreshold: 80,
           format: "markdown" as const,
           severityThreshold: "low" as const,
           gasAnalysis: false,
@@ -212,6 +214,7 @@ describe("argusSkillLoadTool", () => {
           skillPrecedence: "bundled-first" as const,
         },
         reporting: {
+          confidenceThreshold: 80,
           format: "markdown" as const,
           severityThreshold: "low" as const,
           gasAnalysis: false,
@@ -264,6 +267,7 @@ describe("argusSkillLoadTool", () => {
           skillPrecedence: "bundled-first" as const,
         },
         reporting: {
+          confidenceThreshold: 80,
           format: "markdown" as const,
           severityThreshold: "low" as const,
           gasAnalysis: false,
@@ -311,6 +315,7 @@ describe("argusSkillLoadTool", () => {
           skillPrecedence: "bundled-first" as const,
         },
         reporting: {
+          confidenceThreshold: 80,
           format: "markdown" as const,
           severityThreshold: "low" as const,
           gasAnalysis: false,

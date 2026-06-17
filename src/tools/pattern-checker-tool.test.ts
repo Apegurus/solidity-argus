@@ -385,3 +385,78 @@ test("CATEGORY_TO_SWC preserves all 6 existing entries", async () => {
   expect(categoryToSwcStr).toContain('"signature-replay": ["SWC-121"]')
   expect(categoryToSwcStr).toContain('"integer-overflow": ["SWC-101"]')
 })
+test("executePatternCheck detects lack-of-precision in logic-error category", async () => {
+  const result = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/precision-loss-positive.sol",
+      patterns: ["logic-error"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  expect(result.success).toBe(true)
+  expect(result.patternsChecked).toBe(expectedPatternsChecked(["logic-error"]))
+
+  const allLogicMatches = result.sources.flatMap((source) => source.matches)
+
+  const precisionMatches = allLogicMatches.filter((match) =>
+    match.pattern.startsWith("lack-of-precision"),
+  )
+
+  expect(precisionMatches.length).toBeGreaterThan(0)
+
+  for (const match of precisionMatches) {
+    expect(match.category).toBe("logic-error")
+    expect(match.patternSource).toBe("skill")
+    expect(match.file.endsWith("precision-loss-positive.sol")).toBe(true)
+  }
+})
+
+test("executePatternCheck detects precision loss in fee calculation fixture", async () => {
+  const result = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/precision-loss-fee.sol",
+      patterns: ["logic-error"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  expect(result.success).toBe(true)
+
+  const precisionMatches = result.sources
+    .flatMap((source) => source.matches)
+    .filter((match) => match.pattern.startsWith("lack-of-precision"))
+
+  expect(precisionMatches.length).toBeGreaterThan(0)
+  expect(precisionMatches.length).toBe(2)
+
+  const [first, second] = precisionMatches
+  expect(first?.category).toBe("logic-error")
+  expect(first?.patternSource).toBe("skill")
+  expect(first?.file.endsWith("precision-loss-fee.sol")).toBe(true)
+
+  expect(second?.category).toBe("logic-error")
+  expect(second?.patternSource).toBe("skill")
+  expect(second?.file.endsWith("precision-loss-fee.sol")).toBe(true)
+})
+
+test("executePatternCheck does not flag multiplication-first pattern", async () => {
+  const result = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/precision-loss-negative.sol",
+      patterns: ["logic-error"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  expect(result.success).toBe(true)
+
+  const precisionMatches = result.sources
+    .flatMap((source) => source.matches)
+    .filter((match) => match.pattern.startsWith("lack-of-precision"))
+
+  expect(precisionMatches).toHaveLength(0)
+})

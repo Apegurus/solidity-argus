@@ -3,13 +3,14 @@ import { mkdir, mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
-import { createHooks } from "./create-hooks"
+import { createHooks, selectToolResultForParsing } from "./create-hooks"
 import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
 import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/global-run-index"
 import type { HookName } from "./hooks/types"
 import type { Managers } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
-import { ARGUS_PLUGIN_VERSION } from "./shared/plugin-metadata"
+import { ARGUS_PLUGIN_BUILD } from "./shared/plugin-metadata"
+import { createToolResultCache } from "./shared/tool-result-cache"
 import { SCHEMA_VERSION } from "./state/schemas"
 import type { AuditState } from "./state/types"
 
@@ -419,7 +420,7 @@ describe("createHooks", () => {
         w.includes("orphaned tool.started"),
       ),
     ).toBe(true)
-    expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_VERSION)
+    expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
   })
 
   it("materializes findings artifact after successful session finalization", async () => {
@@ -474,6 +475,90 @@ describe("createHooks", () => {
     }
     expect(findingsArtifact.run_id).toBe(freshRunId)
     expect(findingsArtifact.event_count).toBe(3)
+  })
+
+  it("captures findings from the cache when output.output is truncated", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const activeState = makeAuditState({ sessionId: `run-trunc-${Date.now()}` })
+    const toolResultCache = createToolResultCache()
+
+    const managers: Managers = {
+      backgroundManager: {
+        dispatch: () => "task-1",
+        cancel: () => {},
+        getResult: async () => null,
+        getTaskStatus: async () => undefined,
+        onComplete: () => {},
+        getActiveCount: () => 0,
+      },
+      auditStateManager: {
+        bindSession: () => {},
+        load: async () => activeState,
+        save: async () => {},
+        get: () => activeState,
+        update: async () => {},
+        reset: async () => {},
+        archive: async () => {},
+        dispose: async () => {},
+      },
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+      toolResultCache,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-trunc" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-trunc")
+    const freshRunId = await waitForRunId("oc-trunc")
+
+    const fullResult = JSON.stringify({
+      success: true,
+      patternVersion: "1.0.0",
+      sources: [
+        {
+          matches: [
+            {
+              pattern: "reentrancy",
+              description: "Reentrancy in withdraw",
+              file: "src/VulnerableVault.sol",
+              lines: [10, 20],
+              severity: "High",
+            },
+          ],
+        },
+      ],
+    })
+    toolResultCache.set("oc-trunc", "argus_check_patterns", fullResult)
+
+    const truncatedStub = fullResult.slice(0, 45)
+    type AfterHook = NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>
+    await (hooks["tool.execute.after"] as AfterHook)(
+      {
+        tool: "argus_check_patterns",
+        sessionID: "oc-trunc",
+        callID: "call-trunc",
+        args: {},
+      } as Parameters<AfterHook>[0],
+      { title: "", output: truncatedStub, metadata: {} } as Parameters<AfterHook>[1],
+    )
+
+    expect(toolResultCache.size()).toBe(0)
+
+    await hooks.event?.({
+      event: { type: "session.deleted", properties: { info: { id: "oc-trunc" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
+    const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
+      event_count: number
+    }
+    expect(findingsArtifact.event_count).toBeGreaterThanOrEqual(3)
   })
 
   it("materializes findings artifact when report generation completes before session deletion", async () => {
@@ -578,6 +663,165 @@ describe("createHooks", () => {
 
     expect(finalizationEvent).toBeDefined()
     expect(finalizationEvent?.payload?.invariantsPassed).toBe(true)
+  })
+
+  // P0-2 regression: the report runs in Scribe's session and the resolved Themis
+  // disposition is recorded from a different session, so reportGenerated lives only on
+  // Scribe's state copy. Finalization must key on the run event stream, not the
+  // disposition session's siloed reportGenerated flag.
+  it("finalizes run when report and resolved disposition arrive on different sessions", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-cross-session-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+    const managers = makeManagers()
+    managers.auditStateManager.load = async () => activeState
+    managers.auditStateManager.get = () => activeState
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-orchestrator" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-orchestrator")
+
+    const freshRunId = await waitForRunId("oc-orchestrator")
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-scribe",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: freshRunId,
+          filePath: ".argus/reports/cross.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+        sessionID: "oc-orchestrator",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    const journalPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    const events = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as { type: string; payload?: Record<string, unknown> })
+    const finalizationEvent = [...events].reverse().find((event) => event.type === "run.finalized")
+
+    expect(finalizationEvent).toBeDefined()
+    expect(finalizationEvent?.payload?.status).toBe("finalized")
+  })
+
+  // P1-2 regression: a finalized run must not bleed into a new audit started in the same
+  // OpenCode session. Re-activating the session after finalization must start a fresh run
+  // rather than reuse the closed run's state.
+  it("starts a fresh run when a finalized session is reused for a new audit", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const recoveredRunId = `run-reuse-${Date.now()}`
+    const activeState = makeAuditState({ sessionId: recoveredRunId })
+    const managers = makeManagers()
+    managers.auditStateManager.load = async () => activeState
+    managers.auditStateManager.get = () => activeState
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-reuse" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, "oc-reuse")
+    const firstRunId = await waitForRunId("oc-reuse")
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_generate_report",
+        args: { target: FIXTURE_DIR },
+        sessionID: "oc-reuse",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_generate_report",
+        output: JSON.stringify({
+          run_id: firstRunId,
+          filePath: ".argus/reports/reuse.md",
+          report: "ok",
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_themis_disposition",
+        args: {
+          status: "approved",
+          verdict_json:
+            '{"approved":true,"pipeline_issues":[],"false_positives":[],"missed_findings":[],"severity_adjustments":[]}',
+        },
+        sessionID: "oc-reuse",
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
+      {
+        title: "argus_themis_disposition",
+        output: JSON.stringify({
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        }),
+        metadata: {},
+      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
+    )
+
+    await activateArgusSession(hooks, "oc-reuse")
+    const secondRunId = await waitForRunId("oc-reuse")
+
+    expect(secondRunId).not.toBe(firstRunId)
   })
 
   it("finalizes run on session.idle after successful report generation", async () => {
@@ -1106,5 +1350,72 @@ describe("createHooks", () => {
     hooks.dispose?.()
     const listenersAfterDispose = process.listenerCount("exit")
     expect(listenersAfterDispose).toBe(listenersBefore)
+  })
+})
+
+describe("selectToolResultForParsing", () => {
+  it("prefers the captured full result over a truncated output.output", () => {
+    const cache = createToolResultCache()
+    const full = '{"success":true,"sources":[{"matches":[{"pattern":"reentrancy"}]}]}'
+    cache.set("ses_1", "argus_check_patterns", full)
+
+    const truncated = full.slice(0, 56)
+    const selected = selectToolResultForParsing(truncated, "ses_1", "argus_check_patterns", cache)
+
+    expect(selected).toBe(full)
+    expect(cache.size()).toBe(0)
+  })
+
+  it("falls back to output.output and preserves a shorter mis-paired entry for its owner", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_solodit_search", "tiny")
+
+    const rawOutput = "a much longer, complete output.output from a different call"
+    const selected = selectToolResultForParsing(rawOutput, "ses_1", "argus_solodit_search", cache)
+
+    expect(selected).toBe(rawOutput)
+    expect(cache.size()).toBe(1)
+  })
+
+  it("falls back to output.output and preserves a cached entry that is not a prefix of it", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_skill_load", "ZZZ a longer but unrelated cached result here")
+
+    const rawOutput = '{"partial'
+    const selected = selectToolResultForParsing(rawOutput, "ses_1", "argus_skill_load", cache)
+
+    expect(selected).toBe(rawOutput)
+    expect(cache.size()).toBe(1)
+  })
+
+  it("recovers the correct result among parallel same-tool calls, regardless of order", () => {
+    const cache = createToolResultCache()
+    const a = '{"call":"a","sources":[{"matches":["reentrancy"]}]}'
+    const b = '{"call":"b","sources":[{"matches":["access-control","oracle"]}]}'
+    cache.set("ses_1", "argus_check_patterns", a)
+    cache.set("ses_1", "argus_check_patterns", b)
+
+    const truncatedB = b.slice(0, 12)
+    const truncatedA = a.slice(0, 12)
+
+    expect(selectToolResultForParsing(truncatedB, "ses_1", "argus_check_patterns", cache)).toBe(b)
+    expect(cache.size()).toBe(1)
+    expect(selectToolResultForParsing(truncatedA, "ses_1", "argus_check_patterns", cache)).toBe(a)
+    expect(cache.size()).toBe(0)
+  })
+
+  it("falls back to output.output when the cache has no entry", () => {
+    const cache = createToolResultCache()
+    const raw = '{"success":true}'
+
+    expect(selectToolResultForParsing(raw, "ses_1", "argus_forge_test", cache)).toBe(raw)
+  })
+
+  it("falls back to output.output when sessionID is undefined and does not consume the cache", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_check_patterns", "full")
+
+    expect(selectToolResultForParsing("raw", undefined, "argus_check_patterns", cache)).toBe("raw")
+    expect(cache.size()).toBe(1)
   })
 })

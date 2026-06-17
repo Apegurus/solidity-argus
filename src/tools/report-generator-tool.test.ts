@@ -14,9 +14,11 @@ import type {
 } from "../state/types"
 import {
   executeReportGeneration,
+  isFindingInScope,
   normalizeRawFinding,
   parseLocationString,
   type ReportGenerationResult,
+  renderReportMarkdown,
   reportGeneratorTool,
 } from "./report-generator-tool"
 
@@ -113,7 +115,7 @@ function makeReportInput(
         typeof raw.file === "string" && raw.file.trim().length > 0
           ? raw.file
           : (parsedLocation?.file ?? "unknown.sol")
-      const lines =
+      const lines: [number, number] =
         Array.isArray(raw.lines) &&
         raw.lines.length === 2 &&
         typeof raw.lines[0] === "number" &&
@@ -176,8 +178,10 @@ function makeReportInput(
         ((t as unknown as Record<string, unknown>).findingsCount as number) >= 0
           ? ((t as unknown as Record<string, unknown>).findingsCount as number)
           : 0,
-      run_id: (t as unknown as Record<string, unknown>).run_id ?? runId,
-      schema_version: (t as unknown as Record<string, unknown>).schema_version ?? SCHEMA_VERSION,
+      run_id: ((t as unknown as Record<string, unknown>).run_id as string | undefined) ?? runId,
+      schema_version:
+        ((t as unknown as Record<string, unknown>).schema_version as string | undefined) ??
+        SCHEMA_VERSION,
     })),
     scope: overrides?.scope ?? ["Vault.sol"],
     soloditResults: overrides?.soloditResults,
@@ -208,6 +212,160 @@ function makeFinding(overrides: Partial<Finding>): Finding {
     exploitReference: overrides.exploitReference,
   }
 }
+
+test("isFindingInScope: empty scope is all-in-scope", () => {
+  expect(isFindingInScope(makeFinding({ file: "anything.sol" }), [])).toBe(true)
+})
+
+test("isFindingInScope: unknown/empty file stays in-scope (location is not proof)", () => {
+  expect(isFindingInScope(makeFinding({ file: "unknown" }), ["src/Vault.sol"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "" }), ["src/Vault.sol"])).toBe(true)
+})
+
+test("isFindingInScope: exact and suffix-equivalent paths match", () => {
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["src/Vault.sol"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "Vault.sol" }), ["src/Vault.sol"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["Vault.sol"])).toBe(true)
+})
+
+test("isFindingInScope: bare findings stay in-scope under a directory scope", () => {
+  expect(isFindingInScope(makeFinding({ file: "Vault.sol" }), ["src/"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["src/"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "src/Vault.sol" }), ["src"])).toBe(true)
+  expect(isFindingInScope(makeFinding({ file: "lib/src/Vault.sol" }), ["src"])).toBe(true)
+})
+
+test("isFindingInScope: a concrete path disagreeing with a file scope is out-of-scope", () => {
+  expect(isFindingInScope(makeFinding({ file: "src/Token.sol" }), ["src/Vault.sol"])).toBe(false)
+  expect(isFindingInScope(makeFinding({ file: "lib/Vault.sol" }), ["src/Vault.sol"])).toBe(false)
+})
+
+test("isFindingInScope: a bare scope keeps a basename match in-scope (ambiguous)", () => {
+  expect(isFindingInScope(makeFinding({ file: "lib/Vault.sol" }), ["Vault.sol"])).toBe(true)
+})
+
+test("out-of-scope findings render in the appendix, excluded from tiers and counts", () => {
+  const inScope = {
+    ...makeFinding({
+      id: "in-1",
+      severity: "High",
+      file: "src/Vault.sol",
+      description: "In-scope reentrancy.",
+    }),
+    rubric_verdict: "CONFIRMED" as const,
+  }
+  const outOfScope = makeFinding({
+    id: "oos-1",
+    severity: "Informational",
+    file: "lib/Dependency.sol",
+    description: "Observation about an out-of-scope dependency.",
+  })
+  const input = makeReportInput([inScope, outOfScope], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+
+  const oosIdx = report.indexOf("## Out-of-Scope Observations")
+  const findingsIdx = report.indexOf("## Findings")
+  expect(oosIdx).toBeGreaterThan(-1)
+  expect(report.indexOf("lib/Dependency.sol")).toBeGreaterThan(oosIdx)
+  expect(report.slice(findingsIdx, oosIdx)).not.toContain("lib/Dependency.sol")
+  expect(report).toContain("src/Vault.sol")
+  expect(report).toContain("| High | 1 |")
+  expect(report).toContain("| Informational | 0 |")
+})
+
+test("the out-of-scope appendix is omitted when every finding is in scope", () => {
+  const inScope = makeFinding({ id: "in-1", file: "src/Vault.sol", description: "In-scope." })
+  const input = makeReportInput([inScope], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+
+  expect(report).not.toContain("## Out-of-Scope Observations")
+})
+
+test("rubric adoption: a verdict-bearing finding is not warned and counts as assessed", () => {
+  const confirmed = {
+    ...makeFinding({ id: "f-confirmed", description: "Reentrancy in withdraw drains the vault." }),
+    rubric_verdict: "CONFIRMED" as const,
+  }
+  const input = makeReportInput([confirmed], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo" })
+
+  expect(report).not.toContain("no rubric trace")
+  expect(report).toContain("1/1 findings assessed via the 4-gate refutation rubric")
+})
+
+test("rubric adoption: a finding with neither verdict nor textual trace is flagged and uncounted", () => {
+  const bare = makeFinding({
+    id: "f-bare",
+    description: "Some observation recorded without applying the rubric.",
+  })
+  const input = makeReportInput([bare], { toolsExecuted: [] })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo" })
+
+  expect(report).toContain("no rubric trace")
+  expect(report).toContain("0/1 findings assessed via the 4-gate refutation rubric")
+})
+
+function methodologySection(report: string): string {
+  const start = report.indexOf("## Methodology")
+  if (start === -1) return ""
+  const end = report.indexOf("\n## ", start + 1)
+  return end === -1 ? report.slice(start) : report.slice(start, end)
+}
+
+test("methodology lists a key tool only when it executed successfully", () => {
+  const finding = makeFinding({ id: "m-1", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = makeReportInput([finding], {
+    toolsExecuted: [
+      { tool: "argus_slither_analyze", success: true, startTime: 1, endTime: 2, findingsCount: 0 },
+      { tool: "argus_check_patterns", success: true, startTime: 1, endTime: 2, findingsCount: 1 },
+    ],
+  })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).toContain("Slither static analysis")
+  expect(methodology).toContain("Pattern analysis")
+})
+
+test("methodology omits a key tool that did not run successfully (no Slither contradiction)", () => {
+  const finding = makeFinding({ id: "m-2", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = makeReportInput([finding], {
+    toolsExecuted: [
+      { tool: "argus_check_patterns", success: true, startTime: 1, endTime: 2, findingsCount: 1 },
+      { tool: "argus_slither_analyze", success: false, startTime: 1, endTime: 2, findingsCount: 0 },
+    ],
+  })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).not.toContain("Slither static analysis")
+  expect(methodology).toContain("Pattern analysis")
+  expect(methodology).toContain("Manual review")
+})
+
+test("methodology notes a key tool declared unavailable", () => {
+  const finding = makeFinding({ id: "m-3", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = {
+    ...makeReportInput([finding], {
+      toolsExecuted: [
+        { tool: "argus_check_patterns", success: true, startTime: 1, endTime: 2, findingsCount: 1 },
+      ],
+    }),
+    unavailableTools: ["slither"],
+  }
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).not.toContain("- Slither static analysis")
+  expect(methodology.toLowerCase()).toContain("not available")
+})
 
 test("reportGeneratorTool uses tool() helper contract", () => {
   expect(reportGeneratorTool.description.length).toBeGreaterThan(0)
@@ -270,7 +428,7 @@ test("executeReportGeneration creates complete markdown report with findings by 
   const result = await executeReportGeneration(
     {
       project_name: "TestVault",
-      scope: ["Vault.sol", "Token.sol"],
+      scope: ["src/"],
       severity_threshold: "informational",
       report_input: JSON.stringify(makeReportInput(findings)),
       tool_coverage_policy: "skip",
@@ -293,16 +451,11 @@ test("executeReportGeneration creates complete markdown report with findings by 
   expect(result.report).toContain("## Findings")
   expect(result.report).toContain("## Recommendations")
   expect(result.report).toContain("## Appendix")
-  expect(result.report).toContain("### Critical")
-  expect(result.report).toContain("### High")
-  expect(result.report).toContain("### Medium")
-  expect(result.report).toContain("### Low")
-  expect(result.report).toContain("### Informational")
-  expect(result.report).toContain("### [CRIT-1] Critical Bug")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth")
-  expect(result.report).toContain("### [MED-1] Unsafe Cast")
-  expect(result.report).toContain("### [LOW-1] Missing Event")
-  expect(result.report).toContain("### [INFO-1] Naming")
+  expect(result.report).toContain("### [CRIT-1] Critical Bug · severity: Critical · evidence: High")
+  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth · severity: High · evidence: Medium")
+  expect(result.report).toContain("### [MED-1] Unsafe Cast · severity: Medium · evidence: High")
+  expect(result.report).toContain("### [LOW-1] Missing Event · severity: Low · evidence: Low")
+  expect(result.report).toContain("### [INFO-1] Naming · severity: Informational · evidence: Low")
   expect(result.report).toContain("**Location**: src/Core.sol:4-9")
   expect(result.report).toContain("| Critical | 1 |")
   expect(result.report).toContain("| High | 1 |")
@@ -341,12 +494,10 @@ test("executeReportGeneration applies medium severity threshold", async () => {
     informational: 0,
   })
 
-  expect(result.report).toContain("### High")
-  expect(result.report).toContain("### Medium")
-  expect(result.report).not.toContain("### Low")
-  expect(result.report).not.toContain("### Informational")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth")
-  expect(result.report).toContain("### [MED-1] Unsafe Cast")
+  expect(result.report).toContain("### [HIGH-1] Reentrancy Eth · severity: High · evidence: High")
+  expect(result.report).toContain("### [MED-1] Unsafe Cast · severity: Medium · evidence: High")
+  expect(result.report).not.toContain("severity: Low")
+  expect(result.report).not.toContain("severity: Informational")
 })
 
 test("executeReportGeneration default threshold includes Informational findings", async () => {
@@ -372,8 +523,10 @@ test("executeReportGeneration default threshold includes Informational findings"
     low: 1,
     informational: 1,
   })
-  expect(result.report).toContain("### [LOW-1] Missing Event")
-  expect(result.report).toContain("### [INFO-1] Floating Pragma")
+  expect(result.report).toContain("### [LOW-1] Missing Event · severity: Low · evidence: High")
+  expect(result.report).toContain(
+    "### [INFO-1] Floating Pragma · severity: Informational · evidence: High",
+  )
   expect(result.report).toContain("| Informational | 1 |")
 })
 
@@ -504,7 +657,8 @@ test("executeReportGeneration handles empty findings after threshold filtering",
     low: 0,
     informational: 0,
   })
-  expect(result.report).toContain("No findings meet the configured severity threshold.")
+  expect(result.report).not.toContain("## Findings")
+  expect(result.report).not.toContain("## Leads")
   expect(result.report).toContain("| Critical | 0 |")
 })
 
@@ -1012,6 +1166,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
             skillPrecedence: "bundled-first" as const,
           },
           reporting: {
+            confidenceThreshold: 80,
             format: "markdown" as const,
             severityThreshold: "low" as const,
             gasAnalysis: false,
@@ -1033,7 +1188,7 @@ test("executeReportGeneration writes report to disk and returns filePath", async
 
     const content = await Bun.file(result.filePath ?? "").text()
     expect(content).toContain("# Security Audit Report — DiskWriteTest")
-    expect(content).toContain("### [HIGH-1] Disk Write Test")
+    expect(content).toContain("### [HIGH-1] Disk Write Test · severity: High · evidence: High")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -1062,6 +1217,7 @@ test("executeReportGeneration returns write error when disk write fails", async 
   expect(result.filePath).toBeUndefined()
   expect(result.error?.code).toBe("WRITE_FAILED")
   expect(result.report).toContain("# Security Audit Report — WriteFailTest")
+  expect(result.report).toContain("Config load failed")
   expect(result.findingsCount.low).toBe(1)
 })
 
@@ -1100,6 +1256,7 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
             skillPrecedence: "bundled-first" as const,
           },
           reporting: {
+            confidenceThreshold: 80,
             format: "markdown" as const,
             severityThreshold: "low" as const,
             gasAnalysis: false,
@@ -1234,7 +1391,10 @@ test("preflight warn mode adds Completeness Warning section", async () => {
 
   expect(result.report).toContain("\u26A0 Completeness Warning")
   expect(result.report).toContain("incomplete orchestration state")
-  expect(result.report).toContain("Missing lifecycle")
+  // allowLiveAudit suppresses the expected mid-audit session.deleted gap but must
+  // still surface real integrity issues such as orphaned tools.
+  expect(result.report).toContain("Orphaned tools: orphan-call-2")
+  expect(result.report).not.toContain("Missing lifecycle")
 })
 
 test("executeReportGeneration normalizes incomplete toolsExecuted in report_input", async () => {
@@ -1370,7 +1530,9 @@ test("durable-evidence report path renders without undefined when synthesis text
   )
 
   expect(result.report).toContain("# Security Audit Report — DurableOnlyNoSynthesis")
-  expect(result.report).toContain("### [HIGH-1] Reentrancy Withdraw")
+  expect(result.report).toContain(
+    "### [HIGH-1] Reentrancy Withdraw · severity: High · evidence: High",
+  )
   expect(result.report).not.toContain("undefined")
 })
 
@@ -2038,7 +2200,9 @@ test("executeReportGeneration falls back to run_id disk report-input.json", asyn
 
     expect(result.run_id).toBe(runId)
     expect(result.findingsCount.high).toBe(1)
-    expect(result.report).toContain("### [HIGH-1] Disk Fallback Check")
+    expect(result.report).toContain(
+      "### [HIGH-1] Disk Fallback Check · severity: High · evidence: High",
+    )
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -2110,6 +2274,90 @@ test("executeReportGeneration accepts Scribe-style deduped findings without cano
     expect(result.report).toContain("Complete loss of all deposited funds via reentrant withdraw")
     expect(result.report).toContain("Add nonReentrant modifier")
     expect(result.report).not.toContain("Impact details were not provided")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("citable finding IDs stay stable across report revisions", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-stable-ids-"))
+  const runId = "run-stable-ids"
+  const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+
+  const idByTitle = (report: string): Map<string, string> => {
+    const map = new Map<string, string>()
+    const re = /^### \[([A-Za-z]+-\d+)\] (.+?) · severity:/gm
+    for (let m = re.exec(report); m !== null; m = re.exec(report)) {
+      map.set(m[2] as string, m[1] as string)
+    }
+    return map
+  }
+
+  const finding = (id: string, check: string, line: number): Finding =>
+    ({
+      id,
+      check,
+      severity: "Critical",
+      confidence: "High",
+      description: `${check} description`,
+      file: "src/Vault.sol",
+      lines: [line, line],
+      source: "manual",
+      impact: "impact",
+      recommendation: "recommendation",
+    }) as Finding
+
+  try {
+    const rev1 = await executeReportGeneration(
+      {
+        project_name: "StableIds",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        report_input: JSON.stringify(
+          makeReportInput([finding("alpha", "alpha-bug", 10), finding("bravo", "bravo-bug", 20)], {
+            run_id: runId,
+            scope: ["src/Vault.sol"],
+          }),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+    const ids1 = idByTitle(rev1.report)
+    const alphaId = ids1.get("Alpha Bug")
+    const bravoId = ids1.get("Bravo Bug")
+    expect(alphaId).toBeDefined()
+    expect(bravoId).toBeDefined()
+    expect(alphaId).not.toBe(bravoId)
+
+    // Revision 2 inserts "charlie" which sorts FIRST by line number. It must not steal
+    // alpha's/bravo's existing IDs — they stay pinned, charlie takes the next free number.
+    const rev2 = await executeReportGeneration(
+      {
+        project_name: "StableIds",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        revision: 2,
+        report_input: JSON.stringify(
+          makeReportInput(
+            [
+              finding("alpha", "alpha-bug", 10),
+              finding("bravo", "bravo-bug", 20),
+              finding("charlie", "charlie-bug", 5),
+            ],
+            { run_id: runId, scope: ["src/Vault.sol"] },
+          ),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+    )
+    const ids2 = idByTitle(rev2.report)
+    expect(ids2.get("Alpha Bug")).toBe(alphaId as string)
+    expect(ids2.get("Bravo Bug")).toBe(bravoId as string)
+    expect(ids2.get("Charlie Bug")).toBeDefined()
+    expect(ids2.get("Charlie Bug")).not.toBe(alphaId as string)
+    expect(ids2.get("Charlie Bug")).not.toBe(bravoId as string)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

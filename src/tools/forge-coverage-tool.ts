@@ -203,6 +203,15 @@ function parseCoverageReport(output: string): ForgeCoverageReport {
   return { files, summary }
 }
 
+function isAllZeroCoverage(summary: ForgeCoverageSummary): boolean {
+  return (
+    summary.totalLinesPct === 0 &&
+    summary.totalStatementsPct === 0 &&
+    summary.totalBranchesPct === 0 &&
+    summary.totalFunctionsPct === 0
+  )
+}
+
 export async function executeForgeCoverage(
   args: ForgeCoverageArgs,
   context: ToolContext,
@@ -251,6 +260,18 @@ export async function executeForgeCoverage(
       report = parseCoverageReport(runResult.stdout)
     } catch {
       return fail("Invalid tabular output from forge coverage")
+    }
+
+    if (isAllZeroCoverage(report.summary)) {
+      return {
+        success: false,
+        report,
+        executionTime: Date.now() - startedAt,
+        error:
+          "forge coverage reported 0% across all metrics — coverage was not measured (no tests executed or contracts were not instrumented).",
+        hint: "Confirm the project has runnable tests and compiles, then retry after `forge clean`. If the build hits stack-too-deep, pass ir_minimum: true.",
+        suggested_command: "forge clean && forge coverage --report summary",
+      }
     }
 
     return {

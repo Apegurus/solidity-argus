@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test"
+import type { ToolDefinition } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
-import { createTools } from "./create-tools"
+import { createTools, withResultCapture } from "./create-tools"
+import { createToolResultCache, type ToolResultCache } from "./shared/tool-result-cache"
 
 const baseConfig: ArgusConfig = {
   agents: {
@@ -21,6 +23,7 @@ const baseConfig: ArgusConfig = {
     skillPrecedence: "bundled-first",
   },
   reporting: {
+    confidenceThreshold: 80,
     format: "markdown",
     severityThreshold: "low",
     gasAnalysis: false,
@@ -77,5 +80,51 @@ describe("createTools", () => {
 
     expect(Object.keys(tools)).toHaveLength(15)
     expect(tools.argus_solodit_search).toBeUndefined()
+  })
+})
+
+function fakeTool(executeResult: string): ToolDefinition {
+  return {
+    description: "fake",
+    args: {},
+    execute: async () => executeResult,
+  } as unknown as ToolDefinition
+}
+
+function fakeContext(sessionID: string): Parameters<ToolDefinition["execute"]>[1] {
+  return { sessionID } as unknown as Parameters<ToolDefinition["execute"]>[1]
+}
+
+describe("withResultCapture", () => {
+  it("writes the tool result to the cache under (sessionId, name)", async () => {
+    const cache = createToolResultCache()
+    const wrapped = withResultCapture("argus_check_patterns", fakeTool("FULL_RESULT"), cache)
+
+    const out = await wrapped.execute({} as never, fakeContext("ses_9"))
+
+    expect(out).toBe("FULL_RESULT")
+    expect(cache.takeMatch("ses_9", "argus_check_patterns", "FULL")).toBe("FULL_RESULT")
+  })
+
+  it("returns the tool result even when the cache write throws", async () => {
+    const throwingCache: ToolResultCache = {
+      set() {
+        throw new Error("boom")
+      },
+      takeMatch: () => undefined,
+      size: () => 0,
+    }
+    const wrapped = withResultCapture("argus_forge_test", fakeTool("OK"), throwingCache)
+
+    expect(await wrapped.execute({} as never, fakeContext("ses_1"))).toBe("OK")
+  })
+
+  it("preserves the original description and args", () => {
+    const cache = createToolResultCache()
+    const original = fakeTool("x")
+    const wrapped = withResultCapture("argus_slither_analyze", original, cache)
+
+    expect(wrapped.description).toBe(original.description)
+    expect(wrapped.args).toBe(original.args)
   })
 })

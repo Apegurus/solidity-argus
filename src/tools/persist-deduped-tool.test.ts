@@ -144,6 +144,11 @@ test("executePersistDeduped rejects invalid lineage without writing", async () =
     expect(output.lineage.count_mismatches).toEqual([
       { check: "dedup-a", observation_count: 1, observation_ids_length: 2 },
     ])
+    expect(output.phantom_diagnostic).toEqual([
+      { id: "obs-missing", likely_source: "unrecognized provenance — not minted by this run" },
+    ])
+    expect(output.hint).toContain("argus_read_findings")
+    expect(output.hint).toContain(runId)
     expect(existsSync(dedupedPath)).toBe(false)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })

@@ -3,7 +3,7 @@ import { updateRunStatus } from "../features/persistent-state/global-run-index"
 import type { FinalizationResult } from "../features/persistent-state/run-finalizer"
 import { finalizeRun } from "../features/persistent-state/run-finalizer"
 import { createLogger } from "../shared/logger"
-import { ARGUS_PLUGIN_VERSION } from "../shared/plugin-metadata"
+import { ARGUS_BUILD_PROVENANCE, ARGUS_PLUGIN_BUILD } from "../shared/plugin-metadata"
 import { safeEmitToSink } from "../shared/safe-emit"
 import { createAuditState } from "../state/audit-state"
 import type { AuditEvent } from "../state/schemas"
@@ -265,7 +265,9 @@ export function createEventHook(
             {
               projectDir: stateForSession.projectDir,
               sessionId: stateForSession.sessionId,
-              plugin_version: ARGUS_PLUGIN_VERSION,
+              plugin_version: ARGUS_PLUGIN_BUILD,
+              build_commit: ARGUS_BUILD_PROVENANCE.gitSha ?? null,
+              build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
               scope: stateForSession.scope,
             },
           )
@@ -288,7 +290,8 @@ export function createEventHook(
         if (preDeleteState) {
           await emitToSink(preDeleteSink, "session.deleted", preDeleteState.sessionId, sessionId, {
             archived: true,
-            plugin_version: ARGUS_PLUGIN_VERSION,
+            plugin_version: ARGUS_PLUGIN_BUILD,
+            build_commit: ARGUS_BUILD_PROVENANCE.gitSha ?? null,
           })
 
           const hasSiblingSessionForRun =

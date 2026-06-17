@@ -43,6 +43,42 @@ export const VALID_AGENTS: ReadonlySet<ArgusAgentName> = new Set([
   "unknown",
 ] as ArgusAgentName[])
 
+export const VALID_RUBRIC_VERDICTS: ReadonlySet<NonNullable<Finding["rubric_verdict"]>> = new Set([
+  "CONFIRMED",
+  "DEMOTED",
+  "REJECTED_DEMOTED",
+])
+
+export function isValidConfidenceScore(
+  value: unknown,
+): value is NonNullable<Finding["confidence_score"]> {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100
+}
+
+export function isValidRubricVerdict(
+  value: unknown,
+): value is NonNullable<Finding["rubric_verdict"]> {
+  return (
+    typeof value === "string" &&
+    VALID_RUBRIC_VERDICTS.has(value as NonNullable<Finding["rubric_verdict"]>)
+  )
+}
+
+export const RUBRIC_CONFIRMED_MIN_SCORE = 80
+
+// CONFIRMED requires confidence_score >= RUBRIC_CONFIRMED_MIN_SCORE; a CONFIRMED finding
+// carrying an explicit sub-threshold score is auto-demoted so verdict-first tiering cannot
+// route a low-confidence finding into the Findings tier.
+export function reconcileRubricVerdict(
+  verdict: Finding["rubric_verdict"],
+  score: Finding["confidence_score"],
+): Finding["rubric_verdict"] {
+  if (verdict === "CONFIRMED" && typeof score === "number" && score < RUBRIC_CONFIRMED_MIN_SCORE) {
+    return "DEMOTED"
+  }
+  return verdict
+}
+
 export const SEVERITY_RANK: Record<FindingSeverity, number> = {
   Critical: 0,
   High: 1,

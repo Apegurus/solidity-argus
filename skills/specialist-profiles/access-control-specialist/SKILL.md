@@ -17,7 +17,7 @@ Owners, roles, multisigs, governance executors, keepers, pausers, upgraders, ini
 
 ## Reading Pattern
 1. List every external/public state-changing function.
-2. Map each function to its intended actor and actual guard.
+2. Map each function to its intended actor, actual guard, and asset recipient (attacker-receives = theft; rightful-holder-receives = griefing, not theft).
 3. Trace initialization and upgrade paths separately.
 4. Compare similar functions for missing or weaker modifiers.
 

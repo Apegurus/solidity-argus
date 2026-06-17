@@ -21,6 +21,7 @@ export type FindingLineageResult = {
   overlapping_mapped_dropped_observation_ids: string[]
   invalid_dropped_observations: Array<{ observation_id: string; reason: string }>
   count_mismatches: LineageCountMismatch[]
+  cross_file_merges: Array<{ check: string; files: string[] }>
 }
 
 type FindingLike = Pick<Finding, "check"> & {
@@ -51,6 +52,17 @@ export function validateFindingLineage(
   droppedObservations: DroppedObservation[] = [],
 ): FindingLineageResult {
   const rawIds = new Set(rawObservationIds(rawFindings))
+  const rawFileById = new Map<string, string>()
+  for (const raw of rawFindings) {
+    if (
+      typeof raw.observation_id === "string" &&
+      raw.observation_id.length > 0 &&
+      typeof raw.file === "string"
+    ) {
+      rawFileById.set(raw.observation_id, raw.file)
+    }
+  }
+  const crossFileMerges: Array<{ check: string; files: string[] }> = []
   const mappedIds: string[] = []
   const seen = new Set<string>()
   const duplicates = new Set<string>()
@@ -72,12 +84,21 @@ export function validateFindingLineage(
       })
     }
 
+    const mergedFiles = new Set<string>()
     for (const id of ids) {
       mappedIds.push(id)
       if (seen.has(id)) {
         duplicates.add(id)
       }
       seen.add(id)
+      const mappedFile = rawFileById.get(id)
+      if (mappedFile) mergedFiles.add(mappedFile)
+    }
+    if (mergedFiles.size > 1) {
+      crossFileMerges.push({
+        check: finding.check || finding.id || "(unknown finding)",
+        files: Array.from(mergedFiles).sort((a, b) => a.localeCompare(b)),
+      })
     }
   }
 
@@ -110,6 +131,7 @@ export function validateFindingLineage(
   const missingIds = sorted(missing)
 
   countMismatches.sort((a, b) => a.check.localeCompare(b.check))
+  crossFileMerges.sort((a, b) => a.check.localeCompare(b.check))
 
   return {
     valid:
@@ -121,6 +143,7 @@ export function validateFindingLineage(
       invalidDropped.length === 0 &&
       missingIds.length === 0 &&
       countMismatches.length === 0 &&
+      crossFileMerges.length === 0 &&
       mappedIds.length + droppedIds.length === rawIds.size,
     raw_count: rawIds.size,
     mapped_count: mappedIds.length,
@@ -133,5 +156,6 @@ export function validateFindingLineage(
     overlapping_mapped_dropped_observation_ids: overlappingMappedDroppedIds,
     invalid_dropped_observations: invalidDropped,
     count_mismatches: countMismatches,
+    cross_file_merges: crossFileMerges,
   }
 }

@@ -116,4 +116,41 @@ describe("checkReportPreflight", () => {
     expect(result.passed).toBe(true)
     expect(result.missingRequiredTools.length).toBe(0)
   })
+
+  test("allowLiveAudit passes without session.deleted (mid-audit report)", () => {
+    const events: AuditEvent[] = [
+      buildEvent("session.created", 1),
+      buildEvent("tool.started", 2, { tool_call_id: "t6" }),
+      buildEvent("tool.completed", 3, { tool_call_id: "t6" }),
+    ]
+
+    const result = checkReportPreflight(events, { allowLiveAudit: true })
+
+    expect(result.passed).toBe(true)
+    expect(result.missingLifecycle).toHaveLength(0)
+  })
+
+  test("allowLiveAudit does not relax the orphaned-tool integrity check", () => {
+    const events: AuditEvent[] = [
+      buildEvent("session.created", 1),
+      buildEvent("tool.started", 2, { tool_call_id: "t7" }),
+    ]
+
+    const result = checkReportPreflight(events, { allowLiveAudit: true })
+
+    expect(result.passed).toBe(false)
+    expect(result.orphanedTools.includes("t7")).toBe(true)
+  })
+
+  test("allowLiveAudit still requires session.created", () => {
+    const events: AuditEvent[] = [
+      buildEvent("tool.started", 1, { tool_call_id: "t8" }),
+      buildEvent("tool.completed", 2, { tool_call_id: "t8" }),
+    ]
+
+    const result = checkReportPreflight(events, { allowLiveAudit: true })
+
+    expect(result.passed).toBe(false)
+    expect(result.missingLifecycle.includes("session.created")).toBe(true)
+  })
 })

@@ -1,6 +1,10 @@
 import { normalizeFilePath } from "../shared/path-utils"
 import { isRecord } from "../shared/type-guards"
 import {
+  isValidConfidenceScore,
+  isValidRubricVerdict,
+  RUBRIC_CONFIRMED_MIN_SCORE,
+  reconcileRubricVerdict,
   VALID_AGENTS,
   VALID_CONFIDENCES,
   VALID_SEVERITIES,
@@ -32,6 +36,8 @@ const KNOWN_INPUT_FIELDS = new Set([
   "name",
   "severity",
   "confidence",
+  "confidence_score",
+  "rubric_verdict",
   "description",
   "impact",
   "first_markdown_element",
@@ -319,11 +325,56 @@ export function normalizeToCanonicalFinding(
     normalizePositiveInteger(input.observationCount) ??
     observationIds?.length
 
+  const confidenceScorePresent = "confidence_score" in input
+  const confidenceScoreValid =
+    confidenceScorePresent && isValidConfidenceScore(input.confidence_score)
+  if (confidenceScorePresent && !confidenceScoreValid) {
+    diagnostics.push({
+      level: "warn",
+      code: "field.invalid",
+      message: `Dropped invalid confidence_score (must be integer 0-100): ${JSON.stringify(input.confidence_score)}`,
+      field: "confidence_score",
+    })
+  }
+
+  const rubricVerdictPresent = "rubric_verdict" in input
+  const rubricVerdictValid = rubricVerdictPresent && isValidRubricVerdict(input.rubric_verdict)
+  if (rubricVerdictPresent && !rubricVerdictValid) {
+    diagnostics.push({
+      level: "warn",
+      code: "field.invalid",
+      message: `Dropped invalid rubric_verdict (must be CONFIRMED, DEMOTED, or REJECTED_DEMOTED): ${JSON.stringify(input.rubric_verdict)}`,
+      field: "rubric_verdict",
+    })
+  }
+
+  const confidenceScoreValue = confidenceScoreValid
+    ? (input.confidence_score as CanonicalFinding["confidence_score"])
+    : undefined
+  const reconciledVerdict = rubricVerdictValid
+    ? reconcileRubricVerdict(
+        input.rubric_verdict as CanonicalFinding["rubric_verdict"],
+        confidenceScoreValue,
+      )
+    : undefined
+  if (rubricVerdictValid && reconciledVerdict !== input.rubric_verdict) {
+    diagnostics.push({
+      level: "warn",
+      code: "field.demoted",
+      message: `Auto-demoted CONFIRMED finding with confidence_score ${JSON.stringify(input.confidence_score)} below ${RUBRIC_CONFIRMED_MIN_SCORE} to DEMOTED`,
+      field: "rubric_verdict",
+    })
+  }
+
   const canonical: CanonicalFinding = {
     id: observationId,
     check,
     severity: VALID_SEVERITIES.has(severity) ? severity : "Informational",
     confidence: VALID_CONFIDENCES.has(confidence) ? confidence : "Low",
+    ...(confidenceScoreValid
+      ? { confidence_score: input.confidence_score as CanonicalFinding["confidence_score"] }
+      : {}),
+    ...(reconciledVerdict ? { rubric_verdict: reconciledVerdict } : {}),
     description,
     file,
     lines: lines ?? [0, 0],

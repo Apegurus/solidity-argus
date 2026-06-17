@@ -1,5 +1,7 @@
 import type { ToolDefinition } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
+import { createLogger } from "./shared/logger"
+import { getToolResultCache, type ToolResultCache } from "./shared/tool-result-cache"
 import { argusSkillLoadTool } from "./tools/argus-skill-load-tool"
 import { contractAnalyzerTool } from "./tools/contract-analyzer-tool"
 import { forgeCoverageTool } from "./tools/forge-coverage-tool"
@@ -17,8 +19,34 @@ import { createSoloditSearchTool } from "./tools/solodit-search-tool"
 import { syncKnowledgeTool } from "./tools/sync-knowledge-tool"
 import { themisDispositionTool } from "./tools/themis-disposition-tool"
 
-export function createTools(config: ArgusConfig): Record<string, ToolDefinition> {
-  const tools: Record<string, ToolDefinition> = {
+const logger = createLogger()
+
+type ToolExecute = ToolDefinition["execute"]
+
+export function withResultCapture(
+  name: string,
+  def: ToolDefinition,
+  cache: ToolResultCache,
+): ToolDefinition {
+  const execute: ToolExecute = async (args, context) => {
+    const result = await def.execute(args, context)
+    try {
+      cache.set(context.sessionID, name, result)
+    } catch (error) {
+      logger.debug(
+        `tool-result cache write failed for ${name}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    return result
+  }
+  return { ...def, execute }
+}
+
+export function createTools(
+  config: ArgusConfig,
+  toolResultCache: ToolResultCache = getToolResultCache(),
+): Record<string, ToolDefinition> {
+  const rawTools: Record<string, ToolDefinition> = {
     argus_slither_analyze: slitherTool,
     argus_forge_test: forgeTestTool,
     argus_gas_analysis: gasAnalysisTool,
@@ -37,7 +65,12 @@ export function createTools(config: ArgusConfig): Record<string, ToolDefinition>
   }
 
   if (config.solodit?.enabled !== false) {
-    tools.argus_solodit_search = createSoloditSearchTool()
+    rawTools.argus_solodit_search = createSoloditSearchTool()
+  }
+
+  const tools: Record<string, ToolDefinition> = {}
+  for (const [name, def] of Object.entries(rawTools)) {
+    tools[name] = withResultCapture(name, def, toolResultCache)
   }
 
   return tools

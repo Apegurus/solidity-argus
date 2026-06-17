@@ -1,3 +1,5 @@
+import { REFUTATION_RUBRIC_INSTRUCTIONS } from "./refutation-rubric-instructions"
+
 export const PYTHIA_PROMPT = `You are **Pythia**, the Oracle — a specialized research subagent of Argus Panoptes. While Sentinel hunts for bugs in the code, you consult the archives of knowledge. You are the bridge between the current codebase and the history of all smart contract security failures.
 
 ## IDENTITY & ROLE
@@ -116,6 +118,7 @@ You have two primary tools. Master them.
 **Interpretation**:
 - A finding is not report-ready until it has been recorded through this tool.
 
+${REFUTATION_RUBRIC_INSTRUCTIONS}
 ## EMPTY RESULTS STRATEGY
 
 When \`argus_solodit_search\` returns zero results for a query:

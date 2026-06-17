@@ -1,4 +1,4 @@
-import { ARGUS_PLUGIN_VERSION } from "../../shared/plugin-metadata"
+import { ARGUS_BUILD_PROVENANCE, ARGUS_PLUGIN_BUILD } from "../../shared/plugin-metadata"
 import { validateEventSequence } from "../../state/projectors"
 import type { AuditEvent } from "../../state/schemas"
 import { SCHEMA_VERSION } from "../../state/schemas"
@@ -16,6 +16,14 @@ export type FinalizationResult = {
 
 type ExistingFinalizationResult = FinalizationResult & {
   finalizedIndex: number
+}
+
+export interface FinalizeRunOptions {
+  // A report carrying a Completeness Warning was generated in warn mode (strict-fail
+  // throws before writing), so by default the warning stays informational here rather
+  // than hard-failing finalization of an otherwise-valid live run. Pass "strict-fail"
+  // for offline/post-hoc validation that should reject any incomplete report.
+  completenessPolicy?: "warn" | "strict-fail"
 }
 
 export function hasSessionCreated(events: AuditEvent[]): boolean {
@@ -90,8 +98,8 @@ function isGenerateReportCompletion(event: AuditEvent): boolean {
   return payload.tool === "argus_generate_report" || payload.name === "argus_generate_report"
 }
 
-async function collectReportCompletenessErrors(events: AuditEvent[]): Promise<string[]> {
-  const errors: string[] = []
+async function collectReportCompletenessWarnings(events: AuditEvent[]): Promise<string[]> {
+  const warnings: string[] = []
   const reportEvents = events.filter(isGenerateReportCompletion)
 
   for (const event of reportEvents) {
@@ -102,14 +110,14 @@ async function collectReportCompletenessErrors(events: AuditEvent[]): Promise<st
     try {
       const report = await Bun.file(filePath).text()
       if (report.includes("## ⚠ Completeness Warning")) {
-        errors.push("generated report contains Completeness Warning")
+        warnings.push("generated report contains Completeness Warning")
       }
     } catch {
       // Missing report files are handled by report-generation/tool-tracking gates.
     }
   }
 
-  return errors
+  return warnings
 }
 
 function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
@@ -241,7 +249,6 @@ export function hasResolvedThemisDispositionAfterReport(events: AuditEvent[]): b
 function collectParentChildIntegrityErrors(events: AuditEvent[]): string[] {
   const errors: string[] = []
   const parentByChild = new Map<string, string>()
-  const correlationByChild = new Map<string, string>()
 
   for (const event of events) {
     const payload = asRecord(event.payload)
@@ -279,14 +286,9 @@ function collectParentChildIntegrityErrors(events: AuditEvent[]): string[] {
       parentByChild.set(childSessionId, parentSessionId)
     }
 
-    const existingCorrelation = correlationByChild.get(childSessionId)
-    if (existingCorrelation && existingCorrelation !== correlationId) {
-      errors.push(
-        `child session ${childSessionId} has inconsistent correlation_id: ${existingCorrelation}, ${correlationId}`,
-      )
-    } else {
-      correlationByChild.set(childSessionId, correlationId)
-    }
+    // Intentionally no one-correlation-per-child invariant: correlation_id is minted per
+    // dispatch, and a child subagent session is legitimately re-dispatched/continued across
+    // remediation rounds, so one child session correctly carries multiple correlation_ids.
   }
 
   return errors
@@ -405,15 +407,18 @@ export async function finalizeRun(
   runId: string,
   projectDir: string,
   sink: EventSink | null,
+  options: FinalizeRunOptions = {},
 ): Promise<FinalizationResult> {
+  const completenessPolicy = options.completenessPolicy ?? "warn"
   const timestamp = Date.now()
   const events = sink ? await sink.readAll() : await readEvents(runId, projectDir)
   const existingResult = parseExistingFinalizationResult(events, runId)
   const hasEventsAfterExistingFinalization =
     existingResult !== null && existingResult.finalizedIndex < events.length - 1
   if (existingResult?.invariantsPassed && !hasEventsAfterExistingFinalization) {
+    const completeness = await collectReportCompletenessWarnings(events)
     const reportErrors = [
-      ...(await collectReportCompletenessErrors(events)),
+      ...(completenessPolicy === "strict-fail" ? completeness : []),
       ...collectReportQualityGateErrors(events),
       ...collectThemisDispositionErrors(events),
     ]
@@ -430,7 +435,12 @@ export async function finalizeRun(
   }
 
   const { errors, warnings } = collectInvariantErrors(events)
-  errors.push(...(await collectReportCompletenessErrors(events)))
+  const completeness = await collectReportCompletenessWarnings(events)
+  if (completenessPolicy === "strict-fail") {
+    errors.push(...completeness)
+  } else {
+    warnings.push(...completeness)
+  }
   errors.push(...collectReportQualityGateErrors(events))
   errors.push(...collectThemisDispositionErrors(events))
   const invariantsPassed = errors.length === 0
@@ -451,7 +461,9 @@ export async function finalizeRun(
         errors,
         warnings,
         status: invariantsPassed ? "finalized" : "failed-finalization",
-        plugin_version: ARGUS_PLUGIN_VERSION,
+        plugin_version: ARGUS_PLUGIN_BUILD,
+        build_commit: ARGUS_BUILD_PROVENANCE.gitSha ?? null,
+        build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
       },
     })
     sink.markFinalized()

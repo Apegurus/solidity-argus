@@ -6,6 +6,9 @@ out
 dist
 *.tgz
 
+# build provenance stamp (generated at pack time by scripts/stamp-build-info.ts)
+build-info.json
+
 # code coverage
 coverage
 *.lcov
@@ -40,8 +43,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # generated artifacts
 docs/assessment.md
 
+# transient investigation handoff briefs (root cause captured in commits/CHANGELOG)
+docs/handoff-*.md
+
 # work session artifacts
 .sisyphus/
+.omo/
+.reviews/
 
 # local plugin state
 /.opencode/
@@ -69,6 +77,11 @@ tests/fixtures/vulnerable-vault/.argus/reports/
 tests/fixtures/vulnerable-vault/.argus/runs/
 tests/fixtures/vulnerable-vault/.argus/
 tests/fixtures/vulnerable-vault/test/ReentrancyPoC.t.sol
+tests/fixtures/vulnerable-vault/test/ArgusPoC.t.sol
+tests/fixtures/vulnerable-vault/test/SentinelDrainPoC.t.sol
 
 # claude-generated reports
 .claude/reports/
+
+# Foundry caches in test fixtures (regenerated on each test run)
+tests/fixtures/**/cache/

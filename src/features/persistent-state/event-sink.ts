@@ -155,6 +155,7 @@ export function createEventSink(
   const markerPath = `${journalPath}.finalized`
   const mutex = createMutex({ logger })
   let lastSeq = 0
+  let lastEventType: string | null = null
   let initialized = false
   const sinkState = { finalized: false }
 
@@ -175,12 +176,23 @@ export function createEventSink(
       const lastEvent = events.at(-1)
       if (lastEvent) {
         lastSeq = lastEvent.seq
+        lastEventType = lastEvent.type
       }
     } catch (err) {
       throw new EventSinkError("IO_ERROR", `Failed to initialize event sink: ${String(err)}`)
     }
 
     initialized = true
+  }
+
+  function markFinalizedState(): void {
+    sinkState.finalized = true
+    try {
+      mkdirSync(dirname(markerPath), { recursive: true })
+      writeFileSync(markerPath, "")
+    } catch (err) {
+      logger.warn(`Failed to write finalization marker: ${String(err)}`)
+    }
   }
 
   const sink: EventSink = {
@@ -191,13 +203,7 @@ export function createEventSink(
     },
 
     markFinalized() {
-      sinkState.finalized = true
-      try {
-        mkdirSync(dirname(markerPath), { recursive: true })
-        writeFileSync(markerPath, "")
-      } catch (err) {
-        logger.warn(`Failed to write finalization marker: ${String(err)}`)
-      }
+      markFinalizedState()
     },
 
     async append(event: AuditEvent): Promise<void> {
@@ -206,6 +212,14 @@ export function createEventSink(
 
         if (sinkState.finalized && event.type !== "run.finalized") {
           logger.debug(`Dropping ${event.type} for finalized run ${runId}`)
+          return
+        }
+
+        // A run.finalized directly following another run.finalized is a duplicate from a
+        // concurrent finalize path; drop it so the run is finalized exactly once. A
+        // run.finalized after newer events is a legitimate re-finalization and is allowed.
+        if (event.type === "run.finalized" && lastEventType === "run.finalized") {
+          logger.debug(`Dropping duplicate run.finalized for run ${runId}`)
           return
         }
 
@@ -237,6 +251,11 @@ export function createEventSink(
         }
 
         lastSeq = nextSeq
+        lastEventType = event.type
+
+        if (event.type === "run.finalized") {
+          markFinalizedState()
+        }
       })
     },
 

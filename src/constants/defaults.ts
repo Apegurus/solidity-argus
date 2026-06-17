@@ -1,5 +1,5 @@
 export const DEFAULT_MODELS = {
-  argus: "anthropic/claude-opus-4-7",
+  argus: "anthropic/claude-opus-4-8",
   sentinel: "anthropic/claude-sonnet-4-6",
   pythia: "anthropic/claude-sonnet-4-6",
   auditSpecialist: "anthropic/claude-sonnet-4-6",

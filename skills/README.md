@@ -7,7 +7,7 @@ The Argus knowledge base provides a structured collection of Solidity security p
 ```
 OpenCode Skills System
 ├── skills/ (bundled with plugin)
-│   ├── vulnerability-patterns/ (51 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
+│   ├── vulnerability-patterns/ (57 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
 │   ├── methodology/ (3 files from DeFiFoFum)
 │   ├── specialist-profiles/ (8 profile skills for audit-specialist)
 │   ├── protocol-patterns/ (5 files from DeFiFoFum)
@@ -121,4 +121,4 @@ detection_rules:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 91 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 97 SKILL.md files currently bundled with Argus.

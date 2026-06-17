@@ -44,6 +44,7 @@ test("validateFindingLineage accepts complete one-to-one lineage", () => {
     overlapping_mapped_dropped_observation_ids: [],
     invalid_dropped_observations: [],
     count_mismatches: [],
+    cross_file_merges: [],
   })
 })
 
@@ -76,6 +77,7 @@ test("validateFindingLineage reports duplicate phantom missing and count mismatc
     overlapping_mapped_dropped_observation_ids: [],
     invalid_dropped_observations: [],
     count_mismatches: [{ check: "z-check", observation_count: 3, observation_ids_length: 2 }],
+    cross_file_merges: [],
   })
 })
 
@@ -118,6 +120,7 @@ test("validateFindingLineage treats explicitly dropped observations as complete"
     overlapping_mapped_dropped_observation_ids: [],
     invalid_dropped_observations: [],
     count_mismatches: [],
+    cross_file_merges: [],
   })
 })
 
@@ -151,4 +154,77 @@ test("validateFindingLineage rejects invalid dropped observation reasons and dup
   expect(result.invalid_dropped_observations).toEqual([
     { observation_id: "obs-a", reason: "invalid-reason" },
   ])
+})
+
+// Documents the P0-1 deduped-universe contract: report parity and persist-deduped both
+// validate against the deduped findings.json, whose singular observation_id is the
+// representative survivor. An observation collapsed into observation_ids[] is NOT part of
+// the raw universe, so the deduped set may neither reference nor drop a collapsed id.
+test("validateFindingLineage rejects dropping a collapsed (non-representative) observation", () => {
+  const raw = [
+    finding({
+      id: "rep",
+      observation_id: "obs-rep",
+      observation_ids: ["obs-rep", "obs-collapsed"],
+      observation_count: 2,
+    }),
+  ]
+  const deduped = [
+    finding({
+      id: "rep",
+      observation_id: "obs-rep",
+      observation_ids: ["obs-rep"],
+      observation_count: 1,
+    }),
+  ]
+
+  expect(validateFindingLineage(raw, deduped).valid).toBe(true)
+
+  const droppingCollapsed = validateFindingLineage(raw, deduped, [
+    { observation_id: "obs-collapsed", reason: "merged-into" },
+  ])
+  expect(droppingCollapsed.valid).toBe(false)
+  expect(droppingCollapsed.phantom_dropped_observation_ids).toEqual(["obs-collapsed"])
+})
+
+test("validateFindingLineage rejects a deduped finding that merges observations across files", () => {
+  const raw = [
+    finding({ id: "raw-a", observation_id: "obs-a", file: "src/GovernanceToken.sol" }),
+    finding({ id: "raw-b", observation_id: "obs-b", file: "src/VulnerableVault.sol" }),
+  ]
+  const deduped = [
+    finding({
+      id: "dedup-merged",
+      check: "merged-cross-file",
+      observation_ids: ["obs-a", "obs-b"],
+      observation_count: 2,
+    }),
+  ]
+
+  const result = validateFindingLineage(raw, deduped)
+
+  expect(result.valid).toBe(false)
+  expect(result.cross_file_merges).toEqual([
+    { check: "merged-cross-file", files: ["src/GovernanceToken.sol", "src/VulnerableVault.sol"] },
+  ])
+})
+
+test("validateFindingLineage allows same-file observation merges", () => {
+  const raw = [
+    finding({ id: "raw-a", observation_id: "obs-a", file: "src/Vault.sol" }),
+    finding({ id: "raw-b", observation_id: "obs-b", file: "src/Vault.sol" }),
+  ]
+  const deduped = [
+    finding({
+      id: "dedup-same",
+      check: "same-file",
+      observation_ids: ["obs-a", "obs-b"],
+      observation_count: 2,
+    }),
+  ]
+
+  const result = validateFindingLineage(raw, deduped)
+
+  expect(result.valid).toBe(true)
+  expect(result.cross_file_merges).toEqual([])
 })

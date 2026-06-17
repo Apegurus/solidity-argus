@@ -12,7 +12,11 @@ import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../.
 import { SCHEMA_VERSION } from "../../state/schemas"
 import { readEvents } from "./event-sink"
 
-export type MaterializeFindingsTrigger = "session.idle" | "session.deleted" | "tool.execute.after"
+export type MaterializeFindingsTrigger =
+  | "session.idle"
+  | "session.deleted"
+  | "tool.execute.after"
+  | "on-demand"
 
 export interface MaterializeFindingsForRunOptions {
   failFast?: boolean
@@ -134,4 +138,39 @@ export async function materializeReportInput(
   await writeFile(reportInputFile, JSON.stringify(reportInput, null, 2))
 
   return reportInput
+}
+
+export interface EnsureRunArtifactsOptions {
+  findings?: boolean
+  reportInput?: boolean
+  warn?: (message: string) => void
+}
+
+// Refreshes a run's findings.json / report-input.json from the live event stream
+// so Scribe can read/persist mid-audit (no teardown wait) and parity never sees a
+// stale projection. Best-effort: failures are non-fatal and callers fall back to
+// existing on-disk artifacts.
+export async function ensureRunArtifactsMaterialized(
+  runId: string,
+  projectDir: string,
+  sessionId: string | undefined,
+  options: EnsureRunArtifactsOptions = {},
+): Promise<void> {
+  if (!runId || runId.length === 0) return
+
+  const { findings = true, reportInput = true, warn } = options
+
+  if (findings) {
+    await materializeFindingsForRun(runId, projectDir, sessionId, "on-demand", { warn })
+  }
+
+  if (reportInput) {
+    try {
+      await materializeReportInput(runId, projectDir, sessionId)
+    } catch (error) {
+      warn?.(
+        `Failed to materialize report-input on demand for run ${runId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
 }

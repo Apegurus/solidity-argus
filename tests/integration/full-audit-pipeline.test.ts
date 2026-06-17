@@ -84,7 +84,7 @@ describe("Full Audit Pipeline Integration", () => {
       expect(postFinalizationEvents).toHaveLength(0)
     })
 
-    test("finalized sink still accepts run.finalized event (recompute)", async () => {
+    test("dedupes a run.finalized that directly follows finalization (idempotent)", async () => {
       const projectDir = makeTempDir()
       const runId = "run-allow-refinalize"
       const sink = createEventSink(runId, projectDir)
@@ -97,7 +97,7 @@ describe("Full Audit Pipeline Integration", () => {
 
       const events = await sink.readAll()
       const finalizations = events.filter((e) => e.type === "run.finalized")
-      expect(finalizations.length).toBeGreaterThanOrEqual(2)
+      expect(finalizations.length).toBe(1)
     })
 
     test("run.finalized event has correct payload structure", async () => {

@@ -61,6 +61,8 @@ imported_at: "2025-01-15T00:00:00Z"
 
 **Objective:** Find bugs that tools miss.
 
+> **Required discipline:** Before recording any candidate finding, apply the 4-gate validation procedure from the `refutation-rubric` skill. See [refutation-rubric](../refutation-rubric/SKILL.md).
+
 #### 3.1 Access Control
 - [ ] All privileged functions have access control
 - [ ] Modifiers are applied consistently

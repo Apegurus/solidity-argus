@@ -170,7 +170,7 @@ test("executeForgeCoverage handles missing forge binary gracefully", async () =>
   expect(result.report.files).toEqual([])
 })
 
-test("executeForgeCoverage handles project with no tests gracefully", async () => {
+test("executeForgeCoverage flags all-zero coverage as a measurement failure", async () => {
   const { context } = createContext()
   const stdout = [
     "| File                      | % Lines         | % Statements    | % Branches      | % Funcs         |",
@@ -184,8 +184,9 @@ test("executeForgeCoverage handles project with no tests gracefully", async () =
     exitCode: 0,
   }))
 
-  expect(result.success).toBe(true)
-  expect(result.report.files).toEqual([])
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("0% across all metrics")
+  expect(result.hint).toBeDefined()
   expect(result.report.summary).toEqual({
     totalLinesPct: 0,
     totalStatementsPct: 0,

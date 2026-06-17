@@ -1,0 +1,111 @@
+slug: vulnerable-vault
+name: Vulnerable Vault (internal smoke)
+description: >
+  Internal smoke fixture reusing tests/fixtures/vulnerable-vault. Four toy
+  contracts hand-annotated with deliberate vulnerabilities. Smoke-only — not a
+  benchmark. Confirms the eval harness end-to-end on a known surface before
+  real fixtures (Code4rena, pashov) are wired in.
+source:
+  name: solidity-argus internal fixture
+  url: https://github.com/Apegurus/solidity-argus/tree/main/tests/fixtures/vulnerable-vault
+  license: MIT
+project:
+  root: tests/fixtures/vulnerable-vault
+  contracts_glob: "src/**/*.sol"
+  foundry: true
+expected_findings:
+  - id: vv-001-reentrancy-withdraw
+    title: Reentrancy in VulnerableVault.withdraw (state update after external call)
+    severity: Critical
+    file: src/VulnerableVault.sol
+    lines: [18, 23]
+    cwe: CWE-841
+    swc: SWC-107
+    source:
+      audit: solidity-argus internal annotation
+    category: reentrancy
+    acceptance_criteria:
+      - predicted finding on src/VulnerableVault.sol
+      - line range overlaps [18, 23]
+      - severity >= High
+      - check name or description references reentrancy / external-call-before-state
+  - id: vv-002-missing-access-control-withdraw
+    title: Missing access control on withdraw — any caller can drain any user
+    severity: High
+    file: src/VulnerableVault.sol
+    lines: [18, 23]
+    cwe: CWE-284
+    source:
+      audit: solidity-argus internal annotation
+    category: access-control
+    acceptance_criteria:
+      - predicted finding on src/VulnerableVault.sol
+      - line range overlaps [18, 23]
+      - severity >= High
+      - description references access control / unauthorized / missing modifier
+  - id: vv-003-missing-access-control-setpool
+    title: Missing access control on PriceOracle.setPool
+    severity: High
+    file: src/PriceOracle.sol
+    lines: [21, 23]
+    cwe: CWE-284
+    source:
+      audit: solidity-argus internal annotation
+    category: access-control
+    acceptance_criteria:
+      - predicted finding on src/PriceOracle.sol
+      - line range overlaps [21, 23]
+      - severity >= High
+      - description references access control / onlyOwner / unrestricted
+  - id: vv-004-oracle-single-source
+    title: Oracle reads from single AMM pool (manipulable via flash loan)
+    severity: High
+    file: src/PriceOracle.sol
+    lines: [14, 18]
+    source:
+      audit: solidity-argus internal annotation
+    category: oracle-manipulation
+    acceptance_criteria:
+      - predicted finding on src/PriceOracle.sol
+      - line range overlaps [14, 18]
+      - severity >= Medium
+      - description references oracle / manipulable / single source / TWAP
+  - id: vv-005-non-standard-erc20-transfer
+    title: Token.transfer missing return value (non-standard ERC20)
+    severity: Medium
+    file: src/Token.sol
+    lines: [20, 25]
+    source:
+      audit: solidity-argus internal annotation
+    category: token-standard
+    acceptance_criteria:
+      - predicted finding on src/Token.sol
+      - line range overlaps [20, 25]
+      - severity >= Low
+      - description references ERC20 / return value / non-standard
+  - id: vv-006-no-timelock-admin-change
+    title: GovernanceToken.changeAdmin lacks timelock or 2-step transfer
+    severity: Medium
+    file: src/GovernanceToken.sol
+    lines: [20, 23]
+    source:
+      audit: solidity-argus internal annotation
+    category: governance
+    acceptance_criteria:
+      - predicted finding on src/GovernanceToken.sol
+      - line range overlaps [20, 23]
+      - severity >= Low
+      - description references timelock / 2-step / Ownable2Step / instant transfer
+  - id: vv-007-floating-pragma
+    title: Floating pragma (^0.8.20) across all contracts
+    severity: Informational
+    file: src/VulnerableVault.sol
+    lines: [2, 2]
+    source:
+      audit: solidity-argus internal annotation
+    category: configuration
+    acceptance_criteria:
+      - predicted finding on src/VulnerableVault.sol
+      - line range overlaps [2, 2]
+      - severity Informational or Low
+      - description references floating pragma / pin compiler version
