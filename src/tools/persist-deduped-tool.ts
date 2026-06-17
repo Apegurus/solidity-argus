@@ -187,6 +187,12 @@ export async function executePersistDeduped(
             hint: `Call argus_read_findings(run_id="${args.run_id}") to obtain the canonical observation_ids; deduped findings may only reference ids present in .argus/runs/${args.run_id}/findings.json.`,
           }
         : {}),
+      ...(lineage.cross_file_merges.length > 0
+        ? {
+            cross_file_hint:
+              "A deduped finding merged observations from different files. Dedup groups by a single code location — split cross-file observations into separate findings, each with its own observation_ids.",
+          }
+        : {}),
       lineage: {
         raw_count: lineage.raw_count,
         mapped_count: lineage.mapped_count,
@@ -199,6 +205,7 @@ export async function executePersistDeduped(
           lineage.overlapping_mapped_dropped_observation_ids,
         invalid_dropped_observations: lineage.invalid_dropped_observations,
         count_mismatches: lineage.count_mismatches,
+        cross_file_merges: lineage.cross_file_merges,
       },
     })
   }

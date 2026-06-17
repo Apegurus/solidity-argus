@@ -67,6 +67,32 @@ test("executeRecordFinding normalizes one finding", async () => {
   expect((parsed as Record<string, unknown>).enrichment_warnings).toBeDefined()
 })
 
+test("executeRecordFinding assigns distinct observation_ids across separate single-finding calls in one session", async () => {
+  const ctx = createContext("argus")
+  const mk = (check: string) =>
+    JSON.stringify({
+      check,
+      severity: "Low",
+      confidence: "High",
+      description: `${check} description`,
+      file: "src/A.sol",
+      lines: [1, 1],
+      source: "manual",
+    })
+
+  const first = JSON.parse(await executeRecordFinding({ finding: mk("finding-one") }, ctx)) as {
+    findings: Array<{ id: string }>
+  }
+  const second = JSON.parse(await executeRecordFinding({ finding: mk("finding-two") }, ctx)) as {
+    findings: Array<{ id: string }>
+  }
+
+  expect(first.findings[0]?.id).toBeDefined()
+  expect(second.findings[0]?.id).toBeDefined()
+  // Regression for #1: both calls previously collided on `${sessionID}:1`.
+  expect(first.findings[0]?.id).not.toBe(second.findings[0]?.id)
+})
+
 test("executeRecordFinding accepts findings array", async () => {
   const payload = await executeRecordFinding(
     {
