@@ -43,6 +43,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # generated artifacts
 docs/assessment.md
 
+# transient investigation handoff briefs (root cause captured in commits/CHANGELOG)
+docs/handoff-*.md
+
 # work session artifacts
 .sisyphus/
 .omo/
