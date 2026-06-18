@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 (2026-06-17)
+
+### Fixes
+- Scoped the bundled skills to the Argus agents. The plugin no longer registers its `skills/` directory or the Trail of Bits companion skills in OpenCode's global `config.skills.paths`, which had leaked all ~91 skill descriptions into the `<available_skills>` context of every skill-enabled agent — not just the Argus family. Argus agents still load skills on demand via the scoped `argus_skill_load` tool (its resolver reads the bundled skills, `customSkillsDir`, and the Trail of Bits cache directly), and the Trail of Bits companion clone is preserved.
+
 ## 0.7.0 (2026-06-17)
 
 ### Features

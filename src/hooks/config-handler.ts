@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
 import { AUDIT_SPECIALIST_PROMPT } from "../agents/audit-specialist-prompt"
@@ -105,10 +105,7 @@ function ensureTrailOfBitsSkills(): string[] {
   return []
 }
 
-export function createConfigHandler(
-  argusConfig: ArgusConfig,
-  projectDir: string = process.cwd(),
-): (config: Config) => Promise<void> {
+export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) => Promise<void> {
   const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
 
   return async (config: Config): Promise<void> => {
@@ -230,24 +227,12 @@ export function createConfigHandler(
       }
     }
 
-    const skillsPaths = [...(config.skills?.paths ?? [])]
-    skillsPaths.push(resolve(import.meta.dir, "../../skills"))
-
-    const customSkillsDir = argusConfig.knowledge?.customSkillsDir
-    if (customSkillsDir) {
-      const resolvedCustomSkillsDir = customSkillsDir.startsWith("/")
-        ? customSkillsDir
-        : resolve(projectDir, customSkillsDir)
-      if (existsSync(resolvedCustomSkillsDir)) {
-        skillsPaths.push(resolvedCustomSkillsDir)
-      }
-    }
-
-    const tobSkillDirs = ensureTrailOfBitsSkills()
-    if (tobSkillDirs.length > 0) skillsPaths.push(...tobSkillDirs)
-
-    config.skills ??= {}
-    config.skills.paths = skillsPaths
+    // Argus skills load on demand via `argus_skill_load` (scoped to the Argus agents);
+    // we deliberately do NOT register them in OpenCode's global `config.skills.paths`,
+    // which would leak all ~91 skill descriptions into every skill-enabled agent's
+    // context. The call below is kept for its side effect only: it clones the Trail of
+    // Bits companion skills into the cache that `argus_skill_load`'s resolver reads.
+    ensureTrailOfBitsSkills()
 
     if (argusConfig.knowledge?.autoSync !== false) {
       triggerKnowledgeSync()

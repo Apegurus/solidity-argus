@@ -184,7 +184,7 @@ export function createHooks(args: {
   if (globals[INSTANCE_LOCK]) {
     logger.debug("[plugin] Duplicate instance detected — returning inert hooks")
     return {
-      config: createConfigHandler(args.config, args.projectDir),
+      config: createConfigHandler(args.config),
       "chat.params": undefined,
       "chat.message": undefined,
       "experimental.chat.system.transform": undefined,
@@ -1062,7 +1062,7 @@ export function createHooks(args: {
     : undefined
 
   return {
-    config: createConfigHandler(config, projectDir),
+    config: createConfigHandler(config),
     "chat.params": async (input, output) => {
       agentTracker.chatParamsHook(input)
 
