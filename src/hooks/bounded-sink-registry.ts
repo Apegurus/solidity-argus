@@ -33,7 +33,12 @@ export function createBoundedSinkRegistry(options: {
     }
   }
 
-  function evictOldest(sinkMap: Map<string, EventSink>, timestampMap: Map<string, number>): void {
+  function evictOldest(options: {
+    sinkMap: Map<string, EventSink>
+    timestampMap: Map<string, number>
+    releaseRunSink: boolean
+  }): void {
+    const { sinkMap, timestampMap, releaseRunSink } = options
     const oldestKey = sinkMap.keys().next().value
     if (oldestKey === undefined) return
 
@@ -43,9 +48,17 @@ export function createBoundedSinkRegistry(options: {
     }
     sinkMap.delete(oldestKey)
     timestampMap.delete(oldestKey)
+    if (releaseRunSink) {
+      releaseEventSink(oldestKey)
+    }
   }
 
-  function evictStale(sinkMap: Map<string, EventSink>, timestampMap: Map<string, number>): void {
+  function evictStale(options: {
+    sinkMap: Map<string, EventSink>
+    timestampMap: Map<string, number>
+    releaseRunSink: boolean
+  }): void {
+    const { sinkMap, timestampMap, releaseRunSink } = options
     const now = Date.now()
     for (const [key, createdAt] of timestampMap) {
       if (now - createdAt <= ttlMs) continue
@@ -56,6 +69,9 @@ export function createBoundedSinkRegistry(options: {
       }
       sinkMap.delete(key)
       timestampMap.delete(key)
+      if (releaseRunSink) {
+        releaseEventSink(key)
+      }
     }
   }
 
@@ -64,10 +80,11 @@ export function createBoundedSinkRegistry(options: {
     timestampMap: Map<string, number>,
     key: string,
     sink: EventSink,
+    releaseRunSink: boolean,
   ): void {
-    evictStale(sinkMap, timestampMap)
+    evictStale({ sinkMap, timestampMap, releaseRunSink })
     if (sinkMap.size >= maxSinks && !sinkMap.has(key)) {
-      evictOldest(sinkMap, timestampMap)
+      evictOldest({ sinkMap, timestampMap, releaseRunSink })
     }
     sinkMap.set(key, sink)
     if (!timestampMap.has(key)) {
@@ -86,11 +103,11 @@ export function createBoundedSinkRegistry(options: {
     },
 
     setForSession(sessionId: string, sink: EventSink): void {
-      setBounded(byOpencodeSession, createdAtBySession, sessionId, sink)
+      setBounded(byOpencodeSession, createdAtBySession, sessionId, sink, false)
     },
 
     setForRun(runId: string, sink: EventSink): void {
-      setBounded(byRunId, createdAtByRunId, runId, sink)
+      setBounded(byRunId, createdAtByRunId, runId, sink, true)
     },
 
     deleteSession(sessionId: string): void {

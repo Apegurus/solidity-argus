@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import type { EventSink } from "../features/persistent-state/event-sink"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import {
+  createEventSink,
+  resetSinkRegistry,
+  type EventSink,
+} from "../features/persistent-state/event-sink"
 import { createBoundedSinkRegistry } from "./bounded-sink-registry"
 
 const originalDateNow = Date.now
@@ -23,9 +30,22 @@ function makeSink(runId: string): EventSink {
 }
 
 describe("createBoundedSinkRegistry", () => {
+  const tempDirs: string[] = []
+
   afterEach(() => {
     Date.now = originalDateNow
+    resetSinkRegistry()
+    for (const dir of tempDirs) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    tempDirs.length = 0
   })
+
+  function makeTempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "argus-bounded-sink-registry-"))
+    tempDirs.push(dir)
+    return dir
+  }
 
   test("tracks sinks by OpenCode session and run id", () => {
     const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 1_000 })
@@ -65,6 +85,22 @@ describe("createBoundedSinkRegistry", () => {
     expect(registry.getForSession("session-new")).toBe(newestSink)
   })
 
+  test("releases the global run sink cache when max size evicts a run entry", () => {
+    const projectDir = makeTempDir()
+    const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 1_000 })
+    const oldestSink = createEventSink("run-old", projectDir)
+    const newestSink = createEventSink("run-new", projectDir)
+
+    registry.setForRun("run-old", oldestSink)
+    expect(createEventSink("run-old", projectDir)).toBe(oldestSink)
+
+    registry.setForRun("run-new", newestSink)
+
+    expect(oldestSink.isFinalized).toBe(true)
+    expect(registry.getForRun("run-old")).toBeUndefined()
+    expect(createEventSink("run-old", projectDir)).not.toBe(oldestSink)
+  })
+
   test("evicts and finalizes stale sinks on write", () => {
     const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 10 })
     const staleSink = makeSink("run-stale")
@@ -78,6 +114,24 @@ describe("createBoundedSinkRegistry", () => {
     expect(staleSink.isFinalized).toBe(true)
     expect(registry.getForRun("run-stale")).toBeUndefined()
     expect(registry.getForRun("run-fresh")).toBe(freshSink)
+  })
+
+  test("releases the global run sink cache when TTL evicts a run entry", () => {
+    const projectDir = makeTempDir()
+    const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 10 })
+    const staleSink = createEventSink("run-stale", projectDir)
+    const freshSink = createEventSink("run-fresh", projectDir)
+
+    Date.now = () => 100
+    registry.setForRun("run-stale", staleSink)
+    expect(createEventSink("run-stale", projectDir)).toBe(staleSink)
+
+    Date.now = () => 111
+    registry.setForRun("run-fresh", freshSink)
+
+    expect(staleSink.isFinalized).toBe(true)
+    expect(registry.getForRun("run-stale")).toBeUndefined()
+    expect(createEventSink("run-stale", projectDir)).not.toBe(staleSink)
   })
 
   test("releases unreferenced run sinks while preserving session-backed runs", () => {
