@@ -7,10 +7,10 @@ The Argus knowledge base provides a structured collection of Solidity security p
 ```
 OpenCode Skills System
 ├── skills/ (bundled with plugin)
-│   ├── vulnerability-patterns/ (57 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
+│   ├── vulnerability-patterns/ (60 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
 │   ├── methodology/ (3 files from DeFiFoFum)
 │   ├── specialist-profiles/ (8 profile skills for audit-specialist)
-│   ├── protocol-patterns/ (5 files from DeFiFoFum)
+│   ├── protocol-patterns/ (7 files from DeFiFoFum + Argus)
 │   ├── checklists/ (6 files from DeFiFoFum + Cyfrin)
 │   ├── references/ (3 files: SmartBugs + DeFiHackLabs + attack-vector deck)
 │   └── case-studies/ (15 case studies from DeFiFoFum)
@@ -39,6 +39,11 @@ All sources in the table below must include the following metadata in their SKIL
 | BailSec | CC0 | https://github.com/bailsec/BailSec | Vulnerability patterns extracted from professional audit PDFs |
 | SCVD (api.scvd.dev) | CC0 | https://api.scvd.dev | 7,769+ findings via local index (auto-synced) |
 | Argus specialist profiles | MIT | https://github.com/Apegurus/solidity-argus | 8 profile skills and one attack-vector deck for deep/adversarial audit passes |
+| devdacian/ai-auditor-primers (Dacian) | MIT | https://github.com/devdacian/ai-auditor-primers | Liquidation, ERC-4626, precision, and lending patterns (inferred, original prose) |
+| 0xJuancito/multichain-auditor | MIT | https://github.com/0xJuancito/multichain-auditor | Chain-specific and token cross-chain patterns (inferred) |
+| Sigma Prime | Reference (cited) | https://blog.sigmaprime.io | Oracle, liquid-restaking, and governance research (inferred) |
+| beirao.xyz | Reference (cited) | https://beirao.xyz | General footguns, lending, staking, and arbitrary-call patterns (inferred) |
+| Pyth Network | Apache-2.0 | https://docs.pyth.network | Pyth pull-oracle validation patterns (inferred) |
 
 ## SKILL.md Format Specification
 
@@ -121,4 +126,4 @@ detection_rules:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 97 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 103 SKILL.md files currently bundled with Argus.

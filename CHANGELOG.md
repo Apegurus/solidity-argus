@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 (2026-06-19)
+
+### Features
+- Expanded the bundled DeFi vulnerability knowledge base. Techniques were inferred from primary sources and authored as original content (not ported verbatim): Dacian (`devdacian/ai-auditor-primers`, MIT), `0xJuancito/multichain-auditor` (MIT), Sigma Prime, beirao.xyz, Cyfrin, Hacken, and Pyth.
+  - **5 new skills**: `liquidation-vulnerabilities` (over-seize, partial-liq bad-debt bypass, liquidation DoS, auction liquidation), `liquid-staking-restaking` (LSD quirks + EigenLayer credential/proof/accounting), `concentrated-liquidity` (CLM sandwich + Uniswap V4 hooks), `pyth-oracle-validation` (pull-oracle freshness/confidence/exponent), `arbitrary-external-call` (approval-drain via user-controlled call + calldata).
+  - **Extended** `oracle-manipulation` (L2 sequencer-uptime feed, minAnswer/maxAnswer depeg breaker, per-feed heartbeat, unhandled revert, deprecated `latestAnswer`), `lack-of-precision` (rounding-direction matrix, cross-decimal scaling, round-to-zero), `lending-borrowing` (AAVE/Compound integration semantics, collateral valuation), `erc4626-exchange-rate-manipulation` (EIP-4626 compliance), `flash-loan-attacks` (flash-mint `totalSupply`, flash-deposit reward extraction), `staking-vesting` (reward-rate dilution, lock/cooldown bypass).
+  - **Folded** orphan patterns (with detection rules) into `weird-tokens` (ERC677/1363 hooks, native+ERC20 double-count), `unsafe-erc20-transfers` (Solmate no-code success, approve-to-zero), `logic-errors` (`EnumerableSet.add` ignored return, struct-deletion-leaves-mapping), `unchecked-return-values` (try/catch swallow), `weak-sources-randomness` (Chainlink VRF).
+  - Bundled knowledge base grows to 103 SKILL.md files (60 vulnerability patterns, 7 protocol patterns).
+
 ## 0.7.1 (2026-06-17)
 
 ### Fixes

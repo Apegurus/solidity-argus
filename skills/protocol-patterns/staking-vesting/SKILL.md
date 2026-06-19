@@ -2,6 +2,12 @@
 name: staking-vesting
 description: Staking security guidance for reward accounting, lock periods, timing attacks, and withdrawals.
 category: protocol-pattern
+pattern_category: logic-error
+detection_rules:
+  - regex: 'notifyRewardAmount\s*\('
+    severity: Medium
+    confidence: Low
+    description: Synthetix-style reward notification — notifyRewardAmount(0) or dust extends periodFinish and dilutes the reward rate
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 
@@ -240,6 +246,14 @@ function rewardPerToken() public view returns (uint256) {
 - [ ] Donation manipulation
 
 ---
+
+## Reward-Mechanics & Lock Hazards (extended)
+
+Synthetix-style reward notifications need dust and zero-amount handling. If `notifyRewardAmount(0)` or a tiny top-up is allowed to reset `periodFinish`, the leftover rewards are spread over a fresh duration and the effective `rewardRate` is diluted for every staker. Guard zero rewards, consider minimum top-up sizes, and test repeated dust calls during an active period [Dacian].
+
+Lock accounting should be checked from every entry point, not only the direct stake path. Staking on behalf of another account must not reset, shorten, or otherwise reduce that account's existing lock; liquid wrapper tokens must not provide an economic escape hatch from a supposedly non-transferable lock; and claim windows need explicit tests for the first and last eligible timestamps [beirao].
+
+Pro-rata emissions can also disappear through rounding. When the `rewardPerToken` numerator is smaller than the denominator, integer division rounds to zero, potentially stranding emissions unless dust is carried forward. Protocols with native slashing have an additional invariant: an operator cannot withdraw bonded collateral while still slashable, and any penalty larger than the bond must be rejected or explicitly funded rather than silently socialized. Liquid-staking and restaking-specific variants are covered in the separate `liquid-staking-restaking` skill.
 
 ## References
 
