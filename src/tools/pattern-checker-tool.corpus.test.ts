@@ -146,6 +146,19 @@ const CORPUS: CorpusCase[] = [
     positive: "frontrunning-vulnerable.sol",
     negative: "frontrunning-safe.sol",
   },
+  {
+    patternName: "pyth-unsafe-price-read",
+    regex: "getPriceUnsafe\\s*\\(",
+    positive: "pyth-unsafe-positive.sol",
+    negative: "pyth-safe-negative.sol",
+  },
+  {
+    patternName: "arbitrary-encoded-selector-call",
+    regex:
+      "\\.call\\s*(\\{[^}]*\\})?\\s*\\(\\s*abi\\.encodeWithSelector\\s*\\(\\s*(selector|_selector|sig|_sig|functionSelector|callSelector)\\b",
+    positive: "arbitrary-external-call-selector-positive.sol",
+    negative: "arbitrary-external-call-allowlisted-negative.sol",
+  },
 ]
 
 describe("Pattern Test Corpus", () => {

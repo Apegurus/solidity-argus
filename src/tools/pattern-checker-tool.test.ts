@@ -1,4 +1,6 @@
-import { expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import {
@@ -41,6 +43,22 @@ function createContext(): ToolContext {
     },
   }
 }
+
+function createContextForDir(projectDir: string): ToolContext {
+  return {
+    ...createContext(),
+    directory: projectDir,
+    worktree: projectDir,
+  }
+}
+
+const tempDirs: string[] = []
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 function getReentrancyMatch(result: PatternCheckResult): Match | undefined {
   return result.sources
@@ -127,6 +145,91 @@ test("executePatternCheck loads SKILL detection rules with skill source", async 
 
   expect(skillMatch).toBeDefined()
   expect(skillMatch?.patternSource).toBe("skill")
+})
+
+test("executePatternCheck scans detection rules from custom resolver roots", async () => {
+  const projectDir = join(tmpdir(), `argus-pattern-custom-${Date.now()}`)
+  tempDirs.push(projectDir)
+  const srcDir = join(projectDir, "src")
+  const customSkillsDir = join(projectDir, "custom-skills", "custom-danger")
+  mkdirSync(srcDir, { recursive: true })
+  mkdirSync(customSkillsDir, { recursive: true })
+  writeFileSync(
+    join(srcDir, "CustomDanger.sol"),
+    [
+      "// SPDX-License-Identifier: MIT",
+      "pragma solidity ^0.8.20;",
+      "contract CustomDanger {",
+      "    function run() external { dangerCall(); }",
+      "    function dangerCall() internal {}",
+      "}",
+    ].join("\n"),
+  )
+  writeFileSync(
+    join(customSkillsDir, "SKILL.md"),
+    [
+      "---",
+      "name: custom-danger",
+      "description: Custom resolver-root pattern",
+      "category: vulnerability-pattern",
+      "pattern_category: logic-error",
+      "detection_rules:",
+      "  - regex: 'dangerCall\\s*\\(' ",
+      "    severity: High",
+      "    confidence: High",
+      "    description: Custom resolver-root rule",
+      "---",
+      "# Custom Danger",
+    ].join("\n"),
+  )
+
+  const result = await executePatternCheck(
+    {
+      target: "src/CustomDanger.sol",
+      patterns: ["logic-error"],
+      include_scvd: false,
+    },
+    createContextForDir(projectDir),
+    {
+      loadConfig: () => ({
+        agents: {
+          argus: {},
+          sentinel: {},
+          pythia: {},
+          auditSpecialist: {},
+          scribe: {},
+          themis: {},
+        },
+        tools: {},
+        knowledge: {
+          scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+          autoSync: true,
+          skillPrecedence: "custom-first",
+          customSkillsDir: "custom-skills",
+        },
+        reporting: {
+          confidenceThreshold: 80,
+          format: "markdown",
+          severityThreshold: "low",
+          gasAnalysis: false,
+          output_dir: ".opencode/reports/",
+        },
+        solodit: { enabled: true, port: 54173 },
+        disabled_hooks: [],
+        hooks: {},
+        cli: {},
+        background: { max_concurrent: 3 },
+      }),
+    },
+  )
+
+  const customMatch = result.sources
+    .flatMap((source) => source.matches)
+    .find((match) => match.pattern === "custom-danger-rule-1")
+
+  expect(customMatch).toBeDefined()
+  expect(customMatch?.patternSource).toBe("skill")
+  expect(customMatch?.category).toBe("logic-error")
 })
 
 test("executePatternCheck accepts include_scvd false without changing output shape", async () => {
@@ -459,4 +562,70 @@ test("executePatternCheck does not flag multiplication-first pattern", async () 
     .filter((match) => match.pattern.startsWith("lack-of-precision"))
 
   expect(precisionMatches).toHaveLength(0)
+})
+
+test("executePatternCheck covers Pyth unsafe and safe price-read corpus fixtures", async () => {
+  const unsafe = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/pyth-unsafe-positive.sol",
+      patterns: ["oracle-manipulation"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  const unsafePythMatches = unsafe.sources
+    .flatMap((source) => source.matches)
+    .filter((match) => match.pattern.startsWith("pyth-oracle-validation"))
+
+  expect(unsafePythMatches.some((match) => match.pattern === "pyth-oracle-validation-rule-1")).toBe(
+    true,
+  )
+
+  const safe = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/pyth-safe-negative.sol",
+      patterns: ["oracle-manipulation"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  const safePythMatches = safe.sources
+    .flatMap((source) => source.matches)
+    .filter((match) => match.pattern.startsWith("pyth-oracle-validation"))
+
+  expect(safePythMatches).toHaveLength(0)
+})
+
+test("executePatternCheck covers arbitrary encoded-selector call corpus fixtures", async () => {
+  const vulnerable = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/arbitrary-external-call-selector-positive.sol",
+      patterns: ["access-control"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  const selectorMatches = vulnerable.sources
+    .flatMap((source) => source.matches)
+    .filter((match) => match.pattern === "arbitrary-external-call-rule-6")
+
+  expect(selectorMatches.length).toBeGreaterThan(0)
+
+  const allowlisted = await executePatternCheck(
+    {
+      target: "tests/fixtures/pattern-corpus/arbitrary-external-call-allowlisted-negative.sol",
+      patterns: ["access-control"],
+      include_scvd: false,
+    },
+    createContext(),
+  )
+
+  const allowlistedSelectorMatches = allowlisted.sources
+    .flatMap((source) => source.matches)
+    .filter((match) => match.pattern === "arbitrary-external-call-rule-6")
+
+  expect(allowlistedSelectorMatches).toHaveLength(0)
 })

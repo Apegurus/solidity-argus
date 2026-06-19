@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { dirname, extname, isAbsolute, join, resolve } from "node:path"
+import { dirname, extname, isAbsolute, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { loadArgusConfig } from "../config/loader"
+import type { ArgusConfig } from "../config/types"
 import {
   loadIndex,
   type ScvdIndex,
@@ -11,7 +13,8 @@ import { getScvdIndexPath } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 import { normalizeFilePath } from "../shared/path-utils"
 import { resolveProjectDir } from "../shared/project-utils"
-import { extractDetectionRulesFromSkills } from "./pattern-loader"
+import { resolveArgusSkills } from "../skills/argus-skill-resolver"
+import { extractDetectionRulesFromResolvedSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
 
 const logger = createLogger()
@@ -57,11 +60,28 @@ type PatternCheckArgs = {
 }
 
 type PatternCheckDependencies = {
+  loadConfig?: typeof loadArgusConfig
+  resolveSkills?: typeof resolveArgusSkills
   loadIndexFn?: (filePath: string) => Promise<ScvdIndex | null>
   searchIndexFn?: (
     index: ScvdIndex,
     query: { swc?: string; severity?: string; keyword?: string; limit?: number },
   ) => ScvdIndexEntry[]
+}
+
+type ScvdPatternCheckDependencies = Required<
+  Pick<PatternCheckDependencies, "loadIndexFn" | "searchIndexFn">
+>
+
+function loadConfigSafely(
+  projectDir: string,
+  loadConfig: typeof loadArgusConfig,
+): ArgusConfig | undefined {
+  try {
+    return loadConfig(projectDir)
+  } catch {
+    return undefined
+  }
 }
 
 export type LoadedPattern = {
@@ -129,7 +149,7 @@ function uniqueScvdEntries(entries: ScvdIndexEntry[]): ScvdIndexEntry[] {
 
 async function collectScvdMatches(
   matches: Match[],
-  dependencies: Required<PatternCheckDependencies>,
+  dependencies: ScvdPatternCheckDependencies,
 ): Promise<Match[]> {
   const detectedCategories = new Set<string>()
   for (const match of matches) {
@@ -243,6 +263,13 @@ function lineWindow(content: string, index: number): [number, number] {
   return [start, end]
 }
 
+function isExcludedMatch(content: string, index: number, pattern: LoadedPattern): boolean {
+  if (!pattern.exclude_if || pattern.exclude_if.length === 0) return false
+
+  const window = content.slice(Math.max(0, index - 400), index + 400)
+  return pattern.exclude_if.some((exclude) => new RegExp(exclude).test(window))
+}
+
 export function findMatches(file: string, patterns: LoadedPattern[], projectDir?: string): Match[] {
   const content = readFileSync(file, "utf8")
   const normalizedFile = projectDir ? normalizeFilePath(file, projectDir) : file
@@ -269,6 +296,7 @@ export function findMatches(file: string, patterns: LoadedPattern[], projectDir?
     )
     for (const found of stripped.matchAll(regex)) {
       const index = found.index ?? 0
+      if (isExcludedMatch(stripped, index, pattern)) continue
       matches.push({
         pattern: pattern.name,
         severity: pattern.severity,
@@ -302,18 +330,23 @@ export async function executePatternCheck(
   context: ToolContext,
   deps: PatternCheckDependencies = {},
 ): Promise<PatternCheckResult> {
-  const dependencies: Required<PatternCheckDependencies> = {
+  const scvdDependencies: ScvdPatternCheckDependencies = {
     loadIndexFn: loadIndex,
     searchIndexFn: searchIndex,
-    ...deps,
+    ...(deps.loadIndexFn ? { loadIndexFn: deps.loadIndexFn } : {}),
+    ...(deps.searchIndexFn ? { searchIndexFn: deps.searchIndexFn } : {}),
   }
 
   const startedAt = Date.now()
   context.metadata({ title: `Pattern check: ${args.target}` })
 
-  const skillsDir = join(dirname(dirname(__dirname)), "skills")
+  const baseProjectDir = resolveProjectDir(context)
+  const loadConfig = deps.loadConfig ?? loadArgusConfig
+  const resolveSkills = deps.resolveSkills ?? resolveArgusSkills
+  const config = loadConfigSafely(baseProjectDir, loadConfig)
+  const skills = resolveSkills(baseProjectDir, config)
   const { patterns: skillDetectionRules, errors: loaderErrors } =
-    extractDetectionRulesFromSkills(skillsDir)
+    extractDetectionRulesFromResolvedSkills(skills.values())
   if (loaderErrors.length > 0) {
     for (const err of loaderErrors) {
       logger.warn(`Pattern loader: ${err}`)
@@ -325,7 +358,6 @@ export async function executePatternCheck(
   ]
 
   const selectedPatterns = selectPatterns(allPatterns, args.patterns)
-  const baseProjectDir = resolveProjectDir(context)
   const resolvedTarget = isAbsolute(args.target)
     ? args.target
     : resolve(baseProjectDir, args.target)
@@ -367,7 +399,7 @@ export async function executePatternCheck(
 
   if (args.include_scvd === true) {
     try {
-      const scvdMatches = await collectScvdMatches(sourceMatches, dependencies)
+      const scvdMatches = await collectScvdMatches(sourceMatches, scvdDependencies)
       if (scvdMatches.length > 0) {
         sources.push({
           source: "scvd",
