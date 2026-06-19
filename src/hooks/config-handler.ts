@@ -241,7 +241,7 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
 
     // Argus skills load on demand via `argus_skill_load` (scoped to the Argus agents);
     // we deliberately do NOT register them in OpenCode's global `config.skills.paths`,
-    // which would leak all ~91 skill descriptions into every skill-enabled agent's
+    // which would leak all bundled skill descriptions into every skill-enabled agent's
     // context. The call below is kept for its side effect only: it clones the Trail of
     // Bits companion skills into the cache that `argus_skill_load`'s resolver reads.
     ensureTrailOfBitsSkills()

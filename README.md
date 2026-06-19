@@ -380,11 +380,11 @@ This prevents context pollution and ensures non-audit agents operate independent
 
 Agents discover specialized knowledge with metadata-only `argus_list_skills` / `argus_recommend_skills` when the exact name is unknown, then load selected full knowledge on-demand via the `argus_skill_load` tool:
 
-- **Vulnerability Patterns** — 51 SKILL.md files covering reentrancy, oracle manipulation, flash loans, etc.
+- **Vulnerability Patterns** — 60 SKILL.md files covering reentrancy, oracle manipulation, flash loans, ERC4626, governance, front-running, and more
 - **Protocol Patterns** — 7 files for AMM/DEX, bridges, governance, lending, staking, concentrated liquidity, and liquid-staking/restaking
-- **Methodology** — 11 files for audit workflow, report templates, severity classification, and specialist profiles
+- **Methodology** — 12 files for audit workflow, report templates, severity classification, refutation rubric, and specialist profiles
 - **Checklists** — 6 Cyfrin audit checklists
-- **References** — 3 files for exploit index, vulnerable contract examples, and attack-vector deck
+- **References** — 18 files for exploit index, vulnerable contract examples, attack-vector deck, and major DeFi exploit case studies
 
 This channel is **lazy-loaded** — agents request skills only when needed, reducing context overhead.
 
