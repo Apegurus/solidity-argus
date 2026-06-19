@@ -13,28 +13,28 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 **Role**: Primary security audit orchestrator
 **Description**: Argus Panoptes, the All-Seeing Guardian. Coordinates full Solidity security audits by dispatching Sentinel (analysis), Pythia (research), Audit Specialist (deep/adversarial profiles), Scribe (reporting), and Themis (validation). Follows a rigorous 7-step methodology: Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, and Reporting.
 **Model**: anthropic/claude-opus-4-8
-**Tools**: 15 orchestrator-accessible argus_* tools (argus_slither_analyze, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_solodit_search, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_skill_load, argus_generate_report, argus_record_finding, argus_read_findings, argus_sync_knowledge, argus_themis_disposition). `argus_persist_deduped` is reserved for Scribe.
+**Tools**: 17 core argus_* tools plus optional Solodit. Argus can use metadata-only discovery directly (`argus_list_skills`, `argus_recommend_skills`) and records final Themis disposition with `argus_themis_disposition`; heavyweight audit execution remains delegated. Core tools include argus_slither_analyze, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_list_skills, argus_recommend_skills, argus_skill_load, argus_generate_report, argus_record_finding, argus_read_findings, argus_sync_knowledge, argus_themis_disposition. `argus_persist_deduped` is reserved for Scribe.
 
 ## sentinel
 
 **Role**: Static analysis and testing specialist
 **Description**: Finds vulnerabilities through Slither static analysis, Foundry testing, fuzzing, and pattern matching. The tactical executor — runs tools, writes PoC tests, and verifies findings. Dispatched by Argus during Automated Scanning and Testing & Verification phases.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_slither_analyze, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_record_finding, skill
+**Tools**: argus_slither_analyze, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_list_skills, argus_recommend_skills, argus_skill_load, argus_record_finding, skill
 
 ## pythia
 
 **Role**: Vulnerability researcher
 **Description**: Consults Solodit, SCVD, and the knowledge base to find historical precedents and known attack vectors. Searches 7,769+ real-world audit findings and 51 curated vulnerability pattern files. Dispatched by Argus during Vulnerability Research phase.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_solodit_search, argus_check_patterns, argus_record_finding, skill
+**Tools**: argus_solodit_search, argus_check_patterns, argus_list_skills, argus_recommend_skills, argus_skill_load, argus_record_finding, skill
 
 ## audit-specialist
 
 **Role**: Profile-driven adversarial specialist auditor
 **Description**: Runs focused deep/adversarial passes under profiles such as vector-scan, access-control, math-precision, invariant, economic-security, execution-trace, periphery, and first-principles. Combines Sentinel-style analysis and verification tools with Pythia-style historical research. Subject to the 4-gate refutation rubric: every candidate is persisted via `argus_record_finding` with a `rubric_verdict` (CONFIRMED → Findings tier; DEMOTED / REJECTED_DEMOTED → Leads tier). Textual `LEAD` blocks in the structured output are for Argus's planning/handoff and do not replace recording.
 **Model**: anthropic/claude-sonnet-4-6
-**Tools**: argus_skill_load, argus_check_patterns, argus_solodit_search, argus_analyze_contract, argus_slither_analyze, argus_proxy_detection, argus_forge_test, argus_forge_fuzz, argus_forge_coverage, argus_gas_analysis, argus_record_finding, skill
+**Tools**: argus_skill_load, argus_list_skills, argus_recommend_skills, argus_check_patterns, argus_solodit_search, argus_analyze_contract, argus_slither_analyze, argus_proxy_detection, argus_forge_test, argus_forge_fuzz, argus_forge_coverage, argus_gas_analysis, argus_record_finding, skill
 
 ## scribe
 
@@ -48,4 +48,4 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 **Role**: Audit quality gate
 **Description**: Independent cross-validation agent running on GPT-5.5 (different LLM provider for reasoning diversity). Validates pipeline integrity: compares raw findings against Scribe's deduped output and the final report. Performs second-opinion research via Solodit and vulnerability skill checklists. Returns a structured verdict to Argus who makes the final decision. Dispatched by Argus after Scribe completes.
 **Model**: openai/gpt-5.5
-**Tools**: argus_read_findings, argus_solodit_search, argus_check_patterns, argus_skill_load, skill
+**Tools**: argus_read_findings, argus_solodit_search, argus_check_patterns, argus_list_skills, argus_recommend_skills, argus_skill_load, skill
