@@ -57,6 +57,12 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
   }
 }
 
+function readToolsConfig(agentConfig: unknown): unknown {
+  if (typeof agentConfig !== "object" || agentConfig === null) return undefined
+  const { tools } = agentConfig as { tools?: unknown }
+  return tools
+}
+
 describe("createConfigHandler", () => {
   test("registers all Argus agents", async () => {
     const handler = createConfigHandler(createArgusConfig())
@@ -93,6 +99,8 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.permission).toEqual({
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       task: {
         sentinel: "allow",
         pythia: "allow",
@@ -112,6 +120,8 @@ describe("createConfigHandler", () => {
       argus_proxy_detection: "allow",
       argus_forge_coverage: "allow",
       argus_record_finding: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -119,6 +129,8 @@ describe("createConfigHandler", () => {
       argus_solodit_search: "allow",
       argus_check_patterns: "allow",
       argus_record_finding: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -134,12 +146,23 @@ describe("createConfigHandler", () => {
       argus_forge_coverage: "allow",
       argus_gas_analysis: "allow",
       argus_record_finding: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       skill: "allow",
     })
     expect(config.agent?.scribe?.permission).toEqual({
       argus_read_findings: "allow",
       argus_generate_report: "allow",
       argus_persist_deduped: "allow",
+      argus_skill_load: "allow",
+      skill: "allow",
+    })
+    expect(config.agent?.themis?.permission).toEqual({
+      argus_read_findings: "allow",
+      argus_solodit_search: "allow",
+      argus_check_patterns: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -151,12 +174,12 @@ describe("createConfigHandler", () => {
 
     await handler(config)
 
-    expect(config.agent?.sentinel?.tools).toBeUndefined()
-    expect(config.agent?.pythia?.tools).toBeUndefined()
-    expect(config.agent?.["audit-specialist"]?.tools).toBeUndefined()
-    expect(config.agent?.scribe?.tools).toBeUndefined()
+    expect(readToolsConfig(config.agent?.sentinel)).toBeUndefined()
+    expect(readToolsConfig(config.agent?.pythia)).toBeUndefined()
+    expect(readToolsConfig(config.agent?.["audit-specialist"])).toBeUndefined()
+    expect(readToolsConfig(config.agent?.scribe)).toBeUndefined()
     // argus still uses tools for wildcard denials
-    expect(config.agent?.argus?.tools).toBeDefined()
+    expect(readToolsConfig(config.agent?.argus)).toBeDefined()
   })
 
   test("applies model override for argus", async () => {
