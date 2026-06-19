@@ -179,6 +179,40 @@ detection_rules:
     expect(errors[0]).toContain("Skipped unsafe detection rule unsafe-regex-rule-1")
   })
 
+  it("skips lookaround and nested group ReDoS bypasses", () => {
+    writeSkill(
+      "vulnerability-patterns/lookaround-redos",
+      `---
+name: lookaround-redos
+description: Lookaround ReDoS bypasses
+pattern_category: logic-error
+detection_rules:
+  - regex: '(?=((a*)*)b)a'
+    severity: High
+    description: nested repeated groups inside lookahead
+  - regex: '(?=(a+)+b)a'
+    severity: High
+    description: nested unbounded group inside lookahead
+  - regex: '(outer(a*)*)b'
+    severity: High
+    description: nested repeated group inside unquantified outer group
+  - regex: 'safeCall\\('
+    severity: Medium
+    description: safe rule still loads
+---
+
+# Lookaround ReDoS`,
+    )
+
+    const { patterns, errors } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toHaveLength(1)
+    expect(patterns[0]?.name).toBe("lookaround-redos-rule-4")
+    expect(errors).toHaveLength(3)
+    expect(errors[0]).toContain("lookaround assertions")
+    expect(errors[1]).toContain("lookaround assertions")
+    expect(errors[2]).toContain("nested or ambiguous repeated groups")
+  })
+
   it("skips detection regexes that do not compile", () => {
     writeSkill(
       "vulnerability-patterns/bad-regex",
@@ -219,6 +253,11 @@ detection_rules:
     description: unsafe exclusion
     exclude_if:
       - '(a|aa){1,100000}$'
+  - regex: 'lookaroundDanger'
+    severity: Medium
+    description: lookaround exclusion
+    exclude_if:
+      - '(?=((a*)*)b)a'
 ---
 
 # Exclude If`,
@@ -227,8 +266,9 @@ detection_rules:
     const { patterns, errors } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
     expect(patterns).toHaveLength(1)
     expect(patterns[0]?.exclude_if).toEqual(["safeGuard"])
-    expect(errors).toHaveLength(1)
+    expect(errors).toHaveLength(2)
     expect(errors[0]).toContain("exclude_if nested or ambiguous repeated groups")
+    expect(errors[1]).toContain("exclude_if lookaround assertions")
   })
 })
 

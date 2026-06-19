@@ -79,7 +79,7 @@ function findGroupEnd(regex: string, startIndex: number): number {
   return -1
 }
 
-function hasUnboundedQuantifier(regex: string): boolean {
+function hasAnyQuantifier(regex: string): boolean {
   let inCharacterClass = false
 
   for (let i = 0; i < regex.length; i += 1) {
@@ -96,11 +96,8 @@ function hasUnboundedQuantifier(regex: string): boolean {
     }
     if (inCharacterClass) continue
 
-    if (char === "*" || char === "+") return true
-    if (char !== "{") continue
-
-    const quantifier = regex.slice(i).match(/^\{\d*,?\}/)?.[0]
-    if (quantifier?.includes(",")) return true
+    if (char === "*" || char === "+" || char === "?") return true
+    if (char === "{" && /^\{\d+,?\d*\}/.test(regex.slice(i))) return true
   }
 
   return false
@@ -144,14 +141,47 @@ function hasUnsafeRepeatedGroup(regex: string): boolean {
     const end = findGroupEnd(regex, i)
     if (end === -1) return false
 
+    const groupBody = regex.slice(i + 1, end)
+    if (hasUnsafeRepeatedGroup(groupBody)) return true
+
     if (!hasRepeatedQuantifierAt(regex, end + 1)) {
-      i = end
       continue
     }
 
-    const groupBody = regex.slice(i + 1, end)
-    if (groupBody.includes("|") || hasUnboundedQuantifier(groupBody)) return true
-    i = end
+    if (groupBody.includes("|") || groupBody.includes("(") || hasAnyQuantifier(groupBody)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function hasLookaround(regex: string): boolean {
+  let inCharacterClass = false
+
+  for (let i = 0; i < regex.length; i += 1) {
+    const char = regex[i]
+    if (!char || isEscaped(regex, i)) continue
+
+    if (char === "[") {
+      inCharacterClass = true
+      continue
+    }
+    if (char === "]") {
+      inCharacterClass = false
+      continue
+    }
+    if (inCharacterClass || char !== "(") continue
+
+    const next = regex.slice(i, i + 4)
+    if (
+      next.startsWith("(?=") ||
+      next.startsWith("(?!") ||
+      next.startsWith("(?<=") ||
+      next.startsWith("(?<!")
+    ) {
+      return true
+    }
   }
 
   return false
@@ -170,6 +200,10 @@ function regexSafetyError(regex: string): string | null {
 
   if (/(^|[^\\])\\[1-9]/.test(regex)) {
     return "backreferences are not allowed in skill detection rules"
+  }
+
+  if (hasLookaround(regex)) {
+    return "lookaround assertions are not allowed in skill detection rules"
   }
 
   if (hasUnsafeRepeatedGroup(regex)) {
