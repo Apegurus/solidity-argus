@@ -2,6 +2,7 @@ import type { ToolDefinition } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "./config/types"
 import { createLogger } from "./shared/logger"
 import { getToolResultCache, type ToolResultCache } from "./shared/tool-result-cache"
+import { argusListSkillsTool, argusRecommendSkillsTool } from "./tools/argus-skill-discovery-tools"
 import { argusSkillLoadTool } from "./tools/argus-skill-load-tool"
 import { contractAnalyzerTool } from "./tools/contract-analyzer-tool"
 import { forgeCoverageTool } from "./tools/forge-coverage-tool"
@@ -55,6 +56,8 @@ export function createTools(
     argus_analyze_contract: contractAnalyzerTool,
     argus_check_patterns: patternCheckerTool,
     argus_proxy_detection: proxyDetectionTool,
+    argus_list_skills: argusListSkillsTool,
+    argus_recommend_skills: argusRecommendSkillsTool,
     argus_skill_load: argusSkillLoadTool,
     argus_record_finding: recordFindingTool,
     argus_read_findings: readFindingsTool,
