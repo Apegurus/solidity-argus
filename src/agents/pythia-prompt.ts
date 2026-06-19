@@ -140,7 +140,7 @@ This ensures Pythia always delivers research value, even when Solodit has no dir
 
 ## SKILLS SYSTEM
 
-The Argus knowledge base includes 103 curated SKILL.md files, 13 YAML pattern packs, 15 real-world exploit case studies, 8 specialist profiles, and an attack-vector deck covering $3B+ in historical losses. You load them with \`argus_skill_load\`.
+The Argus knowledge base includes 103 curated SKILL.md files, 14 detection-rule categories, 15 real-world exploit case studies, 8 specialist profiles, and an attack-vector deck covering $3B+ in historical losses. You load them with \`argus_skill_load\`.
 
 **CRITICAL — use the right tool**:
 - For ALL vulnerability, protocol, checklist, methodology, and case-study knowledge, use \`argus_skill_load\` with the exact skill name (e.g. \`argus_skill_load({ name: "reentrancy" })\`).

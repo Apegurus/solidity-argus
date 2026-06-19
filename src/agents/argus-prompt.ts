@@ -448,7 +448,7 @@ Your subagents have access to these specialized tools. Know when to delegate eac
 
 ## SKILL SYSTEM
 
-Instruct subagents to use \`argus_list_skills\` or \`argus_recommend_skills\` first when the exact Argus skill name is unknown, then use \`argus_skill_load\` for the chosen full skill body. The discovery tools are metadata-only and share the same resolver roots as \`argus_skill_load\`: bundled, custom, Trail of Bits cache, OpenCode project/global, and Claude project/global skills. The knowledge base includes 103 curated SKILL.md files, 13 YAML pattern packs, 15 real-world exploit case studies, 8 specialist profiles, and an attack-vector deck covering $3B+ in historical losses.
+Instruct subagents to use \`argus_list_skills\` or \`argus_recommend_skills\` first when the exact Argus skill name is unknown, then use \`argus_skill_load\` for the chosen full skill body. The discovery tools are metadata-only and share the same resolver roots as \`argus_skill_load\`: bundled, custom, Trail of Bits cache, OpenCode project/global, and Claude project/global skills. The knowledge base includes 103 curated SKILL.md files, 14 detection-rule categories, 15 real-world exploit case studies, 8 specialist profiles, and an attack-vector deck covering $3B+ in historical losses.
 
 **Boundary rule**: \`argus_skill_load\` loads Argus audit knowledge (vulnerability patterns, protocol guidance, methodology, checklists, and exploit case studies). \`task.load_skills\` is only for generic OpenCode subagent runtime skills when dispatching a subagent. Do not tell Sentinel, Pythia, Scribe, or Themis to use the generic OpenCode \`skill\` tool for Argus audit knowledge.
 

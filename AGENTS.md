@@ -25,7 +25,7 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 ## pythia
 
 **Role**: Vulnerability researcher
-**Description**: Consults Solodit, SCVD, and the knowledge base to find historical precedents and known attack vectors. Searches 7,769+ real-world audit findings and 51 curated vulnerability pattern files. Dispatched by Argus during Vulnerability Research phase.
+**Description**: Consults Solodit, SCVD, and the knowledge base to find historical precedents and known attack vectors. Searches 7,769+ real-world audit findings and 60 curated vulnerability pattern files. Dispatched by Argus during Vulnerability Research phase.
 **Model**: anthropic/claude-sonnet-4-6
 **Tools**: argus_solodit_search, argus_check_patterns, argus_list_skills, argus_recommend_skills, argus_skill_load, argus_record_finding, skill
 
