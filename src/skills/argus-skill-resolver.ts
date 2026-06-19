@@ -4,7 +4,7 @@ import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
-import { parseFrontmatter, validateSkillFrontmatter } from "./skill-schema"
+import { parseFrontmatter, type SkillFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
 export type ResolvedSkill = {
   name: string
@@ -12,6 +12,9 @@ export type ResolvedSkill = {
   filePath: string
   source: "bundled" | "custom" | "trailofbits" | "opencode" | "claude"
   content: string
+  category?: SkillFrontmatter["category"]
+  pattern_category?: SkillFrontmatter["pattern_category"]
+  detection_rules?: SkillFrontmatter["detection_rules"]
   source_url?: string
   source_license?: string
   imported_at?: string
@@ -196,6 +199,7 @@ export function resolveArgusSkills(
       }
 
       const frontmatter = parseFrontmatter(content)
+      let validatedFrontmatter: SkillFrontmatter | null = null
       if (frontmatter) {
         const validation = validateSkillFrontmatter(frontmatter)
         if (!validation.success) {
@@ -204,6 +208,7 @@ export function resolveArgusSkills(
           )
           continue
         }
+        validatedFrontmatter = validation.data
       }
 
       const parsedName = parseSkillNameFromFrontmatter(content)
@@ -221,11 +226,20 @@ export function resolveArgusSkills(
       }
 
       if (frontmatter) {
-        if (typeof frontmatter.source_url === "string") skill.source_url = frontmatter.source_url
-        if (typeof frontmatter.source_license === "string")
-          skill.source_license = frontmatter.source_license
-        if (typeof frontmatter.imported_at === "string") skill.imported_at = frontmatter.imported_at
-        if (typeof frontmatter.source_hash === "string") skill.source_hash = frontmatter.source_hash
+        if (validatedFrontmatter?.category) skill.category = validatedFrontmatter.category
+        if (validatedFrontmatter?.pattern_category)
+          skill.pattern_category = validatedFrontmatter.pattern_category
+        if (
+          validatedFrontmatter?.detection_rules &&
+          validatedFrontmatter.detection_rules.length > 0
+        ) {
+          skill.detection_rules = validatedFrontmatter.detection_rules
+        }
+        if (validatedFrontmatter?.source_url) skill.source_url = validatedFrontmatter.source_url
+        if (validatedFrontmatter?.source_license)
+          skill.source_license = validatedFrontmatter.source_license
+        if (validatedFrontmatter?.imported_at) skill.imported_at = validatedFrontmatter.imported_at
+        if (validatedFrontmatter?.source_hash) skill.source_hash = validatedFrontmatter.source_hash
       }
 
       resolved.set(normalizedName, skill)

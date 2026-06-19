@@ -55,6 +55,15 @@ describe("argus-skill-resolver", () => {
       "skills/specialist-profiles/math-precision/SKILL.md",
     )
   })
+
+  it("exposes frontmatter metadata for catalog and scanner consumers", () => {
+    const skills = resolveArgusSkills(process.cwd())
+    const reentrancy = skills.get("reentrancy")
+
+    expect(reentrancy?.category).toBe("vulnerability-pattern")
+    expect(reentrancy?.pattern_category).toBe("reentrancy")
+    expect(reentrancy?.detection_rules?.length).toBeGreaterThan(0)
+  })
 })
 
 describe("skill precedence", () => {
