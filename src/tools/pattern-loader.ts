@@ -266,6 +266,8 @@ function readExactOneQuantifierEnd(regex: string, index: number): number | null 
 }
 
 function readOptionalQuantifierEnd(regex: string, index: number): number | null {
+  if (regex[index] === "?") return regex[index + 1] === "?" ? index + 2 : index + 1
+
   const match = regex.slice(index).match(/^\{(\d+),(\d+)\}\??/)
   if (!match) return null
 
@@ -315,7 +317,7 @@ function inlineTransparentGroups(regex: string): string {
       const optionalEnd = readOptionalQuantifierEnd(regex, atom.end)
       const transparentEnd =
         quantifierEnd === null
-          ? atom.end
+          ? (optionalEnd ?? atom.end)
           : exactOneEnd === quantifierEnd || optionalEnd === quantifierEnd
             ? quantifierEnd
             : null

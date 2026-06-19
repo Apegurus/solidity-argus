@@ -461,6 +461,31 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             description: "optional grouped repeated wildcard seam",
           },
           {
+            regex: "^(?:.*)??.*owner$",
+            severity: "High",
+            description: "lazy optional grouped repeated wildcard seam",
+          },
+          {
+            regex: "^(?:.+)??.+owner$",
+            severity: "High",
+            description: "lazy optional grouped repeated plus seam",
+          },
+          {
+            regex: "^(?<name>.*)??.*owner$",
+            severity: "High",
+            description: "named lazy optional grouped repeated wildcard seam",
+          },
+          {
+            regex: "^(?:(?:.*))??.*owner$",
+            severity: "High",
+            description: "nested lazy optional grouped repeated wildcard seam",
+          },
+          {
+            regex: "^(?:.*)??(?:.*)??owner$",
+            severity: "High",
+            description: "double lazy optional grouped repeated wildcard seam",
+          },
+          {
             regex: "^a*b*$",
             severity: "Low",
             description: "different adjacent quantified literals stay allowed",
@@ -470,6 +495,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             severity: "Low",
             description: "safe literal rule still loads",
           },
+          {
+            regex: "^a?a?$",
+            severity: "Low",
+            description: "different optional literals stay allowed",
+          },
         ],
         filePath: "/custom/bypass-unsafe/SKILL.md",
         source: "custom",
@@ -478,10 +508,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     ])
 
     expect(patterns.map((pattern) => pattern.name)).toEqual([
-      "bypass-unsafe-rule-19",
-      "bypass-unsafe-rule-20",
+      "bypass-unsafe-rule-24",
+      "bypass-unsafe-rule-25",
+      "bypass-unsafe-rule-26",
     ])
-    expect(errors).toHaveLength(18)
+    expect(errors).toHaveLength(23)
     expect(errors[0]).toContain("backreferences")
     expect(errors[1]).toContain("backreferences")
     expect(errors[2]).toContain("backreferences")
@@ -500,6 +531,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     expect(errors[15]).toContain("adjacent ambiguous quantifiers")
     expect(errors[16]).toContain("adjacent ambiguous quantifiers")
     expect(errors[17]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[18]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[19]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[20]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[21]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[22]).toContain("adjacent ambiguous quantifiers")
   })
 
   it("validates deeply nested safe groups without exponential recursion", () => {
