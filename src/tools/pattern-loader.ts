@@ -254,18 +254,46 @@ function readQuantifierEnd(regex: string, index: number): number | null {
   return index + match[0].length
 }
 
+function readExactOneQuantifierEnd(regex: string, index: number): number | null {
+  const match = regex.slice(index).match(/^\{1\}\??/)
+  return match ? index + match[0].length : null
+}
+
+function readGroupBody(regex: string, index: number, end: number): string | null {
+  if (regex[index] !== "(") return null
+  if (regex.slice(index, index + 3) === "(?:") return regex.slice(index + 3, end - 1)
+  if (regex.slice(index, index + 2) === "(?") return null
+
+  return regex.slice(index + 1, end - 1)
+}
+
+function readTransparentGroupAtom(regex: string, index: number, end: number): RegexAtom | null {
+  const groupBody = readGroupBody(regex, index, end)
+  if (groupBody === null) return null
+
+  const wrapped = readQuantifiedAtom(groupBody, 0)
+  if (wrapped?.end !== groupBody.length) return null
+
+  return wrapped
+}
+
 function readQuantifiedAtom(regex: string, index: number): RegexAtom | null {
   const atom = readRegexAtom(regex, index)
   if (!atom) return null
 
   const quantifierEnd = readQuantifierEnd(regex, atom.end)
-  if (quantifierEnd) return { end: quantifierEnd, value: atom.value }
+  if (quantifierEnd) {
+    const exactOneQuantifierEnd = readExactOneQuantifierEnd(regex, atom.end)
+    if (exactOneQuantifierEnd === quantifierEnd) {
+      const wrapped = readTransparentGroupAtom(regex, index, atom.end)
+      if (wrapped) return { end: quantifierEnd, value: wrapped.value }
+    }
 
-  if (regex.slice(index, index + 3) !== "(?:") return null
+    return { end: quantifierEnd, value: atom.value }
+  }
 
-  const groupBody = regex.slice(index + 3, atom.end - 1)
-  const wrapped = readQuantifiedAtom(groupBody, 0)
-  if (wrapped?.end !== groupBody.length) return null
+  const wrapped = readTransparentGroupAtom(regex, index, atom.end)
+  if (!wrapped) return null
 
   return { end: atom.end, value: wrapped.value }
 }
@@ -275,11 +303,17 @@ function hasAdjacentAmbiguousQuantifiers(regex: string): boolean {
   let previousQuantifierEnd = -1
 
   for (let i = 0; i < regex.length; ) {
+    const atom = readRegexAtom(regex, i)
+    const groupBody = atom ? readGroupBody(regex, i, atom.end) : null
+    if (groupBody !== null && hasAdjacentAmbiguousQuantifiers(groupBody)) {
+      return true
+    }
+
     const quantified = readQuantifiedAtom(regex, i)
     if (!quantified) {
       previousQuantifiedAtom = null
       previousQuantifierEnd = -1
-      i = readRegexAtom(regex, i)?.end ?? i + 1
+      i = atom?.end ?? i + 1
       continue
     }
 
