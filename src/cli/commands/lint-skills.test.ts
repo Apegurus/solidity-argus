@@ -196,6 +196,29 @@ category: ${cat}
     expect(result.valid).toBe(categories.length)
     expect(result.invalid).toBe(0)
   })
+
+  it("requires category only when a skill file is marked as bundled", () => {
+    const content = `---
+name: bundled-skill
+description: Missing category
+---
+# Content`
+
+    const customResult = lintSkillFiles([{ path: "custom/SKILL.md", content }])
+    expect(customResult.valid).toBe(1)
+    expect(customResult.invalid).toBe(0)
+
+    const bundledResult = lintSkillFiles([
+      {
+        path: "skills/vulnerability-patterns/bundled-skill/SKILL.md",
+        content,
+        requireCategory: true,
+      },
+    ])
+    expect(bundledResult.valid).toBe(0)
+    expect(bundledResult.invalid).toBe(1)
+    expect(bundledResult.errors[0]?.errors[0]).toContain("Bundled skills must declare category")
+  })
 })
 
 describe("lintSkillsCommand", () => {

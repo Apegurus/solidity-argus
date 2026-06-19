@@ -45,13 +45,19 @@ export interface LintResult {
   errors: Array<{ file: string; errors: string[] }>
 }
 
-export function lintSkillFiles(skillFiles: Array<{ path: string; content: string }>): LintResult {
+type SkillFileForLint = {
+  path: string
+  content: string
+  requireCategory?: boolean
+}
+
+export function lintSkillFiles(skillFiles: SkillFileForLint[]): LintResult {
   let valid = 0
   let invalid = 0
   let skipped = 0
   const errors: Array<{ file: string; errors: string[] }> = []
 
-  for (const { path, content } of skillFiles) {
+  for (const { path, content, requireCategory } of skillFiles) {
     const fm = parseFrontmatter(content)
     if (!fm) {
       skipped++
@@ -59,7 +65,10 @@ export function lintSkillFiles(skillFiles: Array<{ path: string; content: string
     }
 
     const result = validateSkillFrontmatter(fm)
-    if (result.success) {
+    if (result.success && requireCategory === true && !result.data.category) {
+      invalid++
+      errors.push({ file: path, errors: ["category: Bundled skills must declare category"] })
+    } else if (result.success) {
       valid++
     } else {
       invalid++
@@ -83,13 +92,17 @@ export const lintSkillsCommand: CliCommand = {
     }
 
     const roots = resolveSkillRoots(cwd, config)
-    const skillFiles: Array<{ path: string; content: string }> = []
+    const skillFiles: SkillFileForLint[] = []
 
     for (const root of roots) {
       const files = findSkillFiles(root.path)
       for (const file of files) {
         try {
-          skillFiles.push({ path: file, content: readFileSync(file, "utf8") })
+          skillFiles.push({
+            path: file,
+            content: readFileSync(file, "utf8"),
+            requireCategory: root.source === "bundled",
+          })
         } catch {
           logger.debug("Skipping unreadable skill file")
         }
