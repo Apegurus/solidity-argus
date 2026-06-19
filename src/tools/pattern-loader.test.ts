@@ -456,6 +456,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             description: "exact-one suffixed grouped repeated wildcard seam",
           },
           {
+            regex: "^(?:.*){0,1}.*owner$",
+            severity: "High",
+            description: "optional grouped repeated wildcard seam",
+          },
+          {
             regex: "^a*b*$",
             severity: "Low",
             description: "different adjacent quantified literals stay allowed",
@@ -473,10 +478,10 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     ])
 
     expect(patterns.map((pattern) => pattern.name)).toEqual([
-      "bypass-unsafe-rule-18",
       "bypass-unsafe-rule-19",
+      "bypass-unsafe-rule-20",
     ])
-    expect(errors).toHaveLength(17)
+    expect(errors).toHaveLength(18)
     expect(errors[0]).toContain("backreferences")
     expect(errors[1]).toContain("backreferences")
     expect(errors[2]).toContain("backreferences")
@@ -494,6 +499,35 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     expect(errors[14]).toContain("adjacent ambiguous quantifiers")
     expect(errors[15]).toContain("adjacent ambiguous quantifiers")
     expect(errors[16]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[17]).toContain("adjacent ambiguous quantifiers")
+  })
+
+  it("validates deeply nested safe groups without exponential recursion", () => {
+    const nested = `${"(".repeat(24)}a${")".repeat(24)}`
+    const start = performance.now()
+    const { patterns, errors } = extractDetectionRulesFromResolvedSkills([
+      {
+        name: "deep-safe-groups",
+        description: "Deep but safe grouping",
+        category: "vulnerability-pattern",
+        pattern_category: "logic-error",
+        detection_rules: [
+          {
+            regex: nested,
+            severity: "Low",
+            description: "nested safe groups",
+          },
+        ],
+        filePath: "/custom/deep-safe-groups/SKILL.md",
+        source: "custom",
+        content: "# Deep Safe Groups",
+      },
+    ])
+    const elapsed = performance.now() - start
+
+    expect(patterns).toHaveLength(1)
+    expect(errors).toEqual([])
+    expect(elapsed).toBeLessThan(250)
   })
 })
 
