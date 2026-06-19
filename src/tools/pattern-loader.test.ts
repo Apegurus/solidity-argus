@@ -396,6 +396,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             description: "adjacent repeated wildcards",
           },
           {
+            regex: "^.*(?:.*)(?:.*)(?:.*)(?:.*)owner$",
+            severity: "High",
+            description: "wrapped adjacent repeated wildcards",
+          },
+          {
             regex: "^a*b*$",
             severity: "Low",
             description: "different adjacent quantified literals stay allowed",
@@ -413,15 +418,16 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     ])
 
     expect(patterns.map((pattern) => pattern.name)).toEqual([
-      "bypass-unsafe-rule-6",
       "bypass-unsafe-rule-7",
+      "bypass-unsafe-rule-8",
     ])
-    expect(errors).toHaveLength(5)
+    expect(errors).toHaveLength(6)
     expect(errors[0]).toContain("backreferences")
     expect(errors[1]).toContain("backreferences")
     expect(errors[2]).toContain("backreferences")
     expect(errors[3]).toContain("adjacent ambiguous quantifiers")
     expect(errors[4]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[5]).toContain("adjacent ambiguous quantifiers")
   })
 })
 

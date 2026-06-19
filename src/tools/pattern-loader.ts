@@ -254,34 +254,42 @@ function readQuantifierEnd(regex: string, index: number): number | null {
   return index + match[0].length
 }
 
+function readQuantifiedAtom(regex: string, index: number): RegexAtom | null {
+  const atom = readRegexAtom(regex, index)
+  if (!atom) return null
+
+  const quantifierEnd = readQuantifierEnd(regex, atom.end)
+  if (quantifierEnd) return { end: quantifierEnd, value: atom.value }
+
+  if (regex.slice(index, index + 3) !== "(?:") return null
+
+  const groupBody = regex.slice(index + 3, atom.end - 1)
+  const wrapped = readQuantifiedAtom(groupBody, 0)
+  if (wrapped?.end !== groupBody.length) return null
+
+  return { end: atom.end, value: wrapped.value }
+}
+
 function hasAdjacentAmbiguousQuantifiers(regex: string): boolean {
   let previousQuantifiedAtom: string | null = null
   let previousQuantifierEnd = -1
 
   for (let i = 0; i < regex.length; ) {
-    const atom = readRegexAtom(regex, i)
-    if (!atom) {
+    const quantified = readQuantifiedAtom(regex, i)
+    if (!quantified) {
       previousQuantifiedAtom = null
       previousQuantifierEnd = -1
-      i += 1
+      i = readRegexAtom(regex, i)?.end ?? i + 1
       continue
     }
 
-    const quantifierEnd = readQuantifierEnd(regex, atom.end)
-    if (!quantifierEnd) {
-      previousQuantifiedAtom = null
-      previousQuantifierEnd = -1
-      i = atom.end
-      continue
-    }
-
-    if (previousQuantifierEnd === i && previousQuantifiedAtom === atom.value) {
+    if (previousQuantifierEnd === i && previousQuantifiedAtom === quantified.value) {
       return true
     }
 
-    previousQuantifiedAtom = atom.value
-    previousQuantifierEnd = quantifierEnd
-    i = quantifierEnd
+    previousQuantifiedAtom = quantified.value
+    previousQuantifierEnd = quantified.end
+    i = quantified.end
   }
 
   return false
