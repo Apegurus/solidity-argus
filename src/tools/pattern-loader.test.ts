@@ -411,6 +411,26 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             description: "exact-one wrapped repeated wildcard",
           },
           {
+            regex: "^(?:.*){1,1}.*owner$",
+            severity: "High",
+            description: "bounded exact-one wrapped repeated wildcard",
+          },
+          {
+            regex: "^(?:.*){01}.*owner$",
+            severity: "High",
+            description: "zero-padded exact-one wrapped repeated wildcard",
+          },
+          {
+            regex: "^(?<name>.*.*)owner$",
+            severity: "High",
+            description: "named grouped adjacent repeated wildcards",
+          },
+          {
+            regex: "^(?<name>.*){1}.*owner$",
+            severity: "High",
+            description: "named exact-one wrapped repeated wildcard",
+          },
+          {
             regex: "^a*b*$",
             severity: "Low",
             description: "different adjacent quantified literals stay allowed",
@@ -428,10 +448,10 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     ])
 
     expect(patterns.map((pattern) => pattern.name)).toEqual([
-      "bypass-unsafe-rule-9",
-      "bypass-unsafe-rule-10",
+      "bypass-unsafe-rule-13",
+      "bypass-unsafe-rule-14",
     ])
-    expect(errors).toHaveLength(8)
+    expect(errors).toHaveLength(12)
     expect(errors[0]).toContain("backreferences")
     expect(errors[1]).toContain("backreferences")
     expect(errors[2]).toContain("backreferences")
@@ -440,6 +460,10 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     expect(errors[5]).toContain("adjacent ambiguous quantifiers")
     expect(errors[6]).toContain("adjacent ambiguous quantifiers")
     expect(errors[7]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[8]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[9]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[10]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[11]).toContain("adjacent ambiguous quantifiers")
   })
 })
 

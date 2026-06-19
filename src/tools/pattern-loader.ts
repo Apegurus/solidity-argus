@@ -255,13 +255,22 @@ function readQuantifierEnd(regex: string, index: number): number | null {
 }
 
 function readExactOneQuantifierEnd(regex: string, index: number): number | null {
-  const match = regex.slice(index).match(/^\{1\}\??/)
-  return match ? index + match[0].length : null
+  const match = regex.slice(index).match(/^\{(\d+)(?:,(\d+))?\}\??/)
+  if (!match) return null
+
+  const min = Number.parseInt(match[1] ?? "", 10)
+  const max = match[2] === undefined ? min : Number.parseInt(match[2], 10)
+
+  return min === 1 && max === 1 ? index + match[0].length : null
 }
 
 function readGroupBody(regex: string, index: number, end: number): string | null {
   if (regex[index] !== "(") return null
   if (regex.slice(index, index + 3) === "(?:") return regex.slice(index + 3, end - 1)
+  if (regex.slice(index, index + 3) === "(?<") {
+    const nameEnd = regex.indexOf(">", index + 3)
+    return nameEnd === -1 ? null : regex.slice(nameEnd + 1, end - 1)
+  }
   if (regex.slice(index, index + 2) === "(?") return null
 
   return regex.slice(index + 1, end - 1)
