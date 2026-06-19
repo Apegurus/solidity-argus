@@ -8,6 +8,14 @@
   - **Extended** `oracle-manipulation` (L2 sequencer-uptime feed, minAnswer/maxAnswer depeg breaker, per-feed heartbeat, unhandled revert, deprecated `latestAnswer`), `lack-of-precision` (rounding-direction matrix, cross-decimal scaling, round-to-zero), `lending-borrowing` (AAVE/Compound integration semantics, collateral valuation), `erc4626-exchange-rate-manipulation` (EIP-4626 compliance), `flash-loan-attacks` (flash-mint `totalSupply`, flash-deposit reward extraction), `staking-vesting` (reward-rate dilution, lock/cooldown bypass).
   - **Folded** orphan patterns (with detection rules) into `weird-tokens` (ERC677/1363 hooks, native+ERC20 double-count), `unsafe-erc20-transfers` (Solmate no-code success, approve-to-zero), `logic-errors` (`EnumerableSet.add` ignored return, struct-deletion-leaves-mapping), `unchecked-return-values` (try/catch swallow), `weak-sources-randomness` (Chainlink VRF).
   - Bundled knowledge base grows to 103 SKILL.md files (60 vulnerability patterns, 7 protocol patterns).
+- Added metadata-only Argus skill discovery through `argus_list_skills` and `argus_recommend_skills`, bringing the tool surface to 18 tools when Solodit is enabled (17 core tools without Solodit). Discovery uses the same resolver roots and effective-winner precedence as `argus_skill_load`, while full skill bodies remain available only through `argus_skill_load`.
+- Expanded `argus_check_patterns` to scan resolver-effective skill detection rules across bundled, custom, Trail of Bits, OpenCode, and Claude roots, while preserving strict `pattern_category + detection_rules` gating and making broad protocol-guide rules advisory-only unless explicitly scanned.
+
+### Fixes
+- Preserved the v0.7.1 skill-scoping guarantee while adding discovery: Argus can call only the lightweight discovery tools directly, non-Argus agents still do not receive global Argus skill injection, and Scribe remains excluded from discovery tools.
+- Hardened skill-derived regex loading against ReDoS by rejecting unsafe repeated groups, lookaround assertions, backreferences, invalid expressions, and unsafe `exclude_if` filters before scan execution.
+- Enforced bundled `category` metadata in `argus lint-skills` and cleaned stale skill metadata, citation markers, and source-license noise.
+- Added targeted corpus coverage for Pyth unsafe/safe price reads and caller-influenced `call(abi.encodeWithSelector(...))` patterns, including allowlisted negative fixtures.
 
 ## 0.7.1 (2026-06-17)
 
