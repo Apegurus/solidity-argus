@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { extractDetectionRulesFromSkills } from "./pattern-loader"
+import {
+  extractDetectionRulesFromResolvedSkills,
+  extractDetectionRulesFromSkills,
+} from "./pattern-loader"
 
 const TEST_SKILLS_DIR = join(import.meta.dir, "__test-skills__")
 
@@ -148,6 +151,175 @@ detection_rules:
     expect(rules[0]?.category).toBe("access-control")
     expect(rules[1]?.name).toBe("multi-rule-rule-2")
     expect(rules[1]?.category).toBe("access-control")
+  })
+
+  it("skips unsafe detection regexes", () => {
+    writeSkill(
+      "vulnerability-patterns/unsafe-regex",
+      `---
+name: unsafe-regex
+description: Unsafe regex
+pattern_category: logic-error
+detection_rules:
+  - regex: '(a+)+$'
+    severity: High
+    description: catastrophic backtracking
+  - regex: 'safeCall\\('
+    severity: Medium
+    description: safe rule still loads
+---
+
+# Unsafe Regex`,
+    )
+
+    const { patterns, errors } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toHaveLength(1)
+    expect(patterns[0]?.name).toBe("unsafe-regex-rule-2")
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("Skipped unsafe detection rule unsafe-regex-rule-1")
+  })
+
+  it("skips detection regexes that do not compile", () => {
+    writeSkill(
+      "vulnerability-patterns/bad-regex",
+      `---
+name: bad-regex
+description: Bad regex
+pattern_category: logic-error
+detection_rules:
+  - regex: '['
+    severity: High
+    description: bad regex
+---
+
+# Bad Regex`,
+    )
+
+    const { patterns, errors } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toEqual([])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("regex does not compile")
+  })
+
+  it("preserves safe exclude_if rules and rejects unsafe exclude_if regexes", () => {
+    writeSkill(
+      "vulnerability-patterns/exclude-if",
+      `---
+name: exclude-if
+description: Exclusion filters
+pattern_category: logic-error
+detection_rules:
+  - regex: 'dangerCall'
+    severity: Medium
+    description: safe exclusion
+    exclude_if:
+      - 'safeGuard'
+  - regex: 'otherDanger'
+    severity: Medium
+    description: unsafe exclusion
+    exclude_if:
+      - '(a|aa){1,100000}$'
+---
+
+# Exclude If`,
+    )
+
+    const { patterns, errors } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toHaveLength(1)
+    expect(patterns[0]?.exclude_if).toEqual(["safeGuard"])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toContain("exclude_if nested or ambiguous repeated groups")
+  })
+})
+
+describe("extractDetectionRulesFromResolvedSkills", () => {
+  it("extracts rules from effective resolver winners only", () => {
+    const { patterns } = extractDetectionRulesFromResolvedSkills([
+      {
+        name: "custom-reentrancy",
+        description: "Custom rule",
+        category: "vulnerability-pattern",
+        pattern_category: "reentrancy",
+        detection_rules: [
+          {
+            regex: "dangerCall",
+            severity: "High",
+            confidence: "High",
+            description: "custom danger",
+          },
+        ],
+        filePath: "/custom/custom-reentrancy/SKILL.md",
+        source: "custom",
+        content: "# Custom",
+      },
+      {
+        name: "advisory-only",
+        description: "Rules without pattern category are advisory only",
+        category: "protocol-pattern",
+        detection_rules: [
+          {
+            regex: "advisoryOnly",
+            severity: "Medium",
+            description: "must not scan",
+          },
+        ],
+        filePath: "/custom/advisory-only/SKILL.md",
+        source: "custom",
+        content: "# Advisory",
+      },
+    ])
+
+    expect(patterns).toHaveLength(1)
+    expect(patterns[0]?.name).toBe("custom-reentrancy-rule-1")
+    expect(patterns[0]?.category).toBe("reentrancy")
+    expect(patterns[0]?.regex).toBe("dangerCall")
+  })
+
+  it("returns errors and skips unsafe resolver skill rules", () => {
+    const { patterns, errors } = extractDetectionRulesFromResolvedSkills([
+      {
+        name: "custom-unsafe",
+        description: "Custom unsafe rule",
+        category: "vulnerability-pattern",
+        pattern_category: "logic-error",
+        detection_rules: [
+          {
+            regex: "(a|aa)+$",
+            severity: "High",
+            confidence: "High",
+            description: "ambiguous repeated group",
+          },
+          {
+            regex: "(a|aa){1,}$",
+            severity: "High",
+            confidence: "High",
+            description: "ambiguous counted repeated group",
+          },
+          {
+            regex: "(a|aa){1,100000}$",
+            severity: "High",
+            confidence: "High",
+            description: "ambiguous bounded repeated group",
+          },
+          {
+            regex: "(a+){1,100000}$",
+            severity: "High",
+            confidence: "High",
+            description: "nested bounded repeated group",
+          },
+        ],
+        filePath: "/custom/custom-unsafe/SKILL.md",
+        source: "custom",
+        content: "# Custom Unsafe",
+      },
+    ])
+
+    expect(patterns).toEqual([])
+    expect(errors).toHaveLength(4)
+    expect(errors[0]).toContain("custom-unsafe-rule-1")
+    expect(errors[1]).toContain("custom-unsafe-rule-2")
+    expect(errors[2]).toContain("custom-unsafe-rule-3")
+    expect(errors[3]).toContain("custom-unsafe-rule-4")
   })
 })
 
