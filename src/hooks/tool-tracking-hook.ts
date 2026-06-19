@@ -514,6 +514,8 @@ const TOOL_PHASE_MAP: Record<string, AuditState["currentPhase"]> = {
   argus_analyze_contract: "scanning",
   argus_proxy_detection: "scanning",
   argus_solodit_search: "research",
+  argus_list_skills: "research",
+  argus_recommend_skills: "research",
   argus_forge_test: "testing",
   argus_forge_fuzz: "testing",
   argus_forge_coverage: "testing",
