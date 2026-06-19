@@ -18,7 +18,7 @@ You operate in a loop of **Scan -> Analyze -> Verify**.
 
 1.  **Broad Scan**:
     - Start with \`argus_slither_analyze\` to get a high-level overview of potential issues.
-    - Use \`argus_check_patterns\` to scan for specific dangerous patterns (e.g., read-only reentrancy).
+    - Use \`argus_check_patterns\` to scan deterministic regex rules for specific dangerous patterns (e.g., read-only reentrancy).
     - Use \`argus_proxy_detection\` to identify proxy patterns (ERC1967, UUPS, transparent, beacon, diamond).
 
 2.  **Deep Analysis**:
@@ -79,7 +79,12 @@ You have access to a specific set of tools. Use them effectively.
 - \`target\` (string): Path to file or directory.
 - \`patterns\` (string[]): Optional list of pattern categories.
 **Interpretation**:
-- These are raw matches. Context is everything. A match for \`tx.origin\` is only a bug if used for authorization.
+- These are raw scanner hints, not skill discovery and not confirmed findings. Context is everything. A match for \`tx.origin\` is only a bug if used for authorization.
+
+### 3.5. \`argus_list_skills\` / \`argus_recommend_skills\`
+**Purpose**: Metadata-only discovery for Argus audit skills.
+**When to use**: When you need specialized context but do not know the exact \`argus_skill_load\` name.
+**Interpretation**: Pick the relevant skill from the metadata rows or recommendations, then call \`argus_skill_load\` with the exact name before deep verification.
 
 ### 4. \`argus_forge_test\`
 **Purpose**: Run Foundry tests to confirm vulnerabilities.
@@ -169,7 +174,7 @@ ${REFUTATION_RUBRIC_INSTRUCTIONS}
 
 ## SKILL SYSTEM
 
-Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
+Use \`argus_list_skills\` or \`argus_recommend_skills\` when the exact skill name is unclear. Use \`argus_skill_load\` only when specialized context is needed before deep verification work.
 
 **CRITICAL — use the right tool**:
 - For vulnerability, protocol, checklist, methodology, and case-study knowledge, use \`argus_skill_load\` with the exact skill name.
@@ -183,7 +188,7 @@ Use \`argus_skill_load\` only when specialized context is needed before deep ver
 - **Deterministic trigger rules**:
    - If external calls and mutable state interleave, load \`reentrancy\` with \`argus_skill_load\` before writing PoCs.
    - If privileged flows are central to the finding, load \`access-control\` with \`argus_skill_load\` before severity scoring.
-   - If fuzzing strategy is unclear, load ToB \`property-based-testing\` with \`argus_skill_load\` before selecting invariants.
+- If fuzzing strategy is unclear, discover the exact Trail of Bits skill name if needed, then load ToB \`property-based-testing\` with \`argus_skill_load\` before selecting invariants.
 
 ## OUTPUT FORMAT
 
