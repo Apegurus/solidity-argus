@@ -54,7 +54,7 @@ Contributors can add custom skills using this format:
 name: topic-name          # Must match parent directory name
 description: One sentence description (1-1024 chars)
 version: 1.0.0            # Optional semver
-category: vulnerability-pattern # methodology, protocol-pattern, checklist, reference
+category: vulnerability-pattern # Required for bundled skills. One of: vulnerability-pattern, methodology, protocol-pattern, checklist, reference
 source_url: "https://github.com/org/repo"
 source_license: "MIT"
 imported_at: "2024-01-01T00:00:00Z"
@@ -85,11 +85,13 @@ By default, built-in skills take priority. You can change this behavior using th
 }
 ```
 
-When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields.
+When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields. Bundled skills also require `category` so catalog discovery can route them consistently.
 
 ## Detection Rules
 
-Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered and loaded by the pattern checker.
+Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter. Pattern scanning is strict: a rule is scanned only when the effective resolver winner has both `pattern_category` and non-empty `detection_rules`. `category` is catalog/routing taxonomy; `pattern_category` is deterministic scanner taxonomy.
+
+The scanner and skill-discovery tools use the same resolver roots: bundled skills, `knowledge.customSkillsDir`, Trail of Bits cache, OpenCode project/global skills, and Claude project/global skills. Discovery tools return metadata only; full skill bodies remain behind `argus_skill_load`.
 
 ### Adding Detection Rules to a Skill
 
@@ -97,6 +99,7 @@ Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter.
 ---
 name: my-vulnerability
 description: Description of the vulnerability
+category: vulnerability-pattern
 pattern_category: reentrancy
 detection_rules:
   - regex: '\\.call\\{value:'
