@@ -286,6 +286,39 @@ function readTransparentGroupAtom(regex: string, index: number, end: number): Re
   return wrapped
 }
 
+function inlineTransparentGroups(regex: string): string {
+  let result = ""
+
+  for (let i = 0; i < regex.length; ) {
+    const atom = readRegexAtom(regex, i)
+    if (!atom) {
+      result += regex[i] ?? ""
+      i += 1
+      continue
+    }
+
+    const groupBody = readGroupBody(regex, i, atom.end)
+    if (groupBody !== null) {
+      const quantifierEnd = readQuantifierEnd(regex, atom.end)
+      const exactOneEnd = readExactOneQuantifierEnd(regex, atom.end)
+      const transparentEnd =
+        quantifierEnd === null ? atom.end : exactOneEnd === quantifierEnd ? quantifierEnd : null
+
+      if (transparentEnd !== null) {
+        result += inlineTransparentGroups(groupBody)
+        i = transparentEnd
+        continue
+      }
+    }
+
+    const end = readQuantifierEnd(regex, atom.end) ?? atom.end
+    result += regex.slice(i, end)
+    i = end
+  }
+
+  return result
+}
+
 function readQuantifiedAtom(regex: string, index: number): RegexAtom | null {
   const atom = readRegexAtom(regex, index)
   if (!atom) return null
@@ -361,7 +394,7 @@ function regexSafetyError(regex: string): string | null {
     return "nested or ambiguous repeated groups are not allowed in skill detection rules"
   }
 
-  if (hasAdjacentAmbiguousQuantifiers(regex)) {
+  if (hasAdjacentAmbiguousQuantifiers(inlineTransparentGroups(regex))) {
     return "adjacent ambiguous quantifiers are not allowed in skill detection rules"
   }
 

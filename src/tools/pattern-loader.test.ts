@@ -431,6 +431,31 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             description: "named exact-one wrapped repeated wildcard",
           },
           {
+            regex: "^(?:a.*){1}.*owner$",
+            severity: "High",
+            description: "prefixed exact-one grouped repeated wildcard seam",
+          },
+          {
+            regex: "^(?:a.*).*owner$",
+            severity: "High",
+            description: "prefixed grouped repeated wildcard seam",
+          },
+          {
+            regex: "^.*(?:.*a)owner$",
+            severity: "High",
+            description: "suffixed grouped repeated wildcard seam",
+          },
+          {
+            regex: "^(?:x(?:a.*)).*owner$",
+            severity: "High",
+            description: "nested prefixed grouped repeated wildcard seam",
+          },
+          {
+            regex: "^.*(?:.*a){1}owner$",
+            severity: "High",
+            description: "exact-one suffixed grouped repeated wildcard seam",
+          },
+          {
             regex: "^a*b*$",
             severity: "Low",
             description: "different adjacent quantified literals stay allowed",
@@ -448,10 +473,10 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     ])
 
     expect(patterns.map((pattern) => pattern.name)).toEqual([
-      "bypass-unsafe-rule-13",
-      "bypass-unsafe-rule-14",
+      "bypass-unsafe-rule-18",
+      "bypass-unsafe-rule-19",
     ])
-    expect(errors).toHaveLength(12)
+    expect(errors).toHaveLength(17)
     expect(errors[0]).toContain("backreferences")
     expect(errors[1]).toContain("backreferences")
     expect(errors[2]).toContain("backreferences")
@@ -464,6 +489,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     expect(errors[9]).toContain("adjacent ambiguous quantifiers")
     expect(errors[10]).toContain("adjacent ambiguous quantifiers")
     expect(errors[11]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[12]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[13]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[14]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[15]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[16]).toContain("adjacent ambiguous quantifiers")
   })
 })
 
