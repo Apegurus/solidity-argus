@@ -361,6 +361,68 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     expect(errors[2]).toContain("custom-unsafe-rule-3")
     expect(errors[3]).toContain("custom-unsafe-rule-4")
   })
+
+  it("rejects backreference and adjacent quantifier bypasses", () => {
+    const { patterns, errors } = extractDetectionRulesFromResolvedSkills([
+      {
+        name: "bypass-unsafe",
+        description: "Unsafe bypass rules",
+        category: "vulnerability-pattern",
+        pattern_category: "logic-error",
+        detection_rules: [
+          {
+            regex: String.raw`(a)\1`,
+            severity: "High",
+            description: "numeric backreference",
+          },
+          {
+            regex: String.raw`(a)\\\1`,
+            severity: "High",
+            description: "numeric backreference after literal backslash",
+          },
+          {
+            regex: String.raw`(?<word>a)\k<word>`,
+            severity: "High",
+            description: "named backreference",
+          },
+          {
+            regex: "^a*a*a*a*a*b$",
+            severity: "High",
+            description: "adjacent ambiguous quantified literals",
+          },
+          {
+            regex: "^.*.*owner$",
+            severity: "High",
+            description: "adjacent repeated wildcards",
+          },
+          {
+            regex: "^a*b*$",
+            severity: "Low",
+            description: "different adjacent quantified literals stay allowed",
+          },
+          {
+            regex: String.raw`owner\(`,
+            severity: "Low",
+            description: "safe literal rule still loads",
+          },
+        ],
+        filePath: "/custom/bypass-unsafe/SKILL.md",
+        source: "custom",
+        content: "# Bypass Unsafe",
+      },
+    ])
+
+    expect(patterns.map((pattern) => pattern.name)).toEqual([
+      "bypass-unsafe-rule-6",
+      "bypass-unsafe-rule-7",
+    ])
+    expect(errors).toHaveLength(5)
+    expect(errors[0]).toContain("backreferences")
+    expect(errors[1]).toContain("backreferences")
+    expect(errors[2]).toContain("backreferences")
+    expect(errors[3]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[4]).toContain("adjacent ambiguous quantifiers")
+  })
 })
 
 describe("error reporting", () => {

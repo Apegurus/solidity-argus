@@ -187,6 +187,106 @@ function hasLookaround(regex: string): boolean {
   return false
 }
 
+function hasBackreference(regex: string): boolean {
+  let inCharacterClass = false
+
+  for (let i = 0; i < regex.length; i += 1) {
+    const char = regex[i]
+    if (!char) continue
+
+    if (char === "[" && !isEscaped(regex, i)) {
+      inCharacterClass = true
+      continue
+    }
+    if (char === "]" && !isEscaped(regex, i)) {
+      inCharacterClass = false
+      continue
+    }
+    if (inCharacterClass) continue
+
+    if (/^[1-9]$/.test(char) && isEscaped(regex, i)) return true
+    if (char === "k" && regex[i + 1] === "<" && isEscaped(regex, i)) return true
+  }
+
+  return false
+}
+
+interface RegexAtom {
+  end: number
+  value: string
+}
+
+function readRegexAtom(regex: string, index: number): RegexAtom | null {
+  const char = regex[index]
+  if (!char || "^$|)".includes(char)) return null
+
+  if (char === "\\") {
+    const next = regex[index + 1]
+    return next ? { end: index + 2, value: `${char}${next}` } : null
+  }
+
+  if (char === "[") {
+    for (let i = index + 1; i < regex.length; i += 1) {
+      if (regex[i] === "]" && !isEscaped(regex, i)) {
+        return { end: i + 1, value: regex.slice(index, i + 1) }
+      }
+    }
+    return null
+  }
+
+  if (char === "(") {
+    const end = findGroupEnd(regex, index)
+    return end === -1 ? null : { end: end + 1, value: regex.slice(index, end + 1) }
+  }
+
+  return { end: index + 1, value: char }
+}
+
+function readQuantifierEnd(regex: string, index: number): number | null {
+  const char = regex[index]
+  if (char === "*" || char === "+") return regex[index + 1] === "?" ? index + 2 : index + 1
+
+  if (char !== "{") return null
+
+  const match = regex.slice(index).match(/^\{\d+,?\d*\}\??/)
+  if (!match) return null
+
+  return index + match[0].length
+}
+
+function hasAdjacentAmbiguousQuantifiers(regex: string): boolean {
+  let previousQuantifiedAtom: string | null = null
+  let previousQuantifierEnd = -1
+
+  for (let i = 0; i < regex.length; ) {
+    const atom = readRegexAtom(regex, i)
+    if (!atom) {
+      previousQuantifiedAtom = null
+      previousQuantifierEnd = -1
+      i += 1
+      continue
+    }
+
+    const quantifierEnd = readQuantifierEnd(regex, atom.end)
+    if (!quantifierEnd) {
+      previousQuantifiedAtom = null
+      previousQuantifierEnd = -1
+      i = atom.end
+      continue
+    }
+
+    if (previousQuantifierEnd === i && previousQuantifiedAtom === atom.value) {
+      return true
+    }
+
+    previousQuantifiedAtom = atom.value
+    previousQuantifierEnd = quantifierEnd
+    i = quantifierEnd
+  }
+
+  return false
+}
+
 function regexSafetyError(regex: string): string | null {
   if (regex.length > MAX_SKILL_REGEX_LENGTH) {
     return `regex exceeds ${MAX_SKILL_REGEX_LENGTH} characters`
@@ -198,7 +298,7 @@ function regexSafetyError(regex: string): string | null {
     return `regex does not compile: ${error instanceof Error ? error.message : String(error)}`
   }
 
-  if (/(^|[^\\])\\[1-9]/.test(regex)) {
+  if (hasBackreference(regex)) {
     return "backreferences are not allowed in skill detection rules"
   }
 
@@ -208,6 +308,10 @@ function regexSafetyError(regex: string): string | null {
 
   if (hasUnsafeRepeatedGroup(regex)) {
     return "nested or ambiguous repeated groups are not allowed in skill detection rules"
+  }
+
+  if (hasAdjacentAmbiguousQuantifiers(regex)) {
+    return "adjacent ambiguous quantifiers are not allowed in skill detection rules"
   }
 
   return null
