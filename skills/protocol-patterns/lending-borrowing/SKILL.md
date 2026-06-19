@@ -214,6 +214,18 @@ function liquidate(address borrower, uint256 amount) external {
 
 ---
 
+## Money-Market Integration Semantics
+
+When the reviewed protocol integrates AAVE, Compound, or another money market, do not model the integration as a simple `deposit/borrow/withdraw` adapter. Market configuration is part of the state machine: siloed or isolated-mode assets, eMode categories, debt ceilings, deprecated reserves, and paused markets can all change whether a borrow, repay, collateral toggle, or withdrawal succeeds. Integration tests should cover every supported reserve under its current risk flags, not only the happy-path market. Compound-style adapters also need protocol-specific branches: cETH has no `underlying()`, so a generic cToken adapter that assumes that selector can revert or mis-register ETH collateral [beirao].
+
+Liquidity is another external precondition. A user may be solvent but unable to withdraw supplied collateral if the pool is highly utilized, so liquidation, exit, and deleveraging flows must account for blocked withdrawals. Finally, check reward side effects: liquidity mining or staking rewards accrued through the integrated market can remain unclaimed, be assigned to the wrong owner, or become permanently stuck in the adapter.
+
+## Collateral Valuation Hazards
+
+Collateral review should treat "pegged" assets as correlated but not identical. Stablecoins, WBTC-style wrappers, stETH-like staking derivatives, and bridged or wrapped receipts are often priced as 1:1 with the reference asset; that shortcut hides depeg, redemption-delay, bridge, and liquidity risks that should affect collateral factors, liquidation thresholds, and oracle failover design [Decurity]. Cross-check these assumptions with the `liquidation-vulnerabilities` and `oracle-manipulation` skills.
+
+LP-token collateral requires a separate valuation model. Pricing from raw reserves, spot pool balances, or the wrong fee-tier pool can make the collateral value flash-manipulable; prefer fair-reserve formulas, TWAPs with manipulation analysis, or Chainlink-style external pricing where available [Dacian]. Verify that the chosen pool is the canonical source for the exact LP token being pledged. Yield-bearing share collateral has similar traps: ERC-4626 vault shares, staked tokens, and rebasing wrappers may be excluded from collateral checks, valued at principal instead of current share price, or valued with stale exchange rates. Test deposits, withdrawals, donations, slashing, and reward accrual against the health-factor calculation.
+
 ## References
 
 - [Aave V3 Security](https://github.com/aave/aave-v3-core/tree/master/audits)
