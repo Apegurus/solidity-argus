@@ -247,11 +247,11 @@ function rewardPerToken() public view returns (uint256) {
 
 ---
 
-## Reward-Mechanics & Lock Hazards (extended)
+## Reward-Mechanics & Lock Hazards
 
-Synthetix-style reward notifications need dust and zero-amount handling. If `notifyRewardAmount(0)` or a tiny top-up is allowed to reset `periodFinish`, the leftover rewards are spread over a fresh duration and the effective `rewardRate` is diluted for every staker. Guard zero rewards, consider minimum top-up sizes, and test repeated dust calls during an active period [Dacian].
+Synthetix-style reward notifications need dust and zero-amount handling. If `notifyRewardAmount(0)` or a tiny top-up is allowed to reset `periodFinish`, the leftover rewards are spread over a fresh duration and the effective `rewardRate` is diluted for every staker. Guard zero rewards, consider minimum top-up sizes, and test repeated dust calls during an active period.
 
-Lock accounting should be checked from every entry point, not only the direct stake path. Staking on behalf of another account must not reset, shorten, or otherwise reduce that account's existing lock; liquid wrapper tokens must not provide an economic escape hatch from a supposedly non-transferable lock; and claim windows need explicit tests for the first and last eligible timestamps [beirao].
+Lock accounting should be checked from every entry point, not only the direct stake path. Staking on behalf of another account must not reset, shorten, or otherwise reduce that account's existing lock; liquid wrapper tokens must not provide an economic escape hatch from a supposedly non-transferable lock; and claim windows need explicit tests for the first and last eligible timestamps.
 
 Pro-rata emissions can also disappear through rounding. When the `rewardPerToken` numerator is smaller than the denominator, integer division rounds to zero, potentially stranding emissions unless dust is carried forward. Protocols with native slashing have an additional invariant: an operator cannot withdraw bonded collateral while still slashable, and any penalty larger than the bond must be rejected or explicitly funded rather than silently socialized. Liquid-staking and restaking-specific variants are covered in the separate `liquid-staking-restaking` skill.
 
@@ -260,3 +260,5 @@ Pro-rata emissions can also disappear through rounding. When the `rewardPerToken
 - [Synthetix Staking Rewards](https://github.com/Synthetixio/synthetix/blob/develop/contracts/StakingRewards.sol)
 - [Convex Staking](https://github.com/convex-eth/platform)
 - [MasterChef (SushiSwap)](https://github.com/sushiswap/sushiswap/blob/master/contracts/MasterChef.sol)
+- [Dacian — AI auditor primers](https://github.com/devdacian/ai-auditor-primers)
+- [beirao.xyz — staking checklist notes](https://beirao.xyz)
