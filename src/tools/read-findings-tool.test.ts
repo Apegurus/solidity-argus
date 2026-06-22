@@ -106,6 +106,7 @@ test("returns inline result with truncated=false for small output", async () => 
   if (!parsed.truncated) {
     expect(Array.isArray(parsed.reportInput.findings)).toBe(true)
     expect(parsed.reportInput.findings.length).toBe(1)
+    expect(parsed.reportInput.findings[0]?.observation_id).toBe("FIND-0")
     expect(Array.isArray(parsed.reportInput.toolsExecuted)).toBe(true)
     expect(Array.isArray(parsed.reportInput.scope)).toBe(true)
   }
@@ -138,10 +139,12 @@ test("returns file reference with truncated=true when output exceeds threshold",
     const topFinding = parsed.summary.topFindings[0]
     if (topFinding) expect(topFinding.severity).toBe("Critical")
     expect(parsed.instructions).toContain("read tool")
+    expect(parsed.instructions).toContain("canonical observation_id")
 
     const compactFileContent = await readFile(parsed.compactReportInputFile, "utf-8")
     const compactData = JSON.parse(compactFileContent)
     expect(compactData.findings.length).toBe(200)
+    expect(compactData.findings[0].observation_id).toBe("FIND-0")
   }
 })
 
@@ -223,6 +226,53 @@ test("prefers flat report-input.json over audit state", async () => {
   expect(parsed.success).toBe(true)
   if (!parsed.truncated) {
     expect(parsed.reportInput.findings[0]?.check).toBe("from-flat")
+  }
+})
+
+test("preserves canonical observation_id from materialized report input", async () => {
+  const dir = await makeTempDir()
+  await writeRunArtifact(dir, "run-materialized", "report-input.json", {
+    run_id: "run-materialized",
+    seq: 7,
+    session_id: "ses-materialized",
+    tool_call_id: "tc-materialized",
+    source: "argus",
+    schema_version: "2.0.0",
+    projectDir: dir,
+    findings: [
+      {
+        id: "finding-display-id",
+        check: "from-materialized",
+        severity: "High",
+        confidence: "High",
+        description: "materialized finding",
+        file: "src/A.sol",
+        lines: [1, 2],
+        source: "manual",
+        run_id: "run-materialized",
+        seq: 3,
+        schema_version: "2.0.0",
+        observation_id: "obs-canonical-123",
+        issue_fingerprint: "issue-fp",
+        observation_fingerprint: "obs-fp",
+        reported_by_agent: "sentinel",
+        reported_by_session_id: "ses-child",
+      },
+    ],
+    toolsExecuted: [],
+    scope: ["src/A.sol"],
+  })
+
+  const payload = await executeReadFindings({ run_id: "run-materialized" }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  if (!parsed.truncated) {
+    const finding = parsed.reportInput.findings[0] as Record<string, unknown> | undefined
+    expect(finding?.observation_id).toBe("obs-canonical-123")
+    expect(finding?.id).toBe("finding-display-id")
+    expect(finding?.run_id).toBeUndefined()
+    expect(finding?.issue_fingerprint).toBeUndefined()
   }
 })
 

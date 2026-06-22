@@ -27,7 +27,6 @@ type ReportFinding = Omit<
   | "run_id"
   | "seq"
   | "schema_version"
-  | "observation_id"
   | "issue_fingerprint"
   | "observation_fingerprint"
   | "reported_by_agent"
@@ -92,7 +91,6 @@ const FINDING_INTERNAL_KEYS: ReadonlySet<string> = new Set([
   "run_id",
   "seq",
   "schema_version",
-  "observation_id",
   "issue_fingerprint",
   "observation_fingerprint",
   "reported_by_agent",
@@ -484,7 +482,7 @@ export async function executeReadFindings(
       severityDistribution: buildSeverityDistribution(compactInput.findings),
       topFindings: buildTopFindings(compactInput.findings),
     },
-    instructions: `Output exceeds safe inline size (${Buffer.byteLength(inlineJson, "utf-8")} bytes). Full compact data written to: ${compactFilePath}. Use the read tool to access the file contents before generating the report.`,
+    instructions: `Output exceeds safe inline size (${Buffer.byteLength(inlineJson, "utf-8")} bytes). Full compact data written to: ${compactFilePath}. Use the read tool to access the file contents before generating the report. Deduped findings must reference each raw finding's canonical observation_id value in observation_ids; do not use id or session_id values as lineage.`,
   }
 
   return JSON.stringify(fileResult)
