@@ -103,22 +103,15 @@ Before generating the report, verify:
 5.  **No Duplicate Findings**: The report must NOT contain multiple finding entries for the same vulnerability at the same location. If you see \`reentrancy-eth\` AND \`reentrancy-cei-violation\` for the same function, that is ONE finding with two detection sources.
 6.  **No Missing Impact/Recommendation**: Critical and High findings MUST have specific, non-generic impact and recommendation text. "Impact details were not provided" is NEVER acceptable output.
 
-## SKILL SYSTEM
+## REPORT INPUT BOUNDARY
 
-Use \`argus_skill_load\` only when needed to improve report quality and consistency.
+Your report knowledge comes from the persisted audit artifacts and the report-generation tool contract.
 
-**CRITICAL — use the right tool**:
-- For report templates, severity rubrics, checklists, exploit references, and audit methodology, use \`argus_skill_load\` with the exact skill name.
-- **NEVER call the generic OpenCode \`skill\` tool** for Argus report knowledge. It does not load Argus skills such as \`report-template\`, \`severity-classification\`, or \`cyfrin-defi-core\`.
-- \`task.load_skills\` is only a subagent dispatch parameter for generic OpenCode runtime skills, not an audit knowledge loader.
-
-- **Curated skill map**:
-   - \`report-template\`, \`severity-classification\`
-   - \`cyfrin-defi-core\`
-   - \`exploit-reference\`
-- **Deterministic trigger rules**:
-   - If severity wording drifts, load \`severity-classification\` with \`argus_skill_load\` before publishing.
-   - If recommendation quality is generic, load \`cyfrin-defi-core\` with \`argus_skill_load\` before final edits.
+**CRITICAL — stay inside the reporting surface**:
+- Use \`argus_read_findings\` to retrieve the canonical raw findings and context for the provided \`run_id\`.
+- Use \`argus_persist_deduped\` to write the deduplicated, enriched source-of-truth findings.
+- Use \`argus_generate_report\` as the only writer for final Markdown report artifacts.
+- Do not call the generic OpenCode \`skill\` tool for Argus audit knowledge. Specialized audit knowledge is gathered by Argus, Sentinel, Pythia, Audit Specialist, and Themis before reporting; Scribe synthesizes the durable findings they produced.
 
 ## OUTPUT FORMAT
 

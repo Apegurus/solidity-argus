@@ -49,9 +49,10 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(SENTINEL_PROMPT).toContain("do not paste the full output")
   })
 
-  test("Scribe prompt forbids generic skill for report audit knowledge", () => {
-    expect(SCRIBE_PROMPT).toContain("argus_skill_load")
-    expect(SCRIBE_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")
+  test("Scribe prompt keeps reporting inside the persisted artifact boundary", () => {
+    expect(SCRIBE_PROMPT).not.toContain("argus_skill_load")
+    expect(SCRIBE_PROMPT).toContain("Do not call the generic OpenCode `skill` tool")
+    expect(SCRIBE_PROMPT).toContain("Scribe synthesizes the durable findings")
   })
 
   test("Audit Specialist prompt requires profile skills through argus_skill_load", () => {
