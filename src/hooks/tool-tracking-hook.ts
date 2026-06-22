@@ -26,6 +26,7 @@ import type {
   FuzzCounterexample,
   SoloditResult,
 } from "../state/types"
+import { isFindingInScope } from "../tools/report-generator-tool"
 
 const logger = createLogger()
 
@@ -112,6 +113,29 @@ function toFindingSource(value: unknown): Finding["source"] {
   }
 
   return "manual"
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  )
+  return strings.length > 0
+    ? Array.from(new Set(strings)).sort((a, b) => a.localeCompare(b))
+    : undefined
+}
+
+function normalizeSupersedesObservationIds(item: Record<string, unknown>): string[] | undefined {
+  return (
+    normalizeStringArray(item.supersedes_observation_ids) ??
+    normalizeStringArray(item.supersedesObservationIds) ??
+    (typeof item.supersedes_observation_id === "string" && item.supersedes_observation_id.length > 0
+      ? [item.supersedes_observation_id]
+      : undefined) ??
+    (typeof item.supersedesObservationId === "string" && item.supersedesObservationId.length > 0
+      ? [item.supersedesObservationId]
+      : undefined)
+  )
 }
 
 const emitToSink = safeEmitToSink
@@ -263,6 +287,7 @@ function processToolResult(
   metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
   config: ProcessorConfig,
   projectDir?: string,
+  scope: string[] = [],
 ): number {
   const topLevel = parsed[config.arrayKey]
   if (!Array.isArray(topLevel)) {
@@ -371,6 +396,20 @@ function processToolResult(
         typeof item.observation_fingerprint === "string" ? item.observation_fingerprint : undefined
       findingPayload.observation_id =
         typeof item.observation_id === "string" ? item.observation_id : undefined
+      findingPayload.observation_ids = normalizeStringArray(item.observation_ids)
+      findingPayload.supersedes_observation_ids = normalizeSupersedesObservationIds(item)
+    }
+
+    if (
+      config.toolLabel === "Recorded" &&
+      scope.length > 0 &&
+      !isFindingInScope(findingPayload as Finding, scope)
+    ) {
+      diag.warn(
+        "OUT_OF_SCOPE_FINDING",
+        `argus_record_finding recorded ${file} outside declared scope: ${scope.join(", ")}`,
+        "file",
+      )
     }
 
     store.addFinding(findingPayload)
@@ -861,6 +900,7 @@ export function createToolTrackingHook(
               findingMetadata,
               RECORDED_CONFIG,
               projectDir,
+              auditState.scope,
             )
             break
           case "argus_read_findings":
