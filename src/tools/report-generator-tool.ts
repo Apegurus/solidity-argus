@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
@@ -77,7 +78,26 @@ export type ReportGenerationResult = {
   qualityGates: ReportQualityValidation
   contractDiagnostics: DropDiagnostic[]
   filePath?: string
+  idempotent?: boolean
+  reportStatus?: "written" | "reused"
+  reportsManifestFile?: string
   error?: { code: string; message: string }
+}
+
+type ReportManifestEntry = {
+  revision: number
+  filePath: string
+  filename: string
+  contentHash: string
+  dedupedContentHash: string
+  createdAt: number
+}
+
+type ReportManifest = {
+  run_id: string
+  schema_version: string
+  updatedAt: number
+  reports: ReportManifestEntry[]
 }
 
 type QualityGatePolicy = "warn" | "strict-fail"
@@ -129,6 +149,136 @@ function buildReportMetadataComment(runId: string): string {
     policy_version: SINGLE_WRITER_POLICY_VERSION,
   }
   return `<!-- argus:report_metadata ${JSON.stringify(metadata)} -->`
+}
+
+function emptyReportManifest(runId: string): ReportManifest {
+  return {
+    run_id: runId,
+    schema_version: SCHEMA_VERSION,
+    updatedAt: Date.now(),
+    reports: [],
+  }
+}
+
+function readReportManifest(filePath: string, runId: string): ReportManifest {
+  if (!existsSync(filePath)) return emptyReportManifest(runId)
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Partial<ReportManifest>
+    if (!parsed || parsed.run_id !== runId || !Array.isArray(parsed.reports)) {
+      return emptyReportManifest(runId)
+    }
+    return {
+      run_id: runId,
+      schema_version:
+        typeof parsed.schema_version === "string" ? parsed.schema_version : SCHEMA_VERSION,
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+      reports: parsed.reports.filter(
+        (entry): entry is ReportManifestEntry =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof entry.revision === "number" &&
+          typeof entry.filePath === "string" &&
+          typeof entry.filename === "string" &&
+          typeof entry.contentHash === "string" &&
+          typeof entry.dedupedContentHash === "string" &&
+          typeof entry.createdAt === "number",
+      ),
+    }
+  } catch {
+    return emptyReportManifest(runId)
+  }
+}
+
+function reportRevisionFromFilename(filename: string): number {
+  const match = filename.match(/-r(\d+)\.md$/)
+  if (!match?.[1]) return 1
+  const revision = Number.parseInt(match[1], 10)
+  return Number.isInteger(revision) && revision >= 2 ? revision : 1
+}
+
+function scanRunReports(
+  outputDir: string,
+  runId: string,
+  dedupedContentHash: string,
+): ReportManifestEntry[] {
+  if (!existsSync(outputDir)) return []
+  const entries: ReportManifestEntry[] = []
+  for (const filename of readdirSync(outputDir)) {
+    if (!filename.endsWith(".md")) continue
+    const filePath = path.join(outputDir, filename)
+    try {
+      if (!statSync(filePath).isFile()) continue
+      const content = readFileSync(filePath, "utf8")
+      if (extractReportRunId(content) !== runId) continue
+      entries.push({
+        revision: reportRevisionFromFilename(filename),
+        filePath,
+        filename,
+        contentHash: stableHash(content),
+        dedupedContentHash,
+        createdAt: statSync(filePath).mtimeMs,
+      })
+    } catch {}
+  }
+  return entries
+}
+
+function mergeReportEntries(
+  manifestEntries: ReportManifestEntry[],
+  scannedEntries: ReportManifestEntry[],
+): ReportManifestEntry[] {
+  const byPath = new Map<string, ReportManifestEntry>()
+  for (const entry of manifestEntries) {
+    if (existsSync(entry.filePath)) byPath.set(entry.filePath, entry)
+  }
+  for (const entry of scannedEntries) {
+    const existing = byPath.get(entry.filePath)
+    byPath.set(
+      entry.filePath,
+      existing
+        ? {
+            ...entry,
+            dedupedContentHash: existing.dedupedContentHash,
+            createdAt: existing.createdAt,
+          }
+        : entry,
+    )
+  }
+  return Array.from(byPath.values()).sort((a, b) =>
+    a.revision === b.revision ? a.filePath.localeCompare(b.filePath) : a.revision - b.revision,
+  )
+}
+
+function isPathInsideDirectory(filePath: string, directory: string): boolean {
+  const resolvedFile = path.resolve(filePath)
+  const resolvedDirectory = path.resolve(directory)
+  const directoryPrefix = resolvedDirectory.endsWith(path.sep)
+    ? resolvedDirectory
+    : resolvedDirectory + path.sep
+  return resolvedFile.startsWith(directoryPrefix)
+}
+
+function upsertReportEntry(
+  entries: ReportManifestEntry[],
+  nextEntry: ReportManifestEntry,
+): ReportManifestEntry[] {
+  const byPath = new Map(entries.map((entry) => [entry.filePath, entry]))
+  byPath.set(nextEntry.filePath, nextEntry)
+  return Array.from(byPath.values()).sort((a, b) =>
+    a.revision === b.revision ? a.filePath.localeCompare(b.filePath) : a.revision - b.revision,
+  )
+}
+
+async function writeReportManifest(filePath: string, manifest: ReportManifest): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true })
+  await Bun.write(filePath, JSON.stringify({ ...manifest, updatedAt: Date.now() }, null, 2))
+}
+
+function dedupedContentHash(input: ReportInput): string {
+  return stableHash({
+    findings: input.findings,
+    dropped_observations: input.dropped_observations ?? [],
+  })
 }
 
 async function checkDuplicateWrite(
@@ -640,85 +790,100 @@ function parseReportInputPayload(
 
     const dedupedFile = resolver.paths().dedupedFindingsFile
     if (existsSync(dedupedFile)) {
-      try {
-        const dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as {
-          findings?: unknown[]
-          dropped_observations?: unknown[]
-          deduped_by?: string
-        }
-        if (Array.isArray(dedupedArtifact.findings) && dedupedArtifact.findings.length > 0) {
-          const reportInputFile = resolver.paths().reportInputFile
-          let baseInput: Record<string, unknown> = {}
-          if (existsSync(reportInputFile)) {
-            try {
-              baseInput = JSON.parse(readFileSync(reportInputFile, "utf-8")) as Record<
-                string,
-                unknown
-              >
-            } catch {
-              /* use empty base */
-            }
-          }
-          const normalizedFindings = normalizeDedupedFindings(
-            dedupedArtifact.findings,
-            effectiveRunId,
-            projectDir,
-            typeof dedupedArtifact.deduped_by === "string" ? dedupedArtifact.deduped_by : "scribe",
-          )
-          const merged: Record<string, unknown> = {
-            ...baseInput,
-            run_id: effectiveRunId,
-            findings: normalizedFindings,
-            dropped_observations: Array.isArray(dedupedArtifact.dropped_observations)
-              ? dedupedArtifact.dropped_observations
-              : baseInput.dropped_observations,
-          }
-          normalizeToolsExecutedDefaults(merged, effectiveRunId, diagnostics)
-          if (typeof merged.seq !== "number" || (merged.seq as number) < 0) {
-            merged.seq = 0
-          }
-          if (typeof merged.session_id !== "string" || (merged.session_id as string).length === 0) {
-            merged.session_id = "unknown"
-          }
-          if (
-            typeof merged.tool_call_id !== "string" ||
-            (merged.tool_call_id as string).length === 0
-          ) {
-            merged.tool_call_id = `deduped:${effectiveRunId}`
-          }
-          if (typeof merged.source !== "string" || (merged.source as string).length === 0) {
-            merged.source = "deduped-findings"
-          }
-          if (
-            typeof merged.schema_version !== "string" ||
-            merged.schema_version !== SCHEMA_VERSION
-          ) {
-            merged.schema_version = SCHEMA_VERSION
-          }
-          if (typeof merged.projectDir !== "string" || (merged.projectDir as string).length === 0) {
-            merged.projectDir = projectDir
-          }
-          if (!Array.isArray(merged.scope)) {
-            merged.scope = []
-          }
-          if (!Array.isArray(merged.toolsExecuted)) {
-            merged.toolsExecuted = []
-          }
-          const validation = validateReportInput(merged)
-          if (validation.success) {
-            return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
-          }
-          for (const error of validation.errors) {
-            diagnostics.warn(
-              "REPORT_INPUT_DEDUPED_VALIDATION_FAILED",
-              `${error.field}: ${error.message}`,
-              error.field,
-            )
-          }
-        }
-      } catch {
-        /* deduped file unreadable — fall through to report-input.json */
+      let dedupedArtifact: {
+        findings?: unknown[]
+        dropped_observations?: unknown[]
+        deduped_by?: string
       }
+      try {
+        dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as typeof dedupedArtifact
+      } catch {
+        diagnostics.error(
+          "REPORT_INPUT_DEDUPED_CORRUPT",
+          `deduped-findings.json for run ${effectiveRunId} is not valid JSON.`,
+          "deduped-findings.json",
+        )
+        throwContractMismatch(
+          "ReportInput contract mismatch: corrupted deduped artifact",
+          diagnostics.getDiagnostics(),
+        )
+      }
+
+      if (!Array.isArray(dedupedArtifact.findings)) {
+        diagnostics.error(
+          "REPORT_INPUT_DEDUPED_VALIDATION_FAILED",
+          "findings must be an array in deduped-findings.json.",
+          "findings",
+        )
+        throwContractMismatch(
+          "ReportInput contract mismatch: deduped artifact failed schema validation",
+          diagnostics.getDiagnostics(),
+        )
+      }
+
+      const reportInputFile = resolver.paths().reportInputFile
+      let baseInput: Record<string, unknown> = {}
+      if (existsSync(reportInputFile)) {
+        try {
+          baseInput = JSON.parse(readFileSync(reportInputFile, "utf-8")) as Record<string, unknown>
+        } catch {
+          /* use empty base */
+        }
+      }
+      const normalizedFindings = normalizeDedupedFindings(
+        dedupedArtifact.findings,
+        effectiveRunId,
+        projectDir,
+        typeof dedupedArtifact.deduped_by === "string" ? dedupedArtifact.deduped_by : "scribe",
+      )
+      const merged: Record<string, unknown> = {
+        ...baseInput,
+        run_id: effectiveRunId,
+        findings: normalizedFindings,
+        dropped_observations: Array.isArray(dedupedArtifact.dropped_observations)
+          ? dedupedArtifact.dropped_observations
+          : baseInput.dropped_observations,
+      }
+      normalizeToolsExecutedDefaults(merged, effectiveRunId, diagnostics)
+      if (typeof merged.seq !== "number" || (merged.seq as number) < 0) {
+        merged.seq = 0
+      }
+      if (typeof merged.session_id !== "string" || (merged.session_id as string).length === 0) {
+        merged.session_id = "unknown"
+      }
+      if (typeof merged.tool_call_id !== "string" || (merged.tool_call_id as string).length === 0) {
+        merged.tool_call_id = `deduped:${effectiveRunId}`
+      }
+      if (typeof merged.source !== "string" || (merged.source as string).length === 0) {
+        merged.source = "deduped-findings"
+      }
+      if (typeof merged.schema_version !== "string" || merged.schema_version !== SCHEMA_VERSION) {
+        merged.schema_version = SCHEMA_VERSION
+      }
+      if (typeof merged.projectDir !== "string" || (merged.projectDir as string).length === 0) {
+        merged.projectDir = projectDir
+      }
+      if (!Array.isArray(merged.scope)) {
+        merged.scope = []
+      }
+      if (!Array.isArray(merged.toolsExecuted)) {
+        merged.toolsExecuted = []
+      }
+      const validation = validateReportInput(merged)
+      if (validation.success) {
+        return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
+      }
+      for (const error of validation.errors) {
+        diagnostics.error(
+          "REPORT_INPUT_DEDUPED_VALIDATION_FAILED",
+          `${error.field}: ${error.message}`,
+          error.field,
+        )
+      }
+      throwContractMismatch(
+        "ReportInput contract mismatch: deduped artifact failed schema validation",
+        diagnostics.getDiagnostics(),
+      )
     }
 
     const reportInputFile = resolver.paths().reportInputFile
@@ -1095,8 +1260,12 @@ function hasObservationIds(finding: Finding): boolean {
   return Array.isArray(observationIds) && observationIds.length > 0
 }
 
-function hasCompleteDedupLineage(findings: Finding[]): boolean {
-  return findings.length > 0 && findings.every(hasObservationIds)
+function hasCompleteDedupLineage(
+  findings: Finding[],
+  droppedObservations?: ReportInput["dropped_observations"],
+): boolean {
+  if (findings.length > 0) return findings.every(hasObservationIds)
+  return Array.isArray(droppedObservations) && droppedObservations.length > 0
 }
 
 function hasPartialDedupLineage(findings: Finding[]): boolean {
@@ -1515,7 +1684,7 @@ export type RenderReportOptions = {
 
 const METHODOLOGY_TOOL_LABELS: Record<string, string> = {
   slither: "Slither static analysis",
-  "forge-test": "Foundry tests and fuzzing",
+  "forge-test": "Foundry tests",
   patterns: "Pattern analysis",
   solodit: "Solodit research cross-referencing",
   analyzer: "Contract structural analysis",
@@ -1809,7 +1978,10 @@ export async function executeReportGeneration(
 
     const eventFindings = dedupeFindingsForFinalOutput(projectFindings(events))
     const inputFindings = dedupeFindingsForFinalOutput(reportInput.findings)
-    const hasLineage = hasCompleteDedupLineage(reportInput.findings)
+    const hasLineage = hasCompleteDedupLineage(
+      reportInput.findings,
+      reportInput.dropped_observations,
+    )
     const partialLineage = hasPartialDedupLineage(reportInput.findings)
     const shouldCheckParity =
       !partialLineage && (eventFindings.length === inputFindings.length || hasLineage)
@@ -1960,12 +2132,6 @@ export async function executeReportGeneration(
       sortFindingsByConfidence(leadFindings),
       existingIdMap,
     )
-    // Do not mutate the durable ID registry on an error path: an invalid regeneration
-    // request returns INVALID_REGENERATION_OPTIONS without writing a report, so it must
-    // not rewrite finding-id-map.json either.
-    if (!invalidRegenerationOptions) {
-      await persistFindingIdRegistry(runId, idProjectDir, idAssignments)
-    }
   }
 
   const reportMarkdown = renderReportMarkdown(reportInput, {
@@ -2028,6 +2194,42 @@ export async function executeReportGeneration(
       runId: runId || undefined,
       revision: args.revision,
     })
+    const manifestPath = createAuditArtifactResolver(runId, projectDir).paths().reportsManifestFile
+    const currentDedupedContentHash = dedupedContentHash(reportInput)
+    const manifest = readReportManifest(manifestPath, runId)
+    manifest.reports = mergeReportEntries(
+      manifest.reports,
+      scanRunReports(resolvedOutput, runId, currentDedupedContentHash),
+    )
+    const existingReports = manifest.reports.filter((entry) => existsSync(entry.filePath))
+    const reusableReport = existingReports.find(
+      (entry) =>
+        entry.contentHash === contentHash && isPathInsideDirectory(entry.filePath, resolvedOutput),
+    )
+
+    if (runId && args.force !== true && reusableReport) {
+      result.filePath = reusableReport.filePath
+      result.filename = reusableReport.filename
+      result.idempotent = true
+      result.reportStatus = "reused"
+      result.reportsManifestFile = manifestPath
+      manifest.reports = upsertReportEntry(manifest.reports, reusableReport)
+      await writeReportManifest(manifestPath, manifest)
+      return result
+    }
+
+    const hasChangedReportContent = existingReports.some(
+      (entry) => entry.contentHash !== contentHash,
+    )
+    if (runId && args.force !== true && args.revision == null && hasChangedReportContent) {
+      result.error = {
+        code: "REVISION_REQUIRED",
+        message: `Report content changed for run_id "${runId}". Re-persist changed findings if needed, then call argus_generate_report with revision: 2 or the next available revision.`,
+      }
+      result.reportsManifestFile = manifestPath
+      await writeReportManifest(manifestPath, manifest)
+      return result
+    }
 
     // Single-writer policy: check for duplicate writes with same run_id
     if (runId) {
@@ -2048,6 +2250,20 @@ export async function executeReportGeneration(
 
     await Bun.write(fullPath, reportMarkdown)
     result.filePath = fullPath
+    result.reportStatus = "written"
+    result.reportsManifestFile = manifestPath
+    if (runId.length > 0 && idAssignments) {
+      await persistFindingIdRegistry(runId, projectDir, idAssignments)
+    }
+    manifest.reports = upsertReportEntry(manifest.reports, {
+      revision: args.revision ?? 1,
+      filePath: fullPath,
+      filename: path.basename(fullPath),
+      contentHash,
+      dedupedContentHash: currentDedupedContentHash,
+      createdAt: Date.now(),
+    })
+    await writeReportManifest(manifestPath, manifest)
   } catch (err: unknown) {
     const logger = createLogger()
     const message = err instanceof Error ? err.message : String(err)
