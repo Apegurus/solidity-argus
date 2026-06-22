@@ -101,6 +101,7 @@ describe("createConfigHandler", () => {
     expect(config.agent?.argus?.permission).toEqual({
       argus_list_skills: "allow",
       argus_recommend_skills: "allow",
+      argus_themis_disposition: "allow",
       task: {
         sentinel: "allow",
         pythia: "allow",
@@ -164,6 +165,23 @@ describe("createConfigHandler", () => {
       argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
+    })
+  })
+
+  test("keeps Argus delegation and final disposition tools enabled despite argus wildcard denial", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    const argusTools = readToolsConfig(config.agent?.argus)
+    expect(argusTools).toMatchObject({
+      "argus_*": false,
+      argus_list_skills: true,
+      argus_recommend_skills: true,
+      argus_themis_disposition: true,
+      task: true,
+      "solodit-mcp_*": false,
     })
   })
 

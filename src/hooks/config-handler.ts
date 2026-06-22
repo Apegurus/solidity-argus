@@ -121,11 +121,14 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           "argus_*": false,
           argus_list_skills: true,
           argus_recommend_skills: true,
+          argus_themis_disposition: true,
+          task: true,
           "solodit-mcp_*": false,
         },
         permission: {
           argus_list_skills: "allow",
           argus_recommend_skills: "allow",
+          argus_themis_disposition: "allow",
           task: {
             sentinel: "allow",
             pythia: "allow",
