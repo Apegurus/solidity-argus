@@ -139,7 +139,7 @@ test("returns file reference with truncated=true when output exceeds threshold",
     const topFinding = parsed.summary.topFindings[0]
     if (topFinding) expect(topFinding.severity).toBe("Critical")
     expect(parsed.instructions).toContain("read tool")
-    expect(parsed.instructions).toContain("canonical observation_id")
+    expect(parsed.instructions).toContain("canonical raw observation_id")
 
     const compactFileContent = await readFile(parsed.compactReportInputFile, "utf-8")
     const compactData = JSON.parse(compactFileContent)
@@ -404,4 +404,54 @@ test("rejects invalid deduped-findings lineage instead of returning stale data",
   expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
     "Invalid deduped findings lineage",
   )
+})
+
+test("prefers dropped-only deduped-findings artifact over stale report-input", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "report-input.json", {
+    run_id: runId,
+    findings: [makeFinding(1, { check: "stale-raw-finding" })],
+    toolsExecuted: [],
+    scope: ["src/Vault.sol"],
+    projectDir: dir,
+  })
+  await writeRunArtifact(dir, runId, "findings.json", {
+    findings: [
+      makeFinding(1, {
+        id: "RAW-1",
+        observation_id: "obs-raw-1",
+        issue_fingerprint: "issue-raw-1",
+        observation_fingerprint: "obs-fingerprint-raw-1",
+      }),
+    ],
+  })
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: runId,
+    findings: [],
+    dropped_observations: [
+      {
+        observation_id: "obs-raw-1",
+        reason: "false-positive",
+        note: "Superseded during Scribe deduplication.",
+      },
+    ],
+  })
+
+  const payload = await executeReadFindings({ run_id: runId }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  if (!parsed.truncated) {
+    expect(parsed.reportInput.findings).toHaveLength(0)
+    expect(parsed.reportInput.dropped_observations).toEqual([
+      {
+        observation_id: "obs-raw-1",
+        reason: "false-positive",
+        note: "Superseded during Scribe deduplication.",
+      },
+    ])
+    expect(parsed.reportInput.scope).toEqual(["src/Vault.sol"])
+  }
 })

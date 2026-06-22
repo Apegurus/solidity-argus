@@ -326,7 +326,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
       dropped_observations?: unknown[]
       run_id?: string
     }
-    if (Array.isArray(dedupedRaw.findings) && dedupedRaw.findings.length > 0) {
+    if (Array.isArray(dedupedRaw.findings)) {
       logger.debug(`Loaded deduped findings from: ${dedupedFile}`)
       const rawFindings = readRawFindings(projectDir, runId)
       if (!rawFindings) {
@@ -389,7 +389,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
   try {
     const data = JSON.parse(readFileSync(perRunFile, "utf8")) as ReportInput
-    if (data.findings && data.findings.length > 0) {
+    if (Array.isArray(data.findings)) {
       logger.debug(`Loaded report-input from per-run artifact: ${perRunFile}`)
       return data
     }
@@ -401,7 +401,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   const flatFile = join(argusRoot, "report-input.json")
   try {
     const data = JSON.parse(readFileSync(flatFile, "utf8")) as ReportInput
-    if (data.findings && data.findings.length > 0) {
+    if (Array.isArray(data.findings)) {
       logger.debug(`Loaded report-input from flat file: ${flatFile}`)
       return data
     }
@@ -482,7 +482,7 @@ export async function executeReadFindings(
       severityDistribution: buildSeverityDistribution(compactInput.findings),
       topFindings: buildTopFindings(compactInput.findings),
     },
-    instructions: `Output exceeds safe inline size (${Buffer.byteLength(inlineJson, "utf-8")} bytes). Full compact data written to: ${compactFilePath}. Use the read tool to access the file contents before generating the report. Deduped findings must reference each raw finding's canonical observation_id value in observation_ids; do not use id or session_id values as lineage.`,
+    instructions: `Output exceeds safe inline size (${Buffer.byteLength(inlineJson, "utf-8")} bytes). Full compact data written to: ${compactFilePath}. Use the read tool to access the file contents before generating the report. Deduped findings must reference canonical raw observation_id values, including nested raw observation_ids when present; do not use finding id, session_id, or issue_fingerprint values as lineage.`,
   }
 
   return JSON.stringify(fileResult)
