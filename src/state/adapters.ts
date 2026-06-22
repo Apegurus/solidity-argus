@@ -70,6 +70,10 @@ const KNOWN_INPUT_FIELDS = new Set([
   "issueFingerprint",
   "observation_ids",
   "observationIds",
+  "supersedes_observation_id",
+  "supersedesObservationId",
+  "supersedes_observation_ids",
+  "supersedesObservationIds",
   "observation_count",
   "observationCount",
   "reported_by_agents",
@@ -317,6 +321,16 @@ export function normalizeToCanonicalFinding(
 
   const observationIds =
     normalizeStringArray(input.observation_ids) ?? normalizeStringArray(input.observationIds)
+  const supersedesObservationIds =
+    normalizeStringArray(input.supersedes_observation_ids) ??
+    normalizeStringArray(input.supersedesObservationIds) ??
+    (typeof input.supersedes_observation_id === "string" &&
+    input.supersedes_observation_id.length > 0
+      ? [input.supersedes_observation_id]
+      : undefined) ??
+    (typeof input.supersedesObservationId === "string" && input.supersedesObservationId.length > 0
+      ? [input.supersedesObservationId]
+      : undefined)
   const reportedByAgents =
     normalizeStringArray(input.reported_by_agents) ?? normalizeStringArray(input.reportedByAgents)
   const sources = normalizeStringArray(input.sources)
@@ -425,6 +439,7 @@ export function normalizeToCanonicalFinding(
       typeof input.schema_version === "string" && input.schema_version.length > 0
         ? input.schema_version
         : SCHEMA_VERSION,
+    ...(supersedesObservationIds ? { supersedes_observation_ids: supersedesObservationIds } : {}),
   }
 
   const validation = validateCanonicalFinding(canonical)

@@ -53,6 +53,8 @@ export interface Finding {
   observation_fingerprint?: string
   observation_id?: string
   observation_ids?: string[]
+  supersedes_observation_id?: string
+  supersedes_observation_ids?: string[]
   reported_by_agents?: string[]
   sources?: string[]
   observation_count?: number
