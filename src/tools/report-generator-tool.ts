@@ -9,6 +9,7 @@ import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
 import {
+  computeFailedKeyTools,
   computeMissingKeyTools,
   KEY_TOOLS,
   TOOL_SHORT_NAMES,
@@ -1758,6 +1759,10 @@ export async function executeReportGeneration(
       reportInput.toolsExecuted,
       reportInput.unavailableTools,
     )
+    const failedTools = computeFailedKeyTools(
+      reportInput.toolsExecuted,
+      reportInput.unavailableTools,
+    )
     if (missingTools.length > 0) {
       const toolList = missingTools.join(", ")
       if (toolCoveragePolicy === "enforce") {
@@ -1767,6 +1772,11 @@ export async function executeReportGeneration(
         )
       }
       warningBullets.push(`- Tool coverage incomplete: ${toolList} not executed`)
+    }
+    if (failedTools.length > 0) {
+      warningBullets.push(
+        `- Key audit tool attempts failed and were treated as coverage limitations: ${failedTools.join(", ")}`,
+      )
     }
   }
 

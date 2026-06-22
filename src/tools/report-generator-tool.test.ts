@@ -1428,6 +1428,59 @@ test("executeReportGeneration normalizes incomplete toolsExecuted in report_inpu
   expect(result.report).toContain("IncompleteToolsExecuted")
 })
 
+test("tool coverage gate warns instead of blocking failed key tool attempts", async () => {
+  const reportInput = makeReportInput([], {
+    run_id: "run-failed-pattern-attempt",
+    scope: ["src/Vault.sol"],
+    toolsExecuted: [
+      {
+        tool: "argus_slither_analyze",
+        success: true,
+        startTime: 100,
+        endTime: 110,
+        findingsCount: 0,
+      },
+      { tool: "argus_forge_test", success: true, startTime: 111, endTime: 120, findingsCount: 0 },
+      {
+        tool: "argus_check_patterns",
+        success: false,
+        startTime: 121,
+        endTime: 130,
+        findingsCount: 0,
+      },
+      {
+        tool: "argus_solodit_search",
+        success: true,
+        startTime: 131,
+        endTime: 140,
+        findingsCount: 0,
+      },
+      {
+        tool: "argus_analyze_contract",
+        success: true,
+        startTime: 141,
+        endTime: 150,
+        findingsCount: 0,
+      },
+    ],
+  })
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "FailedPatternAttempt",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(reportInput),
+      preflight_policy: "warn",
+    },
+    createContext(),
+    { readEvents: async () => [] },
+  )
+
+  expect(result.report).toContain("Completeness Warning")
+  expect(result.report).toContain("Key audit tool attempts failed")
+  expect(result.report).toContain("patterns")
+})
+
 test("durable-evidence report path renders without undefined when synthesis text is absent", async () => {
   const reportInput = {
     run_id: "run-durable-only",
