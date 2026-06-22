@@ -20,6 +20,26 @@ describe("eval harness: fixture manifest schema", () => {
       expect(f.acceptance_criteria.length).toBeGreaterThan(0)
     }
   })
+
+  test("vulnerable-vault fixture encodes corrected same-recipient reentrancy impact", () => {
+    const fixture = loadFixture(VAULT_FIXTURE_DIR)
+    const reentrancy = fixture.expected_findings.find(
+      (finding) => finding.id === "vv-001-reentrancy-withdraw",
+    )
+    const forcedWithdrawal = fixture.expected_findings.find(
+      (finding) => finding.id === "vv-002-missing-access-control-withdraw",
+    )
+
+    expect(reentrancy?.severity).toBe("Low")
+    expect(reentrancy?.title).toContain("CEI violation")
+    expect(reentrancy?.acceptance_criteria.join("\n")).toContain("severity <= Medium")
+    expect(reentrancy?.acceptance_criteria.join("\n")).not.toMatch(/severity\s*>=\s*High/i)
+
+    expect(forcedWithdrawal?.severity).toBe("Medium")
+    expect(forcedWithdrawal?.title).toContain("force withdrawal")
+    expect(forcedWithdrawal?.title.toLowerCase()).not.toContain("drain any user")
+    expect(forcedWithdrawal?.acceptance_criteria.join("\n")).not.toContain("severity >= High")
+  })
 })
 
 describe("eval harness: matching + metrics", () => {
