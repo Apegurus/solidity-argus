@@ -119,7 +119,7 @@ describe("createAuditEnforcer", () => {
     expect(result).not.toContain("Tool coverage incomplete")
   })
 
-  it("treats failed key tools as incomplete", () => {
+  it("warns on failed key tool attempts without marking them missing", () => {
     const enforcer = createAuditEnforcer()
     const state: AuditState = {
       ...makeMockState("reporting"),
@@ -146,7 +146,8 @@ describe("createAuditEnforcer", () => {
 
     const result = enforcer(state)
 
-    expect(result).toContain("Tool coverage incomplete")
+    expect(result).not.toContain("Tool coverage incomplete")
+    expect(result).toContain("Key audit tool attempts failed")
     expect(result).toContain("slither")
   })
 })
