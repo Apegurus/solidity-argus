@@ -121,6 +121,17 @@ function hasRepeatedQuantifierAt(regex: string, index: number): boolean {
   return bounded ? Number.parseInt(bounded[1] ?? "0", 10) > 1 : false
 }
 
+function hasAmbiguousRepeatedQuantifierAt(regex: string, index: number): boolean {
+  if (hasUnboundedQuantifierAt(regex, index)) return true
+
+  const match = regex.slice(index).match(/^\{(\d+)(?:,(\d+))?\}/)
+  if (!match || match[2] === undefined) return false
+
+  const min = Number.parseInt(match[1] ?? "", 10)
+  const max = Number.parseInt(match[2], 10)
+  return max > min && max > 1
+}
+
 function hasUnsafeRepeatedGroup(regex: string): boolean {
   let inCharacterClass = false
 
@@ -188,6 +199,40 @@ function hasLookaround(regex: string): boolean {
   return false
 }
 
+function hasUnsupportedGroupSyntax(regex: string): boolean {
+  let inCharacterClass = false
+
+  for (let i = 0; i < regex.length; i += 1) {
+    const char = regex[i]
+    if (!char || isEscaped(regex, i)) continue
+
+    if (char === "[") {
+      inCharacterClass = true
+      continue
+    }
+    if (char === "]") {
+      inCharacterClass = false
+      continue
+    }
+    if (inCharacterClass || char !== "(" || regex[i + 1] !== "?") continue
+
+    if (regex.slice(i, i + 3) === "(?:") continue
+    if (regex.slice(i, i + 3) === "(?<") {
+      const nameStart = i + 3
+      const nameEnd = regex.indexOf(">", nameStart)
+      const discriminator = regex[nameStart]
+      if (discriminator === "=" || discriminator === "!" || nameEnd === -1) return true
+
+      i = nameEnd
+      continue
+    }
+
+    return true
+  }
+
+  return false
+}
+
 function hasBackreference(regex: string): boolean {
   let inCharacterClass = false
 
@@ -212,9 +257,80 @@ function hasBackreference(regex: string): boolean {
   return false
 }
 
+function hasLegacyControlEscape(regex: string): boolean {
+  for (let i = 0; i < regex.length; i += 1) {
+    if (regex[i] === "c" && isEscaped(regex, i) && /^[A-Za-z]$/.test(regex[i + 1] ?? "")) {
+      return true
+    }
+  }
+
+  return false
+}
+
 interface RegexAtom {
   end: number
   value: string
+}
+
+interface RegexScanAtom {
+  ambiguous: boolean
+  end: number
+  nullable: boolean
+  value: string
+}
+
+type AtomCharacterMatcher = (char: string) => boolean
+
+interface CharacterClassUnit {
+  end: number
+  literal: string | null
+  matches: AtomCharacterMatcher
+}
+
+const ATOM_OVERLAP_PROBES = [
+  ...Array.from({ length: 128 }, (_, code) => String.fromCharCode(code)),
+  "\u00a0",
+  "\u2028",
+  "\u2029",
+]
+
+function readEscapedAtom(value: string, index: number): RegexAtom | null {
+  if (value[index] !== "\\") return null
+
+  const next = value[index + 1]
+  if (!next) return null
+
+  if (next === "x" && /^[0-9A-Fa-f]{2}$/.test(value.slice(index + 2, index + 4))) {
+    return { end: index + 4, value: value.slice(index, index + 4) }
+  }
+
+  if (next === "u") {
+    const braced = value.slice(index + 2).match(/^\{[0-9A-Fa-f]{1,6}\}/)
+    if (braced)
+      return {
+        end: index + 2 + braced[0].length,
+        value: value.slice(index, index + 2 + braced[0].length),
+      }
+
+    if (/^[0-9A-Fa-f]{4}$/.test(value.slice(index + 2, index + 6))) {
+      return { end: index + 6, value: value.slice(index, index + 6) }
+    }
+  }
+
+  if (/^[0-7]$/.test(next)) {
+    const octal = value.slice(index + 1).match(/^[0-7]{1,3}/)
+    if (octal)
+      return {
+        end: index + 1 + octal[0].length,
+        value: value.slice(index, index + 1 + octal[0].length),
+      }
+  }
+
+  return { end: index + 2, value: value.slice(index, index + 2) }
+}
+
+function isWordBoundaryAssertion(atom: string): boolean {
+  return atom === "\\b" || atom === "\\B"
 }
 
 function readRegexAtom(regex: string, index: number): RegexAtom | null {
@@ -222,8 +338,7 @@ function readRegexAtom(regex: string, index: number): RegexAtom | null {
   if (!char || "^$|)".includes(char)) return null
 
   if (char === "\\") {
-    const next = regex[index + 1]
-    return next ? { end: index + 2, value: `${char}${next}` } : null
+    return readEscapedAtom(regex, index)
   }
 
   if (char === "[") {
@@ -277,6 +392,15 @@ function readOptionalQuantifierEnd(regex: string, index: number): number | null 
   return min <= 1 && max === 1 ? index + match[0].length : null
 }
 
+function readNullableQuantifierEnd(regex: string, index: number): number | null {
+  if (regex[index] === "*") return regex[index + 1] === "?" ? index + 2 : index + 1
+
+  const match = regex.slice(index).match(/^\{(\d+),?\d*\}\??/)
+  if (!match) return readOptionalQuantifierEnd(regex, index)
+
+  return Number.parseInt(match[1] ?? "", 10) === 0 ? index + match[0].length : null
+}
+
 function readGroupBody(regex: string, index: number, end: number): string | null {
   if (regex[index] !== "(") return null
   if (regex.slice(index, index + 3) === "(?:") return regex.slice(index + 3, end - 1)
@@ -289,6 +413,46 @@ function readGroupBody(regex: string, index: number, end: number): string | null
   return regex.slice(index + 1, end - 1)
 }
 
+function topLevelAlternatives(body: string): string[] | null {
+  const alternatives: string[] = []
+  let depth = 0
+  let inCharacterClass = false
+  let start = 0
+
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i]
+    if (!char || isEscaped(body, i)) continue
+
+    if (char === "[") {
+      inCharacterClass = true
+      continue
+    }
+    if (char === "]") {
+      inCharacterClass = false
+      continue
+    }
+    if (inCharacterClass) continue
+
+    if (char === "(") {
+      depth += 1
+      continue
+    }
+    if (char === ")") {
+      depth -= 1
+      continue
+    }
+
+    if (char === "|" && depth === 0) {
+      alternatives.push(body.slice(start, i))
+      start = i + 1
+    }
+  }
+
+  if (alternatives.length === 0) return null
+  alternatives.push(body.slice(start))
+  return alternatives
+}
+
 function readTransparentGroupAtom(regex: string, index: number, end: number): RegexAtom | null {
   const groupBody = readGroupBody(regex, index, end)
   if (groupBody === null) return null
@@ -297,6 +461,245 @@ function readTransparentGroupAtom(regex: string, index: number, end: number): Re
   if (wrapped?.end !== groupBody.length) return null
 
   return wrapped
+}
+
+function literalFromEscapedAtom(atom: string): string | null {
+  if (atom[0] !== "\\") return null
+
+  if (atom.startsWith("\\x") && atom.length === 4) {
+    return String.fromCharCode(Number.parseInt(atom.slice(2), 16))
+  }
+
+  if (atom.startsWith("\\u{") && atom.endsWith("}")) {
+    const codePoint = Number.parseInt(atom.slice(3, -1), 16)
+    return Number.isNaN(codePoint) || codePoint > 0x10ffff ? null : String.fromCodePoint(codePoint)
+  }
+
+  if (atom.startsWith("\\u") && atom.length === 6) {
+    return String.fromCharCode(Number.parseInt(atom.slice(2), 16))
+  }
+
+  if (/^\\[0-7]{1,3}$/.test(atom)) {
+    return String.fromCharCode(Number.parseInt(atom.slice(1), 8))
+  }
+
+  if (atom.length !== 2) return null
+
+  switch (atom[1]) {
+    case "n":
+      return "\n"
+    case "r":
+      return "\r"
+    case "t":
+      return "\t"
+    case "f":
+      return "\f"
+    case "v":
+      return "\v"
+    case "0":
+      return "\0"
+    case "b":
+      return "\b"
+    case "d":
+    case "D":
+    case "s":
+    case "S":
+    case "w":
+    case "W":
+      return null
+    default:
+      return atom[1] ?? null
+  }
+}
+
+function matcherForEscapedCharacterClass(atom: string): AtomCharacterMatcher | null {
+  switch (atom) {
+    case "\\d":
+      return (char) => /^[0-9]$/.test(char)
+    case "\\D":
+      return (char) => !/^[0-9]$/.test(char)
+    case "\\s":
+      return (char) => /^\s$/.test(char)
+    case "\\S":
+      return (char) => !/^\s$/.test(char)
+    case "\\w":
+      return (char) => /^[A-Za-z0-9_]$/.test(char)
+    case "\\W":
+      return (char) => !/^[A-Za-z0-9_]$/.test(char)
+    default:
+      return null
+  }
+}
+
+function readCharacterClassUnit(body: string, index: number): CharacterClassUnit | null {
+  const char = body[index]
+  if (!char) return null
+
+  if (char === "\\") {
+    const atom = readEscapedAtom(body, index)
+    if (!atom) return null
+
+    const classMatcher = matcherForEscapedCharacterClass(atom.value)
+    if (classMatcher) return { end: atom.end, literal: null, matches: classMatcher }
+
+    const literal = literalFromEscapedAtom(atom.value)
+    return literal === null
+      ? null
+      : { end: atom.end, literal, matches: (candidate) => candidate === literal }
+  }
+
+  return { end: index + 1, literal: char, matches: (candidate) => candidate === char }
+}
+
+function matcherForCharacterClass(atom: string): AtomCharacterMatcher | null {
+  if (!atom.startsWith("[") || !atom.endsWith("]")) return null
+
+  const body = atom.slice(1, -1)
+  const negated = body.startsWith("^")
+  const units: AtomCharacterMatcher[] = []
+
+  for (let i = negated ? 1 : 0; i < body.length; ) {
+    const unit = readCharacterClassUnit(body, i)
+    if (!unit) return null
+
+    const nextIsRange = body[unit.end] === "-" && unit.end + 1 < body.length
+    if (nextIsRange) {
+      const rangeEnd = readCharacterClassUnit(body, unit.end + 1)
+      if (unit.literal !== null && rangeEnd && rangeEnd.literal !== null) {
+        const startCode = unit.literal.codePointAt(0)
+        const endCode = rangeEnd.literal.codePointAt(0)
+        if (startCode === undefined || endCode === undefined) return null
+
+        units.push((candidate) => {
+          const code = candidate.codePointAt(0)
+          return code !== undefined && code >= startCode && code <= endCode
+        })
+        i = rangeEnd.end
+        continue
+      }
+    }
+
+    units.push(unit.matches)
+    i = unit.end
+  }
+
+  return (candidate) => {
+    const included = units.some((matches) => matches(candidate))
+    return negated ? !included : included
+  }
+}
+
+function matcherForAtom(atom: string, depth = 0): AtomCharacterMatcher | null {
+  if (depth > 8) return null
+
+  if (atom === ".") {
+    return (char) => char !== "\n" && char !== "\r" && char !== "\u2028" && char !== "\u2029"
+  }
+
+  if (isWordBoundaryAssertion(atom)) return null
+
+  const escapedClass = matcherForEscapedCharacterClass(atom)
+  if (escapedClass) return escapedClass
+
+  const escapedLiteral = literalFromEscapedAtom(atom)
+  if (escapedLiteral !== null) return (char) => char === escapedLiteral
+
+  const characterClass = matcherForCharacterClass(atom)
+  if (characterClass) return characterClass
+
+  if (atom.startsWith("(")) {
+    const body = readGroupBody(atom, 0, atom.length)
+    if (body !== null) {
+      const alternatives = topLevelAlternatives(body)
+      if (alternatives) {
+        const matchers = alternatives.map((alternative) => {
+          const alternativeAtom = readRegexAtom(alternative, 0)
+          return alternativeAtom?.end === alternative.length
+            ? matcherForAtom(alternativeAtom.value, depth + 1)
+            : null
+        })
+        if (matchers.every((matcher) => matcher !== null)) {
+          return (char) => matchers.some((matcher) => matcher?.(char) ?? false)
+        }
+      }
+
+      const bodyAtom = readRegexAtom(body, 0)
+      if (bodyAtom?.end === body.length) return matcherForAtom(bodyAtom.value, depth + 1)
+    }
+    return null
+  }
+
+  return atom.length === 1 ? (char) => char === atom : null
+}
+
+function literalProbesForAtom(atom: string, depth = 0): string[] {
+  if (depth > 8) return []
+
+  if (isWordBoundaryAssertion(atom)) return []
+
+  const escapedLiteral = literalFromEscapedAtom(atom)
+  if (escapedLiteral !== null) return [escapedLiteral]
+
+  if (atom.startsWith("[") && atom.endsWith("]")) {
+    const body = atom.slice(1, -1)
+    const probes: string[] = []
+
+    for (let i = body.startsWith("^") ? 1 : 0; i < body.length; ) {
+      const unit = readCharacterClassUnit(body, i)
+      if (!unit) return probes
+      if (unit.literal !== null) probes.push(unit.literal)
+
+      const nextIsRange = body[unit.end] === "-" && unit.end + 1 < body.length
+      if (nextIsRange) {
+        const rangeEnd = readCharacterClassUnit(body, unit.end + 1)
+        if (rangeEnd && rangeEnd.literal !== null) {
+          probes.push(rangeEnd.literal)
+          i = rangeEnd.end
+          continue
+        }
+      }
+
+      i = unit.end
+    }
+
+    return probes
+  }
+
+  if (atom.startsWith("(")) {
+    const body = readGroupBody(atom, 0, atom.length)
+    if (body !== null) {
+      const alternatives = topLevelAlternatives(body)
+      if (alternatives) {
+        return alternatives.flatMap((alternative) => {
+          const alternativeAtom = readRegexAtom(alternative, 0)
+          return alternativeAtom?.end === alternative.length
+            ? literalProbesForAtom(alternativeAtom.value, depth + 1)
+            : []
+        })
+      }
+
+      const bodyAtom = readRegexAtom(body, 0)
+      if (bodyAtom?.end === body.length) return literalProbesForAtom(bodyAtom.value, depth + 1)
+    }
+    return []
+  }
+
+  return atom.length === 1 ? [atom] : []
+}
+
+function quantifiedAtomsOverlap(left: string, right: string): boolean {
+  if (left === right) return true
+
+  const leftMatcher = matcherForAtom(left)
+  const rightMatcher = matcherForAtom(right)
+  if (!leftMatcher || !rightMatcher) return false
+
+  const probes = new Set([
+    ...ATOM_OVERLAP_PROBES,
+    ...literalProbesForAtom(left),
+    ...literalProbesForAtom(right),
+  ])
+  return [...probes].some((char) => leftMatcher(char) && rightMatcher(char))
 }
 
 function inlineTransparentGroups(regex: string): string {
@@ -322,14 +725,22 @@ function inlineTransparentGroups(regex: string): string {
             ? quantifierEnd
             : null
 
-      if (transparentEnd !== null) {
+      if (transparentEnd !== null && !topLevelAlternatives(groupBody)) {
         result += inlineTransparentGroups(groupBody)
+        if (
+          optionalEnd === transparentEnd &&
+          exactOneEnd !== transparentEnd &&
+          transparentEnd !== atom.end
+        ) {
+          result += regex.slice(atom.end, transparentEnd)
+        }
         i = transparentEnd
         continue
       }
     }
 
-    const end = readQuantifierEnd(regex, atom.end) ?? atom.end
+    const end =
+      readQuantifierEnd(regex, atom.end) ?? readOptionalQuantifierEnd(regex, atom.end) ?? atom.end
     result += regex.slice(i, end)
     i = end
   }
@@ -358,9 +769,47 @@ function readQuantifiedAtom(regex: string, index: number): RegexAtom | null {
   return { end: atom.end, value: wrapped.value }
 }
 
+function readRegexScanAtom(regex: string, index: number): RegexScanAtom | null {
+  const atom = readRegexAtom(regex, index)
+  if (!atom) return null
+
+  if (isWordBoundaryAssertion(atom.value)) {
+    return {
+      ambiguous: false,
+      end: atom.end,
+      nullable: true,
+      value: atom.value,
+    }
+  }
+
+  const quantifierEnd = readQuantifierEnd(regex, atom.end)
+  const nullableEnd = readNullableQuantifierEnd(regex, atom.end)
+  const end = quantifierEnd ?? nullableEnd ?? atom.end
+
+  return {
+    ambiguous: quantifierEnd !== null && hasAmbiguousRepeatedQuantifierAt(regex, atom.end),
+    end,
+    nullable: nullableEnd === end,
+    value: atom.value,
+  }
+}
+
+function separatorKeepsQuantifiersAmbiguous(
+  left: string,
+  right: string,
+  separators: RegexScanAtom[],
+): boolean {
+  return separators.every(
+    (separator) =>
+      separator.nullable ||
+      (quantifiedAtomsOverlap(left, separator.value) &&
+        quantifiedAtomsOverlap(right, separator.value)),
+  )
+}
+
 function hasAdjacentAmbiguousQuantifiers(regex: string): boolean {
-  let previousQuantifiedAtom: string | null = null
-  let previousQuantifierEnd = -1
+  let previousAmbiguousAtom: string | null = null
+  let separators: RegexScanAtom[] = []
 
   for (let i = 0; i < regex.length; ) {
     const atom = readRegexAtom(regex, i)
@@ -369,21 +818,31 @@ function hasAdjacentAmbiguousQuantifiers(regex: string): boolean {
       return true
     }
 
-    const quantified = readQuantifiedAtom(regex, i)
-    if (!quantified) {
-      previousQuantifiedAtom = null
-      previousQuantifierEnd = -1
+    const scanned = readRegexScanAtom(regex, i)
+    if (!scanned) {
+      previousAmbiguousAtom = null
+      separators = []
       i = atom?.end ?? i + 1
       continue
     }
 
-    if (previousQuantifierEnd === i && previousQuantifiedAtom === quantified.value) {
+    if (
+      scanned.ambiguous &&
+      previousAmbiguousAtom !== null &&
+      quantifiedAtomsOverlap(previousAmbiguousAtom, scanned.value) &&
+      separatorKeepsQuantifiersAmbiguous(previousAmbiguousAtom, scanned.value, separators)
+    ) {
       return true
     }
 
-    previousQuantifiedAtom = quantified.value
-    previousQuantifierEnd = quantified.end
-    i = quantified.end
+    if (scanned.ambiguous) {
+      previousAmbiguousAtom = scanned.value
+      separators = []
+    } else if (previousAmbiguousAtom !== null) {
+      separators.push(scanned)
+    }
+
+    i = scanned.end
   }
 
   return false
@@ -404,8 +863,16 @@ function regexSafetyError(regex: string): string | null {
     return "backreferences are not allowed in skill detection rules"
   }
 
+  if (hasLegacyControlEscape(regex)) {
+    return "legacy control escapes are not allowed in skill detection rules"
+  }
+
   if (hasLookaround(regex)) {
     return "lookaround assertions are not allowed in skill detection rules"
+  }
+
+  if (hasUnsupportedGroupSyntax(regex)) {
+    return "unsupported group syntax is not allowed in skill detection rules"
   }
 
   if (hasUnsafeRepeatedGroup(regex)) {
