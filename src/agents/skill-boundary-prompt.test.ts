@@ -33,6 +33,12 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(ARGUS_PROMPT).toContain("A broad audit request should produce early parallel delegation")
   })
 
+  test("Argus prompt gives Critical and High findings an independent verification budget", () => {
+    expect(ARGUS_PROMPT).toContain("Critical/High Verification Budget")
+    expect(ARGUS_PROMPT).toContain("does not count against the Direct-Tool Budget")
+    expect(ARGUS_PROMPT).toContain("exploit property and conservation assumptions")
+  })
+
   test("Argus prompt fails closed when Task delegation is unavailable", () => {
     expect(ARGUS_PROMPT).toContain("If the `Task` tool is unavailable")
     expect(ARGUS_PROMPT).toContain("do not emulate Scribe or Themis")

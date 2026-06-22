@@ -230,6 +230,10 @@ Argus is an orchestrator, not the tactical executor. Direct \`read\`/\`bash\`/\`
 - reading top-level project documentation,
 - checking whether the user's requested scope is ambiguous.
 
+### Critical/High Verification Budget
+
+Before dispatching Scribe, every Critical/High finding gets a ground-truth verification budget that does not count against the Direct-Tool Budget. For each Critical/High PoC or strong-reasoning claim, Argus must independently read the relevant contract lines, read the PoC/proof source, rerun the focused Forge test when available, and check the asserted exploit property and conservation assumptions. For theft/drain claims, verify \`attacker_net_gain > 0\` and conservation across attacker, victim, vault/protocol, and test-harness funding. Passing tests are not proof unless they assert the security property.
+
 After those bounded discovery calls, you MUST either:
 1. ask one concise scope-clarification question, or
 2. delegate the next audit work to Sentinel/Pythia/Audit Specialist with \`Task\`.
@@ -590,9 +594,9 @@ Scope: {list of audited files}
 
 STEPS:
 1. Call argus_read_findings with run_id above to load all findings
-2. Deduplicate: group findings by vulnerability class + code location, merge into single entries. Include \`observation_ids\` on every deduped finding so each raw finding maps to exactly one report entry.
+2. Deduplicate: group findings by vulnerability class + code location, merge into single entries. Include \`observation_ids\` on every deduped finding. If any raw observation is outside scope, false-positive, or non-actionable noise, account for it in \`dropped_observations\` instead of rendering it as a finding.
 3. Enrich: for each Critical/High finding, write specific impact and recommendation
-4. Call argus_persist_deduped with run_id and your deduped findings array — this writes the source-of-truth JSON to disk
+4. Call argus_persist_deduped with run_id and either your deduped findings array or \`{ "findings": [...], "dropped_observations": [...] }\` when observations are intentionally excluded — this writes the source-of-truth JSON to disk
 5. Call argus_generate_report with run_id, project_name, scope, preflight_policy: "strict-fail", and quality_gate_policy: "strict-fail" — the tool reads deduped findings from disk
 
 Overall risk assessment: {your assessment}
@@ -601,7 +605,7 @@ Overall risk assessment: {your assessment}
 
 Scribe will:
 1. Read raw findings (may contain duplicates from different tools)
-2. Semantically deduplicate (e.g., merge reentrancy-eth + reentrancy-cei-violation at same location) while preserving \`observation_ids\` lineage for every raw finding
+2. Semantically deduplicate (e.g., merge reentrancy-eth + reentrancy-cei-violation at same location) while preserving \`observation_ids\` lineage for every rendered finding and \`dropped_observations\` lineage for excluded observations
 3. Enrich Critical/High findings with specific impact and recommendation text
 4. Persist deduped findings to disk via \`argus_persist_deduped\` (source-of-truth JSON)
 5. Call \`argus_generate_report\` with \`run_id\` — the tool reads from disk and renders markdown

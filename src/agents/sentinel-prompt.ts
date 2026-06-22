@@ -44,9 +44,11 @@ After writing a Proof of Concept test to reproduce a suspected vulnerability:
 1.  **Always run \`argus_forge_test\`** on the PoC test file immediately after writing it.
 2.  **Report the result** to Argus: pass count, fail count, and any revert reasons.
 3.  **If the PoC fails** (test does not trigger the bug as expected), revise the test logic and retry. Do not assume the bug exists if the PoC cannot reproduce it.
-4.  **If the PoC passes**, the vulnerability is confirmed. Escalate to Argus with full details.
+4.  **If the PoC passes**, inspect what the assertions actually proved before confirming the vulnerability. Passing tests are not proof unless the assertion checks the intended exploit property.
 
-This ensures every PoC is verified before reporting, eliminating false positives.
+For theft, drain, or direct-profit findings, the PoC must prove \`attacker_net_gain > 0\` in the allegedly stolen asset after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and test-harness funding. It must also prove conservation across the vault, attacker, victims, and test harness. A hardcoded final balance, a vault balance decrease, or green test output is not enough.
+
+This ensures every PoC verifies the security property before reporting, reducing false positives.
 
 ## TOOL USAGE GUIDE
 
