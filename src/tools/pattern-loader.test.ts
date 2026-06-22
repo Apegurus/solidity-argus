@@ -486,6 +486,122 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             description: "double lazy optional grouped repeated wildcard seam",
           },
           {
+            regex: String.raw`^.*[\s\S]*owner$`,
+            severity: "High",
+            description: "overlapping dot and any-character class",
+          },
+          {
+            regex: String.raw`^[\s\S]*.*owner$`,
+            severity: "High",
+            description: "overlapping any-character class and dot",
+          },
+          {
+            regex: String.raw`^[\w]*\w*owner$`,
+            severity: "High",
+            description: "textually different equivalent word atoms",
+          },
+          {
+            regex: "^.*[^x]*owner$",
+            severity: "High",
+            description: "overlapping dot and negated class",
+          },
+          {
+            regex: String.raw`^(?:.*)?[\s\S]*owner$`,
+            severity: "High",
+            description: "optional transparent group before overlapping any-character class",
+          },
+          {
+            regex: String.raw`^.*?[\s\S]*?owner$`,
+            severity: "High",
+            description: "lazy overlapping any-character atoms",
+          },
+          {
+            regex: String.raw`^(?s:.*){1}[\s\S]*owner$`,
+            severity: "High",
+            description: "scoped modifier grouped repeated wildcard seam",
+          },
+          {
+            regex: String.raw`^(?s:.*)?[\s\S]*owner$`,
+            severity: "High",
+            description: "optional scoped modifier grouped repeated wildcard seam",
+          },
+          {
+            regex: String.raw`^\x61*a*$`,
+            severity: "High",
+            description: "hex escaped literal adjacent to literal",
+          },
+          {
+            regex: String.raw`^[\x61]*a*$`,
+            severity: "High",
+            description: "hex escaped character class adjacent to literal",
+          },
+          {
+            regex: String.raw`^[\141]*a*$`,
+            severity: "High",
+            description: "octal escaped character class adjacent to literal",
+          },
+          {
+            regex: String.raw`^[\u0100]*Ā*$`,
+            severity: "High",
+            description: "unicode escaped character class adjacent to non-ASCII literal",
+          },
+          {
+            regex: String.raw`^[\u0100]*\u0100*$`,
+            severity: "High",
+            description:
+              "unicode escaped character class adjacent to equivalent unicode escaped literal",
+          },
+          {
+            regex: "^a*a?a*b$",
+            severity: "High",
+            description: "optional separator between overlapping quantified literals",
+          },
+          {
+            regex: "^.*a?.*owner$",
+            severity: "High",
+            description: "optional separator between overlapping wildcards",
+          },
+          {
+            regex: "^.*a.*owner$",
+            severity: "High",
+            description: "consumable separator between overlapping wildcards",
+          },
+          {
+            regex: "^.*(?:a){1}.*owner$",
+            severity: "High",
+            description: "exact-one group separator between overlapping wildcards",
+          },
+          {
+            regex: "^a{0,1000}a{0,1000}$",
+            severity: "High",
+            description: "bounded variable repeats over the same atom",
+          },
+          {
+            regex: "^.*(?:a)?.*owner$",
+            severity: "High",
+            description: "optional transparent group separator between overlapping wildcards",
+          },
+          {
+            regex: "^.*(?:a|b).*owner$",
+            severity: "High",
+            description: "alternation group separator between overlapping wildcards",
+          },
+          {
+            regex: String.raw`^a*\Ba*\Ba*\Ba*\Ba*b$`,
+            severity: "High",
+            description: "word-boundary assertions between overlapping quantified literals",
+          },
+          {
+            regex: String.raw`^[\b]*\x08*b$`,
+            severity: "High",
+            description: "backspace escape in character class adjacent to equivalent hex literal",
+          },
+          {
+            regex: String.raw`^[\cA-\cZ]*[\x01-\x1a]*b$`,
+            severity: "High",
+            description: "legacy control escape range adjacent to equivalent hex range",
+          },
+          {
             regex: "^a*b*$",
             severity: "Low",
             description: "different adjacent quantified literals stay allowed",
@@ -500,6 +616,11 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
             severity: "Low",
             description: "different optional literals stay allowed",
           },
+          {
+            regex: String.raw`^\d*[a-z]*$`,
+            severity: "Low",
+            description: "disjoint adjacent quantified atoms stay allowed",
+          },
         ],
         filePath: "/custom/bypass-unsafe/SKILL.md",
         source: "custom",
@@ -508,11 +629,12 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     ])
 
     expect(patterns.map((pattern) => pattern.name)).toEqual([
-      "bypass-unsafe-rule-24",
-      "bypass-unsafe-rule-25",
-      "bypass-unsafe-rule-26",
+      "bypass-unsafe-rule-47",
+      "bypass-unsafe-rule-48",
+      "bypass-unsafe-rule-49",
+      "bypass-unsafe-rule-50",
     ])
-    expect(errors).toHaveLength(23)
+    expect(errors).toHaveLength(46)
     expect(errors[0]).toContain("backreferences")
     expect(errors[1]).toContain("backreferences")
     expect(errors[2]).toContain("backreferences")
@@ -536,6 +658,29 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
     expect(errors[20]).toContain("adjacent ambiguous quantifiers")
     expect(errors[21]).toContain("adjacent ambiguous quantifiers")
     expect(errors[22]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[23]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[24]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[25]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[26]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[27]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[28]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[29]).toContain("unsupported group syntax")
+    expect(errors[30]).toContain("unsupported group syntax")
+    expect(errors[31]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[32]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[33]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[34]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[35]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[36]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[37]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[38]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[39]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[40]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[41]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[42]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[43]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[44]).toContain("adjacent ambiguous quantifiers")
+    expect(errors[45]).toContain("legacy control escapes")
   })
 
   it("validates deeply nested safe groups without exponential recursion", () => {
@@ -604,9 +749,37 @@ describe("production skill detection rules (skills/vulnerability-patterns/)", ()
   })
 
   it("all extracted rules have valid regex", () => {
-    const { patterns: rules } = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
+    const { patterns: rules, errors } = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
+    expect(errors).toEqual([])
     for (const rule of rules) {
       expect(() => new RegExp(rule.regex)).not.toThrow()
     }
+  })
+
+  it("keeps truthful exclusion filters on broad production heuristics", () => {
+    const { patterns: rules } = extractDetectionRulesFromSkills(PRODUCTION_SKILLS_DIR)
+    const byName = new Map(rules.map((rule) => [rule.name, rule]))
+
+    expect(byName.get("cross-chain-bridge-vulnerabilities-rule-1")?.exclude_if).toEqual([
+      String.raw`\b(block\.chainid|chainId)\b`,
+    ])
+    expect(byName.get("cross-chain-bridge-vulnerabilities-rule-2")?.exclude_if).toEqual([
+      String.raw`\b(block\.chainid|chainId)\b`,
+    ])
+    expect(byName.get("governance-attacks-rule-1")?.exclude_if).toEqual([
+      String.raw`\b(timelock|onlyTimelock|delay|eta)\b`,
+    ])
+    expect(byName.get("governance-attacks-rule-3")?.exclude_if).toEqual([
+      "(snapshot|Checkpoint|getPastVotes|getPastTotalSupply|blockNumber)",
+    ])
+    expect(byName.get("governance-attacks-rule-4")?.exclude_if).toEqual([
+      "(require|_msgSender|proposalThreshold|getVotes|onlyRole)",
+    ])
+    expect(byName.get("governance-attacks-rule-5")?.exclude_if).toEqual([
+      String.raw`(_execute|state\s*==|ProposalState|hasVoted)`,
+    ])
+    expect(byName.get("flashloan-reorg-mev-rule-3")?.exclude_if).toEqual([
+      String.raw`(observe\(|consult\(|twap|TWAP)`,
+    ])
   })
 })
