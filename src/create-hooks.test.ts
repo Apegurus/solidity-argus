@@ -1118,6 +1118,33 @@ describe("createHooks", () => {
     expect(completed[0]?.session_id).toBe("oc-child-sink")
   })
 
+  it("does not bind an unrelated session to the newest active run", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+    const suffix = Date.now()
+    const primarySession = `oc-primary-${suffix}`
+    const unrelatedSession = `oc-unrelated-${suffix}`
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: primarySession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, primarySession)
+    const primaryRunId = await waitForRunId(primarySession)
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: unrelatedSession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, unrelatedSession)
+    const unrelatedRunId = await waitForRunId(unrelatedSession)
+
+    expect(unrelatedRunId).not.toBe(primaryRunId)
+  })
+
   it("tool tracking continues after session.idle without losing sink", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-persist-sink-${Date.now()}`
