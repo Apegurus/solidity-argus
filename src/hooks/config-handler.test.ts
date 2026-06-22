@@ -154,7 +154,6 @@ describe("createConfigHandler", () => {
       argus_read_findings: "allow",
       argus_generate_report: "allow",
       argus_persist_deduped: "allow",
-      argus_skill_load: "allow",
       skill: "allow",
     })
     expect(config.agent?.themis?.permission).toEqual({

@@ -207,7 +207,6 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           argus_read_findings: "allow",
           argus_generate_report: "allow",
           argus_persist_deduped: "allow",
-          argus_skill_load: "allow",
           skill: "allow",
         },
       },
