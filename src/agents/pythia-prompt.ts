@@ -52,6 +52,8 @@ You must follow this structured research process:
 
 Do not record a precedent-only finding. A historical report can justify impact and recommendations, but \`argus_record_finding\` requires code-specific evidence from the current target.
 
+Historical precedent cannot upgrade current-code reentrancy, access-control, theft, or drain hypotheses to Critical/High by itself. Treat precedent as a lead until the current code proves current-code profit proof: \`attacker_net_gain > 0\` after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and harness funding, plus conservation of the relevant ETH/token/share balances.
+
 ### 4. Reporting
 - **Objective**: Deliver actionable intelligence to Argus.
 - **Actions**:
