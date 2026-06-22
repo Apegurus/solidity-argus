@@ -261,7 +261,7 @@ export const persistDedupedTool = tool({
     deduped_findings: tool.schema
       .string()
       .describe(
-        "Serialized JSON array of deduplicated and enriched findings. Each finding should have: check, severity, confidence, description, file, lines, source, impact, recommendation, proofOfConcept, and observation_ids lineage proving which raw findings were merged.",
+        'Serialized JSON array of deduplicated and enriched findings, or a serialized JSON object { "findings": [...], "dropped_observations": [...] } when raw observations are intentionally excluded from final findings. Each finding should have: check, severity, confidence, description, file, lines, source, impact, recommendation, proofOfConcept, observation_ids, and observation_count. Each dropped observation should have observation_id, reason (out-of-scope|false-positive|merged-into|non-actionable-noise), and optional note.',
       ),
   },
   async execute(args, context) {
