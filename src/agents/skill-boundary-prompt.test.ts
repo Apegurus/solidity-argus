@@ -33,6 +33,21 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(ARGUS_PROMPT).toContain("A broad audit request should produce early parallel delegation")
   })
 
+  test("Argus prompt fails closed when Task delegation is unavailable", () => {
+    expect(ARGUS_PROMPT).toContain("If the `Task` tool is unavailable")
+    expect(ARGUS_PROMPT).toContain("do not emulate Scribe or Themis")
+    expect(ARGUS_PROMPT).toContain(
+      'requires an actual `Task(subagent_type="themis", ...)` dispatch',
+    )
+  })
+
+  test("Argus prompt does not tell the orchestrator to bypass Scribe report tools", () => {
+    expect(ARGUS_PROMPT).toContain("Do not call `argus_generate_report` yourself")
+    expect(ARGUS_PROMPT).not.toContain(
+      "If Scribe fails a second time, call `argus_generate_report` yourself",
+    )
+  })
+
   test("Sentinel prompt forbids generic skill for Argus audit knowledge", () => {
     expect(SENTINEL_PROMPT).toContain("argus_skill_load")
     expect(SENTINEL_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")

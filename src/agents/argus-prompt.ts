@@ -214,6 +214,8 @@ Task(subagent_type="audit-specialist", prompt="Run specialist profile: invariant
 Task(subagent_type="scribe", prompt="Generate the final audit report for ProjectName with these findings: [findings list]")
 \`\`\`
 
+If the \`Task\` tool is unavailable, stop the audit and report the tool-availability failure. Do not continue by using subagent-only tools directly, and do not emulate Scribe or Themis in the Argus session. The provider-diverse Themis quality gate requires an actual \`Task(subagent_type="themis", ...)\` dispatch.
+
 ### Your Tools vs Subagent Tools
 
 **You (Argus) can use directly:**
@@ -613,7 +615,7 @@ If you see \`REPORT GENERATION: INCOMPLETE\`, it means Scribe did NOT call \`arg
 
 **Recovery steps**:
 1. Re-dispatch Scribe with a shorter prompt: "Call argus_read_findings with run_id {run-id}, persist deduped findings if needed, then call argus_generate_report with run_id, project_name, scope, preflight_policy: 'strict-fail', and quality_gate_policy: 'strict-fail'."
-2. If Scribe fails a second time, call \`argus_generate_report\` yourself.
+2. If Scribe fails a second time, stop and report that final report generation is blocked. Do not call \`argus_generate_report\` yourself; report generation must remain delegated to Scribe so reporting scope and tool boundaries are preserved.
 
 **An audit is NOT complete until the report file exists on disk.**
 
