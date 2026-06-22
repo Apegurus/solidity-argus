@@ -30,10 +30,11 @@ Prove the vulnerable state exists in a live deployment.
 
 ## Gate 3 — Trigger
 
-Prove an unprivileged actor executes the attack.
+Prove an unprivileged actor can trigger the harmful path in the current deployment state.
 
 - Only trusted roles can trigger → **DEMOTE** (`confidence_score ≤ 75`)
 - Costs (gas, capital) exceed extraction → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; this is the most fragile gate — LLM cost calculations ignore flash loans, MEV efficiency, repeated extraction, TVL growth, and cross-protocol composability. Always demote rather than drop, so human reviewers can audit your cost reasoning.)
+- Theft/drain claim lacks `attacker_net_gain > 0` after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and test-harness funding → **REJECTED_DEMOTED** until the PoC proves the exploit property. Passing tests are not proof unless the assertion checks the intended exploit property.
 - Unprivileged actor triggers profitably → **clears**, continue to Gate 4
 
 ## Gate 4 — Impact
@@ -42,9 +43,22 @@ Prove material harm to an identifiable victim **in the current code**, not in hy
 
 - Self-harm only → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; functions like `selfDestruct` or `burn` are usually intentional, but document who "self" is — a multisig signer under social engineering, or an admin under key compromise, both look like "self-harm" from a static viewpoint)
 - Impact requires code not yet present (a placeholder returning a constant, an unwired setter, a `// TODO` integration) → **DEMOTE** at most (`confidence_score ≤ 75`): the deployed code has no exploit path, so it is an architectural lead. Never rate Critical/High on impact that depends on a future change landing.
-- Asset flows back to the rightful holder rather than the caller → griefing / forced action, not theft. Classify by reachable impact and do not describe it as "drain" or "steal" (see the access-control skill's value-flow rule).
+- Trace the recipient before calling any issue "theft" or "drain": if assets flow back to the rightful holder rather than the caller or an alternate beneficiary → griefing / forced action, not theft. Classify by reachable impact and require conservation reasoning: total attributed outflows must not exceed funded inflows plus legitimate victim-funded balances.
 - Dust-level, no compounding → **DEMOTE** (`confidence_score ≤ 75`)
 - Material loss to identifiable victim → **CONFIRMED** (`confidence_score ≥ 80`)
+
+## PoC Truthfulness for Theft and Drain Claims
+
+Passing tests are not proof. A PoC only confirms a theft, drain, or direct-profit finding when the assertion checks the exploit property itself:
+
+- Prove `attacker_net_gain > 0` in the allegedly stolen asset after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and any harness-funded setup value.
+- Prove conservation of the relevant ETH/token/share balances across the vault, attacker, victims, and test harness. If the observed balances imply more assets left the system than entered it, the PoC is invalid until corrected.
+- Do not treat hardcoded final balances, green test output, or a vault balance decrease as theft by itself. Trace the recipient: if victim assets are returned to the victim, classify reachable impact as forced action/griefing/DoS, not attacker profit.
+- Historical precedent can justify impact and recommendations, but a Critical/High current-code theft or drain still requires current-code profit proof.
+
+## Demotion Is Not Suppression
+
+Do not suppress latent technical issues when a theft/drain overclaim fails the gates. If direct attacker profit is not proven, demote only the overclaimed impact and still record the correct reachable impact, such as forced action, griefing, DoS, stale-state exposure, or architectural risk. Domain-specific safe-pattern and demotion rules live in the relevant vulnerability skills; the core rubric only requires current-code exploitability, value-flow tracing, and conservation-aware impact proof.
 
 ## Confidence Scoring
 
