@@ -250,5 +250,8 @@ export function resolveArgusSkills(
 }
 
 export function getRequiredAuditSkills(): string[] {
-  return ["reentrancy", "oracle-manipulation", "amm-dex"]
+  // Intentionally universal-only: protocol-specific skills (amm-dex,
+  // oracle-manipulation, …) are surfaced per-target by argus_recommend_skills,
+  // not forced here, so the baseline never skews every audit toward an AMM/DeFi shape.
+  return ["reentrancy", "access-control"]
 }

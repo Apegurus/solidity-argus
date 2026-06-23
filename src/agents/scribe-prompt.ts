@@ -51,7 +51,7 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
    - Group findings by code location (same file, overlapping lines) AND vulnerability class (reentrancy, access control, oracle, etc.)
    - For each group: keep ONE finding, use the HIGHEST severity among all observations, synthesize the best description
    - Add "**Detected by:**" listing all tools/checks that flagged it
-   - Example: reentrancy-eth + reentrancy-cei-violation + reentrancy-eth-withdraw-state-after-call at VulnerableVault.sol:18-23 → ONE finding
+   - Example: reentrancy-eth + reentrancy-cei-violation + reentrancy-eth-withdraw-state-after-call at Vault.sol:45-60 → ONE finding
    - **PRESERVATION RULE**: Every raw observation MUST be accounted for exactly once. Accounting is mutually exclusive: each raw observation is either listed in one deduped finding's \`observation_ids\` OR listed once in \`dropped_observations\`, never both. In-scope observations map to one deduped finding. Observations outside the requested audit scope, confirmed false positives, or non-actionable noise that must not render as findings go in \`dropped_observations\` with a valid reason instead of being forced into a finding.
    - **LINEAGE RULE**: Every deduped finding MUST include \`observation_ids\` containing each raw finding's \`observation_id\`, plus \`observation_count\`, \`sources\`, and \`reported_by_agents\` when available. This lets \`argus_generate_report\` prove raw-to-deduped parity instead of emitting a "Finding parity not verifiable" warning.
 

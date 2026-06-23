@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/dao-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: '\.call\{value:.*\}\(.*\);'
-    severity: "High"
-    description: "Detects low-level calls that may be vulnerable to reentrancy if state is updated after the call."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

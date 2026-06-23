@@ -34,7 +34,7 @@ Prove an unprivileged actor can trigger the harmful path in the current deployme
 
 - Only trusted roles can trigger → **DEMOTE** (`confidence_score ≤ 75`)
 - Costs (gas, capital) exceed extraction → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; this is the most fragile gate — LLM cost calculations ignore flash loans, MEV efficiency, repeated extraction, TVL growth, and cross-protocol composability. Always demote rather than drop, so human reviewers can audit your cost reasoning.)
-- Theft/drain claim lacks `attacker_net_gain > 0` after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and test-harness funding → **REJECTED_DEMOTED** until the PoC proves the exploit property. Passing tests are not proof unless the assertion checks the intended exploit property.
+- Theft/drain claim lacks `attacker_net_gain > 0` after subtracting all attacker-funded inflows (deposits, seed balances, flash-loan principal/fees, and any test/setup funding) → **REJECTED_DEMOTED** until the PoC proves the exploit property. Passing tests are not proof unless the assertion checks the intended exploit property.
 - Unprivileged actor triggers profitably → **clears**, continue to Gate 4
 
 ## Gate 4 — Impact
@@ -51,9 +51,9 @@ Prove material harm to an identifiable victim **in the current code**, not in hy
 
 Passing tests are not proof. A PoC only confirms a theft, drain, or direct-profit finding when the assertion checks the exploit property itself:
 
-- Prove `attacker_net_gain > 0` in the allegedly stolen asset after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and any harness-funded setup value.
-- Prove conservation of the relevant ETH/token/share balances across the vault, attacker, victims, and test harness. If the observed balances imply more assets left the system than entered it, the PoC is invalid until corrected.
-- Do not treat hardcoded final balances, green test output, or a vault balance decrease as theft by itself. Trace the recipient: if victim assets are returned to the victim, classify reachable impact as forced action/griefing/DoS, not attacker profit.
+- Prove `attacker_net_gain > 0` in the allegedly stolen asset after subtracting all attacker-funded inflows (deposits, seed balances, flash-loan principal/fees, and any test/setup funding).
+- Prove conservation of the relevant ETH/token/share balances across the protocol, attacker, and victims. If the observed balances imply more assets left the system than entered it, the PoC is invalid until corrected.
+- Do not treat a passing/green test or a protocol balance decrease as theft by itself. Trace the recipient: if victim assets are returned to the victim, classify reachable impact as forced action/griefing/DoS, not attacker profit.
 - Historical precedent can justify impact and recommendations, but a Critical/High current-code theft or drain still requires current-code profit proof.
 
 ## Demotion Is Not Suppression

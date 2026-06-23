@@ -219,6 +219,45 @@ description: Missing category
     expect(bundledResult.invalid).toBe(1)
     expect(bundledResult.errors[0]?.errors[0]).toContain("Bundled skills must declare category")
   })
+
+  it("warns when detection_rules are present without a pattern_category", () => {
+    const result = lintSkillFiles([
+      {
+        path: "inert.md",
+        content: `---
+name: inert-skill
+category: vulnerability-pattern
+detection_rules:
+  - regex: "selfdestruct"
+    severity: High
+---
+# Content`,
+      },
+    ])
+    expect(result.valid).toBe(1)
+    expect(result.invalid).toBe(0)
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]?.file).toBe("inert.md")
+    expect(result.warnings[0]?.warnings[0]).toContain("pattern_category")
+  })
+
+  it("does not warn when detection_rules have a pattern_category", () => {
+    const result = lintSkillFiles([
+      {
+        path: "active.md",
+        content: `---
+name: active-skill
+category: vulnerability-pattern
+pattern_category: reentrancy
+detection_rules:
+  - regex: "selfdestruct"
+    severity: High
+---
+# Content`,
+      },
+    ])
+    expect(result.warnings).toHaveLength(0)
+  })
 })
 
 describe("lintSkillsCommand", () => {

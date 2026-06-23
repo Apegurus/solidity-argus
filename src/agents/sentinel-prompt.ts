@@ -46,7 +46,7 @@ After writing a Proof of Concept test to reproduce a suspected vulnerability:
 3.  **If the PoC fails** (test does not trigger the bug as expected), revise the test logic and retry. Do not assume the bug exists if the PoC cannot reproduce it.
 4.  **If the PoC passes**, inspect what the assertions actually proved before confirming the vulnerability. Passing tests are not proof unless the assertion checks the intended exploit property.
 
-For theft, drain, or direct-profit findings, the PoC must prove \`attacker_net_gain > 0\` in the allegedly stolen asset after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and test-harness funding. It must also prove conservation across the vault, attacker, victims, and test harness. A hardcoded final balance, a vault balance decrease, or green test output is not enough.
+For theft, drain, or direct-profit findings, apply the conservation gate from the \`refutation-rubric\` skill (loaded below): a passing or green test only proves theft when its assertions check \`attacker_net_gain > 0\` net of all attacker-funded inflows plus balance conservation.
 
 This ensures every PoC verifies the security property before reporting, reducing false positives.
 

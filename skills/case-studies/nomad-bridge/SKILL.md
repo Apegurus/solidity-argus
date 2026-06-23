@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/nomad-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: '0x0000000000000000000000000000000000000000000000000000000000000000'
-    severity: "High"
-    description: "Detects usage of the zero hash as a trusted value, which can be dangerous if it's the default state of an uninitialized mapping."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

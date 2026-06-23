@@ -1,7 +1,7 @@
 # Argus Knowledge Base Inventory
 
 Generated: 2026-02-20
-Last updated: 2026-06-19 (added 5 DeFi-depth skills: liquidation, LSD/restaking, concentrated-liquidity, Pyth, arbitrary-external-call)
+Last updated: 2026-06-22 (listed previously-missing refutation-rubric; removed inert case-study detection_rules). Prior 2026-06-19: added 5 DeFi-depth skills (liquidation, LSD/restaking, concentrated-liquidity, Pyth, arbitrary-external-call)
 Total SKILL.md files: 103
 
 ## Vulnerability Patterns
@@ -72,6 +72,7 @@ Total SKILL.md files: 103
 | File | Source(s) | Topic | Word Count |
 |------|-----------|-------|------------|
 | methodology/audit-workflow/SKILL.md | DeFiFoFum | Audit Workflow | 523 |
+| methodology/refutation-rubric/SKILL.md | pashov/skills | Refutation Rubric (4-Gate Finding Validation) | 1886 |
 | methodology/report-template/SKILL.md | DeFiFoFum | Audit Report Template | 585 |
 | methodology/severity-classification/SKILL.md | DeFiFoFum | Severity Classification Guide | 603 |
 

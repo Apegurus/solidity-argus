@@ -5,13 +5,6 @@ category: reference
 source_url: "https://rekt.news/parity-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'delegatecall\(.*\)'
-    severity: "High"
-    description: "Detects use of delegatecall, which can be dangerous if the target contract is not trusted or can be modified."
-  - regex: 'selfdestruct\(.*\)'
-    severity: "High"
-    description: "Detects use of selfdestruct, which can be used to destroy a contract and freeze funds if not properly protected."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

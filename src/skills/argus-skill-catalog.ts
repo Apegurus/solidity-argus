@@ -43,6 +43,18 @@ export type SkillRecommendation = ResolvedSkillMetadata & {
 
 const MAX_EXAMPLES_PER_BUCKET = 5
 
+// Heuristic field weights for metadata recommendation ranking: a context token that
+// matches a higher-weighted field is a stronger relevance signal. Hand-tuned, not
+// learned — retune against tests/eval/ recall rather than by feel.
+const FIELD_MATCH_WEIGHTS = {
+  name: 10,
+  patternCategory: 8,
+  description: 5,
+  category: 4,
+  path: 2,
+} as const
+const SCANNED_BY_PATTERNS_SEED = 1
+
 function hasDetectionRules(skill: ResolvedSkill): boolean {
   return (skill.detection_rules?.length ?? 0) > 0
 }
@@ -148,11 +160,12 @@ export function summarizeSkillMetadata(skills: ResolvedSkillMetadata[]): SkillCa
 
 function scoreTokenMatch(skill: ResolvedSkillMetadata, token: string): number {
   let score = 0
-  if (skill.name.toLowerCase().includes(token)) score += 10
-  if (skill.pattern_category?.toLowerCase().includes(token)) score += 8
-  if (skill.category?.toLowerCase().includes(token)) score += 4
-  if (skill.description.toLowerCase().includes(token)) score += 5
-  if (skill.path.toLowerCase().includes(token)) score += 2
+  if (skill.name.toLowerCase().includes(token)) score += FIELD_MATCH_WEIGHTS.name
+  if (skill.pattern_category?.toLowerCase().includes(token))
+    score += FIELD_MATCH_WEIGHTS.patternCategory
+  if (skill.category?.toLowerCase().includes(token)) score += FIELD_MATCH_WEIGHTS.category
+  if (skill.description.toLowerCase().includes(token)) score += FIELD_MATCH_WEIGHTS.description
+  if (skill.path.toLowerCase().includes(token)) score += FIELD_MATCH_WEIGHTS.path
   return score
 }
 
@@ -193,7 +206,7 @@ export function recommendSkillMetadata(
     .map((skill) => {
       const score = contextTokens.reduce(
         (total, token) => total + scoreTokenMatch(skill, token),
-        skill.scanned_by_patterns ? 1 : 0,
+        skill.scanned_by_patterns ? SCANNED_BY_PATTERNS_SEED : 0,
       )
       return {
         ...skill,

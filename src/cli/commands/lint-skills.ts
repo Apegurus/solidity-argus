@@ -12,6 +12,7 @@ import { cliOutput } from "../cli-output"
 
 const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
+const YELLOW = "\x1b[33m"
 const RESET = "\x1b[0m"
 
 function findSkillFiles(dir: string, maxDepth = 8): string[] {
@@ -43,6 +44,7 @@ export interface LintResult {
   invalid: number
   skipped: number
   errors: Array<{ file: string; errors: string[] }>
+  warnings: Array<{ file: string; warnings: string[] }>
 }
 
 type SkillFileForLint = {
@@ -56,6 +58,7 @@ export function lintSkillFiles(skillFiles: SkillFileForLint[]): LintResult {
   let invalid = 0
   let skipped = 0
   const errors: Array<{ file: string; errors: string[] }> = []
+  const warnings: Array<{ file: string; warnings: string[] }> = []
 
   for (const { path, content, requireCategory } of skillFiles) {
     const fm = parseFrontmatter(content)
@@ -74,9 +77,22 @@ export function lintSkillFiles(skillFiles: SkillFileForLint[]): LintResult {
       invalid++
       errors.push({ file: path, errors: result.errors })
     }
+
+    if (
+      result.success &&
+      (result.data.detection_rules?.length ?? 0) > 0 &&
+      !result.data.pattern_category
+    ) {
+      warnings.push({
+        file: path,
+        warnings: [
+          "detection_rules without pattern_category are inert (never scanned by argus_check_patterns). Add a pattern_category to activate them, or move the cues into prose.",
+        ],
+      })
+    }
   }
 
-  return { valid, invalid, skipped, errors }
+  return { valid, invalid, skipped, errors, warnings }
 }
 
 export const lintSkillsCommand: CliCommand = {
@@ -112,7 +128,7 @@ export const lintSkillsCommand: CliCommand = {
     const result = lintSkillFiles(skillFiles)
 
     cliOutput.log(
-      `Skill Lint: ${result.valid} valid, ${result.invalid} invalid, ${result.skipped} skipped (no frontmatter)`,
+      `Skill Lint: ${result.valid} valid, ${result.invalid} invalid, ${result.warnings.length} warnings, ${result.skipped} skipped (no frontmatter)`,
     )
 
     if (result.errors.length > 0) {
@@ -124,6 +140,15 @@ export const lintSkillsCommand: CliCommand = {
       }
     } else if (result.valid > 0) {
       cliOutput.log(`${GREEN}✓${RESET} All skills pass schema validation`)
+    }
+
+    if (result.warnings.length > 0) {
+      for (const { file, warnings } of result.warnings) {
+        cliOutput.log(`\n${YELLOW}⚠${RESET} ${file}`)
+        for (const warn of warnings) {
+          cliOutput.log(`  - ${warn}`)
+        }
+      }
     }
 
     return result.invalid > 0 ? 1 : 0

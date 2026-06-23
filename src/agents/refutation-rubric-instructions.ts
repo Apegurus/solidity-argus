@@ -24,15 +24,15 @@ Walk all 4 gates from the rubric explicitly in your reasoning:
 
 1. **Refutation** — find and quote the exact line of code that does or does not block the attack.
 2. **Reachability** — prove the vulnerable state is reachable in deployment.
-3. **Trigger** — prove an unprivileged actor can trigger the harmful path in the current deployment state. For any theft/drain claim, require a positive \`attacker_net_gain\` in the stolen asset after subtracting attacker-funded deposits, flash-loan repayment, and test-harness funding. Passing tests are not proof unless the assertion checks the intended exploit property.
+3. **Trigger** — prove an unprivileged actor can trigger the harmful path in the current deployment state. For any theft/drain claim, require a positive \`attacker_net_gain\` in the stolen asset after subtracting all attacker-funded inflows (deposits, flash-loan repayment, and any test/setup funding). Passing tests are not proof unless the assertion checks the intended exploit property.
 4. **Impact** — prove material harm to an identifiable victim **in the current code**. Impact that needs not-yet-present code (a placeholder that returns a constant, an unwired setter) is at most DEMOTE, never Critical/High. Trace the recipient before calling any issue "theft" or "drain": if assets return to the rightful holder rather than the caller or an alternate beneficiary, classify the reachable impact as forced action/griefing/DoS, not attacker profit. Require conservation reasoning: total attributed outflows must not exceed funded inflows plus legitimate victim-funded balances.
 
 ### PoC truthfulness for theft and drain claims
 
 Passing tests are not proof. A PoC only confirms a theft, drain, or direct-profit finding when the assertion checks the exploit property itself:
 
-- Prove \`attacker_net_gain > 0\` in the allegedly stolen asset after subtracting attacker-funded deposits, seed balances, flash-loan principal/fees, and any harness-funded setup value.
-- Prove conservation of the relevant ETH/token/share balances across the vault, attacker, victims, and test harness. If the observed balances imply more assets left the system than entered it, the PoC is invalid until corrected.
+- Prove \`attacker_net_gain > 0\` in the allegedly stolen asset after subtracting all attacker-funded inflows (deposits, seed balances, flash-loan principal/fees, and any test/setup funding).
+- Prove conservation of the relevant ETH/token/share balances across the protocol, attacker, and victims. If the observed balances imply more assets left the system than entered it, the PoC is invalid until corrected.
 - Do not treat hardcoded final balances, green test output, or a vault balance decrease as theft by itself. Trace the recipient: if victim assets are returned to the victim, classify reachable impact as forced action/griefing/DoS, not attacker profit.
 - Historical precedent can justify impact and recommendations, but a Critical/High current-code theft or drain still requires current-code profit proof.
 

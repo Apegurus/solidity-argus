@@ -2,6 +2,7 @@
 name: concentrated-liquidity
 description: "Concentrated-liquidity managers (UniV3 ALMs) and Uniswap V4 hooks are exploited through sandwichable owner/rebalance functions, missing TWAP calm-period checks, stale approvals, and hook permission/delta/settlement bugs."
 category: protocol-pattern
+pattern_category: oracle-manipulation
 source_url: "https://dacian.me/concentrated-liquidity-manager-vulnerabilities"
 imported_at: "2026-06-19T00:00:00Z"
 detection_rules:
