@@ -72,6 +72,29 @@ describe("ScvdClient", () => {
     expect(stats.last_updated).toBe("2026-02-16T00:00:00.000Z")
   })
 
+  test("fetchStats parses the schema-0.1 stats response (totals + by_severity array)", async () => {
+    setMockFetch(async () =>
+      createMockResponse({
+        json: {
+          totals: { findings: 7769, reports: 213 },
+          by_severity: [
+            { level: "High", count: 2639 },
+            { level: "Medium", count: 2490 },
+          ],
+          top_swc: [{ swc: "SWC-135", count: 1927 }],
+        },
+      }),
+    )
+
+    const client = new ScvdClient("https://api.scvd.dev")
+    const stats = await client.fetchStats()
+
+    expect(stats.total).toBe(7769)
+    expect(stats.by_severity.High).toBe(2639)
+    expect(stats.by_severity.Medium).toBe(2490)
+    expect(stats.last_updated).toBe("")
+  })
+
   test("fetchStats throws descriptive message on HTTP error", async () => {
     setMockFetch(async () => createMockResponse({ status: 503, json: { error: "down" } }))
 
@@ -86,22 +109,64 @@ describe("ScvdClient", () => {
     }
   })
 
-  test("fetchFindings sends params and parses array response", async () => {
+  test("fetchFindings sends cursor and parses the schema-0.1 items envelope", async () => {
     const urls: string[] = []
     setMockFetch(async (input) => {
       urls.push(String(input))
-      return createMockResponse({ json: [sampleFinding("SCVD-1"), sampleFinding("SCVD-2")] })
+      return createMockResponse({
+        json: { items: [sampleFinding("SCVD-1"), sampleFinding("SCVD-2")], next_cursor: "next99" },
+      })
     })
 
     const client = new ScvdClient("https://api.scvd.dev/")
-    const findings = await client.fetchFindings({ severity: "High", limit: 2, offset: 20 })
+    const page = await client.fetchFindings({ severity: "High", limit: 2, cursor: "abc123" })
 
-    expect(findings).toHaveLength(2)
-    expect(findings[0]?.scvd_id).toBe("SCVD-1")
+    expect(page.findings).toHaveLength(2)
+    expect(page.findings[0]?.scvd_id).toBe("SCVD-1")
+    expect(page.nextCursor).toBe("next99")
     expect(urls[0]).toContain("/findings?")
     expect(urls[0]).toContain("severity=High")
     expect(urls[0]).toContain("limit=2")
-    expect(urls[0]).toContain("offset=20")
+    expect(urls[0]).toContain("cursor=abc123")
+  })
+
+  test("fetchFindings falls back to full_markdown when description_md is null", async () => {
+    setMockFetch(async () =>
+      createMockResponse({
+        json: {
+          items: [
+            {
+              scvd_id: "SCVD-X",
+              doc_id: "doc-X",
+              title: "Finding X",
+              description_md: null,
+              full_markdown: "### Full body\nDetails here.",
+              severity: "High",
+              repo: { url: "https://github.com/example/repo" },
+              taxonomy: { swc: ["SWC-107"], cwe: [] },
+              sections: {},
+            },
+          ],
+        },
+      }),
+    )
+
+    const client = new ScvdClient("https://api.scvd.dev")
+    const page = await client.fetchFindings({ limit: 1 })
+
+    expect(page.findings).toHaveLength(1)
+    expect(page.findings[0]?.description_md).toContain("Full body")
+  })
+
+  test("fetchFindings still parses a legacy bare-array response", async () => {
+    setMockFetch(async () => createMockResponse({ json: [sampleFinding("SCVD-9")] }))
+
+    const client = new ScvdClient("https://api.scvd.dev")
+    const page = await client.fetchFindings({ limit: 1 })
+
+    expect(page.findings).toHaveLength(1)
+    expect(page.findings[0]?.scvd_id).toBe("SCVD-9")
+    expect(page.nextCursor).toBeUndefined()
   })
 
   test("fetchFindings throws ScvdNetworkError on network failure", async () => {
@@ -111,7 +176,7 @@ describe("ScvdClient", () => {
 
     const client = new ScvdClient("https://api.scvd.dev")
     try {
-      await client.fetchFindings({ limit: 10, offset: 0 })
+      await client.fetchFindings({ limit: 10 })
       expect.unreachable("Expected fetchFindings to throw on network error")
     } catch (error) {
       expect(error).toBeInstanceOf(ScvdNetworkError)
@@ -120,7 +185,7 @@ describe("ScvdClient", () => {
     }
   })
 
-  test("fetchAllFindings paginates and reports progress", async () => {
+  test("fetchAllFindings follows next_cursor and reports progress", async () => {
     let callCount = 0
     const firstPage = Array.from({ length: 100 }).map((_, index) =>
       sampleFinding(`SCVD-${index + 1}`),
@@ -132,15 +197,17 @@ describe("ScvdClient", () => {
       if (url.includes("/findings")) {
         callCount += 1
         if (callCount === 1) {
-          return createMockResponse({ json: firstPage })
+          return createMockResponse({ json: { items: firstPage, next_cursor: "c1" } })
         }
         if (callCount === 2) {
-          return createMockResponse({ json: [sampleFinding("SCVD-101")] })
+          return createMockResponse({
+            json: { items: [sampleFinding("SCVD-101")], next_cursor: "c2" },
+          })
         }
-        return createMockResponse({ json: [] })
+        return createMockResponse({ json: { items: [], next_cursor: null } })
       }
 
-      return createMockResponse({ json: [] })
+      return createMockResponse({ json: { items: [] } })
     })
 
     const progress: number[] = []

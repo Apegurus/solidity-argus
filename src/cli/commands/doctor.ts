@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import { basename, dirname, extname, join, resolve } from "node:path"
 import { loadArgusConfig } from "../../config/loader"
 import type { ArgusConfig } from "../../config/types"
+import { ScvdApiError, ScvdClient, ScvdNetworkError } from "../../knowledge/scvd-client"
 import { createLogger } from "../../shared/logger"
 import {
   getRequiredAuditSkills,
@@ -615,16 +616,21 @@ export const doctorCommand: CliCommand = {
     }
 
     try {
-      const response = await fetch("https://api.scvd.dev/stats", {
-        signal: AbortSignal.timeout(5000),
-      })
-      if (response.ok) {
-        cliOutput.log(`${GREEN}✓${RESET} SCVD API: reachable`)
+      // Parse the stats body via the client (not just response.ok) so an API schema drift
+      // surfaces as a real problem instead of a false "reachable"; 10s covers cold starts.
+      const scvdApiUrl = config?.knowledge?.scvd?.apiUrl ?? "https://api.scvd.dev"
+      const stats = await new ScvdClient(scvdApiUrl, AbortSignal.timeout(10_000)).fetchStats()
+      cliOutput.log(`${GREEN}✓${RESET} SCVD API: reachable (${stats.total} findings)`)
+    } catch (error) {
+      if (error instanceof ScvdNetworkError) {
+        cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: unreachable`)
+      } else if (error instanceof ScvdApiError) {
+        cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: returned HTTP ${error.httpStatus}`)
       } else {
-        cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: returned ${response.status}`)
+        cliOutput.log(
+          `${YELLOW}⚠${RESET} SCVD API: reachable but response schema unrecognized — update the SCVD client or run argus_sync_knowledge`,
+        )
       }
-    } catch {
-      cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: unreachable`)
     }
 
     const soloditEnabled = config?.solodit?.enabled !== false
