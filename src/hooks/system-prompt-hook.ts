@@ -136,7 +136,7 @@ export function buildDynamicContext(
     pendingKeyTools.length === 0
       ? "REPORTING GATE: ALLOWED"
       : dispatchedSubagents
-        ? `REPORTING GATE: DELEGATED \u2014 key-tool coverage runs in subagents and is verified run-scoped at report time; not observed in this orchestrator session: ${pendingKeyTools.join(", ")}`
+        ? `REPORTING GATE: DELEGATED \u2014 key tools not observed in this orchestrator session (${pendingKeyTools.join(", ")}); they run in dispatched subagents. Report-time coverage only sees the canonical run's own journal, so confirm delegated tool runs reached the canonical run_id before reporting.`
         : `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
   const lines: string[] = [
     `<argus-context agent="${agent}">`,

@@ -79,7 +79,9 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
 
 6. **Limitations disclosure**: If any tool failed or was absent, add a \`## Limitations\` section.
 
-7. Confirm: "Report generated via argus_generate_report: {filePath}".
+7. **Verify the rendered artifact (do NOT skip)**: After \`argus_generate_report\` returns, re-read the report file at the returned path and confirm (a) your claimed edits actually landed and (b) no auto-injected warning you meant to resolve survived. Grep the file for \`Completeness Warning\`, \`not executed\`, \`Missing lifecycle\`, and \`no rubric\`. The coverage/limitations banner is injected by the generator, not authored by you, so editing your own content is not evidence it is gone. Only declare success after this read.
+
+8. Confirm: "Report generated via argus_generate_report: {filePath}".
 
 ## SINGLE-WRITER POLICY
 
