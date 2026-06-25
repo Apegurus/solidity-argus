@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { SCHEMA_VERSION } from "../state/schemas"
 import { executeRecordFinding } from "./record-finding-tool"
@@ -509,4 +512,70 @@ test("executeRecordFinding skips enrichment warnings for Low/Medium findings", a
   }
   expect(mediumParsed.success).toBe(true)
   expect(mediumParsed.enrichment_warnings).toBeUndefined()
+})
+
+test("executeRecordFinding returns the canonical run_id when the session has an active run", async () => {
+  const prevCacheDir = process.env.ARGUS_CACHE_DIR
+  const cacheDir = mkdtempSync(join(tmpdir(), "argus-recfind-"))
+  try {
+    process.env.ARGUS_CACHE_DIR = cacheDir
+    const sessionId = "ses-active-run-xyz"
+    const projectDir = "/tmp/argus-active-project"
+    mkdirSync(join(cacheDir, "runs"), { recursive: true })
+    writeFileSync(
+      join(cacheDir, "runs", "index.jsonl"),
+      `${JSON.stringify({
+        runId: "run-canonical-xyz",
+        opencodeSessionId: sessionId,
+        projectDir,
+        startedAt: Date.now() - 1000,
+      })}\n`,
+    )
+
+    const context: ToolContext = {
+      sessionID: sessionId,
+      messageID: "message-test",
+      agent: "sentinel",
+      directory: projectDir,
+      worktree: projectDir,
+      abort: new AbortController().signal,
+      metadata() {
+        return
+      },
+      async ask() {
+        return
+      },
+    }
+
+    const payload = await executeRecordFinding(
+      {
+        finding: JSON.stringify({
+          check: "manual-auth-bypass",
+          severity: "High",
+          confidence: "High",
+          description: "Manual access-control bypass finding",
+          file: "src/Vault.sol",
+          lines: [20, 24],
+          source: "manual",
+        }),
+      },
+      context,
+    )
+
+    const parsed = JSON.parse(payload) as {
+      run_id: string
+      canonical_run_id: string | null
+      run_id_reconciliation: { status: string; canonical_run_id: string | null }
+    }
+    expect(parsed.canonical_run_id).toBe("run-canonical-xyz")
+    expect(parsed.run_id).toBe("run-canonical-xyz")
+    expect(parsed.run_id_reconciliation.status).toBe("resolved")
+  } finally {
+    if (prevCacheDir === undefined) {
+      delete process.env.ARGUS_CACHE_DIR
+    } else {
+      process.env.ARGUS_CACHE_DIR = prevCacheDir
+    }
+    rmSync(cacheDir, { recursive: true, force: true })
+  }
 })

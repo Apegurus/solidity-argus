@@ -67,6 +67,39 @@ const VALID_SEVERITIES: ReadonlySet<string> = new Set([
 
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["High", "Medium", "Low"])
 
+function hasUnclosedJsonValue(value: string): boolean {
+  const openerIndex = Math.min(
+    ...[value.indexOf("{"), value.indexOf("[")].filter((index) => index >= 0),
+  )
+  if (!Number.isFinite(openerIndex)) return false
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = openerIndex; i < value.length; i++) {
+    const ch = value.charAt(i)
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === "\\") {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === "{" || ch === "[") {
+      depth++
+    } else if (ch === "}" || ch === "]") {
+      depth--
+      if (depth === 0) return false
+    }
+  }
+  return depth > 0
+}
+
 function toSeverity(value: unknown): FindingSeverity {
   if (typeof value === "string" && VALID_SEVERITIES.has(value)) {
     return value as FindingSeverity
@@ -825,7 +858,10 @@ export function createToolTrackingHook(
           const opencodeTruncation = input.result.match(
             /bytes truncated|output was truncated|tool call succeeded/i,
           )
-          const truncatedSuccess = successInPartialJson?.[1] === "true" || !!opencodeTruncation
+          const truncatedSuccess =
+            successInPartialJson?.[1] === "true" ||
+            !!opencodeTruncation ||
+            hasUnclosedJsonValue(input.result)
           if (truncatedSuccess) {
             diag.error(
               "TRUNCATED_OUTPUT",

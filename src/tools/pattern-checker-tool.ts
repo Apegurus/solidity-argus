@@ -18,6 +18,9 @@ import { extractDetectionRulesFromResolvedSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
 
 const logger = createLogger()
+const DEFAULT_MAX_MATCHES = 100
+const DEFAULT_MAX_MATCHES_PER_SOURCE = 50
+const DEFAULT_MAX_TEXT_LENGTH = 500
 
 export type PatternSource = "skill"
 
@@ -51,12 +54,16 @@ export interface PatternCheckResult {
   executionTime: number
   target: string
   patternVersion?: string
+  compact?: boolean
+  truncatedMatches?: number
+  matchCountsByPattern?: Record<string, number>
 }
 
 type PatternCheckArgs = {
   target: string
   patterns?: string[]
   include_scvd?: boolean
+  full_detail?: boolean
 }
 
 type PatternCheckDependencies = {
@@ -325,6 +332,50 @@ function selectPatterns(
   return availablePatterns.filter((pattern) => set.has(pattern.category))
 }
 
+function truncateText(value: string | undefined, maxLength: number): string | undefined {
+  if (value === undefined || value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}…`
+}
+
+function compactMatch(match: Match): Match {
+  return {
+    ...match,
+    description: truncateText(match.description, DEFAULT_MAX_TEXT_LENGTH) ?? "",
+    ...(match.exploitReference
+      ? { exploitReference: truncateText(match.exploitReference, DEFAULT_MAX_TEXT_LENGTH) }
+      : {}),
+  }
+}
+
+function countByPattern(matches: Match[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const match of matches) {
+    counts[match.pattern] = (counts[match.pattern] ?? 0) + 1
+  }
+  return counts
+}
+
+function compactSources(sources: MatchSource[]): {
+  sources: MatchSource[]
+  matches: Match[]
+  truncatedMatches: number
+} {
+  let remaining = DEFAULT_MAX_MATCHES
+  let truncatedMatches = 0
+  const compactedSources: MatchSource[] = []
+
+  for (const source of sources) {
+    const sourceLimit = Math.min(DEFAULT_MAX_MATCHES_PER_SOURCE, Math.max(0, remaining))
+    const kept = source.matches.slice(0, sourceLimit).map(compactMatch)
+    truncatedMatches += Math.max(0, source.matches.length - kept.length)
+    remaining -= kept.length
+    compactedSources.push({ ...source, matches: kept })
+  }
+
+  const matches = compactedSources.flatMap((source) => source.matches)
+  return { sources: compactedSources, matches, truncatedMatches }
+}
+
 export async function executePatternCheck(
   args: PatternCheckArgs,
   context: ToolContext,
@@ -412,6 +463,7 @@ export async function executePatternCheck(
   }
 
   const allMatches = sources.flatMap((s) => s.matches)
+  const matchCountsByPattern = countByPattern(allMatches)
   const bySeverity: Record<string, number> = {}
   const byCategory: Record<string, number> = {}
   for (const m of allMatches) {
@@ -421,15 +473,20 @@ export async function executePatternCheck(
     }
   }
 
+  const compacted = args.full_detail === true ? null : compactSources(sources)
+
   return {
     success: true,
-    matches: allMatches,
+    matches: compacted?.matches ?? allMatches,
     summary: { total: allMatches.length, bySeverity, byCategory },
-    sources,
+    sources: compacted?.sources ?? sources,
     patternsChecked: selectedPatterns.length,
     executionTime: Date.now() - startedAt,
     target: args.target,
     patternVersion: PATTERN_PACK_VERSION,
+    compact: args.full_detail !== true,
+    truncatedMatches: compacted?.truncatedMatches ?? 0,
+    matchCountsByPattern,
   }
 }
 
@@ -439,6 +496,7 @@ export const patternCheckerTool = tool({
     target: tool.schema.string(),
     patterns: tool.schema.array(tool.schema.string()).optional(),
     include_scvd: tool.schema.boolean().default(true),
+    full_detail: tool.schema.boolean().default(false),
   },
   async execute(args, context) {
     const result = await executePatternCheck(args, context)

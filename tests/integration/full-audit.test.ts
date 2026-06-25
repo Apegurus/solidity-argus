@@ -161,6 +161,7 @@ describe("full audit integration", () => {
         target: FIXTURE_DIR,
         patterns: ["reentrancy", "access-control"],
         include_scvd: true,
+        full_detail: false,
       },
       createMockContext(),
     )

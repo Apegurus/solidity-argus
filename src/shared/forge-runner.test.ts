@@ -21,6 +21,21 @@ describe("forge-runner", () => {
       expect(result.exitCode).toBe(0)
     })
 
+    it("should bound stderr without bounding stdout", async () => {
+      const result = await runForgeCommand(
+        [
+          "bun",
+          "-e",
+          "process.stdout.write('o'.repeat(201000)); process.stderr.write('e'.repeat(201000))",
+        ],
+        {},
+      )
+
+      expect(result.stdout.length).toBe(201_000)
+      expect(result.stderr.length).toBeLessThan(201_000)
+      expect(result.stderr).toContain("stderr truncated")
+    })
+
     it("should pass env variables to the command", async () => {
       const result = await runForgeCommand(["sh", "-c", "echo $MY_VAR"], {
         env: { ...Bun.env, MY_VAR: "test-value" },

@@ -25,7 +25,7 @@ import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-cons
 import { normalizeToCanonicalFinding } from "../state/adapters"
 import {
   compareIssueFingerprintSets,
-  dedupeFindingsForFinalOutput,
+  finalizeProjectedFindings,
 } from "../state/finding-aggregation"
 import { projectFindings, stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
@@ -352,6 +352,10 @@ type ReportFindingFields = {
   impact?: string
   recommendation?: string
   proofOfConcept?: string
+}
+
+function isForgeAvailable(unavailableTools?: string[]): boolean {
+  return !(unavailableTools ?? []).includes("forge")
 }
 
 function emptyCounts(): FindingsCount {
@@ -1145,15 +1149,22 @@ function getFindingRecommendation(finding: Finding): string {
   return MISSING_RECOMMENDATION_TEXT
 }
 
-function getPocEvidence(finding: Finding): string | undefined {
+function getPocEvidence(
+  finding: Finding,
+  options: { allowExploitReference?: boolean } = {},
+): string | undefined {
   const extended = getExtendedFinding(finding)
   if (isNonEmptyString(extended.proofOfConcept)) {
     return extended.proofOfConcept.trim()
   }
-  if (isNonEmptyString(finding.exploitReference)) {
+  if (options.allowExploitReference !== false && isNonEmptyString(finding.exploitReference)) {
     return finding.exploitReference.trim()
   }
   return undefined
+}
+
+function hasUnprovenForgeUnavailableNote(finding: Finding): boolean {
+  return finding.unproven_forge_unavailable === true
 }
 
 function compareFindingsDeterministically(a: Finding, b: Finding): number {
@@ -1341,11 +1352,15 @@ export function validateReportQuality(
       })
     }
 
-    if (getPocEvidence(finding) == null) {
+    if (hasUnprovenForgeUnavailableNote(finding)) {
+      continue
+    }
+
+    if (getPocEvidence(finding, { allowExploitReference: false }) == null) {
       violations.push({
         findingId,
         code: "severity-justification.missing-poc",
-        message: `${severity} findings must satisfy PoC policy with exploitReference or proofOfConcept.`,
+        message: `${severity} findings must satisfy PoC policy with proofOfConcept evidence.`,
       })
     }
   }
@@ -1423,6 +1438,10 @@ function buildFindingsSection(
     lines.push(`**Severity**: ${finding.severity}`)
     lines.push(`**Confidence**: ${finding.confidence}`)
     lines.push(`**Location**: ${formatLocation(finding)}`)
+    const observations = renderObservationLine(finding)
+    if (observations) {
+      lines.push(observations)
+    }
     const excerpt = sourceExcerpt(projectDir, finding)
     if (excerpt) {
       lines.push("")
@@ -1442,6 +1461,10 @@ function buildFindingsSection(
     if (pocEvidence) {
       lines.push("")
       lines.push(`**PoC / Evidence**: ${sanitizeBodyMarkdown(pocEvidence)}`)
+    }
+    if (hasUnprovenForgeUnavailableNote(finding)) {
+      lines.push("")
+      lines.push("**Verification note**: unproven — Foundry unavailable")
     }
     lines.push("")
   }
@@ -1515,12 +1538,26 @@ function buildLeadsSection(
     const displayId = assigned ? `[${assigned}]` : `[LEAD-${leadSeq}]`
     lines.push(renderFindingHeader(finding, displayId))
     lines.push(`**Location**: ${formatLocation(finding)}`)
+    const observations = renderObservationLine(finding)
+    if (observations) {
+      lines.push(observations)
+    }
     lines.push("")
     lines.push(`**Description**: ${renderFindingBody(finding)}`)
+    if (hasUnprovenForgeUnavailableNote(finding)) {
+      lines.push("")
+      lines.push("**Verification note**: unproven — Foundry unavailable")
+    }
     lines.push("")
   }
 
   return lines.join("\n")
+}
+
+export function renderObservationLine(finding: Finding): string | null {
+  const ids = finding.observation_ids?.filter((id) => id.trim().length > 0)
+  if (!ids || ids.length === 0) return null
+  return `**Observations (${ids.length}):** ${ids.join(" · ")}`
 }
 
 function buildOutOfScopeSection(findings: Finding[]): string {
@@ -1731,7 +1768,9 @@ export function renderReportMarkdown(
   const toolsExecuted = input.toolsExecuted ?? []
   const state = reportInputToAuditState({ ...input, toolsExecuted })
   const scope = options.scope ?? input.scope ?? []
-  const finalFindings = dedupeFindingsForFinalOutput(input.findings)
+  const finalFindings = finalizeProjectedFindings(input.findings, toolsExecuted, {
+    forgeAvailable: isForgeAvailable(input.unavailableTools),
+  })
   const thresholdedFindings = finalFindings.filter((finding) =>
     shouldIncludeFinding(finding, threshold),
   )
@@ -1908,7 +1947,9 @@ export async function executeReportGeneration(
     )
   }
   const scope = args.scope.length > 0 ? args.scope : reportInput.scope
-  const finalFindings = dedupeFindingsForFinalOutput(reportInput.findings)
+  const finalFindings = finalizeProjectedFindings(reportInput.findings, reportInput.toolsExecuted, {
+    forgeAvailable: isForgeAvailable(reportInput.unavailableTools),
+  })
   const outOfScopeFindings = collectOutOfScopeFindings(finalFindings, scope)
   if (outOfScopeFindings.length > 0) {
     const locations = outOfScopeFindings.map(formatLocation).join(", ")
@@ -1976,8 +2017,20 @@ export async function executeReportGeneration(
         warningBullets.push(`- Warnings: ${preflightResult.warnings.join(", ")}`)
     }
 
-    const eventFindings = dedupeFindingsForFinalOutput(projectFindings(events))
-    const inputFindings = dedupeFindingsForFinalOutput(reportInput.findings)
+    const eventFindings = finalizeProjectedFindings(
+      projectFindings(events),
+      reportInput.toolsExecuted,
+      {
+        forgeAvailable: isForgeAvailable(reportInput.unavailableTools),
+      },
+    )
+    const inputFindings = finalizeProjectedFindings(
+      reportInput.findings,
+      reportInput.toolsExecuted,
+      {
+        forgeAvailable: isForgeAvailable(reportInput.unavailableTools),
+      },
+    )
     const hasLineage = hasCompleteDedupLineage(
       reportInput.findings,
       reportInput.dropped_observations,

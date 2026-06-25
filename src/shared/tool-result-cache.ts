@@ -1,6 +1,7 @@
 export type ToolResultCache = {
   set(sessionId: string, tool: string, result: string): void
   takeMatch(sessionId: string, tool: string, prefix: string): string | undefined
+  takeNext(sessionId: string, tool: string): string | undefined
   size(): number
 }
 
@@ -37,6 +38,13 @@ export function createToolResultCache(maxEntries: number = DEFAULT_MAX_ENTRIES):
       }
       if (bestIndex === -1) return undefined
       const removed = entries.splice(bestIndex, 1)[0]
+      return removed?.result
+    },
+    takeNext(sessionId, tool) {
+      const key = makeKey(sessionId, tool)
+      const index = entries.findIndex((entry) => entry.key === key)
+      if (index === -1) return undefined
+      const removed = entries.splice(index, 1)[0]
       return removed?.result
     },
     size() {

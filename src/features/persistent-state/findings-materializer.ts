@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { createAuditArtifactResolver } from "../../shared/audit-artifact-resolver"
-import { dedupeFindingsForFinalOutput } from "../../state/finding-aggregation"
+import { finalizeProjectedFindings } from "../../state/finding-aggregation"
 import {
   projectFindings,
   projectReportInput,
@@ -41,6 +41,10 @@ export interface FindingsMaterializeOptions {
   requireEvents?: boolean
 }
 
+function isForgeAvailable(unavailableTools?: string[]): boolean {
+  return !(unavailableTools ?? []).includes("forge")
+}
+
 export async function materializeFindings(
   runId: string,
   projectDir: string,
@@ -64,8 +68,11 @@ export async function materializeFindings(
     )
   }
 
-  const findings = dedupeFindingsForFinalOutput(projectFindings(events))
   const toolsExecuted = projectToolExecutions(events)
+  const projectedReportInput = projectReportInput(events, runId, projectDir)
+  const findings = finalizeProjectedFindings(projectFindings(events), toolsExecuted, {
+    forgeAvailable: isForgeAvailable(projectedReportInput.unavailableTools),
+  })
   const contentHash = stableHash(JSON.stringify(findings))
   const generatedAt = events.at(-1)?.timestamp ?? 0
 
@@ -124,6 +131,13 @@ export async function materializeReportInput(
   }
 
   const reportInput = projectReportInput(events, runId, projectDir)
+  reportInput.findings = finalizeProjectedFindings(
+    reportInput.findings,
+    reportInput.toolsExecuted,
+    {
+      forgeAvailable: isForgeAvailable(reportInput.unavailableTools),
+    },
+  )
 
   if (reportInput.scope.length === 0 && reportInput.findings.length > 0) {
     reportInput.scope = [...new Set(reportInput.findings.map((f) => f.file).filter(Boolean))]

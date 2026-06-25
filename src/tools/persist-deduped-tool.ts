@@ -11,6 +11,8 @@ import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { resolveProjectDir } from "../shared/project-utils"
 import { isNonEmptyString } from "../shared/type-guards"
+import { reconcileRubricVerdict } from "../shared/validation-constants"
+import { maxConfidenceScore, selectPrimaryObservation } from "../state/finding-aggregation"
 import { stableHash } from "../state/projectors"
 import type { CanonicalFinding } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
@@ -105,6 +107,33 @@ function semanticHash(
   droppedObservations: DroppedObservation[],
 ): string {
   return stableHash({ findings, dropped_observations: droppedObservations })
+}
+
+function rederiveVerdictsFromLineage(
+  findings: CanonicalFinding[],
+  rawFindings: CanonicalFinding[],
+): CanonicalFinding[] {
+  const rawByObservationId = new Map(
+    rawFindings.map((finding) => [finding.observation_id, finding]),
+  )
+  return findings.map((finding) => {
+    const observations = (finding.observation_ids ?? [])
+      .map((id) => rawByObservationId.get(id))
+      .filter((observation): observation is CanonicalFinding => observation !== undefined)
+    if (observations.length === 0) return finding
+    const primary = selectPrimaryObservation(observations)
+    const confidenceScore = maxConfidenceScore(observations)
+    const gateDemoted = observations.some((observation) => observation.gate_demoted === true)
+    const rubricVerdict = reconcileRubricVerdict(primary.rubric_verdict, confidenceScore, {
+      gateDemoted,
+    })
+    return {
+      ...finding,
+      ...(confidenceScore !== undefined ? { confidence_score: confidenceScore } : {}),
+      ...(rubricVerdict ? { rubric_verdict: rubricVerdict } : {}),
+      ...(gateDemoted ? { gate_demoted: true } : {}),
+    }
+  })
 }
 
 async function loadExistingArtifact(path: string): Promise<DedupedFindingsArtifact | null> {
@@ -209,6 +238,8 @@ export async function executePersistDeduped(
       },
     })
   }
+
+  findings = rederiveVerdictsFromLineage(findings, rawFindings)
 
   const contentHash = semanticHash(findings, droppedObservations)
   const existingArtifact = await loadExistingArtifact(dedupedPath)

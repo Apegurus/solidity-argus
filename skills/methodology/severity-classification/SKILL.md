@@ -156,6 +156,13 @@ IMPACT Med│  Low   │ Medium  │  High   │
 - Can force users to pay more gas
 - Doesn't result in loss of principal
 
+### Impact-Dependent External Consumers
+
+**Severity:** Usually High/Medium unless the consumer is demonstrated
+
+- Impact-dependent findings whose fund-loss path requires an out-of-scope consumer that is not present in the audited code should be calibrated to High/Medium rather than Critical unless that consumer is demonstrated.
+- Contracts or libraries explicitly intended for external or third-party consumption may retain the higher severity when the external integration is the stated purpose of the audited component.
+
 ---
 
 ## Severity Comparison: Industry Standards

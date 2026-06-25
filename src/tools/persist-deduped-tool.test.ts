@@ -44,6 +44,8 @@ function finding(overrides: Partial<CanonicalFinding> = {}): CanonicalFinding {
     reported_by_agent: overrides.reported_by_agent ?? "sentinel",
     observation_ids: overrides.observation_ids,
     observation_count: overrides.observation_count,
+    rubric_verdict: overrides.rubric_verdict,
+    confidence_score: overrides.confidence_score,
   }
 }
 
@@ -184,6 +186,38 @@ test("executePersistDeduped accepts object payload with dropped observations", a
     expect(output.success).toBe(true)
     expect(output.dropped_observations_count).toBe(1)
     expect(artifact.dropped_observations).toEqual(payload.dropped_observations)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped re-derives missing verdict from raw observation lineage", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-rubric-"))
+  try {
+    const runId = "run-rubric"
+    writeRawFindings(tempDir, runId, [
+      finding({
+        id: "raw-a",
+        observation_id: "obs-a",
+        rubric_verdict: "CONFIRMED",
+        confidence_score: 92,
+      }),
+    ])
+    const deduped = [finding({ id: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 })]
+
+    const output = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: JSON.stringify(deduped) },
+        context(tempDir),
+      ),
+    )
+
+    const artifact = JSON.parse(
+      readFileSync(createAuditArtifactResolver(runId, tempDir).paths().dedupedFindingsFile, "utf8"),
+    )
+    expect(output.success).toBe(true)
+    expect(artifact.findings[0].rubric_verdict).toBe("CONFIRMED")
+    expect(artifact.findings[0].confidence_score).toBe(92)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

@@ -114,6 +114,7 @@ describe("withResultCapture", () => {
         throw new Error("boom")
       },
       takeMatch: () => undefined,
+      takeNext: () => undefined,
       size: () => 0,
     }
     const wrapped = withResultCapture("argus_forge_test", fakeTool("OK"), throwingCache)

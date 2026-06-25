@@ -24,6 +24,7 @@ expected_findings:
     source:
       audit: solidity-argus internal annotation
     category: reentrancy
+    expected_verdict: DEMOTED
     acceptance_criteria:
       - predicted finding on src/VulnerableVault.sol
       - line range overlaps [18, 23]

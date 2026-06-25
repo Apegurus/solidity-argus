@@ -1,5 +1,8 @@
 import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-constants"
-import type { CanonicalFinding } from "./schemas"
+import type { CanonicalFinding, CanonicalToolExecution } from "./schemas"
+
+const GATE_DEMOTION_NOTE =
+  "[gate] Demoted: value-extraction claim lacks a passing forge net-gain PoC."
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right))
@@ -20,15 +23,13 @@ function rubricRank(verdict: CanonicalFinding["rubric_verdict"]): number {
   return verdict ? RUBRIC_VERDICT_RANK[verdict] : 3
 }
 
-// The adjudicated observation (its rubric verdict, confidence, and 4-gate trace
-// description) usually arrives AFTER the raw pattern/static observation it refutes,
-// so picking the earliest-seq observation as the merged representative silently
-// dropped the rubric data. Selecting the strongest-verdict observation instead keeps
-// the rendered verdict, confidence, and trace aligned with the adjudication. Order:
-// strongest verdict, then highest confidence_score, then earliest seq, then id.
-function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFinding {
+function primaryRank(obs: CanonicalFinding): number {
+  return obs.gate_demoted === true ? RUBRIC_VERDICT_RANK.DEMOTED : rubricRank(obs.rubric_verdict)
+}
+
+export function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFinding {
   return observations.reduce((best, obs) => {
-    const rankDelta = rubricRank(obs.rubric_verdict) - rubricRank(best.rubric_verdict)
+    const rankDelta = primaryRank(obs) - primaryRank(best)
     if (rankDelta !== 0) return rankDelta < 0 ? obs : best
     const scoreDelta = (obs.confidence_score ?? -1) - (best.confidence_score ?? -1)
     if (scoreDelta !== 0) return scoreDelta > 0 ? obs : best
@@ -37,7 +38,7 @@ function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFi
   })
 }
 
-function maxConfidenceScore(observations: CanonicalFinding[]): number | undefined {
+export function maxConfidenceScore(observations: CanonicalFinding[]): number | undefined {
   let max: number | undefined
   for (const obs of observations) {
     if (typeof obs.confidence_score === "number") {
@@ -45,6 +46,61 @@ function maxConfidenceScore(observations: CanonicalFinding[]): number | undefine
     }
   }
   return max
+}
+
+function hasPassingForgeTest(toolExecutions: CanonicalToolExecution[]): boolean {
+  return toolExecutions.some(
+    (execution) => execution.tool === "argus_forge_test" && execution.success,
+  )
+}
+
+function requiresConservationGate(finding: CanonicalFinding): boolean {
+  return (
+    (finding.severity === "Critical" || finding.severity === "High") &&
+    finding.claims_value_extraction === true &&
+    finding.rubric_verdict === "CONFIRMED"
+  )
+}
+
+function hasNetGainProofRef(finding: CanonicalFinding): boolean {
+  return (
+    typeof finding.net_gain_proof_ref === "string" && finding.net_gain_proof_ref.trim().length > 0
+  )
+}
+
+function prependGateNote(description: string): string {
+  return description.startsWith(GATE_DEMOTION_NOTE)
+    ? description
+    : `${GATE_DEMOTION_NOTE} ${description}`
+}
+
+export function applyConservationGate(
+  findings: CanonicalFinding[],
+  toolExecutions: CanonicalToolExecution[],
+  options: { forgeAvailable: boolean },
+): CanonicalFinding[] {
+  const forgePassed = hasPassingForgeTest(toolExecutions)
+  return findings.map((finding) => {
+    if (!requiresConservationGate(finding)) return finding
+    if (!options.forgeAvailable) {
+      return { ...finding, unproven_forge_unavailable: true }
+    }
+    if (forgePassed && hasNetGainProofRef(finding)) return finding
+    return {
+      ...finding,
+      rubric_verdict: "DEMOTED",
+      gate_demoted: true,
+      description: prependGateNote(finding.description),
+    }
+  })
+}
+
+export function finalizeProjectedFindings(
+  findings: CanonicalFinding[],
+  toolExecutions: CanonicalToolExecution[],
+  options: { forgeAvailable: boolean },
+): CanonicalFinding[] {
+  return dedupeFindingsForFinalOutput(applyConservationGate(findings, toolExecutions, options))
 }
 
 function compareFinalFindings(left: CanonicalFinding, right: CanonicalFinding): number {
@@ -99,6 +155,14 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
       observation_ids: observationIds,
       observation_count: sortedObservations.length,
     }
+    const gateDemoted = sortedObservations.some((obs) => obs.gate_demoted === true)
+    if (gateDemoted) {
+      mergedFinding.gate_demoted = true
+      mergedFinding.rubric_verdict = "DEMOTED"
+    }
+    if (sortedObservations.some((obs) => obs.unproven_forge_unavailable === true)) {
+      mergedFinding.unproven_forge_unavailable = true
+    }
 
     // base is the strongest-verdict observation, so its rubric_verdict already wins;
     // confidence_score is taken as the max across the group so the strongest evidence
@@ -110,6 +174,7 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
     mergedFinding.rubric_verdict = reconcileRubricVerdict(
       mergedFinding.rubric_verdict,
       mergedFinding.confidence_score,
+      { gateDemoted },
     )
 
     merged.push(mergedFinding)

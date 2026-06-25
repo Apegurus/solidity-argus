@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test"
-import { extractContractInfo } from "./solidity-parser"
+import { extractContractInfo, extractJson } from "./solidity-parser"
 
 // Mock ABI output from forge inspect
 const mockABIOutput = JSON.stringify([
@@ -69,6 +69,16 @@ const mockStorageLayoutOutput = JSON.stringify({
       numberOfBytes: "20",
     },
   },
+})
+
+test("extractJson returns the complete JSON segment with trailing output ignored", () => {
+  expect(extractJson('forge logs\n{"success":true,"tests":[]}\nmore logs', "{")).toBe(
+    '{"success":true,"tests":[]}',
+  )
+})
+
+test("extractJson does not return a chopped JSON segment", () => {
+  expect(extractJson('forge logs\n{"success":true,"tests":[', "{")).toBe("")
 })
 
 const mockAccessControlABIOutput = JSON.stringify([

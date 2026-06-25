@@ -43,6 +43,10 @@ export interface Finding {
    * Backward compatible: pre-rubric findings omit this field and still validate.
    */
   rubric_verdict?: "CONFIRMED" | "DEMOTED" | "REJECTED_DEMOTED"
+  claims_value_extraction?: boolean
+  net_gain_proof_ref?: string
+  gate_demoted?: boolean
+  unproven_forge_unavailable?: boolean
   description: string
   file: string // relative file path
   lines: [number, number] // [start, end]

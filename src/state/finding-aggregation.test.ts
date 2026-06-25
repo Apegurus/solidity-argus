@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { dedupeFindingsForFinalOutput } from "./finding-aggregation"
-import type { CanonicalFinding } from "./schemas"
+import { applyConservationGate, dedupeFindingsForFinalOutput } from "./finding-aggregation"
+import type { CanonicalFinding, CanonicalToolExecution } from "./schemas"
 import { SCHEMA_VERSION } from "./schemas"
 
 function makeObs(overrides: Partial<CanonicalFinding> & { seq: number }): CanonicalFinding {
@@ -19,6 +19,18 @@ function makeObs(overrides: Partial<CanonicalFinding> & { seq: number }): Canoni
     issue_fingerprint: "issue-A",
     observation_fingerprint: `of-${overrides.seq}`,
     reported_by_agent: "sentinel",
+    ...overrides,
+  }
+}
+
+function forgeExecution(overrides: Partial<CanonicalToolExecution> = {}): CanonicalToolExecution {
+  return {
+    tool: "argus_forge_test",
+    startTime: 1,
+    success: true,
+    findingsCount: 0,
+    run_id: "run-1",
+    schema_version: SCHEMA_VERSION,
     ...overrides,
   }
 }
@@ -112,6 +124,78 @@ describe("dedupeFindingsForFinalOutput rubric propagation", () => {
     expect(merged.rubric_verdict).toBeUndefined()
     expect(merged.confidence_score).toBeUndefined()
     expect(merged.observation_count).toBe(2)
+  })
+
+  test("keeps gate-demoted verdict as a non-repromotable dedupe floor", () => {
+    const raw = [
+      makeObs({ seq: 2, rubric_verdict: "DEMOTED", confidence_score: 95, gate_demoted: true }),
+      makeObs({ seq: 4, rubric_verdict: "CONFIRMED", confidence_score: 95 }),
+    ]
+
+    const merged = dedupeOne(raw)
+
+    expect(merged.rubric_verdict).toBe("DEMOTED")
+    expect(merged.gate_demoted).toBe(true)
+    expect(merged.confidence_score).toBe(95)
+  })
+})
+
+describe("applyConservationGate", () => {
+  test("demotes confirmed High value-extraction claim without passing forge proof", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      ],
+      [],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+    expect(gated?.description).toStartWith("[gate] Demoted")
+  })
+
+  test("keeps confirmed value-extraction claim with passing forge run and net-gain proof ref", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          net_gain_proof_ref: "test/Repro.t.sol:testNetGain",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      ],
+      [forgeExecution()],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("CONFIRMED")
+    expect(gated?.gate_demoted).toBeUndefined()
+  })
+
+  test("marks unproven without changing verdict when forge is unavailable", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      ],
+      [],
+      { forgeAvailable: false },
+    )
+
+    expect(gated?.rubric_verdict).toBe("CONFIRMED")
+    expect(gated?.gate_demoted).toBeUndefined()
+    expect(gated?.unproven_forge_unavailable).toBe(true)
   })
 })
 

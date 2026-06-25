@@ -47,20 +47,29 @@ export function selectToolResultForParsing(
   cache: ToolResultCache,
 ): string {
   if (typeof sessionID !== "string") return rawOutput
-  // Same-tool parallel calls share the (sessionID, tool) key, so match by prefix-extension
-  // (how OpenCode truncates output.output) and consume only the entry belonging to THIS call,
-  // leaving sibling results for their own after-hooks. Never substitute a mis-paired result.
-  // Do NOT simplify to a blind take().
+  // Same-tool parallel calls share the (sessionID, tool) key; prefix-match first, then FIFO for replacement truncation stubs.
   const capturedFull = cache.takeMatch(sessionID, tool, rawOutput)
   if (capturedFull !== undefined && capturedFull.length > rawOutput.length) {
     return capturedFull
   }
+
+  if (/bytes truncated|output was truncated|tool call succeeded/i.test(rawOutput)) {
+    const replacementFull = cache.takeNext(sessionID, tool)
+    if (replacementFull !== undefined && replacementFull.length > rawOutput.length) {
+      return replacementFull
+    }
+  }
+
   return rawOutput
 }
 
 export type AgentTrackerRef = {
   getAgentForSession(sessionID: string): string | undefined
   isArgusAgent(sessionID: string): boolean
+}
+
+type TextCompleteOutput = {
+  text: string
 }
 
 let _agentTrackerRef: AgentTrackerRef | undefined
@@ -127,6 +136,13 @@ export function getAgentForSession(sessionID: string): string | undefined {
 
 export function isArgusAgent(sessionID: string): boolean {
   return _agentTrackerRef?.isArgusAgent(sessionID) ?? false
+}
+
+export function applyAuditSpecialistWatchdogRecovery(
+  output: TextCompleteOutput,
+  recovered: string | undefined,
+): void {
+  if (recovered !== undefined) output.text = recovered
 }
 
 export type Hooks = Pick<
@@ -758,7 +774,7 @@ export function createHooks(args: {
       : undefined,
     "experimental.text.complete": auditSpecialistWatchdog
       ? async (input, output) => {
-          await auditSpecialistWatchdog(input, output)
+          applyAuditSpecialistWatchdogRecovery(output, await auditSpecialistWatchdog(input, output))
         }
       : undefined,
     "tool.execute.after": toolTrackingHook

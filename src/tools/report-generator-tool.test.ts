@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
-import { SCHEMA_VERSION } from "../state/schemas"
+import { type ReportInput, SCHEMA_VERSION } from "../state/schemas"
 import type {
   AuditState,
   Finding,
@@ -18,6 +18,7 @@ import {
   normalizeRawFinding,
   parseLocationString,
   type ReportGenerationResult,
+  renderObservationLine,
   renderReportMarkdown,
   reportGeneratorTool,
 } from "./report-generator-tool"
@@ -81,7 +82,7 @@ function makeReportInput(
     patternVersion: string
     skillsLoaded: string[]
   }>,
-) {
+): ReportInput {
   const runId = overrides?.run_id ?? "test-run-1"
   const normalizeSeverity = (value: unknown): Finding["severity"] => {
     if (typeof value !== "string") return "Informational"
@@ -338,6 +339,41 @@ test("rubric adoption: a finding with neither verdict nor textual trace is flagg
 
   expect(report).toContain("no rubric trace")
   expect(report).toContain("0/1 findings assessed via the 4-gate refutation rubric")
+})
+
+test("renderReportMarkdown renders observation lineage only when ids are present", () => {
+  const withLineage = makeFinding({
+    id: "f-lineage",
+    observation_ids: ["a", "b"],
+    observation_count: 2,
+  })
+  const withoutLineage = makeFinding({ id: "f-no-lineage" })
+
+  expect(renderObservationLine(withLineage)).toBe("**Observations (2):** a · b")
+  expect(renderObservationLine(withoutLineage)).toBeNull()
+})
+
+test("renderReportMarkdown renders observation lineage for leads", () => {
+  const lead = {
+    ...makeFinding({
+      id: "f-lead-lineage",
+      observation_ids: ["lead-a", "lead-b"],
+      observation_count: 2,
+    }),
+    rubric_verdict: "DEMOTED" as const,
+  }
+
+  const input = makeReportInput([lead])
+  const renderedLead = input.findings[0]
+  if (!renderedLead) throw new Error("expected lineage lead")
+  renderedLead.observation_id = "lead-a"
+  const sibling = { ...renderedLead, id: "f-lead-lineage-b", observation_id: "lead-b" }
+  input.findings.push(sibling)
+
+  const report = renderReportMarkdown(input, { projectName: "Demo" })
+
+  expect(report).toContain("## Leads")
+  expect(report).toContain("**Observations (2):** lead-a · lead-b")
 })
 
 function methodologySection(report: string): string {

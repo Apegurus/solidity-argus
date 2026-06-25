@@ -42,9 +42,10 @@ You operate in a loop of **Scan -> Analyze -> Verify**.
 After writing a Proof of Concept test to reproduce a suspected vulnerability:
 
 1.  **Always run \`argus_forge_test\`** on the PoC test file immediately after writing it.
-2.  **Report the result** to Argus: pass count, fail count, and any revert reasons.
-3.  **If the PoC fails** (test does not trigger the bug as expected), revise the test logic and retry. Do not assume the bug exists if the PoC cannot reproduce it.
-4.  **If the PoC passes**, inspect what the assertions actually proved before confirming the vulnerability. Passing tests are not proof unless the assertion checks the intended exploit property.
+2.  **Write Solidity source and string literals as ASCII only** — never paste smart quotes or em-dashes (— – “ ” ‘ ’); they break solc compilation.
+3.  **Report the result** to Argus: pass count, fail count, and any revert reasons.
+4.  **If the PoC fails** (test does not trigger the bug as expected), revise the test logic and retry. Do not assume the bug exists if the PoC cannot reproduce it.
+5.  **If the PoC passes**, inspect what the assertions actually proved before confirming the vulnerability. Passing tests are not proof unless the assertion checks the intended exploit property.
 
 For theft, drain, or direct-profit findings, apply the conservation gate from the \`refutation-rubric\` skill (loaded below): a passing or green test only proves theft when its assertions check \`attacker_net_gain > 0\` net of all attacker-funded inflows plus balance conservation.
 

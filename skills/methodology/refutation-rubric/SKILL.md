@@ -56,6 +56,16 @@ Passing tests are not proof. A PoC only confirms a theft, drain, or direct-profi
 - Do not treat a passing/green test or a protocol balance decrease as theft by itself. Trace the recipient: if victim assets are returned to the victim, classify reachable impact as forced action/griefing/DoS, not attacker profit.
 - Historical precedent can justify impact and recommendations, but a Critical/High current-code theft or drain still requires current-code profit proof.
 
+Argus also applies a machine-enforced projection-time gate to Critical/High confirmed findings that set `claims_value_extraction: true`: the Findings tier requires both a passing `argus_forge_test` somewhere in the run and a non-empty `net_gain_proof_ref` on the finding. If Foundry is available and either signal is missing, projection marks `gate_demoted: true` and changes the verdict to `DEMOTED`; if Foundry is unavailable, the verdict is not changed and the report renders `unproven — Foundry unavailable`.
+
+Structured fields for this gate:
+
+- `claims_value_extraction?: boolean` — set to `true` when the finding claims theft, drain, or direct attacker profit.
+- `net_gain_proof_ref?: string` — reference to the assertion-bearing PoC that proves positive attacker net gain for the current code.
+- `gate_demoted?: boolean` — internal projection marker; once set, deduplication must not re-promote the issue to `CONFIRMED`.
+
+This gate enforces evidence presence plus a passing forge run. It does not prove semantic conservation or link a forge result to a specific finding; a future per-finding artifact can strengthen that model.
+
 ## Demotion Is Not Suppression
 
 Do not suppress latent technical issues when a theft/drain overclaim fails the gates. If direct attacker profit is not proven, demote only the overclaimed impact and still record the correct reachable impact, such as forced action, griefing, DoS, stale-state exposure, or architectural risk. Domain-specific safe-pattern and demotion rules live in the relevant vulnerability skills; the core rubric only requires current-code exploitability, value-flow tracing, and conservation-aware impact proof.

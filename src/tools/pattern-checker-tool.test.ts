@@ -310,6 +310,7 @@ test("patternCheckerTool execute returns stringified PatternCheckResult", async 
     {
       target: "tests/fixtures/vulnerable-vault/src/VulnerableVault.sol",
       include_scvd: true,
+      full_detail: false,
     },
     createContext(),
   )
@@ -317,6 +318,37 @@ test("patternCheckerTool execute returns stringified PatternCheckResult", async 
 
   expect(parsed.sources[0]?.source).toBe("pattern-db")
   expect(typeof parsed.executionTime).toBe("number")
+})
+
+test("patternCheckerTool execute emits compact results by default", async () => {
+  const payload = await patternCheckerTool.execute(
+    {
+      target: "tests/fixtures/vulnerable-vault/src/VulnerableVault.sol",
+      include_scvd: true,
+      full_detail: false,
+    },
+    createContext(),
+  )
+  const parsed = JSON.parse(payload) as PatternCheckResult
+
+  expect(parsed.compact).toBe(true)
+  expect(parsed.matchCountsByPattern).toBeDefined()
+  expect(payload.length).toBeLessThan(50_000)
+})
+
+test("patternCheckerTool execute keeps full detail behind full_detail", async () => {
+  const payload = await patternCheckerTool.execute(
+    {
+      target: "tests/fixtures/vulnerable-vault/src/VulnerableVault.sol",
+      include_scvd: false,
+      full_detail: true,
+    },
+    createContext(),
+  )
+  const parsed = JSON.parse(payload) as PatternCheckResult
+
+  expect(parsed.compact).toBe(false)
+  expect(parsed.truncatedMatches).toBe(0)
 })
 
 test("executePatternCheck returns structured error when target does not exist", async () => {
