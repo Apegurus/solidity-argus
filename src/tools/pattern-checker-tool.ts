@@ -120,14 +120,6 @@ const CATEGORY_TO_SWC: Record<string, string[]> = {
   dos: ["SWC-128"],
 }
 
-function normalizeSeverity(value: string): Match["severity"] {
-  if (value === "Critical") return "Critical"
-  if (value === "High") return "High"
-  if (value === "Medium") return "Medium"
-  if (value === "Low") return "Low"
-  return "Informational"
-}
-
 function normalizePatternDefinitions(
   patterns: PatternDefinition[],
   source: PatternSource,
@@ -194,12 +186,15 @@ async function collectScvdMatches(
     entries.push(...dependencies.searchIndexFn(index, { swc: swcCode }))
   }
 
+  // SCVD entries are cross-protocol corpus correlations, not findings located in the
+  // target: empty file keeps them out of scope, Informational out of severity counts;
+  // source repo/severity survive in exploitReference/description.
   return uniqueScvdEntries(entries).map((entry) => ({
     pattern: entry.id,
-    severity: normalizeSeverity(entry.severity),
-    file: entry.repoUrl,
+    severity: "Informational",
+    file: "",
     lines: [1, 1],
-    description: entry.title,
+    description: `${entry.title} (SCVD corpus correlation; source severity: ${entry.severity})`,
     exploitReference: entry.repoUrl,
   }))
 }

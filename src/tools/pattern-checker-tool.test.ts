@@ -285,7 +285,9 @@ test("executePatternCheck adds SCVD match source when include_scvd=true and inde
   expect(result.sources[1]?.source).toBe("scvd")
   expect(result.sources[1]?.matches).toHaveLength(1)
   expect(result.sources[1]?.matches[0]?.pattern).toBe("SCVD-107-1")
-  expect(result.sources[1]?.matches[0]?.file).toBe("https://github.com/example/vault")
+  expect(result.sources[1]?.matches[0]?.severity).toBe("Informational")
+  expect(result.sources[1]?.matches[0]?.file).toBe("")
+  expect(result.sources[1]?.matches[0]?.exploitReference).toBe("https://github.com/example/vault")
 })
 
 test("executePatternCheck silently skips SCVD when index is missing", async () => {
