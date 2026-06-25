@@ -197,6 +197,45 @@ describe("applyConservationGate", () => {
     expect(gated?.gate_demoted).toBeUndefined()
     expect(gated?.unproven_forge_unavailable).toBe(true)
   })
+
+  test("auto-derives value-extraction from a drain-class check and demotes when proof is absent", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          check: "reentrancy-eth-drain",
+          description: "Attacker can drain all vault ETH via reentrancy",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+        }),
+      ],
+      [],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+  })
+
+  test("respects an explicit claims_value_extraction:false opt-out on a drain-worded finding", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          check: "reentrancy-eth-drain",
+          description: "drain wording but adjudicated as non-extraction",
+          claims_value_extraction: false,
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+        }),
+      ],
+      [],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("CONFIRMED")
+    expect(gated?.gate_demoted).toBeUndefined()
+  })
 })
 
 describe("dedupeFindingsForFinalOutput lineage preservation", () => {

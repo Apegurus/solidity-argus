@@ -43,6 +43,7 @@ Prove material harm to an identifiable victim **in the current code**, not in hy
 
 - Self-harm only → **REJECTED_DEMOTED** (`confidence_score ≤ 30`; functions like `selfDestruct` or `burn` are usually intentional, but document who "self" is — a multisig signer under social engineering, or an admin under key compromise, both look like "self-harm" from a static viewpoint)
 - Impact requires code not yet present (a placeholder returning a constant, an unwired setter, a `// TODO` integration) → **DEMOTE** at most (`confidence_score ≤ 75`): the deployed code has no exploit path, so it is an architectural lead. Never rate Critical/High on impact that depends on a future change landing.
+- Primitive/library contract that custodies no funds and whose harm only materializes in an out-of-scope integrator (e.g., a price oracle, math library, or unprotected setter consumed elsewhere) → cap at **High** in isolation (`confidence_score ≤ 92`) and add an escalation note ("Critical for any integrating protocol that gates fund flows on this"). Do not rate Critical when no in-scope contract holds the affected funds; this keeps cross-agent scoring consistent for fund-less primitives.
 - Trace the recipient before calling any issue "theft" or "drain": if assets flow back to the rightful holder rather than the caller or an alternate beneficiary → griefing / forced action, not theft. Classify by reachable impact and require conservation reasoning: total attributed outflows must not exceed funded inflows plus legitimate victim-funded balances.
 - Dust-level, no compounding → **DEMOTE** (`confidence_score ≤ 75`)
 - Material loss to identifiable victim → **CONFIRMED** (`confidence_score ≥ 80`)
@@ -56,11 +57,11 @@ Passing tests are not proof. A PoC only confirms a theft, drain, or direct-profi
 - Do not treat a passing/green test or a protocol balance decrease as theft by itself. Trace the recipient: if victim assets are returned to the victim, classify reachable impact as forced action/griefing/DoS, not attacker profit.
 - Historical precedent can justify impact and recommendations, but a Critical/High current-code theft or drain still requires current-code profit proof.
 
-Argus also applies a machine-enforced projection-time gate to Critical/High confirmed findings that set `claims_value_extraction: true`: the Findings tier requires both a passing `argus_forge_test` somewhere in the run and a non-empty `net_gain_proof_ref` on the finding. If Foundry is available and either signal is missing, projection marks `gate_demoted: true` and changes the verdict to `DEMOTED`; if Foundry is unavailable, the verdict is not changed and the report renders `unproven — Foundry unavailable`.
+Argus also applies a machine-enforced projection-time gate to Critical/High confirmed findings that claim value extraction — either explicitly via `claims_value_extraction: true`, or auto-derived from theft/drain/profit class wording in the `check`/`description` when the flag is omitted (so omission cannot bypass the gate): the Findings tier requires both a passing `argus_forge_test` somewhere in the run and a non-empty `net_gain_proof_ref` on the finding. If Foundry is available and either signal is missing, projection marks `gate_demoted: true` and changes the verdict to `DEMOTED`; if Foundry is unavailable, the verdict is not changed and the report renders `unproven — Foundry unavailable`.
 
 Structured fields for this gate:
 
-- `claims_value_extraction?: boolean` — set to `true` when the finding claims theft, drain, or direct attacker profit.
+- `claims_value_extraction?: boolean` — set to `true` when the finding claims theft, drain, or direct attacker profit. When omitted, projection auto-derives it from value-extraction class wording; set it to `false` only as a deliberate, auditable opt-out.
 - `net_gain_proof_ref?: string` — reference to the assertion-bearing PoC that proves positive attacker net gain for the current code.
 - `gate_demoted?: boolean` — internal projection marker; once set, deduplication must not re-promote the issue to `CONFIRMED`.
 

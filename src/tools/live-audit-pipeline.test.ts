@@ -78,10 +78,12 @@ test("generates a clean live report from events without session.deleted", async 
         finding({
           seq: 2,
           id: "conf",
+          check: "uninitialized-proxy-implementation",
           severity: "Critical",
           rubric_verdict: "CONFIRMED",
           confidence_score: 90,
-          description: "Cross-function reentrancy drains the vault",
+          description:
+            "Implementation contract left uninitialized; initializer is callable by anyone",
         }),
       ),
       event(

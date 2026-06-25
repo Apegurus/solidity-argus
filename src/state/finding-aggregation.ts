@@ -54,11 +54,43 @@ function hasPassingForgeTest(toolExecutions: CanonicalToolExecution[]): boolean 
   )
 }
 
+// Value-extraction class markers (theft/drain/profit). Class-level by design, never a
+// single exploit's token (maintenance guardrail #5), so the gate auto-derives
+// claims_value_extraction and omitting the flag cannot bypass it.
+const VALUE_EXTRACTION_TERMS = [
+  "drain",
+  "steal",
+  "stolen",
+  "theft",
+  "siphon",
+  "exfiltrate",
+  "attacker profit",
+  "attacker gain",
+  "attacker net gain",
+  "net attacker gain",
+  "withdraw more than",
+  "unbacked",
+  "infinite mint",
+  "mint unlimited",
+  "loss of funds",
+  "loss of user funds",
+]
+
+// Explicit flag wins both ways (true forces, false is an auditable opt-out); only an
+// absent flag falls back to class detection.
+function claimsValueExtraction(finding: CanonicalFinding): boolean {
+  if (typeof finding.claims_value_extraction === "boolean") {
+    return finding.claims_value_extraction
+  }
+  const haystack = `${finding.check} ${finding.description}`.toLowerCase()
+  return VALUE_EXTRACTION_TERMS.some((term) => haystack.includes(term))
+}
+
 function requiresConservationGate(finding: CanonicalFinding): boolean {
   return (
     (finding.severity === "Critical" || finding.severity === "High") &&
-    finding.claims_value_extraction === true &&
-    finding.rubric_verdict === "CONFIRMED"
+    finding.rubric_verdict === "CONFIRMED" &&
+    claimsValueExtraction(finding)
   )
 }
 
