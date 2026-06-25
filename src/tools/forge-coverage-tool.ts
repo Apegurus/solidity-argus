@@ -233,6 +233,7 @@ export async function executeForgeCoverage(
   })
 
   try {
+    let usedIrMinimum = normalizedArgs.ir_minimum
     let runResult = await runCommand(buildCoverageCommand(normalizedArgs), {
       signal: context.abort,
       cwd: normalizedArgs.target,
@@ -243,6 +244,7 @@ export async function executeForgeCoverage(
       !normalizedArgs.ir_minimum &&
       shouldRetryWithIrMinimum(runResult.stderr)
     ) {
+      usedIrMinimum = true
       runResult = await runCommand(buildCoverageCommand(normalizedArgs, true), {
         signal: context.abort,
         cwd: normalizedArgs.target,
@@ -274,10 +276,22 @@ export async function executeForgeCoverage(
       }
     }
 
+    const irMinimumBranchQuirk =
+      usedIrMinimum &&
+      report.summary.totalBranchesPct === 0 &&
+      (report.summary.totalLinesPct > 0 ||
+        report.summary.totalStatementsPct > 0 ||
+        report.summary.totalFunctionsPct > 0)
+
     return {
       success: true,
       report,
       executionTime: Date.now() - startedAt,
+      ...(irMinimumBranchQuirk
+        ? {
+            hint: "branchesPct is 0% because --ir-minimum (used here to avoid stack-too-deep) does not emit branch-hit data in Foundry; treat branch coverage as unavailable, not as untested branches.",
+          }
+        : {}),
     }
   } catch (error) {
     const classified = classifyForgeError(error, context, "forge coverage")

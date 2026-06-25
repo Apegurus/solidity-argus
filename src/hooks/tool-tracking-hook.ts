@@ -568,6 +568,7 @@ function recordToolExecution(
   findingsCount: number,
   success: boolean,
   findingCounts?: FindingCounts,
+  subagentType?: string,
 ): void {
   const now = Date.now()
   state.toolsExecuted.push({
@@ -577,6 +578,7 @@ function recordToolExecution(
     success,
     findingsCount,
     findingCounts,
+    ...(subagentType ? { subagent_type: subagentType } : {}),
   })
 }
 
@@ -722,7 +724,21 @@ export function createToolTrackingHook(
       }
 
       if (resolved) {
-        recordToolExecution(resolved.state, "task", 0, true, buildFindingCounts(resolved.state, 0))
+        const taskArgs = (input.args ?? {}) as Record<string, unknown>
+        const subagentType =
+          typeof taskArgs.subagent_type === "string"
+            ? taskArgs.subagent_type
+            : typeof taskArgs.category === "string"
+              ? taskArgs.category
+              : undefined
+        recordToolExecution(
+          resolved.state,
+          "task",
+          0,
+          true,
+          buildFindingCounts(resolved.state, 0),
+          subagentType,
+        )
         onStateChanged?.({ tool: "task", findingsCount: 0, sessionId: input.sessionID })
       }
 
