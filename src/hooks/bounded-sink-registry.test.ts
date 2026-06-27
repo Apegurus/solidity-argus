@@ -4,8 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   createEventSink,
-  resetSinkRegistry,
   type EventSink,
+  resetSinkRegistry,
 } from "../features/persistent-state/event-sink"
 import { createBoundedSinkRegistry } from "./bounded-sink-registry"
 
