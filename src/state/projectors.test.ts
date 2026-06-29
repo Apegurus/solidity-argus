@@ -70,6 +70,31 @@ describe("projectToolExecutions", () => {
     expect(executions[0]?.findingCounts?.rawObservations).toBe(4)
     expect(executions[0]?.findingCounts?.recordedFindings).toBe(2)
   })
+
+  test("projects passed forge test identifiers from tool.completed payload", () => {
+    const events: AuditEvent[] = [
+      makeEvent({
+        type: "tool.started",
+        seq: 1,
+        timestamp: 1000,
+        payload: { tool: "argus_forge_test" },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        timestamp: 1001,
+        payload: {
+          tool: "argus_forge_test",
+          success: true,
+          passed_tests: ["ReproTest:testNetGain", "testNetGain"],
+        },
+      }),
+    ]
+
+    const executions = projectToolExecutions(events)
+
+    expect(executions[0]?.passed_tests).toEqual(["ReproTest:testNetGain", "testNetGain"])
+  })
 })
 
 describe("projectReportInput", () => {

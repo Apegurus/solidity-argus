@@ -123,6 +123,7 @@ export interface ToolExecution {
   success: boolean
   findingsCount: number
   findingCounts?: FindingCounts
+  passed_tests?: string[]
   subagent_type?: string
 }
 

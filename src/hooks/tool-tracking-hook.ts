@@ -25,6 +25,7 @@ import type {
   FindingSeverity,
   FuzzCounterexample,
   SoloditResult,
+  ToolExecution,
 } from "../state/types"
 import { isFindingInScope } from "../tools/report-generator-tool"
 
@@ -562,6 +563,24 @@ function readErrorReason(record: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+function extractPassedForgeTests(record: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(record.tests)) return undefined
+
+  const tests = new Set<string>()
+  for (const rawTest of record.tests) {
+    const test = toRecord(rawTest)
+    if (!test || test.status !== "pass" || typeof test.name !== "string") continue
+    tests.add(test.name)
+    if (typeof test.contract === "string" && test.contract.length > 0) {
+      tests.add(`${test.contract}:${test.name}`)
+    }
+  }
+
+  return tests.size > 0 ? Array.from(tests).sort((a, b) => a.localeCompare(b)) : undefined
+}
+
+type ToolEvidence = Pick<ToolExecution, "passed_tests">
+
 function recordToolExecution(
   state: AuditState,
   toolName: string,
@@ -569,6 +588,7 @@ function recordToolExecution(
   success: boolean,
   findingCounts?: FindingCounts,
   subagentType?: string,
+  evidence?: ToolEvidence,
 ): void {
   const now = Date.now()
   state.toolsExecuted.push({
@@ -578,6 +598,7 @@ function recordToolExecution(
     success,
     findingsCount,
     findingCounts,
+    ...(evidence?.passed_tests ? { passed_tests: evidence.passed_tests } : {}),
     ...(subagentType ? { subagent_type: subagentType } : {}),
   })
 }
@@ -1108,7 +1129,21 @@ export function createToolTrackingHook(
 
       const findingCounts = buildFindingCounts(auditState, findingsCount)
       auditState.findingCounts = findingCounts
-      recordToolExecution(auditState, input.tool, findingsCount, completedSuccess, findingCounts)
+      const toolEvidence: ToolEvidence = {
+        passed_tests:
+          input.tool === "argus_forge_test" && completedRecord
+            ? extractPassedForgeTests(completedRecord)
+            : undefined,
+      }
+      recordToolExecution(
+        auditState,
+        input.tool,
+        findingsCount,
+        completedSuccess,
+        findingCounts,
+        undefined,
+        toolEvidence,
+      )
 
       const nextPhase = inferPhaseAdvancement(auditState, input.tool)
       if (nextPhase) {
@@ -1160,6 +1195,13 @@ export function createToolTrackingHook(
             case "argus_check_patterns":
               if (auditState.patternVersion) enrichment.patternVersion = auditState.patternVersion
               break
+            case "argus_forge_test": {
+              const passedTests = completedRecord
+                ? extractPassedForgeTests(completedRecord)
+                : undefined
+              if (passedTests) enrichment.passed_tests = passedTests
+              break
+            }
             case "argus_themis_disposition":
               if (completedRecord?.themisDisposition) {
                 enrichment.themisDisposition = completedRecord.themisDisposition
