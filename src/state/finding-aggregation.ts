@@ -48,9 +48,11 @@ export function maxConfidenceScore(observations: CanonicalFinding[]): number | u
   return max
 }
 
-function hasPassingForgeTest(toolExecutions: CanonicalToolExecution[]): boolean {
-  return toolExecutions.some(
-    (execution) => execution.tool === "argus_forge_test" && execution.success,
+function passedForgeTests(toolExecutions: CanonicalToolExecution[]): string[] {
+  return toolExecutions.flatMap((execution) =>
+    execution.tool === "argus_forge_test" && execution.success
+      ? (execution.passed_tests ?? [])
+      : [],
   )
 }
 
@@ -76,14 +78,37 @@ const VALUE_EXTRACTION_TERMS = [
   "loss of user funds",
 ]
 
+// Rationale: negation cues keep refutation narratives from being classified as
+// extraction claims while preserving class-level theft/drain/profit matching.
+const VALUE_EXTRACTION_NEGATION_PATTERN =
+  /\b(no|not|never|without|zero|cannot|can't|does not|doesn't|impossible|false positive|non-extraction)\b|\brather than theft\b/i
+
+const VALUE_EXTRACTION_TERM_PATTERNS = VALUE_EXTRACTION_TERMS.map(
+  (term) => new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}([^a-z0-9]|$)`, "i"),
+)
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function splitClaimSentences(value: string): string[] {
+  return value
+    .split(/[.!?\n;]+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0)
+}
+
 // Explicit flag wins both ways (true forces, false is an auditable opt-out); only an
 // absent flag falls back to class detection.
 function claimsValueExtraction(finding: CanonicalFinding): boolean {
   if (typeof finding.claims_value_extraction === "boolean") {
     return finding.claims_value_extraction
   }
-  const haystack = `${finding.check} ${finding.description}`.toLowerCase()
-  return VALUE_EXTRACTION_TERMS.some((term) => haystack.includes(term))
+  const haystack = `${finding.check}. ${finding.description}`
+  return splitClaimSentences(haystack).some((sentence) => {
+    if (VALUE_EXTRACTION_NEGATION_PATTERN.test(sentence)) return false
+    return VALUE_EXTRACTION_TERM_PATTERNS.some((pattern) => pattern.test(sentence))
+  })
 }
 
 function requiresConservationGate(finding: CanonicalFinding): boolean {
@@ -94,10 +119,25 @@ function requiresConservationGate(finding: CanonicalFinding): boolean {
   )
 }
 
-function hasNetGainProofRef(finding: CanonicalFinding): boolean {
-  return (
-    typeof finding.net_gain_proof_ref === "string" && finding.net_gain_proof_ref.trim().length > 0
-  )
+function proofRefMatchesPassedForgeTest(finding: CanonicalFinding, passedTests: string[]): boolean {
+  if (typeof finding.net_gain_proof_ref !== "string") return false
+  const proofRef = finding.net_gain_proof_ref.trim()
+  if (proofRef.length === 0) return false
+
+  const proofTokens = proofRef
+    .split(/[\s,`'"()]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+  const proofTestNames = proofTokens
+    .flatMap((token) => token.split(/::|:/))
+    .map((token) => token.trim())
+    .filter((token) => /^test\w*/.test(token))
+
+  return passedTests.some((passedTest) => {
+    if (passedTest === proofRef || proofTokens.includes(passedTest)) return true
+    const passedTestName = passedTest.split(/::|:/).at(-1)
+    return passedTestName ? proofTestNames.includes(passedTestName) : false
+  })
 }
 
 function prependGateNote(description: string): string {
@@ -111,13 +151,13 @@ export function applyConservationGate(
   toolExecutions: CanonicalToolExecution[],
   options: { forgeAvailable: boolean },
 ): CanonicalFinding[] {
-  const forgePassed = hasPassingForgeTest(toolExecutions)
+  const passedTests = passedForgeTests(toolExecutions)
   return findings.map((finding) => {
     if (!requiresConservationGate(finding)) return finding
     if (!options.forgeAvailable) {
       return { ...finding, unproven_forge_unavailable: true }
     }
-    if (forgePassed && hasNetGainProofRef(finding)) return finding
+    if (proofRefMatchesPassedForgeTest(finding, passedTests)) return finding
     return {
       ...finding,
       rubric_verdict: "DEMOTED",

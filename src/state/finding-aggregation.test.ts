@@ -35,6 +35,13 @@ function forgeExecution(overrides: Partial<CanonicalToolExecution> = {}): Canoni
   }
 }
 
+function forgeExecutionWithPassedTests(tests: string[]): CanonicalToolExecution {
+  return {
+    ...forgeExecution(),
+    passed_tests: tests,
+  }
+}
+
 function dedupeOne(raw: CanonicalFinding[]): CanonicalFinding {
   const [first] = dedupeFindingsForFinalOutput(raw)
   if (!first) throw new Error("expected exactly one merged finding")
@@ -160,7 +167,7 @@ describe("applyConservationGate", () => {
     expect(gated?.description).toStartWith("[gate] Demoted")
   })
 
-  test("keeps confirmed value-extraction claim with passing forge run and net-gain proof ref", () => {
+  test("demotes confirmed value-extraction claim with only run-level forge success", () => {
     const [gated] = applyConservationGate(
       [
         makeObs({
@@ -172,6 +179,44 @@ describe("applyConservationGate", () => {
         }),
       ],
       [forgeExecution()],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+  })
+
+  test("demotes confirmed value-extraction claim when proof ref does not match a passed forge test", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          net_gain_proof_ref: "test/Repro.t.sol:testNetGain",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      ],
+      [forgeExecutionWithPassedTests(["test/Other.t.sol:testUnrelatedInvariant"])],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+  })
+
+  test("keeps confirmed value-extraction claim when proof ref matches a passed forge test", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          net_gain_proof_ref: "test/Repro.t.sol:testNetGain",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      ],
+      [forgeExecutionWithPassedTests(["test/Repro.t.sol:testNetGain"])],
       { forgeAvailable: true },
     )
 
@@ -225,6 +270,45 @@ describe("applyConservationGate", () => {
           check: "reentrancy-eth-drain",
           description: "drain wording but adjudicated as non-extraction",
           claims_value_extraction: false,
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+        }),
+      ],
+      [],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("CONFIRMED")
+    expect(gated?.gate_demoted).toBeUndefined()
+  })
+
+  test("does not auto-derive value extraction from negated or incidental drain wording", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          check: "reentrancy-eth",
+          description:
+            "PoC proves no drain: attacker net gain is zero, so this is griefing rather than theft.",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+        }),
+      ],
+      [],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("CONFIRMED")
+    expect(gated?.gate_demoted).toBeUndefined()
+  })
+
+  test("does not auto-derive value extraction from capitalized negation cues", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          check: "reentrancy-eth",
+          description: "No drain is possible; attacker net gain is zero.",
           rubric_verdict: "CONFIRMED",
           confidence_score: 95,
         }),
