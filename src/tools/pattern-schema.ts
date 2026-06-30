@@ -35,7 +35,7 @@ export const PatternDefinitionSchema = z.object({
   version: z.string().default("1.0"),
   regex: z.string().min(1),
   description: z.string().min(1),
-  exploit_ref: z.string().url().optional(),
+  exploit_ref: z.url().optional(),
   remediation: z.string().optional(),
   context: z.enum(["function-body", "contract-body", "file-level"]).optional(),
   applies_to: z.array(z.string()).optional(),

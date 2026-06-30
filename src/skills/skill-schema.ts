@@ -11,6 +11,7 @@ export const DetectionRuleSchema = z.object({
   confidence: z.enum(["High", "Medium", "Low"]).optional(),
   swc: z.string().optional(),
   description: z.string().optional(),
+  exclude_if: z.array(z.string()).optional(),
 })
 
 export const SkillFrontmatterSchema = z.object({
@@ -29,7 +30,7 @@ export const SkillFrontmatterSchema = z.object({
   category: z
     .enum(["vulnerability-pattern", "methodology", "protocol-pattern", "checklist", "reference"])
     .optional(),
-  source_url: z.string().url().optional(),
+  source_url: z.url().optional(),
   source_license: z.string().optional(),
   imported_at: z.string().optional(),
   source_hash: z.string().optional(),

@@ -1,3 +1,5 @@
+import { readdir, readFile, stat } from "node:fs/promises"
+import { relative } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
@@ -81,6 +83,103 @@ type ForgeTestPayload = {
   }
   gas_report?: Record<string, unknown>
   gasReport?: Record<string, unknown>
+}
+
+type NonAsciiDiagnostic = {
+  file: string
+  line: number
+  column: number
+  codePoint: number
+  character: string
+}
+
+const SOLIDITY_SOURCE_EXTENSIONS = new Set([".sol"])
+
+function formatCodePoint(codePoint: number): string {
+  return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`
+}
+
+function formatNonAsciiDiagnostic(diagnostic: NonAsciiDiagnostic): string {
+  return `non-ASCII at ${diagnostic.file}:${diagnostic.line}:${diagnostic.column} (${formatCodePoint(diagnostic.codePoint)} '${diagnostic.character}')`
+}
+
+function isCompileFailure(result: ForgeCommandResult): boolean {
+  const combined = `${result.stdout}\n${result.stderr}`
+  return /compiler run failed|compilation failed|failed to compile|solc|parsererror|syntaxerror/i.test(
+    combined,
+  )
+}
+
+async function collectSolidityFiles(target: string): Promise<string[]> {
+  const details = await stat(target)
+  if (details.isFile()) {
+    return target.endsWith(".sol") || target.endsWith(".t.sol") ? [target] : []
+  }
+  if (!details.isDirectory()) return []
+
+  const files: string[] = []
+  const entries = await readdir(target, { withFileTypes: true })
+  for (const entry of entries) {
+    if (entry.name === "node_modules" || entry.name === "lib" || entry.name === "out") {
+      continue
+    }
+    const child = `${target}/${entry.name}`
+    if (entry.isDirectory()) {
+      files.push(...(await collectSolidityFiles(child)))
+    } else if (entry.isFile() && SOLIDITY_SOURCE_EXTENSIONS.has(entry.name.slice(-4))) {
+      files.push(child)
+    }
+  }
+  return files
+}
+
+export async function findNonAsciiSolidityDiagnostics(
+  target: string,
+  projectRoot: string,
+): Promise<string[]> {
+  const diagnostics: string[] = []
+  for (const file of await collectSolidityFiles(target)) {
+    const contents = await readFile(file, "utf8")
+    let line = 1
+    let column = 1
+    for (const character of contents) {
+      const codePoint = character.codePointAt(0) ?? 0
+      if (codePoint > 0x7f) {
+        diagnostics.push(
+          formatNonAsciiDiagnostic({
+            file: relative(projectRoot, file) || file,
+            line,
+            column,
+            codePoint,
+            character,
+          }),
+        )
+        break
+      }
+      if (character === "\n") {
+        line += 1
+        column = 1
+      } else {
+        column += 1
+      }
+    }
+  }
+  return diagnostics
+}
+
+async function appendNonAsciiDiagnostics(
+  error: string,
+  target: string,
+  projectRoot: string,
+): Promise<string> {
+  let diagnostics: string[] = []
+  try {
+    diagnostics = await findNonAsciiSolidityDiagnostics(target, projectRoot)
+  } catch {
+    return error
+  }
+  if (diagnostics.length === 0) return error
+  return `${error}; ${diagnostics.join("; ")}`
 }
 
 type CoveragePayload = {
@@ -326,6 +425,7 @@ export async function executeForgeTest(
   runCommand: RunForgeCommand = runForgeCommand,
 ): Promise<ForgeTestResult> {
   const startedAt = Date.now()
+  const projectRoot = resolveProjectDir(context)
 
   const fail = (error: string): ForgeTestResult => ({
     success: false,
@@ -347,7 +447,12 @@ export async function executeForgeTest(
     try {
       payload = JSON.parse(extractJson(testResult.stdout, "{")) as ForgeTestPayload
     } catch {
-      return fail("Invalid JSON output from forge test")
+      const error = "Invalid JSON output from forge test"
+      return fail(
+        testResult.exitCode !== 0 && isCompileFailure(testResult)
+          ? await appendNonAsciiDiagnostics(error, normalizedArgs.target, projectRoot)
+          : error,
+      )
     }
 
     const parsed = parseTests(payload)
@@ -388,6 +493,14 @@ export async function executeForgeTest(
     if (testResult.exitCode !== 0 && !output.error) {
       output.error =
         testResult.stderr.trim() || `forge test exited with code ${testResult.exitCode}`
+    }
+
+    if (testResult.exitCode !== 0 && output.error && isCompileFailure(testResult)) {
+      output.error = await appendNonAsciiDiagnostics(
+        output.error,
+        normalizedArgs.target,
+        projectRoot,
+      )
     }
 
     return output

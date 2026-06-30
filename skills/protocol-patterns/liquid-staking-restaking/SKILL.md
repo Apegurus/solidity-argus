@@ -2,9 +2,8 @@
 name: liquid-staking-restaking
 description: "Liquid-staking (stETH/rETH/cbETH/sfrxETH) and restaking/EigenLayer integrations are exploited through rebasing/exchange-rate assumptions, validator-credential hijacking, phantom unverified-ETH accounting, and broken beacon-chain proofs."
 category: protocol-pattern
-pattern_category: logic-error
+pattern_category: token-standard
 source_url: "https://blog.sigmaprime.io/liquid-restaking.html"
-source_license: "Reference"
 imported_at: "2026-06-19T00:00:00Z"
 detection_rules:
   - regex: '\b(stETH|wstETH|rETH|cbETH|sfrxETH|frxETH|ankrETH|swETH)\b'

@@ -122,7 +122,7 @@ function isSuccessfulProfile(profile: ContractProfile): boolean {
   return typeof profile.error !== "string" || profile.error.length === 0
 }
 
-function withAbort<T>(signal: AbortSignal, operation: Promise<T>): Promise<T> {
+function withAbort<T>(signal: AbortSignal, operationFactory: () => Promise<T>): Promise<T> {
   if (signal.aborted) {
     return Promise.reject(new DOMException("Aborted", "AbortError"))
   }
@@ -133,6 +133,7 @@ function withAbort<T>(signal: AbortSignal, operation: Promise<T>): Promise<T> {
     }
 
     signal.addEventListener("abort", onAbort, { once: true })
+    const operation = operationFactory()
     operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort)
@@ -163,7 +164,7 @@ export async function executeContractAnalyzer(
   const projectDir = args.project_dir ?? findFoundryProjectDir(filePath)
 
   try {
-    const sourceText = await withAbort(context.abort, Bun.file(filePath).text())
+    const sourceText = await withAbort(context.abort, () => Bun.file(filePath).text())
 
     const candidates = inspectCandidates(filePath, sourceText)
     const failures: string[] = []
@@ -171,8 +172,7 @@ export async function executeContractAnalyzer(
     let analyzedContractName = contractName
 
     for (const candidate of candidates) {
-      const profile = await withAbort(
-        context.abort,
+      const profile = await withAbort(context.abort, () =>
         dependencies.extractInfo(candidate, projectDir),
       )
       if (isSuccessfulProfile(profile)) {

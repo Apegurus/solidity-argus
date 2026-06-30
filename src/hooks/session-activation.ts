@@ -86,10 +86,7 @@ export function createSessionActivator(options: SessionActivatorOptions) {
               const parentSink = sinkRegistry.getForSession(parentSessionId)
               if (parentSink) return parentSink
             }
-
-            // Multiple active sinks - pick the most recently created one.
-            // This handles the case where a stale run's sink was never finalized.
-            return sinkRegistry.getNewestActiveRunSink()
+            return null
           })()
 
       // Fallback: if no existing sink found via direct/parent/heuristic lookup,

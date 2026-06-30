@@ -38,6 +38,10 @@ const KNOWN_INPUT_FIELDS = new Set([
   "confidence",
   "confidence_score",
   "rubric_verdict",
+  "claims_value_extraction",
+  "net_gain_proof_ref",
+  "gate_demoted",
+  "unproven_forge_unavailable",
   "description",
   "impact",
   "first_markdown_element",
@@ -70,6 +74,10 @@ const KNOWN_INPUT_FIELDS = new Set([
   "issueFingerprint",
   "observation_ids",
   "observationIds",
+  "supersedes_observation_id",
+  "supersedesObservationId",
+  "supersedes_observation_ids",
+  "supersedesObservationIds",
   "observation_count",
   "observationCount",
   "reported_by_agents",
@@ -317,6 +325,16 @@ export function normalizeToCanonicalFinding(
 
   const observationIds =
     normalizeStringArray(input.observation_ids) ?? normalizeStringArray(input.observationIds)
+  const supersedesObservationIds =
+    normalizeStringArray(input.supersedes_observation_ids) ??
+    normalizeStringArray(input.supersedesObservationIds) ??
+    (typeof input.supersedes_observation_id === "string" &&
+    input.supersedes_observation_id.length > 0
+      ? [input.supersedes_observation_id]
+      : undefined) ??
+    (typeof input.supersedesObservationId === "string" && input.supersedesObservationId.length > 0
+      ? [input.supersedesObservationId]
+      : undefined)
   const reportedByAgents =
     normalizeStringArray(input.reported_by_agents) ?? normalizeStringArray(input.reportedByAgents)
   const sources = normalizeStringArray(input.sources)
@@ -375,6 +393,16 @@ export function normalizeToCanonicalFinding(
       ? { confidence_score: input.confidence_score as CanonicalFinding["confidence_score"] }
       : {}),
     ...(reconciledVerdict ? { rubric_verdict: reconciledVerdict } : {}),
+    ...(typeof input.claims_value_extraction === "boolean"
+      ? { claims_value_extraction: input.claims_value_extraction }
+      : {}),
+    ...(typeof input.net_gain_proof_ref === "string" && input.net_gain_proof_ref.length > 0
+      ? { net_gain_proof_ref: input.net_gain_proof_ref }
+      : {}),
+    ...(typeof input.gate_demoted === "boolean" ? { gate_demoted: input.gate_demoted } : {}),
+    ...(typeof input.unproven_forge_unavailable === "boolean"
+      ? { unproven_forge_unavailable: input.unproven_forge_unavailable }
+      : {}),
     description,
     file,
     lines: lines ?? [0, 0],
@@ -425,6 +453,7 @@ export function normalizeToCanonicalFinding(
       typeof input.schema_version === "string" && input.schema_version.length > 0
         ? input.schema_version
         : SCHEMA_VERSION,
+    ...(supersedesObservationIds ? { supersedes_observation_ids: supersedesObservationIds } : {}),
   }
 
   const validation = validateCanonicalFinding(canonical)

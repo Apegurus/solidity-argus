@@ -104,7 +104,7 @@ describe("createHooks", () => {
     expect(hooks["tool.execute.after"]).toBeDefined()
   })
 
-  it("blocks repeated audit-specialist text after completion", async () => {
+  it("recovers repeated audit-specialist text after completion", async () => {
     const config = ArgusConfigSchema.parse({})
     const hooks = createHooks({
       config,
@@ -128,17 +128,15 @@ describe("createHooks", () => {
     ) => Promise<void>
     const paragraph = "Repeated stagnant analysis paragraph with no new evidence."
 
-    let error: unknown
-    try {
-      await textComplete(
-        { sessionID: "specialist-session", messageID: "msg-1", partID: "part-1" },
-        { text: [paragraph, paragraph, paragraph].join("\n\n") },
-      )
-    } catch (err) {
-      error = err
-    }
-    expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toContain("audit-specialist output repetition watchdog")
+    const output = { text: [paragraph, paragraph, paragraph].join("\n\n") }
+
+    await textComplete(
+      { sessionID: "specialist-session", messageID: "msg-1", partID: "part-1" },
+      output,
+    )
+
+    expect(output.text.match(/Repeated stagnant analysis/g)?.length).toBe(1)
+    expect(output.text).toContain("HANDOFF_JSON")
   })
 
   it("does not apply the text watchdog to non-specialist Argus agents", async () => {
@@ -477,7 +475,7 @@ describe("createHooks", () => {
     expect(findingsArtifact.event_count).toBe(3)
   })
 
-  it("captures findings from the cache when output.output is truncated", async () => {
+  it("captures findings from a large cached pattern result when output.output is replaced by a truncation stub", async () => {
     const config = ArgusConfigSchema.parse({})
     const activeState = makeAuditState({ sessionId: `run-trunc-${Date.now()}` })
     const toolResultCache = createToolResultCache()
@@ -522,10 +520,11 @@ describe("createHooks", () => {
       patternVersion: "1.0.0",
       sources: [
         {
+          source: "pattern-db",
           matches: [
             {
               pattern: "reentrancy",
-              description: "Reentrancy in withdraw",
+              description: `Reentrancy in withdraw ${"x".repeat(3 * 1024 * 1024)}`,
               file: "src/VulnerableVault.sol",
               lines: [10, 20],
               severity: "High",
@@ -534,9 +533,11 @@ describe("createHooks", () => {
         },
       ],
     })
+    expect(fullResult.length).toBeGreaterThanOrEqual(3 * 1024 * 1024)
     toolResultCache.set("oc-trunc", "argus_check_patterns", fullResult)
 
-    const truncatedStub = fullResult.slice(0, 45)
+    const truncatedStub =
+      "... output was truncated ... 3145728 bytes truncated ... tool call succeeded"
     type AfterHook = NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>
     await (hooks["tool.execute.after"] as AfterHook)(
       {
@@ -557,8 +558,21 @@ describe("createHooks", () => {
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
       event_count: number
+      findings: unknown[]
+      toolsExecuted: Array<{ tool: string; success: boolean; error?: string }>
     }
     expect(findingsArtifact.event_count).toBeGreaterThanOrEqual(3)
+    expect(findingsArtifact.findings).toHaveLength(1)
+
+    const completed = findingsArtifact.toolsExecuted.find(
+      (tool) => tool.tool === "argus_check_patterns",
+    )
+    expect(completed?.success).toBe(true)
+    expect(completed?.error).toBeUndefined()
+
+    const eventsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    const eventLog = await Bun.file(eventsPath).text()
+    expect(eventLog).not.toContain("TRUNCATED_OUTPUT")
   })
 
   it("materializes findings artifact when report generation completes before session deletion", async () => {
@@ -1118,6 +1132,33 @@ describe("createHooks", () => {
     expect(completed[0]?.session_id).toBe("oc-child-sink")
   })
 
+  it("does not bind an unrelated session to the newest active run", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const hooks = createHooks({
+      config,
+      managers: makeManagers(),
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+    const suffix = Date.now()
+    const primarySession = `oc-primary-${suffix}`
+    const unrelatedSession = `oc-unrelated-${suffix}`
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: primarySession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, primarySession)
+    const primaryRunId = await waitForRunId(primarySession)
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: unrelatedSession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, unrelatedSession)
+    const unrelatedRunId = await waitForRunId(unrelatedSession)
+
+    expect(unrelatedRunId).not.toBe(primaryRunId)
+  })
+
   it("tool tracking continues after session.idle without losing sink", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-persist-sink-${Date.now()}`
@@ -1401,6 +1442,32 @@ describe("selectToolResultForParsing", () => {
     expect(selectToolResultForParsing(truncatedB, "ses_1", "argus_check_patterns", cache)).toBe(b)
     expect(cache.size()).toBe(1)
     expect(selectToolResultForParsing(truncatedA, "ses_1", "argus_check_patterns", cache)).toBe(a)
+    expect(cache.size()).toBe(0)
+  })
+
+  it("recovers replacement truncation stubs in same-tool completion order", () => {
+    const cache = createToolResultCache()
+    const first = JSON.stringify({ call: "first", success: true, payload: "x".repeat(100) })
+    const second = JSON.stringify({ call: "second", success: true, payload: "y".repeat(100) })
+    cache.set("ses_1", "argus_check_patterns", first)
+    cache.set("ses_1", "argus_check_patterns", second)
+
+    expect(
+      selectToolResultForParsing(
+        "... output was truncated ... 1024 bytes truncated ...",
+        "ses_1",
+        "argus_check_patterns",
+        cache,
+      ),
+    ).toBe(first)
+    expect(
+      selectToolResultForParsing(
+        "... output was truncated ... 2048 bytes truncated ...",
+        "ses_1",
+        "argus_check_patterns",
+        cache,
+      ),
+    ).toBe(second)
     expect(cache.size()).toBe(0)
   })
 

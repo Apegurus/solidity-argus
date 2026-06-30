@@ -1,5 +1,8 @@
 import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-constants"
-import type { CanonicalFinding } from "./schemas"
+import type { CanonicalFinding, CanonicalToolExecution } from "./schemas"
+
+const GATE_DEMOTION_NOTE =
+  "[gate] Demoted: value-extraction claim lacks a passing forge net-gain PoC."
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right))
@@ -20,15 +23,13 @@ function rubricRank(verdict: CanonicalFinding["rubric_verdict"]): number {
   return verdict ? RUBRIC_VERDICT_RANK[verdict] : 3
 }
 
-// The adjudicated observation (its rubric verdict, confidence, and 4-gate trace
-// description) usually arrives AFTER the raw pattern/static observation it refutes,
-// so picking the earliest-seq observation as the merged representative silently
-// dropped the rubric data. Selecting the strongest-verdict observation instead keeps
-// the rendered verdict, confidence, and trace aligned with the adjudication. Order:
-// strongest verdict, then highest confidence_score, then earliest seq, then id.
-function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFinding {
+function primaryRank(obs: CanonicalFinding): number {
+  return obs.gate_demoted === true ? RUBRIC_VERDICT_RANK.DEMOTED : rubricRank(obs.rubric_verdict)
+}
+
+export function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFinding {
   return observations.reduce((best, obs) => {
-    const rankDelta = rubricRank(obs.rubric_verdict) - rubricRank(best.rubric_verdict)
+    const rankDelta = primaryRank(obs) - primaryRank(best)
     if (rankDelta !== 0) return rankDelta < 0 ? obs : best
     const scoreDelta = (obs.confidence_score ?? -1) - (best.confidence_score ?? -1)
     if (scoreDelta !== 0) return scoreDelta > 0 ? obs : best
@@ -37,7 +38,7 @@ function selectPrimaryObservation(observations: CanonicalFinding[]): CanonicalFi
   })
 }
 
-function maxConfidenceScore(observations: CanonicalFinding[]): number | undefined {
+export function maxConfidenceScore(observations: CanonicalFinding[]): number | undefined {
   let max: number | undefined
   for (const obs of observations) {
     if (typeof obs.confidence_score === "number") {
@@ -45,6 +46,133 @@ function maxConfidenceScore(observations: CanonicalFinding[]): number | undefine
     }
   }
   return max
+}
+
+function passedForgeTests(toolExecutions: CanonicalToolExecution[]): string[] {
+  return toolExecutions.flatMap((execution) =>
+    execution.tool === "argus_forge_test" && execution.success
+      ? (execution.passed_tests ?? [])
+      : [],
+  )
+}
+
+// Value-extraction class markers (theft/drain/profit). Class-level by design, never a
+// single exploit's token (maintenance guardrail #5), so the gate auto-derives
+// claims_value_extraction and omitting the flag cannot bypass it.
+const VALUE_EXTRACTION_TERMS = [
+  "drain",
+  "steal",
+  "stolen",
+  "theft",
+  "siphon",
+  "exfiltrate",
+  "attacker profit",
+  "attacker gain",
+  "attacker net gain",
+  "net attacker gain",
+  "withdraw more than",
+  "unbacked",
+  "infinite mint",
+  "mint unlimited",
+  "loss of funds",
+  "loss of user funds",
+]
+
+// Rationale: negation cues keep refutation narratives from being classified as
+// extraction claims while preserving class-level theft/drain/profit matching.
+const VALUE_EXTRACTION_NEGATION_PATTERN =
+  /\b(no|not|never|without|zero|cannot|can't|does not|doesn't|impossible|false positive|non-extraction)\b|\brather than theft\b/i
+
+const VALUE_EXTRACTION_TERM_PATTERNS = VALUE_EXTRACTION_TERMS.map(
+  (term) => new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}([^a-z0-9]|$)`, "i"),
+)
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function splitClaimSentences(value: string): string[] {
+  return value
+    .split(/[.!?\n;]+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0)
+}
+
+// Explicit flag wins both ways (true forces, false is an auditable opt-out); only an
+// absent flag falls back to class detection.
+function claimsValueExtraction(finding: CanonicalFinding): boolean {
+  if (typeof finding.claims_value_extraction === "boolean") {
+    return finding.claims_value_extraction
+  }
+  const haystack = `${finding.check}. ${finding.description}`
+  return splitClaimSentences(haystack).some((sentence) => {
+    if (VALUE_EXTRACTION_NEGATION_PATTERN.test(sentence)) return false
+    return VALUE_EXTRACTION_TERM_PATTERNS.some((pattern) => pattern.test(sentence))
+  })
+}
+
+function requiresConservationGate(finding: CanonicalFinding): boolean {
+  return (
+    (finding.severity === "Critical" || finding.severity === "High") &&
+    finding.rubric_verdict === "CONFIRMED" &&
+    claimsValueExtraction(finding)
+  )
+}
+
+function proofRefMatchesPassedForgeTest(finding: CanonicalFinding, passedTests: string[]): boolean {
+  if (typeof finding.net_gain_proof_ref !== "string") return false
+  const proofRef = finding.net_gain_proof_ref.trim()
+  if (proofRef.length === 0) return false
+
+  const proofTokens = proofRef
+    .split(/[\s,`'"()]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+  const proofTestNames = proofTokens
+    .flatMap((token) => token.split(/::|:/))
+    .map((token) => token.trim())
+    .filter((token) => /^test\w*/.test(token))
+
+  return passedTests.some((passedTest) => {
+    if (passedTest === proofRef || proofTokens.includes(passedTest)) return true
+    const passedTestName = passedTest.split(/::|:/).at(-1)
+    return passedTestName ? proofTestNames.includes(passedTestName) : false
+  })
+}
+
+function prependGateNote(description: string): string {
+  return description.startsWith(GATE_DEMOTION_NOTE)
+    ? description
+    : `${GATE_DEMOTION_NOTE} ${description}`
+}
+
+export function applyConservationGate(
+  findings: CanonicalFinding[],
+  toolExecutions: CanonicalToolExecution[],
+  options: { forgeAvailable: boolean },
+): CanonicalFinding[] {
+  const passedTests = passedForgeTests(toolExecutions)
+  return findings.map((finding) => {
+    if (!requiresConservationGate(finding)) return finding
+    if (!options.forgeAvailable) {
+      return { ...finding, unproven_forge_unavailable: true }
+    }
+    if (proofRefMatchesPassedForgeTest(finding, passedTests)) return finding
+    return {
+      ...finding,
+      rubric_verdict: "DEMOTED",
+      gate_demoted: true,
+      description: prependGateNote(finding.description),
+    }
+  })
+}
+
+export function finalizeProjectedFindings(
+  findings: CanonicalFinding[],
+  toolExecutions: CanonicalToolExecution[],
+  options: { forgeAvailable: boolean },
+): CanonicalFinding[] {
+  return dedupeFindingsForFinalOutput(applyConservationGate(findings, toolExecutions, options))
 }
 
 function compareFinalFindings(left: CanonicalFinding, right: CanonicalFinding): number {
@@ -99,6 +227,14 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
       observation_ids: observationIds,
       observation_count: sortedObservations.length,
     }
+    const gateDemoted = sortedObservations.some((obs) => obs.gate_demoted === true)
+    if (gateDemoted) {
+      mergedFinding.gate_demoted = true
+      mergedFinding.rubric_verdict = "DEMOTED"
+    }
+    if (sortedObservations.some((obs) => obs.unproven_forge_unavailable === true)) {
+      mergedFinding.unproven_forge_unavailable = true
+    }
 
     // base is the strongest-verdict observation, so its rubric_verdict already wins;
     // confidence_score is taken as the max across the group so the strongest evidence
@@ -110,6 +246,7 @@ export function dedupeFindingsForFinalOutput(findings: CanonicalFinding[]): Cano
     mergedFinding.rubric_verdict = reconcileRubricVerdict(
       mergedFinding.rubric_verdict,
       mergedFinding.confidence_score,
+      { gateDemoted },
     )
 
     merged.push(mergedFinding)

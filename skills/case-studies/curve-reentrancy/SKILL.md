@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/curve-lp-rekt-vyper-reentrancy/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: '@nonreentrant'
-    severity: "High"
-    description: "Detects Vyper's nonreentrant decorator. In certain compiler versions (0.2.15, 0.2.16, 0.3.0), this was broken for cross-function reentrancy."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

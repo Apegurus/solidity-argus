@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/cream-rekt-2/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'yUSD|yETH'
-    severity: "Medium"
-    description: "Detects usage of Yearn vault tokens which can have complex pricing mechanisms vulnerable to manipulation."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

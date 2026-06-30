@@ -15,7 +15,7 @@ Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 
 **What it does:**
 - Runs Slither static analysis and Foundry tests automatically
 - Searches 7,769+ real-world audit findings via SCVD and Solodit
-- Matches code against 91 curated SKILL.md knowledge files
+- Matches code against 103 curated SKILL.md knowledge files
 - Generates professional markdown audit reports with severity classifications
 - Follows a rigorous 7-step audit methodology (Reconnaissance → Report)
 
@@ -105,6 +105,8 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 | `argus_gas_analysis` | Sentinel, Audit Specialist | Runs forge gas report analysis, parses per-function gas metrics, and identifies high-gas hotspots above configurable threshold |
 | `argus_forge_fuzz` | Sentinel, Audit Specialist | Fuzzes specific functions with random inputs to find edge cases and invariant violations |
 | `argus_forge_coverage` | Sentinel, Audit Specialist | Runs forge coverage analysis and returns structured per-file coverage metrics (lines, statements, branches, functions) |
+| `argus_list_skills` | Argus, Sentinel, Pythia, Audit Specialist, Themis | Lists Argus skill catalog metadata across bundled, custom, Trail of Bits, OpenCode, and Claude resolver roots without exposing full skill bodies |
+| `argus_recommend_skills` | Argus, Sentinel, Pythia, Audit Specialist, Themis | Recommends relevant Argus skills from Solidity/protocol context using deterministic metadata scoring |
 | `argus_skill_load` | Pythia, Audit Specialist, Themis | Loads curated SKILL.md knowledge files on demand for vulnerability patterns, protocol guidance, methodology, and case studies |
 | `argus_record_finding` | Sentinel, Pythia, Audit Specialist | Records verified manual, static-analysis, research, or testing findings into durable audit state |
 | `argus_read_findings` | Scribe, Themis | Reads persisted findings and audit artifacts for report generation and validation |
@@ -117,24 +119,23 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 
 ## Knowledge Base
 
-The plugin ships with **91 curated SKILL.md files** organized into 7 categories:
+The plugin ships with **103 curated SKILL.md files** organized into 5 metadata categories:
 
 | Category | Files | Description |
 |----------|-------|-------------|
-| Vulnerability Patterns | 51 | Reentrancy, oracle manipulation, flash loans, access control, ERC4626, governance, front-running, and 44 more |
-| Methodology | 11 | Audit workflow, report templates, severity classification, and 8 audit-specialist profiles |
-| Protocol Patterns | 5 | AMM/DEX, bridges, governance, lending, staking security guides |
+| Vulnerability Patterns | 60 | Reentrancy, oracle manipulation, flash loans, access control, ERC4626, governance, front-running, and more |
+| Methodology | 12 | Audit workflow, report templates, severity classification, refutation rubric, and 8 audit-specialist profiles |
+| Protocol Patterns | 7 | AMM/DEX, bridges, governance, lending, staking, concentrated liquidity, and liquid-staking/restaking security guides |
 | Checklists | 6 | Cyfrin audit checklists (DeFi core, integrations, upgrades, gas, best practices) |
-| References | 3 | DeFi exploit reference index, SmartBugs vulnerable contract examples, and the attack-vector deck |
-| Case Studies | 15 | Major DeFi exploit analyses (Euler, Nomad Bridge, Ronin, Cream Finance, etc.) |
+| References | 18 | DeFi exploit reference index, SmartBugs examples, attack-vector deck, and major DeFi exploit case studies |
 
 **Sources:** Trail of Bits, Cyfrin, DeFiFoFum, kadenzipfel, SunWeb3Sec, smartbugs, BailSec, Argus
 
 ### Detection Rules
 
-Vulnerability detection patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered by the pattern checker — no separate configuration needed.
+Vulnerability detection patterns are defined as `detection_rules` in SKILL.md frontmatter. The pattern checker scans effective resolver winners from every Argus skill root — bundled, `customSkillsDir`, Trail of Bits cache, OpenCode project/global, and Claude project/global — but only when a skill has both `pattern_category` and non-empty `detection_rules`.
 
-- **51 vulnerability pattern skills** with detection rules across **14 categories**
+- **61 scanner-eligible skills** with detection rules across **14 categories**
 - Categories: `reentrancy`, `oracle-manipulation`, `flash-loan`, `access-control`, `erc4626`, `proxy`, `signature`, `dos`, `front-running`, `governance`, `token-standard`, `gas-optimization`, `logic-error`, `delegatecall`
 
 #### Adding Custom Detection Rules
@@ -145,6 +146,7 @@ Add custom detection rules by creating SKILL.md files in your `customSkillsDir`:
 ---
 name: my-custom-pattern
 description: Detects insecure transfer patterns
+category: vulnerability-pattern
 pattern_category: access-control
 detection_rules:
   - regex: 'transfer\(msg\.sender, .+\)'
@@ -341,6 +343,7 @@ Argus uses a **three-channel context delivery system** to inject dynamic audit s
 | **Prompt** | Static agent identity files (`src/agents/*-prompt.ts`) | Methodology, personality, tool instructions, audit framework | Agent-specific | Never changes at runtime |
 | **Hook** | `experimental.chat.system.transform` (agent-gated injection) | Audit progress, findings count, current phase, session state | Per-session | Changes every turn |
 | **Skill-load** | `argus_skill_load` tool (on-demand) | Vulnerability patterns, protocol-specific knowledge, historical exploits | On-demand | Loaded when agent requests |
+| **Skill discovery** | `argus_list_skills` / `argus_recommend_skills` | Metadata-only catalog search/recommendation before loading exact skills | On-demand | No full skill bodies exposed |
 
 ### Prompt Channel (Static Identity)
 
@@ -375,13 +378,13 @@ This prevents context pollution and ensures non-audit agents operate independent
 
 ### Skill-Load Channel (On-Demand Knowledge)
 
-Agents load specialized knowledge on-demand via the `argus_skill_load` tool:
+Agents discover specialized knowledge with metadata-only `argus_list_skills` / `argus_recommend_skills` when the exact name is unknown, then load selected full knowledge on-demand via the `argus_skill_load` tool:
 
-- **Vulnerability Patterns** — 51 SKILL.md files covering reentrancy, oracle manipulation, flash loans, etc.
-- **Protocol Patterns** — 5 files for AMM/DEX, bridges, governance, lending, staking
-- **Methodology** — 11 files for audit workflow, report templates, severity classification, and specialist profiles
+- **Vulnerability Patterns** — 60 SKILL.md files covering reentrancy, oracle manipulation, flash loans, ERC4626, governance, front-running, and more
+- **Protocol Patterns** — 7 files for AMM/DEX, bridges, governance, lending, staking, concentrated liquidity, and liquid-staking/restaking
+- **Methodology** — 12 files for audit workflow, report templates, severity classification, refutation rubric, and specialist profiles
 - **Checklists** — 6 Cyfrin audit checklists
-- **References** — 3 files for exploit index, vulnerable contract examples, and attack-vector deck
+- **References** — 18 files for exploit index, vulnerable contract examples, attack-vector deck, and major DeFi exploit case studies
 
 This channel is **lazy-loaded** — agents request skills only when needed, reducing context overhead.
 

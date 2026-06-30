@@ -393,6 +393,33 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     }
   }
 
+  if ("supersedes_observation_id" in (raw as Record<string, unknown>)) {
+    if (
+      raw.supersedes_observation_id != null &&
+      (typeof raw.supersedes_observation_id !== "string" ||
+        raw.supersedes_observation_id.trim().length === 0)
+    ) {
+      errors.push({
+        field: "supersedes_observation_id",
+        code: "invalid",
+        message: "supersedes_observation_id must be a non-empty string when provided",
+      })
+    }
+  }
+
+  if ("supersedes_observation_ids" in (raw as Record<string, unknown>)) {
+    if (
+      !Array.isArray(raw.supersedes_observation_ids) ||
+      raw.supersedes_observation_ids.some((id) => typeof id !== "string" || id.trim().length === 0)
+    ) {
+      errors.push({
+        field: "supersedes_observation_ids",
+        code: "invalid",
+        message: "supersedes_observation_ids must be an array of non-empty strings when provided",
+      })
+    }
+  }
+
   if (
     typeof raw.source !== "string" ||
     !VALID_SOURCES.has(raw.source as CanonicalFinding["source"])

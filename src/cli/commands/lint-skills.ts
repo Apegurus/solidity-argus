@@ -12,6 +12,7 @@ import { cliOutput } from "../cli-output"
 
 const GREEN = "\x1b[32m"
 const RED = "\x1b[31m"
+const YELLOW = "\x1b[33m"
 const RESET = "\x1b[0m"
 
 function findSkillFiles(dir: string, maxDepth = 8): string[] {
@@ -43,15 +44,23 @@ export interface LintResult {
   invalid: number
   skipped: number
   errors: Array<{ file: string; errors: string[] }>
+  warnings: Array<{ file: string; warnings: string[] }>
 }
 
-export function lintSkillFiles(skillFiles: Array<{ path: string; content: string }>): LintResult {
+type SkillFileForLint = {
+  path: string
+  content: string
+  requireCategory?: boolean
+}
+
+export function lintSkillFiles(skillFiles: SkillFileForLint[]): LintResult {
   let valid = 0
   let invalid = 0
   let skipped = 0
   const errors: Array<{ file: string; errors: string[] }> = []
+  const warnings: Array<{ file: string; warnings: string[] }> = []
 
-  for (const { path, content } of skillFiles) {
+  for (const { path, content, requireCategory } of skillFiles) {
     const fm = parseFrontmatter(content)
     if (!fm) {
       skipped++
@@ -59,15 +68,31 @@ export function lintSkillFiles(skillFiles: Array<{ path: string; content: string
     }
 
     const result = validateSkillFrontmatter(fm)
-    if (result.success) {
+    if (result.success && requireCategory === true && !result.data.category) {
+      invalid++
+      errors.push({ file: path, errors: ["category: Bundled skills must declare category"] })
+    } else if (result.success) {
       valid++
     } else {
       invalid++
       errors.push({ file: path, errors: result.errors })
     }
+
+    if (
+      result.success &&
+      (result.data.detection_rules?.length ?? 0) > 0 &&
+      !result.data.pattern_category
+    ) {
+      warnings.push({
+        file: path,
+        warnings: [
+          "detection_rules without pattern_category are inert (never scanned by argus_check_patterns). Add a pattern_category to activate them, or move the cues into prose.",
+        ],
+      })
+    }
   }
 
-  return { valid, invalid, skipped, errors }
+  return { valid, invalid, skipped, errors, warnings }
 }
 
 export const lintSkillsCommand: CliCommand = {
@@ -83,13 +108,17 @@ export const lintSkillsCommand: CliCommand = {
     }
 
     const roots = resolveSkillRoots(cwd, config)
-    const skillFiles: Array<{ path: string; content: string }> = []
+    const skillFiles: SkillFileForLint[] = []
 
     for (const root of roots) {
       const files = findSkillFiles(root.path)
       for (const file of files) {
         try {
-          skillFiles.push({ path: file, content: readFileSync(file, "utf8") })
+          skillFiles.push({
+            path: file,
+            content: readFileSync(file, "utf8"),
+            requireCategory: root.source === "bundled",
+          })
         } catch {
           logger.debug("Skipping unreadable skill file")
         }
@@ -99,7 +128,7 @@ export const lintSkillsCommand: CliCommand = {
     const result = lintSkillFiles(skillFiles)
 
     cliOutput.log(
-      `Skill Lint: ${result.valid} valid, ${result.invalid} invalid, ${result.skipped} skipped (no frontmatter)`,
+      `Skill Lint: ${result.valid} valid, ${result.invalid} invalid, ${result.warnings.length} warnings, ${result.skipped} skipped (no frontmatter)`,
     )
 
     if (result.errors.length > 0) {
@@ -111,6 +140,15 @@ export const lintSkillsCommand: CliCommand = {
       }
     } else if (result.valid > 0) {
       cliOutput.log(`${GREEN}✓${RESET} All skills pass schema validation`)
+    }
+
+    if (result.warnings.length > 0) {
+      for (const { file, warnings } of result.warnings) {
+        cliOutput.log(`\n${YELLOW}⚠${RESET} ${file}`)
+        for (const warn of warnings) {
+          cliOutput.log(`  - ${warn}`)
+        }
+      }
     }
 
     return result.invalid > 0 ? 1 : 0

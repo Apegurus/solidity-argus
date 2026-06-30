@@ -68,7 +68,7 @@ export function extractJson(raw: string, opener: "[" | "{"): string {
     }
   }
 
-  return raw
+  return ""
 }
 
 function toRecord(value: unknown): Record<string, unknown> | undefined {

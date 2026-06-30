@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/mango-markets-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'MNGO'
-    severity: "Low"
-    description: "Detects usage of the MNGO token. Highlights the risk of using low-liquidity governance tokens as collateral."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

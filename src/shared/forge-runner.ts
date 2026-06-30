@@ -4,6 +4,13 @@ export type ForgeCommandResult = {
   exitCode: number
 }
 
+const MAX_STDERR_CHARS = 200_000
+
+function boundStderr(stderr: string): string {
+  if (stderr.length <= MAX_STDERR_CHARS) return stderr
+  return `${stderr.slice(0, MAX_STDERR_CHARS)}\n[stderr truncated: ${stderr.length - MAX_STDERR_CHARS} chars omitted]`
+}
+
 export async function runForgeCommand(
   command: string[],
   options: { signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
@@ -24,7 +31,7 @@ export async function runForgeCommand(
 
   return {
     stdout,
-    stderr,
+    stderr: boundStderr(stderr),
     exitCode,
   }
 }

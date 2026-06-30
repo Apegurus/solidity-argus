@@ -43,6 +43,10 @@ export interface Finding {
    * Backward compatible: pre-rubric findings omit this field and still validate.
    */
   rubric_verdict?: "CONFIRMED" | "DEMOTED" | "REJECTED_DEMOTED"
+  claims_value_extraction?: boolean
+  net_gain_proof_ref?: string
+  gate_demoted?: boolean
+  unproven_forge_unavailable?: boolean
   description: string
   file: string // relative file path
   lines: [number, number] // [start, end]
@@ -53,6 +57,8 @@ export interface Finding {
   observation_fingerprint?: string
   observation_id?: string
   observation_ids?: string[]
+  supersedes_observation_id?: string
+  supersedes_observation_ids?: string[]
   reported_by_agents?: string[]
   sources?: string[]
   observation_count?: number
@@ -117,6 +123,7 @@ export interface ToolExecution {
   success: boolean
   findingsCount: number
   findingCounts?: FindingCounts
+  passed_tests?: string[]
   subagent_type?: string
 }
 

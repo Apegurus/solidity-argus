@@ -28,6 +28,8 @@ type FindingLike = Pick<Finding, "check"> & {
   id?: string
   observation_id?: string
   observation_ids?: unknown
+  supersedes_observation_id?: unknown
+  supersedes_observation_ids?: unknown
   observation_count?: unknown
 }
 
@@ -40,10 +42,32 @@ function observationIds(value: FindingLike): string[] {
   return value.observation_ids.filter((id): id is string => typeof id === "string" && id.length > 0)
 }
 
+function supersededObservationIds(value: FindingLike): string[] {
+  const ids: string[] = []
+  if (Array.isArray(value.supersedes_observation_ids)) {
+    ids.push(
+      ...value.supersedes_observation_ids.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+    )
+  }
+  if (
+    typeof value.supersedes_observation_id === "string" &&
+    value.supersedes_observation_id.length > 0
+  ) {
+    ids.push(value.supersedes_observation_id)
+  }
+  return sorted(ids)
+}
+
 function rawObservationIds(rawFindings: CanonicalFinding[]): string[] {
-  return rawFindings
-    .map((finding) => finding.observation_id)
-    .filter((id): id is string => typeof id === "string" && id.length > 0)
+  return rawFindings.flatMap((finding) => {
+    const ids = observationIds(finding)
+    if (ids.length > 0) return ids
+    return typeof finding.observation_id === "string" && finding.observation_id.length > 0
+      ? [finding.observation_id]
+      : []
+  })
 }
 
 export function validateFindingLineage(
@@ -54,16 +78,19 @@ export function validateFindingLineage(
   const rawIds = new Set(rawObservationIds(rawFindings))
   const rawFileById = new Map<string, string>()
   for (const raw of rawFindings) {
-    if (
-      typeof raw.observation_id === "string" &&
-      raw.observation_id.length > 0 &&
-      typeof raw.file === "string"
-    ) {
+    if (typeof raw.file !== "string") continue
+    const ids = observationIds(raw)
+    if (ids.length > 0) {
+      for (const id of ids) {
+        rawFileById.set(id, raw.file)
+      }
+    } else if (typeof raw.observation_id === "string" && raw.observation_id.length > 0) {
       rawFileById.set(raw.observation_id, raw.file)
     }
   }
   const crossFileMerges: Array<{ check: string; files: string[] }> = []
   const mappedIds: string[] = []
+  const supersededIds: string[] = []
   const seen = new Set<string>()
   const duplicates = new Set<string>()
   const droppedIds: string[] = []
@@ -94,6 +121,9 @@ export function validateFindingLineage(
       const mappedFile = rawFileById.get(id)
       if (mappedFile) mergedFiles.add(mappedFile)
     }
+    for (const id of supersededObservationIds(finding)) {
+      supersededIds.push(id)
+    }
     if (mergedFiles.size > 1) {
       crossFileMerges.push({
         check: finding.check || finding.id || "(unknown finding)",
@@ -119,7 +149,7 @@ export function validateFindingLineage(
 
   const mappedSet = new Set(mappedIds)
   const droppedSet = new Set(droppedIds)
-  const phantom = mappedIds.filter((id) => !rawIds.has(id))
+  const phantom = [...mappedIds, ...supersededIds].filter((id) => !rawIds.has(id))
   const phantomDropped = droppedIds.filter((id) => !rawIds.has(id))
   const overlappingMappedDropped = droppedIds.filter((id) => mappedSet.has(id))
   const missing = Array.from(rawIds).filter((id) => !mappedSet.has(id) && !droppedSet.has(id))
@@ -144,7 +174,7 @@ export function validateFindingLineage(
       missingIds.length === 0 &&
       countMismatches.length === 0 &&
       crossFileMerges.length === 0 &&
-      mappedIds.length + droppedIds.length === rawIds.size,
+      mappedSet.size + droppedSet.size === rawIds.size,
     raw_count: rawIds.size,
     mapped_count: mappedIds.length,
     dropped_count: droppedIds.length,

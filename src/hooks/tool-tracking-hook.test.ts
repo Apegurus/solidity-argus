@@ -261,6 +261,46 @@ describe("createToolTrackingHook", () => {
     expect(payload?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
   })
 
+  test("argus_record_finding warns but records when finding is outside declared scope", async () => {
+    auditState.scope = ["src/Vault.sol"]
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-scope-warning",
+      getAgentName: () => "sentinel",
+    })
+
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {},
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "outside-scope-note",
+            severity: "Low",
+            confidence: "High",
+            description: "Finding was collected outside requested scope",
+            file: "src/Token.sol",
+            lines: [1, 2],
+            source: "manual",
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(1)
+    expect(auditState.findings[0]?.file).toBe("src/Token.sol")
+    expect(hookWithSink.getLastDiagnostics()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: expect.objectContaining({ code: "OUT_OF_SCOPE_FINDING", policy: "warn" }),
+        }),
+      ]),
+    )
+  })
+
   test("cross-tool observations with same check+file+lines are deduplicated", async () => {
     const slitherResult = {
       success: true,

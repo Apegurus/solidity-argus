@@ -21,6 +21,10 @@ Owners, roles, multisigs, governance executors, keepers, pausers, upgraders, ini
 3. Trace initialization and upgrade paths separately.
 4. Compare similar functions for missing or weaker modifiers.
 
+## Value-Flow and Same-Recipient Reentrancy Rule
+
+Do not upgrade a missing-guard or reentrancy candidate to theft/drain unless the attacker or an alternate beneficiary receives value. If a reentrancy value-flow question depends on compiler arithmetic or callback-window details, load the `reentrancy` skill and apply its domain-specific demotion rules. Do not suppress CEI, griefing, DoS, cross-function, alternate-beneficiary, or architectural leads.
+
 ## Recommended Skills
 Load `access-control`, `proxy-vulnerabilities`, `cyfrin-best-practices-upgrades`, and `governance-attacks` when relevant.
 

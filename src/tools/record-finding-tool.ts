@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/global-run-index"
 import { isNonEmptyString } from "../shared/type-guards"
-import { normalizeToCanonicalFinding } from "../state/adapters"
+import { type Diagnostic, normalizeToCanonicalFinding } from "../state/adapters"
 import { type CanonicalFinding, SCHEMA_VERSION } from "../state/schemas"
 import type { ArgusAgentName } from "../state/types"
 
@@ -16,6 +17,14 @@ type RecordFindingResponse = {
   findings: CanonicalFinding[]
   schema_version: string
   note: string
+  run_id: string
+  canonical_run_id: string | null
+  run_id_reconciliation: {
+    returned_run_id: string
+    canonical_run_id: string | null
+    status: "resolved" | "pending_journal_reconciliation"
+  }
+  normalization_diagnostics: Array<Diagnostic & { index: number }>
   enrichment_warnings?: string[]
   enrichment_hint?: string
 }
@@ -116,11 +125,12 @@ export async function executeRecordFinding(
         f.file = loc.substring(0, colonIdx)
         if (!f.lines) {
           const match = loc.substring(colonIdx + 1).match(/^(\d+)(?:-(\d+))?$/)
-          if (match)
+          if (match) {
             f.lines = [
               Number.parseInt(match[1] ?? "0", 10),
               Number.parseInt(match[2] ?? match[1] ?? "0", 10),
             ]
+          }
         }
       } else {
         f.file = loc
@@ -130,11 +140,14 @@ export async function executeRecordFinding(
 
   const reportedByAgent = normalizeAgent(context.agent)
   const reportedBySessionId = context.sessionID
-  const runId = "tool-local"
   const callToken = randomUUID()
   const projectDir = context.directory ?? process.cwd()
+  // Labels the agent-facing response only; durable persistence is the event-journal hook's job.
+  const canonicalRunId = resolveRunIdFromOpencodeSession(reportedBySessionId, projectDir)
+  const runId = canonicalRunId ?? "tool-local"
 
   const findings: ReturnType<typeof normalizeToCanonicalFinding>["data"][] = []
+  const normalizationDiagnostics: Array<Diagnostic & { index: number }> = []
   const errors: string[] = []
 
   for (const [index, rawFinding] of rawFindings.entries()) {
@@ -151,6 +164,7 @@ export async function executeRecordFinding(
     )
 
     const diagnosticsErrors = normalized.diagnostics.filter((diag) => diag.level === "error")
+    normalizationDiagnostics.push(...normalized.diagnostics.map((diag) => ({ ...diag, index })))
     if (diagnosticsErrors.length > 0) {
       errors.push(
         ...diagnosticsErrors.map(
@@ -193,7 +207,17 @@ export async function executeRecordFinding(
     count: findings.length,
     findings,
     schema_version: SCHEMA_VERSION,
-    note: "Findings recorded to event journal. Each finding's run_id is a transient placeholder (tool-local) that the journal reconciles to the canonical run_id on persistence. Use the run_id from <argus-context> for Scribe dispatch.",
+    run_id: runId,
+    canonical_run_id: canonicalRunId,
+    run_id_reconciliation: {
+      returned_run_id: runId,
+      canonical_run_id: canonicalRunId,
+      status: canonicalRunId ? "resolved" : "pending_journal_reconciliation",
+    },
+    normalization_diagnostics: normalizationDiagnostics,
+    note: canonicalRunId
+      ? "Findings recorded to the event journal under the canonical run_id."
+      : "Findings recorded to event journal. Each finding's run_id is a transient placeholder (tool-local) that the journal reconciles to the canonical run_id on persistence. Use the run_id from <argus-context> for Scribe dispatch.",
     ...(enrichmentWarnings.length > 0
       ? {
           enrichment_warnings: enrichmentWarnings,

@@ -25,7 +25,9 @@ import type {
   FindingSeverity,
   FuzzCounterexample,
   SoloditResult,
+  ToolExecution,
 } from "../state/types"
+import { isFindingInScope } from "../tools/report-generator-tool"
 
 const logger = createLogger()
 
@@ -65,6 +67,39 @@ const VALID_SEVERITIES: ReadonlySet<string> = new Set([
 ])
 
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["High", "Medium", "Low"])
+
+function hasUnclosedJsonValue(value: string): boolean {
+  const openerIndex = Math.min(
+    ...[value.indexOf("{"), value.indexOf("[")].filter((index) => index >= 0),
+  )
+  if (!Number.isFinite(openerIndex)) return false
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = openerIndex; i < value.length; i++) {
+    const ch = value.charAt(i)
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === "\\") {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === "{" || ch === "[") {
+      depth++
+    } else if (ch === "}" || ch === "]") {
+      depth--
+      if (depth === 0) return false
+    }
+  }
+  return depth > 0
+}
 
 function toSeverity(value: unknown): FindingSeverity {
   if (typeof value === "string" && VALID_SEVERITIES.has(value)) {
@@ -112,6 +147,29 @@ function toFindingSource(value: unknown): Finding["source"] {
   }
 
   return "manual"
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  )
+  return strings.length > 0
+    ? Array.from(new Set(strings)).sort((a, b) => a.localeCompare(b))
+    : undefined
+}
+
+function normalizeSupersedesObservationIds(item: Record<string, unknown>): string[] | undefined {
+  return (
+    normalizeStringArray(item.supersedes_observation_ids) ??
+    normalizeStringArray(item.supersedesObservationIds) ??
+    (typeof item.supersedes_observation_id === "string" && item.supersedes_observation_id.length > 0
+      ? [item.supersedes_observation_id]
+      : undefined) ??
+    (typeof item.supersedesObservationId === "string" && item.supersedesObservationId.length > 0
+      ? [item.supersedesObservationId]
+      : undefined)
+  )
 }
 
 const emitToSink = safeEmitToSink
@@ -263,6 +321,7 @@ function processToolResult(
   metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
   config: ProcessorConfig,
   projectDir?: string,
+  scope: string[] = [],
 ): number {
   const topLevel = parsed[config.arrayKey]
   if (!Array.isArray(topLevel)) {
@@ -371,6 +430,20 @@ function processToolResult(
         typeof item.observation_fingerprint === "string" ? item.observation_fingerprint : undefined
       findingPayload.observation_id =
         typeof item.observation_id === "string" ? item.observation_id : undefined
+      findingPayload.observation_ids = normalizeStringArray(item.observation_ids)
+      findingPayload.supersedes_observation_ids = normalizeSupersedesObservationIds(item)
+    }
+
+    if (
+      config.toolLabel === "Recorded" &&
+      scope.length > 0 &&
+      !isFindingInScope(findingPayload as Finding, scope)
+    ) {
+      diag.warn(
+        "OUT_OF_SCOPE_FINDING",
+        `argus_record_finding recorded ${file} outside declared scope: ${scope.join(", ")}`,
+        "file",
+      )
     }
 
     store.addFinding(findingPayload)
@@ -490,12 +563,32 @@ function readErrorReason(record: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+function extractPassedForgeTests(record: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(record.tests)) return undefined
+
+  const tests = new Set<string>()
+  for (const rawTest of record.tests) {
+    const test = toRecord(rawTest)
+    if (!test || test.status !== "pass" || typeof test.name !== "string") continue
+    tests.add(test.name)
+    if (typeof test.contract === "string" && test.contract.length > 0) {
+      tests.add(`${test.contract}:${test.name}`)
+    }
+  }
+
+  return tests.size > 0 ? Array.from(tests).sort((a, b) => a.localeCompare(b)) : undefined
+}
+
+type ToolEvidence = Pick<ToolExecution, "passed_tests">
+
 function recordToolExecution(
   state: AuditState,
   toolName: string,
   findingsCount: number,
   success: boolean,
   findingCounts?: FindingCounts,
+  subagentType?: string,
+  evidence?: ToolEvidence,
 ): void {
   const now = Date.now()
   state.toolsExecuted.push({
@@ -505,6 +598,8 @@ function recordToolExecution(
     success,
     findingsCount,
     findingCounts,
+    ...(evidence?.passed_tests ? { passed_tests: evidence.passed_tests } : {}),
+    ...(subagentType ? { subagent_type: subagentType } : {}),
   })
 }
 
@@ -514,6 +609,8 @@ const TOOL_PHASE_MAP: Record<string, AuditState["currentPhase"]> = {
   argus_analyze_contract: "scanning",
   argus_proxy_detection: "scanning",
   argus_solodit_search: "research",
+  argus_list_skills: "research",
+  argus_recommend_skills: "research",
   argus_forge_test: "testing",
   argus_forge_fuzz: "testing",
   argus_forge_coverage: "testing",
@@ -648,7 +745,21 @@ export function createToolTrackingHook(
       }
 
       if (resolved) {
-        recordToolExecution(resolved.state, "task", 0, true, buildFindingCounts(resolved.state, 0))
+        const taskArgs = (input.args ?? {}) as Record<string, unknown>
+        const subagentType =
+          typeof taskArgs.subagent_type === "string"
+            ? taskArgs.subagent_type
+            : typeof taskArgs.category === "string"
+              ? taskArgs.category
+              : undefined
+        recordToolExecution(
+          resolved.state,
+          "task",
+          0,
+          true,
+          buildFindingCounts(resolved.state, 0),
+          subagentType,
+        )
         onStateChanged?.({ tool: "task", findingsCount: 0, sessionId: input.sessionID })
       }
 
@@ -784,7 +895,10 @@ export function createToolTrackingHook(
           const opencodeTruncation = input.result.match(
             /bytes truncated|output was truncated|tool call succeeded/i,
           )
-          const truncatedSuccess = successInPartialJson?.[1] === "true" || !!opencodeTruncation
+          const truncatedSuccess =
+            successInPartialJson?.[1] === "true" ||
+            !!opencodeTruncation ||
+            hasUnclosedJsonValue(input.result)
           if (truncatedSuccess) {
             diag.error(
               "TRUNCATED_OUTPUT",
@@ -859,6 +973,7 @@ export function createToolTrackingHook(
               findingMetadata,
               RECORDED_CONFIG,
               projectDir,
+              auditState.scope,
             )
             break
           case "argus_read_findings":
@@ -1014,7 +1129,21 @@ export function createToolTrackingHook(
 
       const findingCounts = buildFindingCounts(auditState, findingsCount)
       auditState.findingCounts = findingCounts
-      recordToolExecution(auditState, input.tool, findingsCount, completedSuccess, findingCounts)
+      const toolEvidence: ToolEvidence = {
+        passed_tests:
+          input.tool === "argus_forge_test" && completedRecord
+            ? extractPassedForgeTests(completedRecord)
+            : undefined,
+      }
+      recordToolExecution(
+        auditState,
+        input.tool,
+        findingsCount,
+        completedSuccess,
+        findingCounts,
+        undefined,
+        toolEvidence,
+      )
 
       const nextPhase = inferPhaseAdvancement(auditState, input.tool)
       if (nextPhase) {
@@ -1066,6 +1195,13 @@ export function createToolTrackingHook(
             case "argus_check_patterns":
               if (auditState.patternVersion) enrichment.patternVersion = auditState.patternVersion
               break
+            case "argus_forge_test": {
+              const passedTests = completedRecord
+                ? extractPassedForgeTests(completedRecord)
+                : undefined
+              if (passedTests) enrichment.passed_tests = passedTests
+              break
+            }
             case "argus_themis_disposition":
               if (completedRecord?.themisDisposition) {
                 enrichment.themisDisposition = completedRecord.themisDisposition

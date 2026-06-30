@@ -28,19 +28,41 @@ type ToolCoverageRecord = {
   success?: boolean
 }
 
+function keyToolName(record: ToolCoverageRecord): string {
+  return TOOL_SHORT_NAMES[record.tool] ?? record.tool
+}
+
+function excusedTools(unavailableTools?: string[]): Set<string> {
+  return new Set(
+    (unavailableTools ?? [])
+      .map((t) => UNAVAILABLE_TO_KEY_TOOL[t])
+      .filter((tool): tool is string => typeof tool === "string"),
+  )
+}
+
 /**
- * Compute which key tools have not yet been executed, excusing any that are
- * declared unavailable.
+ * Compute which key tools have not yet been attempted, excusing any that are
+ * declared unavailable. Failed attempts are still coverage evidence: the report
+ * can disclose the limitation instead of forcing the auditor to rerun a noisy
+ * tool after deduplication and perturbing the report-input parity set.
  */
 export function computeMissingKeyTools(
   toolsExecuted: ToolCoverageRecord[],
   unavailableTools?: string[],
 ): string[] {
-  const executedShortNames = new Set(
-    toolsExecuted.filter((t) => t.success === true).map((t) => TOOL_SHORT_NAMES[t.tool] ?? t.tool),
-  )
-  const excused = new Set(
-    (unavailableTools ?? []).map((t) => UNAVAILABLE_TO_KEY_TOOL[t]).filter(Boolean),
-  )
+  const executedShortNames = new Set(toolsExecuted.map(keyToolName))
+  const excused = excusedTools(unavailableTools)
   return KEY_TOOLS.filter((t) => !executedShortNames.has(t) && !excused.has(t))
+}
+
+export function computeFailedKeyTools(
+  toolsExecuted: ToolCoverageRecord[],
+  unavailableTools?: string[],
+): string[] {
+  const excused = excusedTools(unavailableTools)
+  return KEY_TOOLS.filter((tool) => {
+    if (excused.has(tool)) return false
+    const attempts = toolsExecuted.filter((record) => keyToolName(record) === tool)
+    return attempts.length > 0 && attempts.every((record) => record.success !== true)
+  })
 }

@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/rari-fuse-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'CEther|CToken'
-    severity: "Medium"
-    description: "Detects usage of Compound-style lending tokens. Forks must ensure reentrancy guards are applied to all sensitive functions."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

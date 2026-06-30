@@ -12,6 +12,7 @@ import type {
 } from "./types"
 
 const SEVERITY = z.enum(["Critical", "High", "Medium", "Low", "Informational"])
+const RUBRIC_VERDICT = z.enum(["CONFIRMED", "DEMOTED", "REJECTED_DEMOTED"])
 
 const GroundTruthFindingSchema = z.object({
   id: z.string(),
@@ -27,6 +28,7 @@ const GroundTruthFindingSchema = z.object({
     finding_number: z.union([z.string(), z.number()]).optional(),
   }),
   category: z.string().optional(),
+  expected_verdict: RUBRIC_VERDICT.optional(),
   acceptance_criteria: z.array(z.string()),
 })
 

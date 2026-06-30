@@ -72,7 +72,11 @@ export const RUBRIC_CONFIRMED_MIN_SCORE = 80
 export function reconcileRubricVerdict(
   verdict: Finding["rubric_verdict"],
   score: Finding["confidence_score"],
+  options: { gateDemoted?: boolean } = {},
 ): Finding["rubric_verdict"] {
+  if (options.gateDemoted && verdict === "CONFIRMED") {
+    return "DEMOTED"
+  }
   if (verdict === "CONFIRMED" && typeof score === "number" && score < RUBRIC_CONFIRMED_MIN_SCORE) {
     return "DEMOTED"
   }

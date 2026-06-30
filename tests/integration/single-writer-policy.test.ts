@@ -4,13 +4,10 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ArgusConfig } from "../../src/config/types"
+import { createAuditArtifactResolver } from "../../src/shared/audit-artifact-resolver"
 import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { Finding } from "../../src/state/types"
-import {
-  executeReportGeneration,
-  extractReportRunId,
-  SINGLE_WRITER_POLICY_VERSION,
-} from "../../src/tools/report-generator-tool"
+import { executeReportGeneration, extractReportRunId } from "../../src/tools/report-generator-tool"
 
 function createContext(directory: string): ToolContext {
   return {
@@ -159,7 +156,7 @@ describe("single-writer policy", () => {
     }
   })
 
-  test("second write with same run_id is rejected with DUPLICATE_WRITE_ATTEMPT", async () => {
+  test("second write with same run_id and content reuses the existing report", async () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-dup-"))
     const outputDir = "reports"
 
@@ -204,14 +201,53 @@ describe("single-writer policy", () => {
       expect(existsSync(first.filePath ?? "")).toBe(true)
 
       const second = await executeReportGeneration(args, context, deps)
-      expect(second.error).toBeDefined()
-      expect(second.error?.code).toBe("DUPLICATE_WRITE_ATTEMPT")
-      expect(second.error?.message).toContain(sessionId)
-      expect(second.error?.message).toContain(SINGLE_WRITER_POLICY_VERSION)
-
-      expect(second.filePath).toBeUndefined()
+      expect(second.error).toBeUndefined()
+      expect(second.filePath).toBe(first.filePath)
+      expect(second.idempotent).toBe(true)
+      expect(second.reportStatus).toBe("reused")
 
       expect(second.report).toContain("# Security Audit Report — DupTest")
+
+      const manifestPath = createAuditArtifactResolver(sessionId, tempDir).paths()
+        .reportsManifestFile
+      expect(existsSync(manifestPath)).toBe(true)
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        reports: Array<{ revision: number; filePath: string; contentHash: string }>
+      }
+      expect(manifest.reports).toHaveLength(1)
+      expect(manifest.reports[0]?.revision).toBe(1)
+      expect(manifest.reports[0]?.filePath).toBe(first.filePath)
+      expect(manifest.reports[0]?.contentHash).toBe(first.contentHash)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test("changed same-run content without explicit revision returns revision-required error", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-changed-no-rev-"))
+    try {
+      const context = createContext(tempDir)
+      const deps = { loadConfig: () => createTestConfig("reports") }
+      const base = await executeReportGeneration(
+        reportArgs("ChangedNoRevision", "run-changed-no-revision", [
+          makeFinding({ check: "first-check" }),
+        ]),
+        context,
+        deps,
+      )
+      const changed = await executeReportGeneration(
+        reportArgs("ChangedNoRevision", "run-changed-no-revision", [
+          makeFinding({ check: "second-check" }),
+        ]),
+        context,
+        deps,
+      )
+
+      expect(base.error).toBeUndefined()
+      expect(changed.error?.code).toBe("REVISION_REQUIRED")
+      expect(changed.error?.message).toContain("content changed")
+      expect(changed.error?.message).toContain("revision: 2")
+      expect(changed.filePath).toBeUndefined()
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }
@@ -306,30 +342,55 @@ describe("single-writer policy", () => {
     }
   })
 
-  test("revision 2 writes revised report and preserves base report", async () => {
+  test("revision 2 writes revised report only when content changes and preserves base report", async () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-revision-"))
     try {
       const context = createContext(tempDir)
       const deps = { loadConfig: () => createTestConfig("reports") }
-      const args = reportArgs("RevisionTest", "run-revision-test")
+      const args = reportArgs("RevisionTest", "run-revision-test", [
+        makeFinding({ check: "base-check" }),
+      ])
 
       const base = await executeReportGeneration(args, context, deps)
-      const revised = await executeReportGeneration({ ...args, revision: 2 }, context, deps)
+      const revised = await executeReportGeneration(
+        {
+          ...reportArgs("RevisionTest", "run-revision-test", [
+            makeFinding({ check: "revised-check" }),
+          ]),
+          revision: 2,
+        },
+        context,
+        deps,
+      )
 
       expect(base.error).toBeUndefined()
       expect(revised.error).toBeUndefined()
       expect(base.filePath).toBeDefined()
       expect(revised.filePath).toBeDefined()
+      if (!base.filePath || !revised.filePath) {
+        throw new Error("Expected both revision reports to have file paths")
+      }
       expect(base.filePath).not.toBe(revised.filePath)
-      expect(path.basename(revised.filePath ?? "")).toContain("-r2.md")
-      expect(existsSync(base.filePath ?? "")).toBe(true)
-      expect(existsSync(revised.filePath ?? "")).toBe(true)
+      expect(path.basename(revised.filePath)).toContain("-r2.md")
+      expect(existsSync(base.filePath)).toBe(true)
+      expect(existsSync(revised.filePath)).toBe(true)
+
+      const manifestPath = createAuditArtifactResolver("run-revision-test", tempDir).paths()
+        .reportsManifestFile
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        reports: Array<{ revision: number; filePath: string; contentHash: string }>
+      }
+      expect(manifest.reports.map((report) => report.revision)).toEqual([1, 2])
+      expect(manifest.reports.map((report) => report.filePath)).toEqual([
+        base.filePath,
+        revised.filePath,
+      ])
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }
   })
 
-  test("duplicate revision 2 write is rejected", async () => {
+  test("duplicate revision 2 write reuses the existing revised report", async () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "argus-policy-revision-dup-"))
     try {
       const context = createContext(tempDir)
@@ -340,9 +401,10 @@ describe("single-writer policy", () => {
       const second = await executeReportGeneration(args, context, deps)
 
       expect(first.error).toBeUndefined()
-      expect(second.error?.code).toBe("DUPLICATE_WRITE_ATTEMPT")
-      expect(second.error?.message).toContain("revision: 2")
-      expect(second.filePath).toBeUndefined()
+      expect(second.error).toBeUndefined()
+      expect(second.filePath).toBe(first.filePath)
+      expect(second.idempotent).toBe(true)
+      expect(second.reportStatus).toBe("reused")
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

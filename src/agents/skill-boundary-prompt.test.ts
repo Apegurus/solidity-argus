@@ -33,6 +33,27 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(ARGUS_PROMPT).toContain("A broad audit request should produce early parallel delegation")
   })
 
+  test("Argus prompt gives Critical and High findings an independent verification budget", () => {
+    expect(ARGUS_PROMPT).toContain("Critical/High Verification Budget")
+    expect(ARGUS_PROMPT).toContain("does not count against the Direct-Tool Budget")
+    expect(ARGUS_PROMPT).toContain("exploit property and conservation assumptions")
+  })
+
+  test("Argus prompt fails closed when Task delegation is unavailable", () => {
+    expect(ARGUS_PROMPT).toContain("If the `Task` tool is unavailable")
+    expect(ARGUS_PROMPT).toContain("do not emulate Scribe or Themis")
+    expect(ARGUS_PROMPT).toContain(
+      'requires an actual `Task(subagent_type="themis", ...)` dispatch',
+    )
+  })
+
+  test("Argus prompt does not tell the orchestrator to bypass Scribe report tools", () => {
+    expect(ARGUS_PROMPT).toContain("Do not call `argus_generate_report` yourself")
+    expect(ARGUS_PROMPT).not.toContain(
+      "If Scribe fails a second time, call `argus_generate_report` yourself",
+    )
+  })
+
   test("Sentinel prompt forbids generic skill for Argus audit knowledge", () => {
     expect(SENTINEL_PROMPT).toContain("argus_skill_load")
     expect(SENTINEL_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")
@@ -49,9 +70,10 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(SENTINEL_PROMPT).toContain("do not paste the full output")
   })
 
-  test("Scribe prompt forbids generic skill for report audit knowledge", () => {
-    expect(SCRIBE_PROMPT).toContain("argus_skill_load")
-    expect(SCRIBE_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")
+  test("Scribe prompt keeps reporting inside the persisted artifact boundary", () => {
+    expect(SCRIBE_PROMPT).not.toContain("argus_skill_load")
+    expect(SCRIBE_PROMPT).toContain("Do not call the generic OpenCode `skill` tool")
+    expect(SCRIBE_PROMPT).toContain("Scribe synthesizes the durable findings")
   })
 
   test("Audit Specialist prompt requires profile skills through argus_skill_load", () => {
@@ -66,7 +88,7 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(AUDIT_SPECIALIST_PROMPT).toContain("exactly one active profile")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("CHECKPOINT")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("Do not repeat the same function")
-    expect(AUDIT_SPECIALIST_PROMPT).toContain("same conclusion and no new evidence")
+    expect(AUDIT_SPECIALIST_PROMPT).toContain("Each candidate gets exactly one verdict line")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("findings_recorded_ids")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("leads_not_recorded")
   })

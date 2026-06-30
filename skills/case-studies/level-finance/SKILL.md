@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/level-finance-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'claimMultiple'
-    severity: "High"
-    description: "Detects functions that allow multiple claims in a single transaction. Must be checked for reentrancy if they involve external calls."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

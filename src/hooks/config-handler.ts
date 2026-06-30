@@ -119,9 +119,16 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
         prompt: ARGUS_PROMPT,
         tools: {
           "argus_*": false,
+          argus_list_skills: true,
+          argus_recommend_skills: true,
+          argus_themis_disposition: true,
+          task: true,
           "solodit-mcp_*": false,
         },
         permission: {
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
+          argus_themis_disposition: "allow",
           task: {
             sentinel: "allow",
             pythia: "allow",
@@ -148,6 +155,8 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           argus_proxy_detection: "allow",
           argus_forge_coverage: "allow",
           argus_record_finding: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -162,6 +171,8 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           argus_solodit_search: "allow",
           argus_check_patterns: "allow",
           argus_record_finding: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -184,6 +195,8 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           argus_forge_coverage: "allow",
           argus_gas_analysis: "allow",
           argus_record_finding: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           skill: "allow",
         },
       },
@@ -197,7 +210,6 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           argus_read_findings: "allow",
           argus_generate_report: "allow",
           argus_persist_deduped: "allow",
-          argus_skill_load: "allow",
           skill: "allow",
         },
       },
@@ -211,6 +223,8 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
           argus_read_findings: "allow",
           argus_solodit_search: "allow",
           argus_check_patterns: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -229,7 +243,7 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
 
     // Argus skills load on demand via `argus_skill_load` (scoped to the Argus agents);
     // we deliberately do NOT register them in OpenCode's global `config.skills.paths`,
-    // which would leak all ~91 skill descriptions into every skill-enabled agent's
+    // which would leak all bundled skill descriptions into every skill-enabled agent's
     // context. The call below is kept for its side effect only: it clones the Trail of
     // Bits companion skills into the cache that `argus_skill_load`'s resolver reads.
     ensureTrailOfBitsSkills()
