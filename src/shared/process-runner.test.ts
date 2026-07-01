@@ -1,0 +1,128 @@
+import { expect, test } from "bun:test"
+import {
+  assertAllowedHost,
+  buildSafeEnv,
+  ProcessRunnerError,
+  runTrusted,
+  safeCliValue,
+} from "./process-runner"
+
+const BUN = process.execPath
+
+test("buildSafeEnv withholds non-allowlisted variables (no secret inheritance)", () => {
+  process.env.ARGUS_TEST_SECRET = "super-secret"
+  try {
+    const env = buildSafeEnv()
+    expect(env.ARGUS_TEST_SECRET).toBeUndefined()
+    expect(env.PATH).toBeDefined()
+  } finally {
+    delete process.env.ARGUS_TEST_SECRET
+  }
+})
+
+test("buildSafeEnv includes explicit extra variables", () => {
+  const env = buildSafeEnv({ FOUNDRY_PROFILE: "ci" })
+  expect(env.FOUNDRY_PROFILE).toBe("ci")
+})
+
+test("runTrusted runs a trusted binary and captures stdout + exit code", () => {
+  const r = runTrusted({ cmd: [BUN, "-e", "console.log('ok')"], cwd: process.cwd() })
+  expect(r.code).toBe(0)
+  expect(r.stdout).toContain("ok")
+  expect(r.timedOut).toBe(false)
+  expect(r.truncated).toBe(false)
+})
+
+test("runTrusted does not inherit host secrets into the child", () => {
+  process.env.ARGUS_TEST_SECRET = "leak-me"
+  try {
+    const r = runTrusted({
+      cmd: [BUN, "-e", "console.log(process.env.ARGUS_TEST_SECRET ?? 'absent')"],
+      cwd: process.cwd(),
+    })
+    expect(r.stdout.trim()).toBe("absent")
+  } finally {
+    delete process.env.ARGUS_TEST_SECRET
+  }
+})
+
+test("runTrusted reports a nonzero exit code", () => {
+  const r = runTrusted({ cmd: [BUN, "-e", "process.exit(3)"], cwd: process.cwd() })
+  expect(r.code).toBe(3)
+})
+
+test("runTrusted enforces a timeout", () => {
+  const r = runTrusted({
+    cmd: [BUN, "-e", "Bun.sleepSync(5000)"],
+    cwd: process.cwd(),
+    timeoutMs: 200,
+  })
+  expect(r.timedOut).toBe(true)
+})
+
+test("runTrusted caps oversized output", () => {
+  const r = runTrusted({
+    cmd: [BUN, "-e", "process.stdout.write('x'.repeat(100000))"],
+    cwd: process.cwd(),
+    maxOutputBytes: 100,
+  })
+  expect(r.truncated).toBe(true)
+  expect(r.stdout.length).toBeLessThanOrEqual(100)
+})
+
+test("runTrusted throws ProcessRunnerError for a missing binary", () => {
+  expect(() =>
+    runTrusted({ cmd: ["definitely-not-real-binary-xyz-123"], cwd: process.cwd() }),
+  ).toThrow(ProcessRunnerError)
+})
+
+test("runTrusted throws for an empty command", () => {
+  expect(() => runTrusted({ cmd: [], cwd: process.cwd() })).toThrow(ProcessRunnerError)
+})
+
+test("assertAllowedHost accepts a public https host", () => {
+  expect(assertAllowedHost("https://api.scvd.dev/query").hostname).toBe("api.scvd.dev")
+})
+
+test("assertAllowedHost rejects loopback, private, link-local, and non-http targets", () => {
+  for (const bad of [
+    "http://localhost:54173",
+    "http://127.0.0.1/x",
+    "http://10.1.2.3/x",
+    "http://192.168.0.5",
+    "http://172.16.0.1",
+    "http://169.254.1.1",
+    "http://[::1]/x",
+    "http://0.0.0.0",
+    "file:///etc/passwd",
+    "ftp://example.com",
+  ]) {
+    expect(() => assertAllowedHost(bad)).toThrow(ProcessRunnerError)
+  }
+})
+
+test("safeCliValue passes a normal value through", () => {
+  expect(safeCliValue("match-path", "test/Foo.t.sol")).toBe("test/Foo.t.sol")
+})
+
+test("safeCliValue rejects an option-flag-shaped value", () => {
+  expect(() => safeCliValue("fork-url", "--fork-url=http://evil")).toThrow(ProcessRunnerError)
+  expect(() => safeCliValue("match", "-x")).toThrow(ProcessRunnerError)
+})
+
+test("safeCliValue rejects a NUL byte", () => {
+  expect(() => safeCliValue("match", "a\0b")).toThrow(ProcessRunnerError)
+})
+
+test("safeCliValue allows a leading dash only when explicitly opted in", () => {
+  expect(safeCliValue("flag", "-v", { allowLeadingDash: true })).toBe("-v")
+})
+
+test("assertAllowedHost pins to an allowlist when provided", () => {
+  expect(
+    assertAllowedHost("https://api.scvd.dev/x", { allowHosts: ["api.scvd.dev"] }).hostname,
+  ).toBe("api.scvd.dev")
+  expect(() =>
+    assertAllowedHost("https://evil.example.com/x", { allowHosts: ["api.scvd.dev"] }),
+  ).toThrow(ProcessRunnerError)
+})
