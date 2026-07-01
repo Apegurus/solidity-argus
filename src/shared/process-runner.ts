@@ -127,6 +127,44 @@ export function runTrusted(options: RunOptions): RunResult {
   }
 }
 
+function isPrivateIpv4(ip: string): boolean {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip)
+  if (v4 === null) {
+    return false
+  }
+  const a = Number(v4[1])
+  const b = Number(v4[2])
+  return (
+    a === 0 ||
+    a === 127 ||
+    a === 10 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168)
+  )
+}
+
+// Decode an IPv4-mapped IPv6 literal back to dotted IPv4 so the loopback/private
+// checks apply. `new URL()` normalizes `::ffff:127.0.0.1` to the hex form
+// `::ffff:7f00:1`, so both the dotted and hex spellings must be handled — otherwise
+// `http://[::ffff:127.0.0.1]` slips past the guard (SSRF).
+function mappedIpv4(host: string): string | null {
+  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host)
+  if (dotted !== null) {
+    return dotted[1] ?? null
+  }
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host)
+  if (hex === null) {
+    return null
+  }
+  const hi = Number.parseInt(hex[1] ?? "", 16)
+  const lo = Number.parseInt(hex[2] ?? "", 16)
+  if (Number.isNaN(hi) || Number.isNaN(lo)) {
+    return null
+  }
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
 function isPrivateOrLoopbackHost(host: string): boolean {
   const h = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host
   if (h === "localhost" || h.endsWith(".localhost")) {
@@ -135,18 +173,12 @@ function isPrivateOrLoopbackHost(host: string): boolean {
   if (h === "::" || h === "::1") {
     return true
   }
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
-  if (v4 !== null) {
-    const a = Number(v4[1])
-    const b = Number(v4[2])
-    return (
-      a === 0 ||
-      a === 127 ||
-      a === 10 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168)
-    )
+  const mapped = mappedIpv4(h)
+  if (mapped !== null && isPrivateIpv4(mapped)) {
+    return true
+  }
+  if (isPrivateIpv4(h)) {
+    return true
   }
   return (
     h.startsWith("fc") ||

@@ -10,10 +10,8 @@ Compaction-safe state for resuming this work. Authoritative plan:
 - **Delivery: single accumulating PR** → `origin/staging` (user pivoted away from per-phase PRs). Opened at Phase 0; updated each phase; merged after the final re-audit gate.
 - Locked decisions: behavior-changes-OK (security minor, document breaks); scope = **32 highs + named high-value mediums** (remaining tail → follow-up issue); checkpoint at each phase boundary; Oracle design review is a Phase-0 gate.
 
-## Commits (on `fix/security-hardening`, ahead of `origin/staging`)
-- `3f488ca` docs(remediation): plan
-- `ece9e46` feat(shared): Phase-0 boundary modules + WS-3 design
-- (this commit) docs(remediation): single-PR pivot + progress handoff
+## Commits (on `fix/security-hardening`; `git log` is authoritative)
+Phase 0 = plan (`3f488ca`) + boundary modules & WS-3 design (`ece9e46`) + single-PR pivot & handoff + IPv4-mapped-IPv6 SSRF fix. All pushed to origin → **PR #27** (draft, → `staging`).
 
 ## Phase 0 — DONE, verified
 Four hardened seams in `src/shared/` (exported from `src/shared/index.ts`), each locked by tests; **no call sites migrated yet**. Full suite **1908 pass / 3 skip / 0 fail**, `tsc` + `biome` clean.
@@ -22,9 +20,8 @@ Four hardened seams in `src/shared/` (exported from `src/shared/index.ts`), each
 - `process-runner.ts` — `buildSafeEnv`, `runTrusted` (no-shell/timeout/cap), `safeCliValue`, `assertAllowedHost` (private-reject + pinned allowlist).
 - `deep-merge.ts` — prototype-pollution hardened + `Object.create(null)` result.
 
-## Oracle re-gate — PENDING (collect BEFORE Phase 1)
-Background task **`bg_b7420c71`** — fresh close-out review of the amended modules + WS-3 doc.
-**Post-compaction resume: `background_output(task_id="bg_b7420c71")` FIRST, address any residual, THEN begin Phase 1.** (First gate verdict was not-fit-to-close; all 3 module + 3 WS-3 BLOCKING + should-fixes were then addressed with tests — this re-gate confirms.)
+## Oracle re-gate — DONE ✅ Phase 0 fit to close
+`bg_b7420c71` close-out review: WS-3 design + path-safety + untrusted-content + deep-merge all CLOSED; it caught one residual SSRF bypass — `assertAllowedHost` accepted IPv4-mapped IPv6 loopback/private literals (`::ffff:127.0.0.1`, which `new URL()` normalizes to `::ffff:7f00:1`). **Fixed** (`isPrivateOrLoopbackHost` now decodes the mapped IPv4, both dotted and hex forms, and applies the private check) + tested; full suite green (1910 pass). **Phase 0 is now fit to close; Phase 1 (call-site migration) and Phase 2 (WS-3) fit to begin.**
 
 ## Phase 1 — NEXT (call-site migration + tool contracts; NO lifecycle rewrite)
 Route existing call sites through the Phase-0 seams. No WS-3 lifecycle code (Phase 2). After EACH step: full `bun test` + `bun run typecheck` + `bun run check`; a red→green locking test per closed high. Targets (see plan §5):

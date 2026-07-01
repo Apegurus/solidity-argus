@@ -126,3 +126,19 @@ test("assertAllowedHost pins to an allowlist when provided", () => {
     assertAllowedHost("https://evil.example.com/x", { allowHosts: ["api.scvd.dev"] }),
   ).toThrow(ProcessRunnerError)
 })
+
+test("assertAllowedHost rejects IPv4-mapped IPv6 loopback/private literals", () => {
+  for (const bad of [
+    "http://[::ffff:127.0.0.1]/x",
+    "http://[::ffff:10.0.0.1]/x",
+    "http://[::ffff:172.16.0.1]/x",
+    "http://[::ffff:192.168.0.1]/x",
+    "http://[::ffff:169.254.1.1]/x",
+  ]) {
+    expect(() => assertAllowedHost(bad)).toThrow(ProcessRunnerError)
+  }
+})
+
+test("assertAllowedHost still allows a public IPv4-mapped IPv6 host", () => {
+  expect(() => assertAllowedHost("http://[::ffff:8.8.8.8]/x")).not.toThrow()
+})
