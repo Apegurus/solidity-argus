@@ -8,8 +8,8 @@
 | **Branch** | `fix/security-hardening` (tracks `origin/staging`) |
 | **Sources** | `[R1]` `.reviews/codebase-solidity-argus-2026-07-01.md` — FULL profile, core source (`src/**/*.ts` non-test + `scripts/*.ts`), 148 files / 27,218 LOC, 9 lenses × 14 batches → 373 findings.<br>`[R2]` `.reviews/codebase-argus-2026-07-01.md` — complementary FULL run over `src/state/`, `src/config/`, `src/cli/`, `src/utils/`, `tests/`, `.github/` (adds `reviewer-database` + `reviewer-dependency` specialists that R1 did not dispatch), 20 batches → 27 findings. |
 | **Overall verdict** | **needs_significant_work** — defects concentrate at the exact trust boundaries a security-audit tool depends on. |
-| **Execution status** | **PENDING USER APPROVAL** — this is a plan; implementation begins only on an explicit go-ahead. |
-| **Merge target** | Default assumption: one PR `fix/security-hardening` → `origin/staging`, opened after the final re-audit gate. Confirm if you want per-phase PRs or a different base. |
+| **Execution status** | **IN PROGRESS** — approved 2026-07-01. Phase 0 landed (commits `3f488ca`, `ece9e46`); Phase 1 authorized, checkpoint at each phase boundary. |
+| **Merge target** | **Single accumulating PR** `fix/security-hardening` → `origin/staging`, opened at Phase 0 and updated with each phase's commits; merged after the final re-audit gate. |
 | **Plan persistence** | ⚠️ Both `.reviews/` and `.omo/plans/` are gitignored, so this plan is **not** in git history. Commit it to a tracked path (e.g. `docs/remediation/`) if you want a durable record — not done automatically (no commit without an explicit request). |
 | **Reviewed by** | Metis (pre-plan consultant) + Momus (plan critic), 2026-07-01 — see §11. Momus: ready to execute as-is; Metis: execute after the minor amendments now folded in below. |
 
@@ -411,7 +411,7 @@ WS-3 dominates risk and effort; everything else is comfortably parallelizable be
 ## 11. Execution governance (added after Metis + Momus review)
 
 - **Approval gate.** This plan does not authorize implementation. Begin Phase 0 only on an explicit "go" from the user. (Momus judged the plan executable as-is; Metis asked for this gate — folded in.)
-- **Branch & PR workflow (default).** Keep `fix/security-hardening` as the single working branch; open **one** PR → `origin/staging` after the final re-audit gate. The PR description references this plan and lists all 32 closed highs with their locking-test names. Say so if you'd prefer per-phase PRs.
+- **Branch & PR workflow.** **Single accumulating PR** (per the user's pivot away from per-phase PRs): `fix/security-hardening` → `origin/staging`, opened at Phase 0 and updated with each subsequent phase's commits; merged after the final re-audit gate. The PR description tracks the closed highs + their locking-test names.
 - **Plan persistence.** `.reviews/` and `.omo/plans/` are both gitignored; this plan is not in git history. If you want it durable, commit it to a tracked path (e.g. `docs/remediation/`) — not done automatically (no commit without an explicit request).
 - **Oracle is a Phase-0 gate, not a Phase-2 afterthought.** The WS-3 lifecycle fixes are one interacting state machine (see WS-3 ordering note); its design and the four Phase-0 module APIs are reviewed by Oracle before any WS-3 / migration code is written.
 - **Regression discipline.** After every phase, the full pre-existing `bun test` suite must pass, not just the new locking tests (§8).
