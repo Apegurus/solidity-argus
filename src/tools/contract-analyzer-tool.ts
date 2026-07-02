@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs"
 import { basename } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { loadArgusConfig } from "../config/loader"
+import type { ArgusConfig } from "../config/types"
 import { FOUNDRY_NOT_FOUND_MESSAGE } from "../shared/forge-errors"
 import { findFoundryProjectDir } from "../shared/project-utils"
 import type { ContractProfile } from "../state/types"
@@ -11,14 +13,31 @@ type ContractAnalyzerArgs = {
   project_dir?: string
 }
 
-type ExtractContractInfoFn = (contractName: string, projectDir: string) => Promise<ContractProfile>
+type ExtractContractInfoFn = (
+  contractName: string,
+  projectDir: string,
+  forgePath: string,
+) => Promise<ContractProfile>
 
 type ContractAnalyzerDependencies = {
   extractInfo: ExtractContractInfoFn
+  loadConfig: (projectDir: string) => ArgusConfig
 }
 
 const DEFAULT_DEPENDENCIES: ContractAnalyzerDependencies = {
   extractInfo: extractContractInfo,
+  loadConfig: loadArgusConfig,
+}
+
+function resolveForgePath(
+  loadConfig: (projectDir: string) => ArgusConfig,
+  projectDir: string,
+): string {
+  try {
+    return loadConfig(projectDir).tools?.forgePath ?? "forge"
+  } catch {
+    return "forge"
+  }
 }
 
 function createFailureProfile(
@@ -150,8 +169,9 @@ function withAbort<T>(signal: AbortSignal, operationFactory: () => Promise<T>): 
 export async function executeContractAnalyzer(
   args: ContractAnalyzerArgs,
   context: ToolContext,
-  dependencies: ContractAnalyzerDependencies = DEFAULT_DEPENDENCIES,
+  dependencies: Partial<ContractAnalyzerDependencies> = {},
 ): Promise<ContractProfile> {
+  const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies }
   const filePath = args.file_path
   const contractName = basename(filePath, ".sol")
 
@@ -162,6 +182,7 @@ export async function executeContractAnalyzer(
   }
 
   const projectDir = args.project_dir ?? findFoundryProjectDir(filePath)
+  const forgePath = resolveForgePath(deps.loadConfig, projectDir)
 
   try {
     const sourceText = await withAbort(context.abort, () => Bun.file(filePath).text())
@@ -173,7 +194,7 @@ export async function executeContractAnalyzer(
 
     for (const candidate of candidates) {
       const profile = await withAbort(context.abort, () =>
-        dependencies.extractInfo(candidate, projectDir),
+        deps.extractInfo(candidate, projectDir, forgePath),
       )
       if (isSuccessfulProfile(profile)) {
         contractProfile = profile

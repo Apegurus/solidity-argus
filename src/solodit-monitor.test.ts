@@ -526,3 +526,19 @@ describe("Solodit deterministic restart", () => {
     expect(getLifecycleStatus().error).toBeUndefined()
   })
 })
+
+describe("buildSoloditSpawnConfig", () => {
+  it("pins the MCP package version and withholds host secrets from the child env", () => {
+    const secretKey = "ARGUS_TEST_FAKE_SECRET"
+    process.env[secretKey] = "super-secret-token"
+    try {
+      const { cmd, env } = lifecycleModule.buildSoloditSpawnConfig(4123)
+      expect(cmd[0]).toBe("npx")
+      expect(cmd).toContain("@lyuboslavlyubenov/solodit-mcp@1.1.1")
+      expect(env.PORT).toBe("4123")
+      expect(env[secretKey]).toBeUndefined()
+    } finally {
+      delete process.env[secretKey]
+    }
+  })
+})

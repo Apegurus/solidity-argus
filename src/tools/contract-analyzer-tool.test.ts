@@ -3,8 +3,33 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
+import type { ArgusConfig } from "../config/types"
 import type { ContractProfile } from "../state/types"
 import { contractAnalyzerTool, executeContractAnalyzer } from "./contract-analyzer-tool"
+
+function makeConfigWithForgePath(forgePath: string): ArgusConfig {
+  return {
+    agents: { argus: {}, sentinel: {}, pythia: {}, auditSpecialist: {}, scribe: {}, themis: {} },
+    tools: { forgePath },
+    knowledge: {
+      scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+      autoSync: true,
+      skillPrecedence: "bundled-first" as const,
+    },
+    reporting: {
+      confidenceThreshold: 80,
+      format: "markdown" as const,
+      severityThreshold: "low" as const,
+      gasAnalysis: false,
+      output_dir: ".opencode/reports/",
+    },
+    solodit: { enabled: true, port: 54173 },
+    disabled_hooks: [],
+    hooks: {},
+    cli: {},
+    background: { max_concurrent: 3 },
+  }
+}
 
 function createContext(abortController = new AbortController()): ToolContext {
   return {
@@ -72,6 +97,25 @@ test("executeContractAnalyzer calls extractContractInfo using basename contract 
 
   expect(calls).toEqual([{ contractName: "Vault", projectDir: root }])
   expect(result.error).toBeUndefined()
+})
+
+test("executeContractAnalyzer threads the configured forgePath to extractInfo", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  const filePath = join(root, "Vault.sol")
+  writeFileSync(filePath, "contract Vault { function run() external {} }")
+
+  let seenForgePath: string | undefined
+  await executeContractAnalyzer({ file_path: filePath, project_dir: root }, createContext(), {
+    extractInfo: async (_contractName, _projectDir, forgePath) => {
+      seenForgePath = forgePath
+      return createBaseProfile()
+    },
+    loadConfig: () => makeConfigWithForgePath("/opt/foundry/bin/forge"),
+  })
+
+  expect(seenForgePath).toBe("/opt/foundry/bin/forge")
 })
 
 test("executeContractAnalyzer falls back to declared contract name when basename inspect fails", async () => {

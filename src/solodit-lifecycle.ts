@@ -1,5 +1,6 @@
 import { withRetry } from "./knowledge/retry"
 import { createLogger } from "./shared/logger"
+import { buildSafeEnv } from "./shared/process-runner"
 import { checkSoloditHealth } from "./utils/solodit-health"
 
 interface SoloditChildProcess {
@@ -56,15 +57,32 @@ function withSuppressedParentOutput<T>(fn: () => T): T {
   }
 }
 
-const defaultSpawnFn = (port: number): SoloditChildProcess =>
-  withSuppressedParentOutput(() =>
-    Bun.spawn(["npx", "-y", "@lyuboslavlyubenov/solodit-mcp"], {
+// Pin the auto-installed Solodit MCP package: an unpinned `npx -y <pkg>` executes
+// whatever the registry currently serves as latest (supply-chain risk). Pair it with
+// a minimal, secret-free environment instead of the full inherited process.env.
+const SOLODIT_MCP_PACKAGE = "@lyuboslavlyubenov/solodit-mcp@1.1.1"
+
+export function buildSoloditSpawnConfig(port: number): {
+  cmd: string[]
+  env: Record<string, string>
+} {
+  return {
+    cmd: ["npx", "-y", SOLODIT_MCP_PACKAGE],
+    env: buildSafeEnv({ PORT: String(port) }),
+  }
+}
+
+const defaultSpawnFn = (port: number): SoloditChildProcess => {
+  const { cmd, env } = buildSoloditSpawnConfig(port)
+  return withSuppressedParentOutput(() =>
+    Bun.spawn(cmd, {
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
-      env: { ...process.env, PORT: String(port) },
+      env,
     }),
   )
+}
 
 let spawnFn: (port: number) => SoloditChildProcess = defaultSpawnFn
 

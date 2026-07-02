@@ -181,6 +181,24 @@ test("extractContractInfo - parses basic contract with ownable pattern", async (
   }
 })
 
+test("extractContractInfo - uses the provided forgePath for the forge inspect binary", async () => {
+  const seen: string[][] = []
+  const spy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[] | unknown) => {
+    const args = cmd as string[]
+    seen.push(args)
+    const output = args.includes("abi") ? mockABIOutput : mockStorageLayoutOutput
+    return mockSpawnResult(output, "", 0)
+  }) as typeof Bun.spawn)
+
+  try {
+    await extractContractInfo("TestContract", "/test/project", "/custom/bin/forge")
+    expect(seen.length).toBe(2)
+    expect(seen.every((cmd) => cmd[0] === "/custom/bin/forge")).toBe(true)
+  } finally {
+    spy.mockRestore()
+  }
+})
+
 test("extractContractInfo - detects access-control pattern", async () => {
   const spy = spyOn(Bun, "spawn").mockImplementation(
     createSpawnMock(mockAccessControlABIOutput, mockStorageLayoutOutput) as typeof Bun.spawn,
