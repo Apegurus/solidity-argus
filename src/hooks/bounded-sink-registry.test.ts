@@ -13,11 +13,24 @@ const originalDateNow = Date.now
 
 function makeSink(runId: string): EventSink {
   let finalized = false
+  const owners = new Set<string>()
 
   return {
     runId,
+    get state() {
+      return finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     async append(): Promise<void> {},
     async readAll() {
@@ -26,6 +39,8 @@ function makeSink(runId: string): EventSink {
     markFinalized(): void {
       finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
   }
 }
 

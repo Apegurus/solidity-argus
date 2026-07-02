@@ -103,6 +103,7 @@ export function createBoundedSinkRegistry(options: {
     },
 
     setForSession(sessionId: string, sink: EventSink): void {
+      sink.addOwner(sessionId)
       setBounded(byOpencodeSession, createdAtBySession, sessionId, sink, false)
     },
 
@@ -111,6 +112,7 @@ export function createBoundedSinkRegistry(options: {
     },
 
     deleteSession(sessionId: string): void {
+      byOpencodeSession.get(sessionId)?.removeOwner(sessionId)
       byOpencodeSession.delete(sessionId)
       createdAtBySession.delete(sessionId)
     },

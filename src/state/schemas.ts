@@ -33,6 +33,7 @@ export type AuditEventType =
   | "finding.added"
   | "phase.changed"
   | "run.finalized"
+  | "run.finalization_failed"
 
 export interface ValidationError {
   field: string

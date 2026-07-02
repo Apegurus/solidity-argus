@@ -10,14 +10,29 @@ function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] 
   const events: AuditEvent[] = []
   let seq = 0
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -31,14 +46,29 @@ function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] 
 
 function createFailingSink(runId = "test-run"): EventSink {
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },

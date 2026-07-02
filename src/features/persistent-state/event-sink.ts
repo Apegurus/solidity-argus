@@ -18,14 +18,24 @@ export class EventSinkError extends Error {
   }
 }
 
+export type SinkState = "ACTIVE" | "DRAINING" | "SEALED" | "FAILED_RECOVERABLE"
+
 export interface EventSink {
   readonly runId: string
-  /** Whether this sink has been marked as finalized. Post-finalization appends are silently dropped. */
+  readonly state: SinkState
+  /** Derived: true only in terminal SEALED. Post-seal appends (except run.finalized) are dropped; FAILED_RECOVERABLE stays open. */
   readonly isFinalized: boolean
+  /** SessionIds referencing this run sink; eviction/finalization key on set-emptiness (WS-3 I1/I11). */
+  readonly ownerSet: ReadonlySet<string>
+  addOwner(sessionId: string): void
+  removeOwner(sessionId: string): void
   append(event: AuditEvent): Promise<void>
   readAll(): Promise<AuditEvent[]>
-  /** Mark this sink as finalized. Subsequent appends (except run.finalized) are silently dropped. */
+  /** Seal on a successful finalization (terminal). */
   markFinalized(): void
+  markDraining(): void
+  /** Failed finalization → FAILED_RECOVERABLE; the sink stays open for remediation/disposition/regen events. */
+  markFailedRecoverable(): void
 }
 
 const VALID_EVENT_TYPES: ReadonlySet<string> = new Set<AuditEventType>([
@@ -37,6 +47,7 @@ const VALID_EVENT_TYPES: ReadonlySet<string> = new Set<AuditEventType>([
   "finding.added",
   "phase.changed",
   "run.finalized",
+  "run.finalization_failed",
 ])
 
 export const MUTEX_TIMEOUT_MS = 30_000
@@ -158,11 +169,12 @@ export function createEventSink(
   let lastSeq = 0
   let lastEventType: string | null = null
   let initialized = false
-  const sinkState = { finalized: false }
+  const owners = new Set<string>()
+  const sinkState = { value: "ACTIVE" as SinkState }
 
   try {
     if (existsSync(markerPath)) {
-      sinkState.finalized = true
+      sinkState.value = "SEALED"
     }
   } catch (err) {
     logger.warn(`Failed to check finalization marker: ${String(err)}`)
@@ -187,7 +199,7 @@ export function createEventSink(
   }
 
   function markFinalizedState(): void {
-    sinkState.finalized = true
+    sinkState.value = "SEALED"
     try {
       mkdirSync(dirname(markerPath), { recursive: true })
       writeFileSync(markerPath, "")
@@ -199,19 +211,47 @@ export function createEventSink(
   const sink: EventSink = {
     runId,
 
+    get state() {
+      return sinkState.value
+    },
+
     get isFinalized() {
-      return sinkState.finalized
+      return sinkState.value === "SEALED"
+    },
+
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+
+    addOwner(sessionId: string) {
+      owners.add(sessionId)
+    },
+
+    removeOwner(sessionId: string) {
+      owners.delete(sessionId)
     },
 
     markFinalized() {
       markFinalizedState()
     },
 
+    markDraining() {
+      if (sinkState.value === "ACTIVE") {
+        sinkState.value = "DRAINING"
+      }
+    },
+
+    markFailedRecoverable() {
+      if (sinkState.value !== "SEALED") {
+        sinkState.value = "FAILED_RECOVERABLE"
+      }
+    },
+
     async append(event: AuditEvent): Promise<void> {
       return mutex.run(async () => {
         await ensureInitialized()
 
-        if (sinkState.finalized && event.type !== "run.finalized") {
+        if (sinkState.value === "SEALED" && event.type !== "run.finalized") {
           logger.debug(`Dropping ${event.type} for finalized run ${runId}`)
           return
         }
@@ -256,6 +296,8 @@ export function createEventSink(
 
         if (event.type === "run.finalized") {
           markFinalizedState()
+        } else if (event.type === "run.finalization_failed" && sinkState.value !== "SEALED") {
+          sinkState.value = "FAILED_RECOVERABLE"
         }
       })
     },

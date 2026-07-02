@@ -70,6 +70,32 @@ describe("EventSink", () => {
     expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5])
   })
 
+  test("run.finalization_failed marks the sink FAILED_RECOVERABLE and keeps it open (WS-3 I3)", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "run.finalization_failed" }))
+    expect(sink.state).toBe("FAILED_RECOVERABLE")
+    expect(sink.isFinalized).toBe(false)
+
+    await sink.append(makeEvent({ type: "finding.added" }))
+    const events = await sink.readAll()
+    expect(events.map((e) => e.type)).toEqual(["run.finalization_failed", "finding.added"])
+  })
+
+  test("run.finalized seals the sink (SEALED terminal) and drops later non-finalized events (WS-3 I3)", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "run.finalized" }))
+    expect(sink.state).toBe("SEALED")
+    expect(sink.isFinalized).toBe(true)
+
+    await sink.append(makeEvent({ type: "finding.added" }))
+    const events = await sink.readAll()
+    expect(events.map((e) => e.type)).toEqual(["run.finalized"])
+  })
+
   test("concurrent appends (50 parallel) produce no duplicates and no gaps", async () => {
     const projectDir = makeTempDir()
     const sink = createEventSink(RUN_ID, projectDir)

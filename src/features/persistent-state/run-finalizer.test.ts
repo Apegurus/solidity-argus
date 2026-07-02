@@ -25,15 +25,30 @@ function makeEvent(overrides: Partial<AuditEvent>): AuditEvent {
 function makeInMemorySink(initialEvents: AuditEvent[]) {
   const events = [...initialEvents]
   const state = { finalized: false }
+  const owners = new Set<string>()
 
   return {
     runId: RUN_ID,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     append: async (event: AuditEvent): Promise<void> => {
       const nextSeq = events.length + 1
       events.push({ ...event, seq: nextSeq })
