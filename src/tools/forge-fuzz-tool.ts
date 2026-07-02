@@ -2,7 +2,7 @@ import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
 import { assertContained } from "../shared/path-safety"
-import { validateUrlScheme } from "../shared/process-runner"
+import { assertAllowedHost } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeFuzzArgs = {
@@ -62,8 +62,8 @@ function normalizeArgs(args: ForgeFuzzArgs, context: ToolContext): NormalizedFor
   const target =
     args.target && args.target !== "." ? assertContained(args.target, projectRoot) : projectRoot
 
-  if (args.fork_url && !validateUrlScheme(args.fork_url)) {
-    throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)
+  if (args.fork_url) {
+    assertAllowedHost(args.fork_url)
   }
 
   return {

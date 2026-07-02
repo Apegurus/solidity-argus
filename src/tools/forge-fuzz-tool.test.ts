@@ -30,6 +30,20 @@ test("forgeFuzzTool uses tool() helper contract", () => {
   expect(typeof forgeFuzzTool.execute).toBe("function")
 })
 
+test("executeForgeFuzz rejects a loopback/link-local fork_url without running forge", async () => {
+  const { context } = createContext()
+  let ran = false
+  for (const forkUrl of ["http://169.254.169.254", "http://127.0.0.1:8545"]) {
+    const result = await executeForgeFuzz({ target: ".", fork_url: forkUrl }, context, async () => {
+      ran = true
+      return { stdout: "", stderr: "", exitCode: 0 }
+    })
+    expect(result.success).toBe(false)
+    expect(result.error ?? "").toMatch(/loopback|link-local|private|disallowed/i)
+  }
+  expect(ran).toBe(false)
+})
+
 test("executeForgeFuzz parses fuzz results and counterexamples", async () => {
   const { context, metadataCalls } = createContext()
   const output = [
@@ -182,7 +196,7 @@ test("executeForgeFuzz rejects non-http fork_url", async () => {
     async () => ({ stdout: "", stderr: "", exitCode: 0 }),
   )
   expect(result.success).toBe(false)
-  expect(result.error).toContain("fork_url must use http:// or https://")
+  expect(result.error ?? "").toMatch(/scheme|http\/https/i)
 })
 
 test("executeForgeFuzz handles ENOENT, timeout, and abort", async () => {
