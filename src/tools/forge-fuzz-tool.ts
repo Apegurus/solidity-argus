@@ -1,7 +1,8 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
-import { assertContained, validateUrlScheme } from "../shared/path-containment"
+import { assertContained } from "../shared/path-safety"
+import { validateUrlScheme } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeFuzzArgs = {

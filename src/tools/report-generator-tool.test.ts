@@ -21,6 +21,7 @@ import {
   renderObservationLine,
   renderReportMarkdown,
   reportGeneratorTool,
+  sourceExcerpt,
 } from "./report-generator-tool"
 
 function createContext(): ToolContext {
@@ -692,6 +693,42 @@ test("executeReportGeneration includes source excerpts for findings when files a
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
+})
+
+test("sourceExcerpt reads an in-project file but refuses absolute or traversal escapes", () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-excerpt-"))
+  const projectDir = path.join(tempDir, "project")
+  mkdirSync(path.join(projectDir, "src"), { recursive: true })
+  writeFileSync(path.join(projectDir, "src", "In.sol"), "line1\nSAFE_IN_PROJECT\nline3\n")
+  const secretPath = path.join(tempDir, "SECRET.txt")
+  writeFileSync(secretPath, "TOP_SECRET_EXFIL_MARKER")
+
+  try {
+    expect(sourceExcerpt(projectDir, makeFinding({ file: "src/In.sol", lines: [2, 2] }))).toContain(
+      "SAFE_IN_PROJECT",
+    )
+    expect(sourceExcerpt(projectDir, makeFinding({ file: secretPath, lines: [1, 1] }))).toBeNull()
+    expect(
+      sourceExcerpt(projectDir, makeFinding({ file: "../SECRET.txt", lines: [1, 1] })),
+    ).toBeNull()
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration rejects an explicit run_id with path traversal", async () => {
+  await expect(
+    executeReportGeneration(
+      {
+        project_name: "TraversalRunId",
+        scope: ["Vault.sol"],
+        run_id: "../../../etc/evil",
+        report_input: JSON.stringify(makeReportInput([makeFinding({ id: "f-1" })])),
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+    ),
+  ).rejects.toThrow(/invalid run_id/)
 })
 
 test("executeReportGeneration supports disabling executive summary", async () => {

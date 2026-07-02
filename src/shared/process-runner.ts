@@ -227,3 +227,13 @@ export function assertAllowedHost(
   }
   return url
 }
+
+/** True when `url` parses and uses an http/https scheme; `false` otherwise (e.g. a Forge `--fork-url` pre-check). */
+export function validateUrlScheme(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}

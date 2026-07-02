@@ -5,6 +5,7 @@ import {
   ProcessRunnerError,
   runTrusted,
   safeCliValue,
+  validateUrlScheme,
 } from "./process-runner"
 
 const BUN = process.execPath
@@ -141,4 +142,14 @@ test("assertAllowedHost rejects IPv4-mapped IPv6 loopback/private literals", () 
 
 test("assertAllowedHost still allows a public IPv4-mapped IPv6 host", () => {
   expect(() => assertAllowedHost("http://[::ffff:8.8.8.8]/x")).not.toThrow()
+})
+
+test("validateUrlScheme accepts http and https", () => {
+  expect(validateUrlScheme("http://localhost:8545")).toBe(true)
+  expect(validateUrlScheme("https://mainnet.infura.io/v3/key")).toBe(true)
+})
+
+test("validateUrlScheme rejects non-http schemes and unparseable strings", () => {
+  expect(validateUrlScheme("file:///etc/passwd")).toBe(false)
+  expect(validateUrlScheme("not-a-url")).toBe(false)
 })

@@ -18,6 +18,7 @@ import {
 } from "../shared/key-tools"
 import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
+import { isContained, validateRunId } from "../shared/path-safety"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
 import { isNonEmptyString } from "../shared/type-guards"
@@ -247,15 +248,6 @@ function mergeReportEntries(
   return Array.from(byPath.values()).sort((a, b) =>
     a.revision === b.revision ? a.filePath.localeCompare(b.filePath) : a.revision - b.revision,
   )
-}
-
-function isPathInsideDirectory(filePath: string, directory: string): boolean {
-  const resolvedFile = path.resolve(filePath)
-  const resolvedDirectory = path.resolve(directory)
-  const directoryPrefix = resolvedDirectory.endsWith(path.sep)
-    ? resolvedDirectory
-    : resolvedDirectory + path.sep
-  return resolvedFile.startsWith(directoryPrefix)
 }
 
 function upsertReportEntry(
@@ -611,7 +603,7 @@ function resolveExpectedRunId(
 ): string | undefined {
   // 1. Explicit run_id from LLM args (highest priority)
   if (isNonEmptyString(args.run_id)) {
-    return args.run_id.trim()
+    return validateRunId(args.run_id.trim())
   }
 
   // 2. Global run index lookup by session ID
@@ -995,16 +987,17 @@ function sanitizeBodyMarkdown(text: string): string {
   return out.join("\n")
 }
 
-function sourceExcerpt(projectDir: string, finding: Finding): string | null {
+export function sourceExcerpt(projectDir: string, finding: Finding): string | null {
   if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return null
   const start = finding.lines[0]
   const end = finding.lines[1]
   if (!Number.isInteger(start) || !Number.isInteger(end) || start <= 0 || end < start) {
     return null
   }
-  const absolutePath = path.isAbsolute(finding.file)
-    ? finding.file
-    : path.join(projectDir, finding.file)
+  // Security: finding.file is tool/LLM-controlled — only read a file proven to resolve
+  // inside projectDir; refuse absolute paths and traversal escapes before any read.
+  if (path.isAbsolute(finding.file) || !isContained(finding.file, projectDir)) return null
+  const absolutePath = path.join(projectDir, finding.file)
   if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) return null
   const contents = readFileSync(absolutePath, "utf-8").split(/\r?\n/)
   const excerpt = contents.slice(start - 1, end).join("\n")
@@ -2256,8 +2249,7 @@ export async function executeReportGeneration(
     )
     const existingReports = manifest.reports.filter((entry) => existsSync(entry.filePath))
     const reusableReport = existingReports.find(
-      (entry) =>
-        entry.contentHash === contentHash && isPathInsideDirectory(entry.filePath, resolvedOutput),
+      (entry) => entry.contentHash === contentHash && isContained(entry.filePath, resolvedOutput),
     )
 
     if (runId && args.force !== true && reusableReport) {

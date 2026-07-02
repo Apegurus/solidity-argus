@@ -3,6 +3,7 @@ import { appendFile, mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { createLogger, type Logger } from "../../shared/logger"
 import { type ArgusRootResolver, defaultRootResolver } from "../../shared/path-root-resolver"
+import { validateRunId } from "../../shared/path-safety"
 import type { AuditEvent, AuditEventType } from "../../state/schemas"
 
 export type EventSinkErrorCode = "INVALID_EVENT" | "IO_ERROR"
@@ -75,7 +76,7 @@ export function createMutex(options: MutexOptions = {}) {
 }
 
 function buildJournalPath(runId: string, projectDir: string, resolver: ArgusRootResolver): string {
-  return join(resolver.writeRoot(projectDir), "runs", runId, "events.jsonl")
+  return join(resolver.writeRoot(projectDir), "runs", validateRunId(runId), "events.jsonl")
 }
 
 async function readRawContent(path: string): Promise<string> {

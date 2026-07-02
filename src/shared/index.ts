@@ -40,6 +40,7 @@ export {
   type RunResult,
   runTrusted,
   safeCliValue,
+  validateUrlScheme,
 } from "./process-runner"
 export { findFoundryProjectDir, resolveProjectDir } from "./project-utils"
 export {

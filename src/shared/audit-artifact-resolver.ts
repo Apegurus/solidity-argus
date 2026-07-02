@@ -1,5 +1,6 @@
 import { basename, join } from "node:path"
 import { defaultRootResolver } from "./path-root-resolver"
+import { validateRunId } from "./path-safety"
 
 export class ArtifactResolverError extends Error {
   constructor(message: string) {
@@ -52,6 +53,8 @@ export function createAuditArtifactResolver(
   if (!projectDir || projectDir.trim() === "") {
     throw new ArtifactResolverError("projectDir must not be empty")
   }
+
+  validateRunId(runId)
 
   const writeRoot = defaultRootResolver.writeRoot(projectDir)
   const runDir = join(writeRoot, "runs", runId)

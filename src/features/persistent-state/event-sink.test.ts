@@ -47,6 +47,16 @@ describe("EventSink", () => {
     return dir
   }
 
+  test("createEventSink rejects a runId with path traversal", () => {
+    const projectDir = makeTempDir()
+    expect(() => createEventSink("../../evil", projectDir)).toThrow(/invalid run_id/)
+  })
+
+  test("readEvents rejects a runId containing a path separator", async () => {
+    const projectDir = makeTempDir()
+    await expect(readEvents("runs/../escape", projectDir)).rejects.toThrow(/invalid run_id/)
+  })
+
   test("sequential appends produce contiguous seq numbers 1-5", async () => {
     const projectDir = makeTempDir()
     const sink = createEventSink(RUN_ID, projectDir)

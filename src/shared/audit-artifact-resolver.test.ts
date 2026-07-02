@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
 import { ArtifactResolverError, createAuditArtifactResolver } from "./audit-artifact-resolver"
+import { PathSafetyError } from "./path-safety"
 
 const RUN_ID = "run-abc-123"
 const PROJECT_DIR = "/home/user/my-project"
@@ -42,6 +43,18 @@ describe("createAuditArtifactResolver", () => {
 
   test("whitespace-only runId throws ArtifactResolverError", () => {
     expect(() => createAuditArtifactResolver("   ", PROJECT_DIR)).toThrow(ArtifactResolverError)
+  })
+
+  test("runId with path traversal is rejected as an unsafe path component", () => {
+    expect(() => createAuditArtifactResolver("../../../etc/evil", PROJECT_DIR)).toThrow(
+      PathSafetyError,
+    )
+  })
+
+  test("runId containing a path separator is rejected", () => {
+    expect(() => createAuditArtifactResolver("runs/../escape", PROJECT_DIR)).toThrow(
+      PathSafetyError,
+    )
   })
 
   test("empty projectDir throws ArtifactResolverError", () => {
