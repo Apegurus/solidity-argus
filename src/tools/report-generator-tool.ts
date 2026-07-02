@@ -2227,11 +2227,10 @@ export async function executeReportGeneration(
     const config = loadedConfig ?? loadConfig(projectDir)
     const rawOutputDir = config.reporting?.output_dir ?? ".argus/reports/"
     const resolvedOutput = path.resolve(projectDir, rawOutputDir)
-    const projectRoot = projectDir.endsWith(path.sep) ? projectDir : projectDir + path.sep
-    if (resolvedOutput !== projectDir && !resolvedOutput.startsWith(projectRoot)) {
+    if (!isContained(resolvedOutput, projectDir)) {
       result.error = {
         code: "OUTPUT_DIR_TRAVERSAL",
-        message: `output_dir "${rawOutputDir}" resolves outside the project root. Report not written.`,
+        message: `output_dir "${rawOutputDir}" resolves outside the project root (or via an escaping symlink). Report not written.`,
       }
       return result
     }
@@ -2295,6 +2294,13 @@ export async function executeReportGeneration(
       }
     }
 
+    if (!isContained(fullPath, projectDir)) {
+      result.error = {
+        code: "OUTPUT_DIR_TRAVERSAL",
+        message: `resolved report path escapes the project root. Report not written.`,
+      }
+      return result
+    }
     await Bun.write(fullPath, reportMarkdown)
     result.filePath = fullPath
     result.filename = path.basename(fullPath)

@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -1469,6 +1478,39 @@ test("executeReportGeneration does not mutate finding ID registry on report outp
     expect(existsSync(registryPath)).toBe(false)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration rejects an output_dir that escapes via an in-project symlink", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-symlink-"))
+  const outsideDir = mkdtempSync(path.join(tmpdir(), "argus-report-escape-"))
+  const runId = "run-symlink-escape"
+
+  try {
+    symlinkSync(outsideDir, path.join(tempDir, "escaped-reports"), "dir")
+    const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+    const reportInput = makeReportInput(
+      [makeFinding({ id: "f-symlink", check: "symlink-escape", severity: "High" })],
+      { run_id: runId, scope: ["src/Vault.sol"] },
+    )
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "SymlinkEscape",
+        scope: ["src/Vault.sol"],
+        report_input: JSON.stringify({ ...reportInput, projectDir: tempDir }),
+        tool_coverage_policy: "skip",
+      },
+      context,
+      { loadConfig: () => makeConfigWithOutputDir("escaped-reports") },
+    )
+
+    expect(result.error?.code).toBe("OUTPUT_DIR_TRAVERSAL")
+    expect(result.filePath).toBeUndefined()
+    expect(readdirSync(outsideDir)).toHaveLength(0)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
   }
 })
 
