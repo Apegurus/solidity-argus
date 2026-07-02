@@ -2124,7 +2124,9 @@ export async function executeReportGeneration(
   }
 
   const findings = sortFindingsDeterministically(
-    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+    finalFindings.filter(
+      (finding) => shouldIncludeFinding(finding, threshold) && isFindingInScope(finding, scope),
+    ),
   )
   // Quality gates apply to the Findings tier only; Leads are description-only per rubric.
   const { findings: confirmedFindings, leads: leadFindings } = splitFindingsByTier(
@@ -2197,7 +2199,7 @@ export async function executeReportGeneration(
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
     date: new Date(auditDate),
-    outputDir: ".opencode/reports/",
+    outputDir: loadedConfig?.reporting?.output_dir ?? ".argus/reports/",
     runId: runId || undefined,
     revision: invalidRegenerationOptions ? undefined : args.revision,
   })
@@ -2295,6 +2297,7 @@ export async function executeReportGeneration(
 
     await Bun.write(fullPath, reportMarkdown)
     result.filePath = fullPath
+    result.filename = path.basename(fullPath)
     result.reportStatus = "written"
     result.reportsManifestFile = manifestPath
     if (runId.length > 0 && idAssignments) {
@@ -2365,6 +2368,11 @@ export const reportGeneratorTool = tool({
   },
   async execute(args, context) {
     const result = await executeReportGeneration(args, context)
+    if (result.error) {
+      throw new Error(
+        `argus_generate_report failed [${result.error.code}]: ${result.error.message}`,
+      )
+    }
     // Return a slim payload to avoid OpenCode truncating large tool results.
     // The full markdown is already written to disk at result.filePath.
     // Truncated JSON breaks tool-tracking-hook parsing, which prevents

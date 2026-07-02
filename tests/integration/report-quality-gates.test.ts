@@ -126,6 +126,7 @@ describe("report quality gates", () => {
         id: "crit-empty-impact",
         check: "critical-impact-gap",
         severity: "Critical",
+        file: "src/Critical.sol",
         impact: "",
         recommendation: "Restrict privileged path and add regression tests.",
         exploitReference: "PoC: exploit tx simulation in test suite",
@@ -180,6 +181,7 @@ describe("report quality gates", () => {
         id: "high-generic-rec",
         check: "generic-remediation",
         severity: "High",
+        file: "src/Oracle.sol",
         impact: "User funds can be griefed through stale price usage.",
         recommendation:
           "Prioritize remediation before production deployment and validate with focused regression tests.",
@@ -344,6 +346,7 @@ describe("report quality gates", () => {
         id: "warn-high",
         check: "warn-case",
         severity: "High",
+        file: "src/Warn.sol",
         impact: "",
         recommendation: "",
       }),

@@ -782,28 +782,100 @@ test("executeReportGeneration handles empty findings after threshold filtering",
 })
 
 test("reportGeneratorTool execute returns stringified ReportGenerationResult", async () => {
-  const findings: Finding[] = [
-    makeFinding({ id: "f-high", check: "reentrancy-eth", severity: "High" }),
-  ]
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-execute-"))
+  try {
+    const findings: Finding[] = [
+      makeFinding({ id: "f-high", check: "reentrancy-eth", severity: "High" }),
+    ]
 
-  const payload = await reportGeneratorTool.execute(
+    const payload = await reportGeneratorTool.execute(
+      {
+        project_name: "ToolExecuteProject",
+        scope: ["Vault.sol"],
+        include_executive_summary: true,
+        severity_threshold: "low",
+        preflight_policy: "warn",
+        report_input: JSON.stringify(makeReportInput(findings)),
+        tool_coverage_policy: "skip",
+      } as Parameters<typeof reportGeneratorTool.execute>[0],
+      { ...createContext(), directory: tempDir, worktree: tempDir },
+    )
+
+    const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
+      reportSummary: string
+    }
+    expect(parsed.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
+    expect(parsed.findingsCount.high).toBe(1)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("reportGeneratorTool execute surfaces a tool-level error when no report is written", async () => {
+  await expect(
+    reportGeneratorTool.execute(
+      {
+        project_name: "ErrProject",
+        scope: ["Vault.sol"],
+        include_executive_summary: true,
+        severity_threshold: "low",
+        report_input: JSON.stringify(makeReportInput([makeFinding({ id: "f-err" })])),
+        tool_coverage_policy: "skip",
+        revision: 1,
+      } as Parameters<typeof reportGeneratorTool.execute>[0],
+      createContext(),
+    ),
+  ).rejects.toThrow(/INVALID_REGENERATION_OPTIONS/)
+})
+
+test("executeReportGeneration excludes out-of-scope findings from returned counts", async () => {
+  const inScope = makeFinding({
+    id: "in-scope",
+    check: "reentrancy-eth",
+    severity: "High",
+    file: "src/Vault.sol",
+  })
+  const outOfScope = makeFinding({
+    id: "out-of-scope",
+    check: "reentrancy-eth",
+    severity: "High",
+    file: "src/OtherContract.sol",
+  })
+
+  const result = await executeReportGeneration(
     {
-      project_name: "ToolExecuteProject",
-      scope: ["Vault.sol"],
-      include_executive_summary: true,
-      severity_threshold: "low",
-      preflight_policy: "warn",
-      report_input: JSON.stringify(makeReportInput(findings)),
+      project_name: "ScopeCounts",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(makeReportInput([inScope, outOfScope])),
       tool_coverage_policy: "skip",
-    } as Parameters<typeof reportGeneratorTool.execute>[0],
+    },
     createContext(),
   )
 
-  const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
-    reportSummary: string
+  expect(result.findingsCount.high).toBe(1)
+})
+
+test("executeReportGeneration returns a filename matching the written path under configured output_dir", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-outdir-"))
+  try {
+    const result = await executeReportGeneration(
+      {
+        project_name: "OutDirProject",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(makeReportInput([makeFinding({ id: "f-out" })])),
+        tool_coverage_policy: "skip",
+      },
+      { ...createContext(), directory: tempDir, worktree: tempDir },
+      { loadConfig: () => makeConfigWithOutputDir("custom-reports") },
+    )
+
+    expect(result.filePath).toBeDefined()
+    if (!result.filePath) return
+    expect(result.filePath).toContain(path.join(tempDir, "custom-reports"))
+    expect(result.filename).toBe(path.basename(result.filePath))
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
   }
-  expect(parsed.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
-  expect(parsed.findingsCount.high).toBe(1)
 })
 
 function makeAuditState(overrides: Partial<AuditState> = {}): AuditState {
