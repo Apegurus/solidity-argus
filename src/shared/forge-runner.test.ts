@@ -44,6 +44,37 @@ describe("forge-runner", () => {
       expect(result.exitCode).toBe(0)
     })
 
+    it("should not inherit non-allowlisted host env vars into the child", async () => {
+      // Bun snapshots the parent env at startup, so a runtime process.env mutation would
+      // not reach the child; probe a var already present in the startup snapshot instead.
+      const allowed = new Set([
+        "PATH",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "TERM",
+        "TZ",
+        "FOUNDRY_PROFILE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+      ])
+      const leakVar = Object.keys(Bun.env).find(
+        (k) =>
+          !allowed.has(k) && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && (Bun.env[k] ?? "").length > 0,
+      )
+      expect(leakVar).toBeDefined()
+      const result = await runForgeCommand(["sh", "-c", `printf '%s' "\${${leakVar}:-ABSENT}"`], {})
+      expect(result.stdout).toBe("ABSENT")
+    })
+
     it("should respect cwd option", async () => {
       const tmpDir = require("node:os").tmpdir()
       const result = await runForgeCommand(["pwd"], { cwd: tmpDir })

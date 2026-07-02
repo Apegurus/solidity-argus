@@ -24,6 +24,13 @@ const ENV_ALLOWLIST: readonly string[] = [
   "TMP",
   "TERM",
   "TZ",
+  "FOUNDRY_PROFILE",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
 ]
 
 export interface RunOptions {
@@ -144,25 +151,95 @@ function isPrivateIpv4(ip: string): boolean {
   )
 }
 
-// Decode an IPv4-mapped IPv6 literal back to dotted IPv4 so the loopback/private
-// checks apply. `new URL()` normalizes `::ffff:127.0.0.1` to the hex form
-// `::ffff:7f00:1`, so both the dotted and hex spellings must be handled — otherwise
-// `http://[::ffff:127.0.0.1]` slips past the guard (SSRF).
-function mappedIpv4(host: string): string | null {
-  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host)
-  if (dotted !== null) {
-    return dotted[1] ?? null
-  }
-  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host)
-  if (hex === null) {
+// Expand an IPv6 literal (brackets/zone already stripped) to its 8 16-bit groups,
+// or null if it is not parseable IPv6. Handles "::" compression and a trailing
+// embedded IPv4 (e.g. ::ffff:127.0.0.1, 64:ff9b::127.0.0.1). String-prefix matching
+// is not enough: `new URL()` normalizes literals into forms (e.g. ::ffff:0:7f00:1,
+// 2002:7f00:1::, 64:ff9b::7f00:1) that a naive check misses, letting an internal
+// destination slip past the guard (SSRF).
+function ipv6Groups(input: string): number[] | null {
+  if (!input.includes(":")) {
     return null
   }
-  const hi = Number.parseInt(hex[1] ?? "", 16)
-  const lo = Number.parseInt(hex[2] ?? "", 16)
-  if (Number.isNaN(hi) || Number.isNaN(lo)) {
+  const host = input.split("%")[0] ?? input // drop any zone id (fe80::1%eth0)
+
+  // Peel off an embedded dotted-quad IPv4 tail into two 16-bit groups.
+  const v4Tail: number[] = []
+  let work = host
+  const dottedTail = /^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (dottedTail !== null) {
+    const octets = [dottedTail[2], dottedTail[3], dottedTail[4], dottedTail[5]].map((o) =>
+      Number(o),
+    )
+    if (octets.some((o) => o > 255)) {
+      return null
+    }
+    v4Tail.push(
+      ((octets[0] ?? 0) << 8) | (octets[1] ?? 0),
+      ((octets[2] ?? 0) << 8) | (octets[3] ?? 0),
+    )
+    const prefix = dottedTail[1] ?? ""
+    work = prefix.endsWith("::") ? prefix : prefix.slice(0, -1)
+  }
+
+  const parseSide = (side: string): number[] | null => {
+    if (side === "") {
+      return []
+    }
+    const groups: number[] = []
+    for (const part of side.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/i.test(part)) {
+        return null
+      }
+      groups.push(Number.parseInt(part, 16))
+    }
+    return groups
+  }
+
+  const halves = work.split("::")
+  if (halves.length > 2) {
     return null
   }
-  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+  if (halves.length === 2) {
+    const left = parseSide(halves[0] ?? "")
+    const right = parseSide(halves[1] ?? "")
+    if (left === null || right === null) {
+      return null
+    }
+    const fill = 8 - left.length - right.length - v4Tail.length
+    if (fill < 0) {
+      return null
+    }
+    return [...left, ...Array.from({ length: fill }, () => 0), ...right, ...v4Tail]
+  }
+  const only = parseSide(work.endsWith(":") ? work.slice(0, -1) : work)
+  if (only === null) {
+    return null
+  }
+  const all = [...only, ...v4Tail]
+  return all.length === 8 ? all : null
+}
+
+// Extract the embedded IPv4 (dotted decimal) from an IPv6 group array for the
+// prefixes that carry one: IPv4-mapped / IPv4-translated (::ffff:0:0/96), 6to4
+// (2002::/16), and the NAT64 well-known prefix (64:ff9b::/96). null otherwise.
+function embeddedIpv4(g: readonly number[]): string | null {
+  const dq = (hi: number, lo: number): string =>
+    `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+  const [g0, g1, g2, g3, g4, g5, g6, g7] = g
+  if (g0 === 0x2002) {
+    return dq(g1 ?? 0, g2 ?? 0) // 6to4: embedded IPv4 is the second and third groups
+  }
+  if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    return dq(g6 ?? 0, g7 ?? 0) // NAT64 well-known prefix
+  }
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0) {
+    // IPv4-mapped (::ffff:x) or the deprecated IPv4-translated (::ffff:0:x) SIIT form
+    if ((g4 === 0 && g5 === 0xffff) || (g4 === 0xffff && g5 === 0)) {
+      return dq(g6 ?? 0, g7 ?? 0)
+    }
+  }
+  return null
 }
 
 function isPrivateOrLoopbackHost(host: string): boolean {
@@ -170,23 +247,28 @@ function isPrivateOrLoopbackHost(host: string): boolean {
   if (h === "localhost" || h.endsWith(".localhost")) {
     return true
   }
-  if (h === "::" || h === "::1") {
-    return true
-  }
-  const mapped = mappedIpv4(h)
-  if (mapped !== null && isPrivateIpv4(mapped)) {
-    return true
-  }
   if (isPrivateIpv4(h)) {
     return true
   }
+  const groups = ipv6Groups(h)
+  if (groups === null) {
+    return false
+  }
+  if (groups.every((g) => g === 0)) {
+    return true // :: unspecified
+  }
+  if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) {
+    return true // ::1 loopback
+  }
+  const embedded = embeddedIpv4(groups)
+  if (embedded !== null && isPrivateIpv4(embedded)) {
+    return true
+  }
+  const g0 = groups[0] ?? 0
   return (
-    h.startsWith("fc") ||
-    h.startsWith("fd") ||
-    h.startsWith("fe8") ||
-    h.startsWith("fe9") ||
-    h.startsWith("fea") ||
-    h.startsWith("feb")
+    (g0 & 0xfe00) === 0xfc00 || // ULA fc00::/7
+    (g0 & 0xffc0) === 0xfe80 || // link-local fe80::/10
+    (g0 & 0xffc0) === 0xfec0 // deprecated site-local fec0::/10
   )
 }
 

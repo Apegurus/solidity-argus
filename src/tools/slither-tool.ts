@@ -21,6 +21,7 @@ import {
   hasBinary as hasBinaryShared,
   parseSolcVersion as parseSolcVersionShared,
 } from "../shared/binary-utils"
+import { buildSafeEnv } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type SlitherArgs = {
@@ -217,6 +218,7 @@ async function ensureSolc(version: string): Promise<boolean> {
       stdout: "pipe",
       stderr: "pipe",
       signal: AbortSignal.timeout(30_000),
+      env: buildSafeEnv(),
     })
     const installExit = await installProc.exited
     if (installExit !== 0) return false
@@ -225,6 +227,7 @@ async function ensureSolc(version: string): Promise<boolean> {
       stdout: "pipe",
       stderr: "pipe",
       signal: AbortSignal.timeout(30_000),
+      env: buildSafeEnv(),
     })
     const useExit = await useProc.exited
     return useExit === 0
@@ -239,6 +242,7 @@ export const runSlitherCommand: RunSlitherCommand = async (command, signal, cwd)
     stdout: "pipe",
     stderr: "pipe",
     signal,
+    env: buildSafeEnv(),
   })
 
   const [exitCode, stdout, stderr] = await Promise.all([
@@ -278,6 +282,7 @@ async function defaultSpawnFn(
     stderr: "pipe",
     cwd: options?.cwd,
     ...(options?.timeout ? { signal: AbortSignal.timeout(options.timeout) } : {}),
+    env: buildSafeEnv(),
   })
   const exitCode = await proc.exited
   const stdout = await new Response(proc.stdout).text()

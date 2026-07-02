@@ -1,3 +1,5 @@
+import { buildSafeEnv } from "./process-runner"
+
 export type ForgeCommandResult = {
   stdout: string
   stderr: string
@@ -20,7 +22,7 @@ export async function runForgeCommand(
     stdout: "pipe",
     stderr: "pipe",
     signal: options.signal,
-    env: options.env,
+    env: buildSafeEnv(options.env),
   })
 
   const [exitCode, stdout, stderr] = await Promise.all([

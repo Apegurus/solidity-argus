@@ -144,6 +144,30 @@ test("assertAllowedHost still allows a public IPv4-mapped IPv6 host", () => {
   expect(() => assertAllowedHost("http://[::ffff:8.8.8.8]/x")).not.toThrow()
 })
 
+test("assertAllowedHost rejects alternate IPv6 encodings of loopback/private (SSRF bypass)", () => {
+  for (const bad of [
+    "http://[::ffff:0:127.0.0.1]/x", // IPv4-translated (SIIT) ::ffff:0:0/96 form
+    "http://[::ffff:0:7f00:1]/x", // hex spelling of the same
+    "http://[2002:7f00:1::]/x", // 6to4 (2002::/16) wrapping 127.0.0.1
+    "http://[2002:a00:1::]/x", // 6to4 wrapping 10.0.0.1
+    "http://[64:ff9b::7f00:1]/x", // NAT64 well-known prefix (64:ff9b::/96) wrapping 127.0.0.1
+    "http://[64:ff9b::127.0.0.1]/x", // NAT64 dotted form
+    "http://[fec0::1]/x", // deprecated site-local fec0::/10
+  ]) {
+    expect(() => assertAllowedHost(bad)).toThrow(ProcessRunnerError)
+  }
+})
+
+test("assertAllowedHost still allows public IPv6 and 6to4/NAT64 wrapping public IPv4", () => {
+  for (const ok of [
+    "http://[2001:db8::1]/x", // global documentation range
+    "http://[2002:808:808::]/x", // 6to4 wrapping 8.8.8.8 (public)
+    "http://[64:ff9b::8.8.8.8]/x", // NAT64 wrapping public IPv4
+  ]) {
+    expect(() => assertAllowedHost(ok)).not.toThrow()
+  }
+})
+
 test("validateUrlScheme accepts http and https", () => {
   expect(validateUrlScheme("http://localhost:8545")).toBe(true)
   expect(validateUrlScheme("https://mainnet.infura.io/v3/key")).toBe(true)

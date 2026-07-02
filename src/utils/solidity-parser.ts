@@ -1,4 +1,5 @@
 import * as parser from "@solidity-parser/parser"
+import { buildSafeEnv } from "../shared/process-runner"
 import type { ContractProfile } from "../state/types"
 
 const EXTERNAL_CALL_METHODS = new Set(["call", "transfer", "send", "delegatecall", "staticcall"])
@@ -150,6 +151,7 @@ async function spawnForgeInspect(
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    env: buildSafeEnv(),
   })
 
   const timeout = 15_000

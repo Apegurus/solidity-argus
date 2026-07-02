@@ -11,6 +11,7 @@ import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
+import { buildSafeEnv } from "../shared/process-runner"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
@@ -70,6 +71,7 @@ function ensureTrailOfBitsSkills(): string[] {
           stdout: "ignore",
           stderr: "ignore",
           signal: AbortSignal.timeout(60_000),
+          env: buildSafeEnv(),
         },
       )
     } catch (spawnErr) {
