@@ -230,6 +230,30 @@ describe("createToolTrackingHook", () => {
     expect(sink.events.some((event) => event.type === "finding.added")).toBe(true)
   })
 
+  test("argus_record_finding rejects before mutating when no durable sink exists (WS-3 I6)", async () => {
+    const before = auditState.findings.length
+    const findingItem = {
+      check: "manual-no-sink",
+      severity: "High",
+      confidence: "High",
+      description: "should not be recorded without a durable sink",
+      file: "src/Auth.sol",
+      lines: [1, 2],
+      source: "manual",
+      reported_by_agent: "argus",
+    }
+
+    await expect(
+      hook({
+        tool: "argus_record_finding",
+        args: { findings: JSON.stringify([findingItem]) },
+        result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
+      }),
+    ).rejects.toThrow(/no durable event sink|findings would be lost/i)
+
+    expect(auditState.findings).toHaveLength(before)
+  })
+
   test("argus_record_finding preserves impact/recommendation/proofOfConcept through to event payload (Task 1 / Bug #3)", async () => {
     const sink = createMockSink()
     const hookWithSink = createToolTrackingHook(() => auditState, undefined, {

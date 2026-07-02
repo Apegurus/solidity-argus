@@ -966,6 +966,14 @@ export function createToolTrackingHook(
             }
             break
           case "argus_record_finding":
+            if (!sink) {
+              // WS-3 I6 reject-before-mutate: refuse to record findings that cannot be
+              // journaled to a durable sink rather than mutating live state optimistically
+              // (an un-journaled finding is lost from the report on replay).
+              throw new Error(
+                "argus_record_finding: no durable event sink — findings would be lost from the report",
+              )
+            }
             findingsCount = processToolResult(
               record,
               store,
@@ -1085,19 +1093,6 @@ export function createToolTrackingHook(
 
         if (input.tool === "argus_record_finding" && findingsCount === 0) {
           throw new Error("argus_record_finding did not persist any findings")
-        }
-
-        if (input.tool === "argus_record_finding" && !sink) {
-          const newFindings = auditState.findings.slice(findingsCountBefore)
-          if (newFindings.length > 0) {
-            throw new Error(
-              `argus_record_finding produced ${newFindings.length} finding(s) but no event sink is available — findings would be lost from the report`,
-            )
-          }
-          diag.error(
-            "NO_EVENT_SINK",
-            "argus_record_finding: no active event sink — no new findings to emit",
-          )
         }
 
         if (sink) {
