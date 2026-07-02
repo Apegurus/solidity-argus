@@ -2215,9 +2215,9 @@ describe("createToolTrackingHook orphan buffer bounds (WS-3 I7)", () => {
   })
 
   test("proactively reclaims TTL-expired sessions when a new session buffers", async () => {
-    const hook = bufferingHook({ ttlMs: 1 })
+    const hook = bufferingHook({ ttlMs: 50 })
     await bufferSession(hook, "sess-old")
-    await new Promise((resolve) => setTimeout(resolve, 12))
+    await new Promise((resolve) => setTimeout(resolve, 100))
     await bufferSession(hook, "sess-new")
 
     expect(await hook.flushOrphanEvents("sess-old", createMockSink("orphan-run"))).toBe(0)
