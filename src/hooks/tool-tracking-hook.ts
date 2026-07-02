@@ -1202,6 +1202,16 @@ export function createToolTrackingHook(
                 enrichment.themisDisposition = completedRecord.themisDisposition
               }
               break
+            case "argus_generate_report":
+              // WS-3 I9: persist the report's quality-gate + file metadata in the completed
+              // event so run finalization certifies against gates/warnings it can actually read.
+              if (completedRecord?.qualityGates) {
+                enrichment.qualityGates = completedRecord.qualityGates
+              }
+              if (typeof completedRecord?.filePath === "string") {
+                enrichment.filePath = completedRecord.filePath
+              }
+              break
           }
         }
         await emitToSink(

@@ -254,6 +254,33 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings).toHaveLength(before)
   })
 
+  test("argus_generate_report completed event carries report quality-gate + file metadata (WS-3 I9)", async () => {
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+
+    await hookWithSink({
+      tool: "argus_generate_report",
+      args: {},
+      result: JSON.stringify({
+        filePath: "/tmp/report.md",
+        filename: "report.md",
+        qualityGates: { passed: false, violations: ["conservation gate failed"] },
+      }),
+    })
+
+    const completed = sink.events.find((event) => event.type === "tool.completed")
+    const payload = completed?.payload as Record<string, unknown>
+    expect(payload?.qualityGates).toEqual({
+      passed: false,
+      violations: ["conservation gate failed"],
+    })
+    expect(payload?.filePath).toBe("/tmp/report.md")
+  })
+
   test("argus_record_finding preserves impact/recommendation/proofOfConcept through to event payload (Task 1 / Bug #3)", async () => {
     const sink = createMockSink()
     const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
