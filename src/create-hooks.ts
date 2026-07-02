@@ -714,7 +714,7 @@ export function createHooks(args: {
                 pendingSinkCreations.delete(deletedSessionId)
                 pendingActivations.delete(deletedSessionId)
                 activatedSessions.delete(deletedSessionId)
-                sessionStateRegistry.deleteSession(deletedSessionId)
+                await sessionStateRegistry.deleteSession(deletedSessionId)
               }
 
               sinkRegistry.releaseUnreferencedRuns()

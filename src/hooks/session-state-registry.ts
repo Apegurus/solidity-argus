@@ -12,7 +12,7 @@ export interface SessionStateRegistry {
   hasManager(sessionId: string): boolean
   getDebouncedSave(sessionId: string): DebouncedSave
   disposeDebouncedSaves(): void
-  deleteSession(sessionId: string): void
+  deleteSession(sessionId: string): Promise<void>
 }
 
 export function createSessionStateRegistry(options: {
@@ -23,9 +23,14 @@ export function createSessionStateRegistry(options: {
   const managers = new Map<string, AuditStateManager>()
   const debouncedSaves = new Map<string, DebouncedSave>()
 
-  function deleteSession(sessionId: string): void {
+  async function deleteSession(sessionId: string): Promise<void> {
     const debouncedSave = debouncedSaves.get(sessionId)
-    debouncedSave?.dispose()
+    if (debouncedSave) {
+      // WS-3 I2: flush pending debounced saves BEFORE dispose — dispose() only clears the
+      // timer, so disposing without flushing silently drops the last buffered findings/progress.
+      await debouncedSave.flush()
+      debouncedSave.dispose()
+    }
     debouncedSaves.delete(sessionId)
     managers.delete(sessionId)
   }
@@ -38,7 +43,9 @@ export function createSessionStateRegistry(options: {
 
     const oldestSessionId = oldest.value
     if (oldestSessionId !== newSessionId) {
-      deleteSession(oldestSessionId)
+      // Capacity eviction keeps getManager synchronous: fire-and-forget the async
+      // flush-then-dispose (still flushes before dropping the manager — I2).
+      void deleteSession(oldestSessionId).catch(() => undefined)
     }
   }
 
