@@ -225,7 +225,7 @@ describe("end-to-end: rubric and confidence_score through full pipeline", () => 
   })
 
   test("SCHEMA_VERSION is still 2.0.0 (no schema bump)", () => {
-    expect(SCHEMA_VERSION).toBe("2.0.0")
+    expect(SCHEMA_VERSION).toBe("2.1.0")
   })
 
   function makeFinding(overrides: Partial<CanonicalFinding>): CanonicalFinding {

@@ -226,6 +226,21 @@ describe("deterministic replay projectors", () => {
     expect(reportHashes.size).toBe(1)
   })
 
+  test("replays a journal whose finding payloads are at a prior schema_version (WS-5 #27)", () => {
+    const priorVersionEvents: AuditEvent[] = fixtureEvents().map((event) => {
+      if (event.type !== "finding.added") return event
+      const payload = event.payload as CanonicalFinding
+      return { ...event, payload: { ...payload, schema_version: "2.0.0" } }
+    })
+
+    const findings = projectFindings(priorVersionEvents)
+
+    expect(findings).toHaveLength(3)
+    for (const finding of findings) {
+      expect(finding.schema_version).toBe(SCHEMA_VERSION)
+    }
+  })
+
   test("out-of-order stream throws ProjectorError OUT_OF_ORDER", () => {
     const events = fixtureEvents()
     const outOfOrder = [...events]
