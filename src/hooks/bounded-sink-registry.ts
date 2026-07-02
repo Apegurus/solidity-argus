@@ -39,7 +39,14 @@ export function createBoundedSinkRegistry(options: {
     releaseRunSink: boolean
   }): void {
     const { sinkMap, timestampMap, releaseRunSink } = options
-    const oldestKey = sinkMap.keys().next().value
+    // Referenced-exempt (WS-3 I1/I11): a run sink whose ownerSet is non-empty is never
+    // sealed or released by eviction — skip to the oldest UNREFERENCED run sink instead.
+    let oldestKey: string | undefined
+    for (const key of sinkMap.keys()) {
+      if (releaseRunSink && (sinkMap.get(key)?.ownerSet.size ?? 0) > 0) continue
+      oldestKey = key
+      break
+    }
     if (oldestKey === undefined) return
 
     const sink = sinkMap.get(oldestKey)
@@ -64,6 +71,8 @@ export function createBoundedSinkRegistry(options: {
       if (now - createdAt <= ttlMs) continue
 
       const sink = sinkMap.get(key)
+      // Referenced run sinks are TTL-exempt (WS-3 I1): a live session still holds the run.
+      if (releaseRunSink && (sink?.ownerSet.size ?? 0) > 0) continue
       if (sink) {
         markFinalizedBestEffort(sink)
       }

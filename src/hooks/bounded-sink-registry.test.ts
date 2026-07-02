@@ -163,4 +163,32 @@ describe("createBoundedSinkRegistry", () => {
     expect(registry.getForRun("run-referenced")).toBe(referencedSink)
     expect(registry.getForRun("run-unreferenced")).toBeUndefined()
   })
+
+  test("max-size eviction does not evict/finalize a run sink referenced by a live session (WS-3 I1)", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 1_000 })
+    const referencedSink = makeSink("run-ref")
+    const otherSink = makeSink("run-other")
+
+    registry.setForSession("session-1", referencedSink)
+    registry.setForRun("run-ref", referencedSink)
+    registry.setForRun("run-other", otherSink)
+
+    expect(referencedSink.isFinalized).toBe(false)
+    expect(registry.getForRun("run-ref")).toBe(referencedSink)
+  })
+
+  test("TTL eviction does not evict/finalize a run sink referenced by a live session (WS-3 I1)", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 10 })
+    const referencedSink = makeSink("run-ref")
+    const freshSink = makeSink("run-fresh")
+
+    Date.now = () => 100
+    registry.setForSession("session-1", referencedSink)
+    registry.setForRun("run-ref", referencedSink)
+    Date.now = () => 200
+    registry.setForRun("run-fresh", freshSink)
+
+    expect(referencedSink.isFinalized).toBe(false)
+    expect(registry.getForRun("run-ref")).toBe(referencedSink)
+  })
 })
