@@ -707,4 +707,20 @@ describe("finalizeRun", () => {
     expect(result.invariantsPassed).toBe(false)
     expect(result.errors).toContain("generated report has unresolved Themis issues")
   })
+
+  test("failed finalization emits run.finalization_failed and does not seal the sink (WS-3 I3/#18)", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "argus-finalizer-fail-"))
+    try {
+      const sink = makeInMemorySink([makeEvent({ type: "finding.added", seq: 1 })])
+      const result = await finalizeRun(RUN_ID, projectDir, sink)
+
+      expect(result.success).toBe(false)
+      expect(sink.isFinalized).toBe(false)
+      const events = sink.getEvents()
+      expect(events.at(-1)?.type).toBe("run.finalization_failed")
+      expect(events.filter((event) => event.type === "run.finalized")).toHaveLength(0)
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true })
+    }
+  })
 })

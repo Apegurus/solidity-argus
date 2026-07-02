@@ -447,8 +447,12 @@ export async function finalizeRun(
   const sessionId = events.at(-1)?.session_id ?? ""
 
   if (sink) {
+    // WS-3 I3/#18: SEAL (run.finalized) only on a SUCCESSFUL finalization. A failed
+    // finalization emits run.finalization_failed instead, leaving the sink FAILED_RECOVERABLE
+    // (open) so remediation / themis disposition / a regenerated report can still be recorded
+    // and finalizeRun can be retried.
     await sink.append({
-      type: "run.finalized",
+      type: invariantsPassed ? "run.finalized" : "run.finalization_failed",
       run_id: runId,
       seq: 0,
       session_id: sessionId,
@@ -466,7 +470,9 @@ export async function finalizeRun(
         build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
       },
     })
-    sink.markFinalized()
+    if (invariantsPassed) {
+      sink.markFinalized()
+    }
   }
 
   return {
