@@ -152,25 +152,28 @@ export function createSessionActivator(options: SessionActivatorOptions) {
 
       const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
       if (recoveredState) {
+        // WS-3 I10: reportGenerated is NOT terminal — a report-generated-but-unsealed run is
+        // still active (awaiting Themis disposition), so recovery discards only on staleness,
+        // never on report generation alone.
         const isStale =
           typeof recoveredState.startTime === "number" &&
           timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
-        const isCompleted = recoveredState.reportGenerated === true
-        if (isStale || isCompleted) {
+        if (isStale) {
           logger.debug(
-            `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
+            `Discarding stale recovered state for run ${recoveredState.sessionId} (>24h)`,
           )
           recoveredState = null
         }
       }
 
       if (recoveredState && auditState) {
+        // WS-3 I4: preserve the recovered run's original runId (sessionId) and startTime — do NOT
+        // rebind to the fresh activation's, which would split the run's journal/findings across a
+        // new runId. Only projectDir tracks the current activation (in case the path moved).
         setAuditState(
           {
             ...recoveredState,
-            sessionId: auditState.sessionId,
             projectDir: auditState.projectDir,
-            startTime: auditState.startTime,
           },
           sessionId,
         )

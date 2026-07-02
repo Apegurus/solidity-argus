@@ -7,6 +7,7 @@ import type { createRunJournal } from "../features/persistent-state/run-journal"
 import type { AuditStateManager } from "../managers/types"
 import type { Logger } from "../shared/logger"
 import { createAuditState } from "../state/audit-state"
+import type { AuditState } from "../state/types"
 import { createBoundedSinkRegistry } from "./bounded-sink-registry"
 import { createSessionActivator } from "./session-activation"
 
@@ -19,11 +20,11 @@ const silentLogger: Logger = {
   warn() {},
 }
 
-function stubManager(): AuditStateManager {
+function stubManager(recovered: AuditState | null = null): AuditStateManager {
   return {
     bindSession() {},
     async load() {
-      return null
+      return recovered
     },
     async save() {},
     get() {
@@ -36,7 +37,7 @@ function stubManager(): AuditStateManager {
   }
 }
 
-function makeHarness(opts: { failSinkSetup?: boolean } = {}) {
+function makeHarness(opts: { failSinkSetup?: boolean; recoveredState?: AuditState } = {}) {
   const projectDir = mkdtempSync(join(tmpdir(), "argus-session-activation-"))
   const activatedSessions = new Set<string>()
   const auditStates = new Map<string, ReturnType<typeof createAuditState>["state"]>()
@@ -61,7 +62,7 @@ function makeHarness(opts: { failSinkSetup?: boolean } = {}) {
           }
         }
       : () => {},
-    getSessionManager: () => stubManager(),
+    getSessionManager: () => stubManager(opts.recoveredState ?? null),
     runJournal: { log: () => {} } as unknown as ReturnType<typeof createRunJournal>,
     logger: silentLogger,
     activatedSessions,
@@ -93,6 +94,26 @@ test("marks a session activated once the durable sink is established", async () 
   try {
     await h.activate(SESSION_ID)
     expect(h.activatedSessions.has(SESSION_ID)).toBe(true)
+  } finally {
+    rmSync(h.projectDir, { recursive: true, force: true })
+  }
+})
+
+test("resumes a recovered post-report run under its original identity (WS-3 I4/I10)", async () => {
+  const recovered = createAuditState("/recovered-project").state
+  recovered.sessionId = "original-run-id"
+  const startTime = Date.now() - 60_000
+  recovered.startTime = startTime
+  recovered.reportGenerated = true
+
+  const h = makeHarness({ recoveredState: recovered })
+  h.auditStates.set(SESSION_ID, createAuditState(h.projectDir).state)
+
+  try {
+    await h.activate(SESSION_ID)
+    const effective = h.auditStates.get(SESSION_ID)
+    expect(effective?.sessionId).toBe("original-run-id")
+    expect(effective?.startTime).toBe(startTime)
   } finally {
     rmSync(h.projectDir, { recursive: true, force: true })
   }
