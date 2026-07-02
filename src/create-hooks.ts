@@ -699,12 +699,16 @@ export function createHooks(args: {
               const deletedSessionId = eventSessionId
               const isChildSession =
                 deletedSessionId != null && agentTracker.getParentSession(deletedSessionId) != null
-              if (!isChildSession) {
+              // WS-3 I8: only tear down shared/global audit state for a session that actually
+              // activated. A never-activated session owns no state of its own; archiving would
+              // fall back to the global manager and wipe a concurrent session's live audit.
+              const shouldArchive =
+                !isChildSession &&
+                deletedSessionId != null &&
+                activatedSessions.has(deletedSessionId)
+              if (shouldArchive && deletedSessionId != null) {
                 const deletedManager =
-                  deletedSessionId != null
-                    ? (sessionStateRegistry.getExistingManager(deletedSessionId) ??
-                      auditStateManager)
-                    : auditStateManager
+                  sessionStateRegistry.getExistingManager(deletedSessionId) ?? auditStateManager
                 await deletedManager.archive()
               }
 
@@ -727,7 +731,7 @@ export function createHooks(args: {
               runJournal.log({
                 type: "session.deleted",
                 timestamp: Date.now(),
-                archived: true,
+                archived: shouldArchive,
                 finalizationPassed: finalizationResult?.invariantsPassed ?? null,
               })
             }

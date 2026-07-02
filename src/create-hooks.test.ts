@@ -421,6 +421,31 @@ describe("createHooks", () => {
     expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
   })
 
+  it("does not archive shared audit state when a never-activated session is deleted (WS-3 I8)", async () => {
+    const config = ArgusConfigSchema.parse({})
+    let archiveCalls = 0
+    const managers = makeManagers()
+    managers.auditStateManager.archive = async () => {
+      archiveCalls++
+    }
+
+    const hooks = createHooks({
+      config,
+      managers,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-never-activated" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await hooks.event?.({
+      event: { type: "session.deleted", properties: { info: { id: "oc-never-activated" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    expect(archiveCalls).toBe(0)
+  })
+
   it("materializes findings artifact after successful session finalization", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-materialize-${Date.now()}`
