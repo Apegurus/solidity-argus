@@ -2182,3 +2182,56 @@ Content...`
     })
   })
 })
+
+describe("createToolTrackingHook orphan buffer bounds (WS-3 I7)", () => {
+  const CLEAN_RESULT = JSON.stringify({ success: true, findingsCount: 0, findings: [] })
+
+  function bufferingHook(orphanBufferBounds: {
+    maxSessions?: number
+    maxEventsPerSession?: number
+    ttlMs?: number
+  }): ReturnType<typeof createToolTrackingHook> {
+    const state = createAuditState("/test/project").state
+    state.sessionId = "orphan-run"
+    return createToolTrackingHook(() => state, undefined, { orphanBufferBounds })
+  }
+
+  function bufferSession(
+    hook: ReturnType<typeof createToolTrackingHook>,
+    sessionID: string,
+  ): Promise<void> {
+    return hook({ tool: "argus_check_patterns", args: {}, result: CLEAN_RESULT, sessionID })
+  }
+
+  test("evicts the stalest session when the global session cap is exceeded", async () => {
+    const hook = bufferingHook({ maxSessions: 2 })
+    await bufferSession(hook, "sess-A")
+    await bufferSession(hook, "sess-B")
+    await bufferSession(hook, "sess-C")
+
+    expect(await hook.flushOrphanEvents("sess-A", createMockSink("orphan-run"))).toBe(0)
+    expect(await hook.flushOrphanEvents("sess-B", createMockSink("orphan-run"))).toBeGreaterThan(0)
+    expect(await hook.flushOrphanEvents("sess-C", createMockSink("orphan-run"))).toBeGreaterThan(0)
+  })
+
+  test("proactively reclaims TTL-expired sessions when a new session buffers", async () => {
+    const hook = bufferingHook({ ttlMs: 1 })
+    await bufferSession(hook, "sess-old")
+    await new Promise((resolve) => setTimeout(resolve, 12))
+    await bufferSession(hook, "sess-new")
+
+    expect(await hook.flushOrphanEvents("sess-old", createMockSink("orphan-run"))).toBe(0)
+    expect(await hook.flushOrphanEvents("sess-new", createMockSink("orphan-run"))).toBeGreaterThan(
+      0,
+    )
+  })
+
+  test("clearOrphanEvents drops a session's buffer on session.deleted cleanup", async () => {
+    const hook = bufferingHook({})
+    await bufferSession(hook, "sess-x")
+
+    hook.clearOrphanEvents("sess-x")
+
+    expect(await hook.flushOrphanEvents("sess-x", createMockSink("orphan-run"))).toBe(0)
+  })
+})

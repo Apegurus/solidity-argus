@@ -714,6 +714,7 @@ export function createHooks(args: {
                 pendingSinkCreations.delete(deletedSessionId)
                 pendingActivations.delete(deletedSessionId)
                 activatedSessions.delete(deletedSessionId)
+                toolTrackingHook?.clearOrphanEvents(deletedSessionId)
                 await sessionStateRegistry.deleteSession(deletedSessionId)
               }
 
