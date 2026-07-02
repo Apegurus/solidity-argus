@@ -216,10 +216,14 @@ export function createSessionActivator(options: SessionActivatorOptions) {
               scope: effectiveState.scope,
             },
           })
+
+          sessionActivated = true
         } catch (error) {
           logger.warn(
             `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
           )
+          setEventSink(null, sessionId)
+          sinkRegistry.deleteSession(sessionId)
         }
         recordRun({
           runId: effectiveState.sessionId,
@@ -241,8 +245,6 @@ export function createSessionActivator(options: SessionActivatorOptions) {
           ),
         )
       }
-
-      sessionActivated = true
     } finally {
       if (sessionActivated) {
         activatedSessions.add(sessionId)
