@@ -3,8 +3,14 @@ import { homedir } from "node:os"
 import { basename, dirname, extname, join, resolve } from "node:path"
 import { loadArgusConfig } from "../../config/loader"
 import type { ArgusConfig } from "../../config/types"
-import { ScvdApiError, ScvdClient, ScvdNetworkError } from "../../knowledge/scvd-client"
+import {
+  assertScvdApiUrlAllowed,
+  ScvdApiError,
+  ScvdClient,
+  ScvdNetworkError,
+} from "../../knowledge/scvd-client"
 import { createLogger } from "../../shared/logger"
+import { ProcessRunnerError } from "../../shared/process-runner"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
@@ -619,10 +625,13 @@ export const doctorCommand: CliCommand = {
       // Parse the stats body via the client (not just response.ok) so an API schema drift
       // surfaces as a real problem instead of a false "reachable"; 10s covers cold starts.
       const scvdApiUrl = config?.knowledge?.scvd?.apiUrl ?? "https://api.scvd.dev"
+      assertScvdApiUrlAllowed(scvdApiUrl)
       const stats = await new ScvdClient(scvdApiUrl, AbortSignal.timeout(10_000)).fetchStats()
       cliOutput.log(`${GREEN}✓${RESET} SCVD API: reachable (${stats.total} findings)`)
     } catch (error) {
-      if (error instanceof ScvdNetworkError) {
+      if (error instanceof ProcessRunnerError) {
+        cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: apiUrl not allowed — ${error.message}`)
+      } else if (error instanceof ScvdNetworkError) {
         cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: unreachable`)
       } else if (error instanceof ScvdApiError) {
         cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: returned HTTP ${error.httpStatus}`)

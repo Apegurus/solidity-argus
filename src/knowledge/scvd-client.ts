@@ -20,6 +20,7 @@ export interface ScvdFindingsPage {
   nextCursor?: string
 }
 
+import { assertAllowedHost } from "../shared/process-runner"
 import { isRecord } from "../shared/type-guards"
 
 const DEFAULT_PAGE_SIZE = 100
@@ -210,6 +211,10 @@ export class ScvdApiError extends Error {
     super(message ?? `SCVD API error: HTTP ${httpStatus}`)
     this.httpStatus = httpStatus
   }
+}
+
+export function assertScvdApiUrlAllowed(apiUrl: string): void {
+  assertAllowedHost(apiUrl)
 }
 
 export class ScvdClient {
