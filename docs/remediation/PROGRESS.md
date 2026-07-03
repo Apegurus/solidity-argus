@@ -61,9 +61,16 @@ Implement per the Oracle-approved state machine — do NOT re-derive lifecycle a
 - **WS-5 (3 highs)** — finding-store hydration dedup by normalized content (finding-store:55) + `hasFinding` path normalization (:92); schema-version **copy-on-read** migration with typed `MigrationError` (schemas:458). Fixture journal at prior schema_version (happy + corrupt).
 - After EACH step: full `bun test` + `bun run typecheck` + `bun run check`; red→green locking test per closed high; then commit + push (accumulating PR #27).
 
-## Phase 3–4 — LATER
-- Phase 3: WS-6 resource caps (byte/count/time budgets on migrated paths).
-- Phase 4: WS-9 regression coverage + de-dup + CI/test hermeticity — incl. gitignore the still-untracked `tests/fixtures/vulnerable-vault/foundry.lock` test artifact (R2/WS-9).
+## Phase 3 — IN PROGRESS (WS-6 global resource limits; broad medium sweep, 0 highs)
+High-value concrete caps landed; remaining sweep sites are lower-value/diffuse follow-ups. Full suite **1963 pass / 3 skip / 0 fail**, `tsc` + `biome` clean.
+- **✅ pattern-checker dependency/build-dir exclusion — pushed `f7fb456`** (R2): `collectSolidityFiles` skips `node_modules`/`.git`/`lib`/`out`/`cache` (finding pollution + unbounded-work vector on large repos); explicit file targets unaffected.
+- **✅ source-excerpt bounded read — pushed `6627a0b`** (R2): new `readTextCapped` (bounded read, never fully buffers an oversized file, `capped` flag) with a 2MB budget on the tool/LLM-controlled project source file.
+- **Already covered by earlier phases:** forge/subprocess stdout+stderr caps (`process-runner` `cap`/`runTrusted`, WS-7); orphan-buffer global cap + TTL sweep + clear-on-`session.deleted` (#17/I7, WS-3).
+- **Acceptance status:** pattern-dir exclusion ✅ · oversized project file → capped ✅ · forge stdout → capped ✅ · orphan buffers ✅ · **oversized remote response → capped: DEFERRED** (SCVD/PDF/Solodit; JSON needs a stream-bounded reject, not truncate; host already allowlisted via adj_2).
+- **Remaining WS-6 sweep (follow-up):** remote-response stream-bounded reject-cap (scvd-client, audit-ingest PDF, solodit); project-config read-size cap; global run-index compaction; background-task retention bound; pattern/skill corpus scan count+time budget.
+
+## Phase 4 — LATER
+- WS-9 regression coverage + de-dup + CI/test hermeticity — incl. gitignore the still-untracked `tests/fixtures/vulnerable-vault/foundry.lock` test artifact (R2/WS-9).
 
 ## Verification protocol (every step)
 Baseline at `82d76a2` was green (1863 pass). Never leave a regression. Run the full `bun test` + `bun run typecheck` + `bun run check` after each change; every closed high needs a named locking test that is red on `82d76a2` and green after. No `as any`/`@ts-ignore`; typed errors; parse untrusted input at the boundary.
