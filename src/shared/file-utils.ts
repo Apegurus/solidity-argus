@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { stripJsoncComments } from "./jsonc-parser"
 import { defaultRootResolver } from "./path-root-resolver"
@@ -59,5 +59,23 @@ export function readJsoncFile(filePath: string): Record<string, unknown> | null 
     return parsed as Record<string, unknown>
   } catch (_error) {
     return null
+  }
+}
+
+/** Read a UTF-8 file bounded to `maxBytes`; an oversized file is truncated (never fully buffered) and flagged `capped`. */
+export function readTextCapped(
+  filePath: string,
+  maxBytes: number,
+): { text: string; capped: boolean } {
+  if (statSync(filePath).size <= maxBytes) {
+    return { text: readFileSync(filePath, "utf-8"), capped: false }
+  }
+  const fd = openSync(filePath, "r")
+  try {
+    const buffer = Buffer.allocUnsafe(maxBytes)
+    const bytesRead = readSync(fd, buffer, 0, maxBytes, 0)
+    return { text: buffer.subarray(0, bytesRead).toString("utf-8"), capped: true }
+  } finally {
+    closeSync(fd)
   }
 }

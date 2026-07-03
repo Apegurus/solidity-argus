@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { detectConfigFile, readJsoncFile } from "./file-utils"
+import { detectConfigFile, readJsoncFile, readTextCapped } from "./file-utils"
 
 describe("file-utils", () => {
   const testDir = `/tmp/argus-test-${Date.now()}`
@@ -172,6 +172,27 @@ describe("file-utils", () => {
 
       const result = readJsoncFile(configPath)
       expect(result).toBeNull()
+    })
+  })
+
+  describe("readTextCapped", () => {
+    it("reads a file within budget whole, without the capped flag", () => {
+      const filePath = join(testDir, "small.txt")
+      writeFileSync(filePath, "hello world")
+
+      const result = readTextCapped(filePath, 1024)
+      expect(result.capped).toBe(false)
+      expect(result.text).toBe("hello world")
+    })
+
+    it("truncates an oversized file to the byte budget and sets the capped flag", () => {
+      const filePath = join(testDir, "big.txt")
+      writeFileSync(filePath, "A".repeat(5000))
+
+      const result = readTextCapped(filePath, 1024)
+      expect(result.capped).toBe(true)
+      expect(Buffer.byteLength(result.text, "utf8")).toBeLessThanOrEqual(1024)
+      expect(result.text.length).toBeLessThan(5000)
     })
   })
 })

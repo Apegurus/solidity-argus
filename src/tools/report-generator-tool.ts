@@ -9,6 +9,7 @@ import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/gl
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic } from "../shared/drop-diagnostics"
 import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
+import { readTextCapped } from "../shared/file-utils"
 import {
   computeFailedKeyTools,
   computeMissingKeyTools,
@@ -987,6 +988,8 @@ function sanitizeBodyMarkdown(text: string): string {
   return out.join("\n")
 }
 
+const MAX_SOURCE_EXCERPT_BYTES = 2 * 1024 * 1024
+
 export function sourceExcerpt(projectDir: string, finding: Finding): string | null {
   if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return null
   const start = finding.lines[0]
@@ -999,7 +1002,7 @@ export function sourceExcerpt(projectDir: string, finding: Finding): string | nu
   if (path.isAbsolute(finding.file) || !isContained(finding.file, projectDir)) return null
   const absolutePath = path.join(projectDir, finding.file)
   if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) return null
-  const contents = readFileSync(absolutePath, "utf-8").split(/\r?\n/)
+  const contents = readTextCapped(absolutePath, MAX_SOURCE_EXCERPT_BYTES).text.split(/\r?\n/)
   const excerpt = contents.slice(start - 1, end).join("\n")
   return excerpt.trim().length > 0 ? excerpt : null
 }
