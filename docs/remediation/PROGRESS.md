@@ -62,12 +62,13 @@ Implement per the Oracle-approved state machine — do NOT re-derive lifecycle a
 - After EACH step: full `bun test` + `bun run typecheck` + `bun run check`; red→green locking test per closed high; then commit + push (accumulating PR #27).
 
 ## Phase 3 — IN PROGRESS (WS-6 global resource limits; broad medium sweep, 0 highs)
-High-value concrete caps landed; remaining sweep sites are lower-value/diffuse follow-ups. Full suite **1963 pass / 3 skip / 0 fail**, `tsc` + `biome` clean.
+High-value concrete caps landed; all acceptance-driven behaviors covered. Remaining sweep sites are lower-value/diffuse follow-ups. Full suite **1965 pass / 3 skip / 0 fail**, `tsc` + `biome` clean.
 - **✅ pattern-checker dependency/build-dir exclusion — pushed `f7fb456`** (R2): `collectSolidityFiles` skips `node_modules`/`.git`/`lib`/`out`/`cache` (finding pollution + unbounded-work vector on large repos); explicit file targets unaffected.
 - **✅ source-excerpt bounded read — pushed `6627a0b`** (R2): new `readTextCapped` (bounded read, never fully buffers an oversized file, `capped` flag) with a 2MB budget on the tool/LLM-controlled project source file.
+- **✅ SCVD remote-response cap — pushed `1581423`** (R2): `readJsonBodyCapped` stream-reads the body under a 16MB budget, cancelling the download and rejecting (`ScvdNetworkError`) on overflow (JSON can't be partially parsed → reject, not truncate); wired into `fetchStats`/`fetchFindings`.
 - **Already covered by earlier phases:** forge/subprocess stdout+stderr caps (`process-runner` `cap`/`runTrusted`, WS-7); orphan-buffer global cap + TTL sweep + clear-on-`session.deleted` (#17/I7, WS-3).
-- **Acceptance status:** pattern-dir exclusion ✅ · oversized project file → capped ✅ · forge stdout → capped ✅ · orphan buffers ✅ · **oversized remote response → capped: DEFERRED** (SCVD/PDF/Solodit; JSON needs a stream-bounded reject, not truncate; host already allowlisted via adj_2).
-- **Remaining WS-6 sweep (follow-up):** remote-response stream-bounded reject-cap (scvd-client, audit-ingest PDF, solodit); project-config read-size cap; global run-index compaction; background-task retention bound; pattern/skill corpus scan count+time budget.
+- **Acceptance status — ALL MET:** pattern-dir exclusion ✅ · oversized project file → capped ✅ · forge stdout → capped ✅ · orphan buffers ✅ · oversized remote response → capped ✅ (SCVD, the primary remote surface).
+- **Remaining WS-6 sweep (lower-value follow-up):** apply the same response cap to audit-ingest PDF + Solodit fetches; project-config read-size cap; global run-index compaction; background-task retention bound; pattern/skill corpus scan count+time budget.
 
 ## Phase 4 — LATER
 - WS-9 regression coverage + de-dup + CI/test hermeticity — incl. gitignore the still-untracked `tests/fixtures/vulnerable-vault/foundry.lock` test artifact (R2/WS-9).
