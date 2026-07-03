@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { ScvdClient, type ScvdFinding, ScvdNetworkError } from "./scvd-client"
+import { readJsonBodyCapped, ScvdClient, type ScvdFinding, ScvdNetworkError } from "./scvd-client"
 
 type MockResponseInit = {
   ok?: boolean
@@ -241,5 +241,22 @@ describe("ScvdClient", () => {
 
     expect(signals).toHaveLength(1)
     expect(signals[0]).toBe(abortController.signal)
+  })
+})
+
+describe("readJsonBodyCapped", () => {
+  test("parses a within-budget JSON response", async () => {
+    const response = new Response(JSON.stringify({ total: 3 }))
+    const body = (await readJsonBodyCapped(response, "https://scvd.test/stats", 1024)) as {
+      total: number
+    }
+    expect(body.total).toBe(3)
+  })
+
+  test("rejects an oversized response instead of buffering it unbounded (WS-6)", async () => {
+    const response = new Response("x".repeat(4096))
+    await expect(
+      readJsonBodyCapped(response, "https://scvd.test/findings", 512),
+    ).rejects.toBeInstanceOf(ScvdNetworkError)
   })
 })

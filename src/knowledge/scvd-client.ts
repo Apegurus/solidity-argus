@@ -24,6 +24,7 @@ import { assertAllowedHost } from "../shared/process-runner"
 import { isRecord } from "../shared/type-guards"
 
 const DEFAULT_PAGE_SIZE = 100
+const MAX_SCVD_RESPONSE_BYTES = 16 * 1024 * 1024
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -217,6 +218,34 @@ export function assertScvdApiUrlAllowed(apiUrl: string): void {
   assertAllowedHost(apiUrl)
 }
 
+// Read + JSON-parse a response body bounded to `maxBytes`, cancelling the download and rejecting
+// once the cap is crossed — a remote (allowlisted but untrusted) mirror cannot exhaust memory with
+// an unbounded body. JSON cannot be partially parsed, so this rejects rather than truncates.
+export async function readJsonBodyCapped(
+  response: Response,
+  url: string,
+  maxBytes: number = MAX_SCVD_RESPONSE_BYTES,
+): Promise<unknown> {
+  const stream = response.body
+  if (!stream) {
+    return (await response.json()) as unknown
+  }
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    received += value.byteLength
+    if (received > maxBytes) {
+      await reader.cancel()
+      throw new ScvdNetworkError(`SCVD response from ${url} exceeded the ${maxBytes}-byte cap`)
+    }
+    chunks.push(value)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
+}
+
 export class ScvdClient {
   private readonly baseUrl: string
   private readonly signal?: AbortSignal
@@ -244,7 +273,7 @@ export class ScvdClient {
       )
     }
 
-    const body = (await response.json()) as unknown
+    const body = await readJsonBodyCapped(response, url)
     return parseStats(body)
   }
 
@@ -280,7 +309,7 @@ export class ScvdClient {
       throw new ScvdApiError(response.status, `SCVD API error: HTTP ${response.status} for ${url}`)
     }
 
-    const body = (await response.json()) as unknown
+    const body = await readJsonBodyCapped(response, url)
     return { findings: parseFindings(body), nextCursor: parseNextCursor(body) }
   }
 
