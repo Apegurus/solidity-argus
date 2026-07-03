@@ -199,7 +199,17 @@ async function collectScvdMatches(
   }))
 }
 
-function collectSolidityFiles(target: string, maxDepth = 8): string[] {
+// Dependency/build directories excluded from the default .sol discovery walk: scanning them
+// pollutes findings with third-party/generated code and is an unbounded-work vector on large repos.
+const EXCLUDED_SCAN_DIRS: ReadonlySet<string> = new Set([
+  "node_modules",
+  ".git",
+  "lib",
+  "out",
+  "cache",
+])
+
+export function collectSolidityFiles(target: string, maxDepth = 8): string[] {
   const absoluteTarget = resolve(target)
   let stats: ReturnType<typeof statSync>
 
@@ -230,6 +240,7 @@ function collectSolidityFiles(target: string, maxDepth = 8): string[] {
     for (const entry of entries) {
       const fullPath = resolve(current.path, entry.name)
       if (entry.isDirectory()) {
+        if (EXCLUDED_SCAN_DIRS.has(entry.name)) continue
         stack.push({ path: fullPath, depth: current.depth + 1 })
         continue
       }

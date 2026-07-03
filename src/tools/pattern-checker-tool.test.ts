@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import {
+  collectSolidityFiles,
   executePatternCheck,
   type Match,
   PATTERN_PACK_VERSION,
@@ -70,6 +71,30 @@ test("patternCheckerTool uses tool() helper contract", () => {
   expect(patternCheckerTool.description.length).toBeGreaterThan(0)
   expect(patternCheckerTool.args).toBeDefined()
   expect(typeof patternCheckerTool.execute).toBe("function")
+})
+
+test("collectSolidityFiles excludes dependency and build directories (WS-6)", () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-scan-"))
+  tempDirs.push(root)
+
+  const write = (rel: string): void => {
+    const abs = join(root, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, "// SPDX-License-Identifier: MIT\ncontract C {}\n")
+  }
+  write("src/Vault.sol")
+  write("contracts/Token.sol")
+  write("lib/forge-std/Test.sol")
+  write("node_modules/pkg/Dep.sol")
+  write(".git/hooks/Weird.sol")
+  write("out/Compiled.sol")
+  write("cache/Cached.sol")
+
+  const found = collectSolidityFiles(root)
+    .map((p) => relative(root, p))
+    .sort()
+
+  expect(found).toEqual(["contracts/Token.sol", "src/Vault.sol"])
 })
 
 test("executePatternCheck detects reentrancy in VulnerableVault fixture", async () => {
