@@ -6,6 +6,7 @@ Compaction-safe state for resuming this work. Authoritative plan:
 `.reviews/codebase-solidity-argus-2026-07-01.md` + `.reviews/codebase-argus-2026-07-01.md` (gitignored).
 
 ## Context
+- **RESUME POINTER: Phases 0–3 DONE + pushed; NEXT = Phase 4 (WS-9 de-dup/hermeticity/LOC-reduction sweep, 0 highs). Full suite 1969 pass / 3 skip / 0 fail, `tsc` + `biome` clean; `fix/security-hardening` in sync with origin (PR #27 → `staging`).**
 - Worktree `/projects/argus-security-hardening`, branch `fix/security-hardening`, base `origin/staging` @ `82d76a2`.
 - **Delivery: single accumulating PR** → `origin/staging` (user pivoted away from per-phase PRs). Opened at Phase 0; updated each phase; merged after the final re-audit gate.
 - Locked decisions: behavior-changes-OK (security minor, document breaks); scope = **32 highs + named high-value mediums** (remaining tail → follow-up issue); checkpoint at each phase boundary; Oracle design review is a Phase-0 gate.
@@ -74,8 +75,14 @@ Every identified in-repo unbounded input/retention surface is now byte/count/tim
 - **Acceptance status — ALL MET:** pattern-dir exclusion ✅ · oversized project file → capped ✅ · forge stdout → capped ✅ · orphan buffers ✅ · oversized remote response → capped ✅.
 - **N/A (not in-repo runtime surfaces):** Solodit fetches run in an external MCP subprocess (no in-repo body read); audit-ingest PDF extraction is a dev-only script (README: not in the npm package; agents don't run it).
 
-## Phase 4 — LATER
-- WS-9 regression coverage + de-dup + CI/test hermeticity — incl. gitignore the still-untracked `tests/fixtures/vulnerable-vault/foundry.lock` test artifact (R2/WS-9).
+## Phase 4 — NEXT (WS-9: regression coverage, de-duplication & hermeticity · effort L · 0 highs)
+Coverage locks are already in place (each WS-1..WS-8 fix shipped its red→green locking test; the adversarial-boundary suite is green). Remaining is a **behavior-preserving** de-dup / hermeticity / LOC-reduction sweep. Land as green-committable increments; full `bun test` + `tsc` + `biome` after each; existing suites must stay green (no behavior change).
+- **Oversized-module splits:** `pattern-loader.ts` (~985 LOC → extract regex-safety/parsing); oversized `report-generator-tool.ts` (~2392 LOC → extract cohesive units).
+- **Duplication removal:** forge-test coverage path now owned by `forge-coverage-tool` (`forge-test-tool.ts:44`); unused `select`/`text` TUI helpers (`tui-prompts.ts:27`); trivial `smoke.test.ts`; stale `coverage_out.txt`; collapse the duplicated refutation rubric to one pointer (`refutation-rubric-instructions.ts:23`); export one confidence-threshold constant (`schema.ts:37`).
+- **Correctness fold-in:** ABI state-mutability mislabeled as visibility (`solidity-parser.ts:237`).
+- **Test hermeticity:** integration tests → isolated `mkdtemp` roots (`full-audit.test.ts:18` shared fixture state); CLI registration tests → stubs, no real `doctor`/`init`/`install` (`cli-program.test.ts:126`); add missing tests for `session-activation.ts:30`.
+- **CI / artifacts:** pin `bun-version` (`.github/workflows/ci.yml:36`); **gitignore the still-untracked `tests/fixtures/vulnerable-vault/foundry.lock`** test artifact.
+- **Acceptance:** adversarial-boundary suite green; integration uses `mkdtemp`; CLI tests stubbed; CI pins bun; `bun test` + `tsc` green; net LOC reduced (~−1028/−141) with existing suites still passing.
 
 ## Verification protocol (every step)
 Baseline at `82d76a2` was green (1863 pass). Never leave a regression. Run the full `bun test` + `bun run typecheck` + `bun run check` after each change; every closed high needs a named locking test that is red on `82d76a2` and green after. No `as any`/`@ts-ignore`; typed errors; parse untrusted input at the boundary.
