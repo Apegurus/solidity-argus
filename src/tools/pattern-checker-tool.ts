@@ -209,7 +209,7 @@ const EXCLUDED_SCAN_DIRS: ReadonlySet<string> = new Set([
   "cache",
 ])
 
-export function collectSolidityFiles(target: string, maxDepth = 8): string[] {
+export function collectSolidityFiles(target: string, maxDepth = 8, maxFiles = 5000): string[] {
   const absoluteTarget = resolve(target)
   let stats: ReturnType<typeof statSync>
 
@@ -230,7 +230,7 @@ export function collectSolidityFiles(target: string, maxDepth = 8): string[] {
   const discovered: string[] = []
   const stack: Array<{ path: string; depth: number }> = [{ path: absoluteTarget, depth: 0 }]
 
-  while (stack.length > 0) {
+  while (stack.length > 0 && discovered.length < maxFiles) {
     const current = stack.pop()
     if (!current || current.depth > maxDepth) {
       continue
@@ -247,6 +247,7 @@ export function collectSolidityFiles(target: string, maxDepth = 8): string[] {
 
       if (entry.isFile() && extname(entry.name) === ".sol") {
         discovered.push(fullPath)
+        if (discovered.length >= maxFiles) break
       }
     }
   }

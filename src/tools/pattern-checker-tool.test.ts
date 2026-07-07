@@ -97,6 +97,22 @@ test("collectSolidityFiles excludes dependency and build directories (WS-6)", ()
   expect(found).toEqual(["contracts/Token.sol", "src/Vault.sol"])
 })
 
+test("collectSolidityFiles caps discovery at maxFiles (WS-6)", () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-scan-cap-"))
+  tempDirs.push(root)
+
+  mkdirSync(join(root, "src"), { recursive: true })
+  for (let i = 0; i < 6; i += 1) {
+    writeFileSync(
+      join(root, "src", `C${i}.sol`),
+      "// SPDX-License-Identifier: MIT\ncontract C {}\n",
+    )
+  }
+
+  expect(collectSolidityFiles(root, 8, 3)).toHaveLength(3)
+  expect(collectSolidityFiles(root, 8, 100)).toHaveLength(6)
+})
+
 test("executePatternCheck detects reentrancy in VulnerableVault fixture", async () => {
   const result = await executePatternCheck(
     {
