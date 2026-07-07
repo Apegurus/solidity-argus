@@ -61,14 +61,18 @@ Implement per the Oracle-approved state machine — do NOT re-derive lifecycle a
 - **WS-5 (3 highs)** — finding-store hydration dedup by normalized content (finding-store:55) + `hasFinding` path normalization (:92); schema-version **copy-on-read** migration with typed `MigrationError` (schemas:458). Fixture journal at prior schema_version (happy + corrupt).
 - After EACH step: full `bun test` + `bun run typecheck` + `bun run check`; red→green locking test per closed high; then commit + push (accumulating PR #27).
 
-## Phase 3 — IN PROGRESS (WS-6 global resource limits; broad medium sweep, 0 highs)
-High-value concrete caps landed; all acceptance-driven behaviors covered. Remaining sweep sites are lower-value/diffuse follow-ups. Full suite **1965 pass / 3 skip / 0 fail**, `tsc` + `biome` clean.
-- **✅ pattern-checker dependency/build-dir exclusion — pushed `f7fb456`** (R2): `collectSolidityFiles` skips `node_modules`/`.git`/`lib`/`out`/`cache` (finding pollution + unbounded-work vector on large repos); explicit file targets unaffected.
-- **✅ source-excerpt bounded read — pushed `6627a0b`** (R2): new `readTextCapped` (bounded read, never fully buffers an oversized file, `capped` flag) with a 2MB budget on the tool/LLM-controlled project source file.
-- **✅ SCVD remote-response cap — pushed `1581423`** (R2): `readJsonBodyCapped` stream-reads the body under a 16MB budget, cancelling the download and rejecting (`ScvdNetworkError`) on overflow (JSON can't be partially parsed → reject, not truncate); wired into `fetchStats`/`fetchFindings`.
+## Phase 3 — DONE, verified ✅ (WS-6 global resource limits; broad medium sweep, 0 highs)
+Every identified in-repo unbounded input/retention surface is now byte/count/time-bounded with a red→green locking test. Full suite **1969 pass / 3 skip / 0 fail**, `tsc` + `biome` clean; zero regressions vs the `82d76a2` baseline (1863).
+- **✅ pattern-checker dependency/build-dir exclusion — `f7fb456`** (R2): `collectSolidityFiles` skips `node_modules`/`.git`/`lib`/`out`/`cache` (finding pollution + unbounded-work vector); explicit file targets unaffected.
+- **✅ source-excerpt bounded read — `6627a0b`** (R2): new `readTextCapped` (bounded read, never fully buffers, `capped` flag) with a 2MB budget on the tool/LLM-controlled project source file.
+- **✅ SCVD remote-response cap — `1581423`** (R2): `readJsonBodyCapped` stream-reads under a 16MB budget, cancelling + rejecting (`ScvdNetworkError`) on overflow (JSON → reject, not truncate); wired into `fetchStats`/`fetchFindings`.
+- **✅ background-task retention bound — `a79dbeb`** (R2): evict oldest terminal tasks past a bound (default 1000) so the `tasks` map can't leak over a long session; active/queued never evicted.
+- **✅ global run-index compaction — `d70006d`** (R2): `compactRunIndex` rewrites the append-only index to its most recent entries once it crosses a 1MB budget (keep last 500); dropped entries are old/terminated.
+- **✅ pattern-scan file-count budget — `9a8ae48`** (R2): `collectSolidityFiles` stops at `maxFiles` (default 5000) so an adversary repo can't pack unbounded `.sol` under `src/`.
+- **✅ project-config read-size cap — `2430b33`** (R2): `readJsoncFile` routes through `readTextCapped` (512KB) and rejects an oversized config.
 - **Already covered by earlier phases:** forge/subprocess stdout+stderr caps (`process-runner` `cap`/`runTrusted`, WS-7); orphan-buffer global cap + TTL sweep + clear-on-`session.deleted` (#17/I7, WS-3).
-- **Acceptance status — ALL MET:** pattern-dir exclusion ✅ · oversized project file → capped ✅ · forge stdout → capped ✅ · orphan buffers ✅ · oversized remote response → capped ✅ (SCVD, the primary remote surface).
-- **Remaining WS-6 sweep (lower-value follow-up):** apply the same response cap to audit-ingest PDF + Solodit fetches; project-config read-size cap; global run-index compaction; background-task retention bound; pattern/skill corpus scan count+time budget.
+- **Acceptance status — ALL MET:** pattern-dir exclusion ✅ · oversized project file → capped ✅ · forge stdout → capped ✅ · orphan buffers ✅ · oversized remote response → capped ✅.
+- **N/A (not in-repo runtime surfaces):** Solodit fetches run in an external MCP subprocess (no in-repo body read); audit-ingest PDF extraction is a dev-only script (README: not in the npm package; agents don't run it).
 
 ## Phase 4 — LATER
 - WS-9 regression coverage + de-dup + CI/test hermeticity — incl. gitignore the still-untracked `tests/fixtures/vulnerable-vault/foundry.lock` test artifact (R2/WS-9).
