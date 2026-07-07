@@ -37,15 +37,17 @@ export function detectConfigFile(basePath: string): ConfigFileInfo {
   }
 }
 
+const MAX_CONFIG_BYTES = 512 * 1024
+
 export function readJsoncFile(filePath: string): Record<string, unknown> | null {
   try {
     if (!existsSync(filePath)) {
       return null
     }
 
-    const content = readFileSync(filePath, "utf-8")
+    const { text: content, capped } = readTextCapped(filePath, MAX_CONFIG_BYTES)
 
-    if (!content.trim()) {
+    if (capped || !content.trim()) {
       return null
     }
 

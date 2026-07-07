@@ -173,6 +173,13 @@ describe("file-utils", () => {
       const result = readJsoncFile(configPath)
       expect(result).toBeNull()
     })
+
+    it("rejects an oversized config instead of reading it unbounded (WS-6)", () => {
+      const configPath = join(testDir, "huge.json")
+      writeFileSync(configPath, `{"key":"value"}${" ".repeat(600 * 1024)}`)
+
+      expect(readJsoncFile(configPath)).toBeNull()
+    })
   })
 
   describe("readTextCapped", () => {
