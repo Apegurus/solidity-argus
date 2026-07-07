@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs"
-import { appendFile, mkdir } from "node:fs/promises"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { appendFile, mkdir, writeFile } from "node:fs/promises"
 import { getGlobalRunIndexDir, getGlobalRunIndexFile } from "../../shared/cache-paths"
 import { createLogger } from "../../shared/logger"
 
@@ -32,8 +32,35 @@ export async function recordRun(entry: RunIndexEntry): Promise<void> {
   try {
     await ensureDir()
     await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(entry)}\n`)
+    await compactRunIndexIfOversized()
   } catch {
     logger.debug("Failed to write global run index entry")
+  }
+}
+
+const MAX_RUN_INDEX_BYTES = 1 * 1024 * 1024
+const RUN_INDEX_KEEP_ENTRIES = 500
+
+// The index is append-only (a line per run + status update); left unbounded it grows without limit
+// and resolveRunIdFromOpencodeSession re-reads all of it. Compaction rewrites the file to its most
+// recent entries once it crosses the byte budget — dropped entries are old (stale/terminated).
+export async function compactRunIndex(keepEntries: number): Promise<void> {
+  const file = getGlobalRunIndexFile()
+  try {
+    const lines = readFileSync(file, "utf-8")
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+    if (lines.length <= keepEntries) return
+    await writeFile(file, `${lines.slice(-keepEntries).join("\n")}\n`)
+  } catch {
+    logger.debug("Failed to compact global run index")
+  }
+}
+
+async function compactRunIndexIfOversized(): Promise<void> {
+  const file = getGlobalRunIndexFile()
+  if (existsSync(file) && statSync(file).size > MAX_RUN_INDEX_BYTES) {
+    await compactRunIndex(RUN_INDEX_KEEP_ENTRIES)
   }
 }
 
