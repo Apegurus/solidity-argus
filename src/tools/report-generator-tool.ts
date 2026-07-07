@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
+import { DEFAULT_CONFIDENCE_THRESHOLD } from "../config/schema"
 import type { ArgusConfig } from "../config/types"
 import { readEvents } from "../features/persistent-state/event-sink"
 import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/global-run-index"
@@ -1759,7 +1760,7 @@ export function renderReportMarkdown(
   const projectName = options.projectName ?? "Unknown Project"
   const includeExecutiveSummary = options.include_executive_summary ?? true
   const threshold = options.severity_threshold ?? "informational"
-  const confidenceThreshold = options.threshold ?? 80
+  const confidenceThreshold = options.threshold ?? DEFAULT_CONFIDENCE_THRESHOLD
   const preflightWarningSection = options.preflightWarningSection ?? null
   const toolsExecuted = input.toolsExecuted ?? []
   const state = reportInputToAuditState({ ...input, toolsExecuted })
@@ -1890,7 +1891,7 @@ export async function executeReportGeneration(
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
   const toolCoveragePolicy = args.tool_coverage_policy ?? "enforce"
   const expectedRunId = resolveExpectedRunId(args, context, deps)
-  let confidenceThreshold = 80
+  let confidenceThreshold = DEFAULT_CONFIDENCE_THRESHOLD
   let loadedConfig: ArgusConfig | undefined
   let configLoadFailed = false
   const invalidRegenerationOptions =
