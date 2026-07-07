@@ -236,9 +236,10 @@ export async function extractContractInfo(
 
     // Extract functions from ABI
     const functions = abi.filter((item) => item.type === "function")
+    // ABI functions are all externally reachable; mutability is a separate axis (below).
     result.functions = functions.map((func) => ({
       name: func.name || "",
-      visibility: mapStateMutabilityToVisibility(func.stateMutability || "nonpayable"),
+      visibility: "external",
       mutability: func.stateMutability || "nonpayable",
       modifiers: [],
     }))
@@ -262,23 +263,6 @@ export async function extractContractInfo(
   } catch (e) {
     result.error = `Unexpected error: ${e instanceof Error ? e.message : "Unknown error"}`
     return result
-  }
-}
-
-/**
- * Map Solidity stateMutability to visibility
- * ABI doesn't directly specify visibility, so we infer from mutability
- */
-function mapStateMutabilityToVisibility(stateMutability: string): string {
-  switch (stateMutability) {
-    case "pure":
-    case "view":
-      return "view"
-    case "payable":
-    case "nonpayable":
-      return "external"
-    default:
-      return "external"
   }
 }
 

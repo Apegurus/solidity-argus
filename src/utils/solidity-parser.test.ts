@@ -245,7 +245,7 @@ test("extractContractInfo - handles forge error gracefully", async () => {
   }
 })
 
-test("extractContractInfo - maps stateMutability to visibility correctly", async () => {
+test("extractContractInfo - reports external visibility and preserves stateMutability for all ABI functions", async () => {
   const abiWithAllMutabilities = JSON.stringify([
     {
       type: "function",
@@ -285,11 +285,11 @@ test("extractContractInfo - maps stateMutability to visibility correctly", async
     const result = await extractContractInfo("MutabilityTest", "/test/project")
 
     const pureFunc = result.functions.find((f) => f.name === "pureFunc")
-    expect(pureFunc?.visibility).toBe("view")
+    expect(pureFunc?.visibility).toBe("external")
     expect(pureFunc?.mutability).toBe("pure")
 
     const viewFunc = result.functions.find((f) => f.name === "viewFunc")
-    expect(viewFunc?.visibility).toBe("view")
+    expect(viewFunc?.visibility).toBe("external")
     expect(viewFunc?.mutability).toBe("view")
 
     const nonpayableFunc = result.functions.find((f) => f.name === "nonpayableFunc")
