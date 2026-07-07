@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import type { Config } from "@opencode-ai/sdk"
 import type { ArgusConfig } from "../../src/config/types"
@@ -55,14 +57,14 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
   },
 }
 
-function createMockContext() {
+function createMockContext(directory: string = FIXTURE_DIR) {
   const controller = new AbortController()
   return {
     sessionID: "integration-session",
     messageID: "integration-message",
     agent: "argus",
-    directory: FIXTURE_DIR,
-    worktree: FIXTURE_DIR,
+    directory,
+    worktree: directory,
     abort: controller.signal,
     metadata: (_: { title: string }) => {},
     ask: async () => undefined,
@@ -93,6 +95,14 @@ function makeFinding(overrides: Partial<Finding>): Finding {
 }
 
 describe("full audit integration", () => {
+  let reportRoot: string
+  beforeEach(async () => {
+    reportRoot = await mkdtemp(path.join(tmpdir(), "argus-full-audit-"))
+  })
+  afterEach(async () => {
+    await rm(reportRoot, { recursive: true, force: true })
+  })
+
   test("plugin loads and exports all expected tools", async () => {
     const pluginContext = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const plugin = await ArgusPlugin(pluginContext)
@@ -236,7 +246,7 @@ describe("full audit integration", () => {
           scope: ["VulnerableVault.sol"],
         }),
       } as Parameters<typeof reportGeneratorTool.execute>[0],
-      createMockContext(),
+      createMockContext(reportRoot),
     )
 
     const result = JSON.parse(payload) as {
