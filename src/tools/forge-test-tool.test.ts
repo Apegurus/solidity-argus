@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
-import { executeForgeTest, type ForgeCommandResult, forgeTestTool } from "./forge-test-tool"
+import { executeForgeTest, forgeTestTool } from "./forge-test-tool"
 
 function createContext(): { context: ToolContext; metadataCalls: Array<{ title?: string }> } {
   const metadataCalls: Array<{ title?: string }> = []
@@ -146,107 +146,6 @@ test("executeForgeTest parses real forge --json output format", async () => {
       gas: 32100,
     },
   ])
-})
-
-test("executeForgeTest runs coverage command and parses report", async () => {
-  const { context } = createContext()
-  const responses: ForgeCommandResult[] = [
-    {
-      stdout: JSON.stringify({
-        tests: {
-          "VaultTest.sol": {
-            test_deposit: { status: "Success", gas: 21000 },
-          },
-        },
-        success: true,
-      }),
-      stderr: "",
-      exitCode: 0,
-    },
-    {
-      stdout: JSON.stringify({
-        files: [
-          {
-            path: "src/Vault.sol",
-            lineCoverage: 80,
-            branchCoverage: 70,
-            functionCoverage: 50,
-            uncoveredFunctions: ["withdraw", "emergencyWithdraw"],
-          },
-          {
-            path: "src/Token.sol",
-            lines: 100,
-            branches: 90,
-            functions: 100,
-            uncoveredFunctions: [],
-          },
-        ],
-      }),
-      stderr: "",
-      exitCode: 0,
-    },
-  ]
-
-  const calls: string[][] = []
-  const cwdCalls: string[] = []
-  const result = await executeForgeTest(
-    {
-      target: "contracts",
-      coverage: true,
-      match_test: "test_deposit",
-      match_contract: "VaultTest",
-      fork_url: "https://rpc.example",
-      gas_report: true,
-      verbosity: 4,
-    },
-    context,
-    async (command, options) => {
-      calls.push(command)
-      cwdCalls.push(options.cwd ?? "")
-      const next = responses.shift()
-      if (!next) {
-        throw new Error("missing mocked response")
-      }
-      return next
-    },
-  )
-
-  expect(calls).toEqual([
-    [
-      "forge",
-      "test",
-      "--json",
-      "-vvvv",
-      "--match-test",
-      "test_deposit",
-      "--match-contract",
-      "VaultTest",
-      "--fork-url",
-      "https://rpc.example",
-      "--gas-report",
-    ],
-    ["forge", "coverage", "--report", "json"],
-  ])
-  expect(cwdCalls).toEqual(["/tmp/project/contracts", "/tmp/project/contracts"])
-  expect(result.success).toBe(true)
-  expect(result.coverageReport).toEqual({
-    files: [
-      {
-        path: "src/Vault.sol",
-        lines: 80,
-        branches: 70,
-        functions: 50,
-        uncoveredFunctions: ["withdraw", "emergencyWithdraw"],
-      },
-      {
-        path: "src/Token.sol",
-        lines: 100,
-        branches: 90,
-        functions: 100,
-        uncoveredFunctions: [],
-      },
-    ],
-  })
 })
 
 test("executeForgeTest rejects path traversal in target", async () => {

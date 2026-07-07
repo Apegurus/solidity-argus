@@ -347,7 +347,6 @@ describe("full audit integration", () => {
         {
           target: FIXTURE_DIR,
           verbosity: 3,
-          coverage: false,
         },
         createMockContext(),
       )
