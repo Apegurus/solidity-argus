@@ -141,13 +141,25 @@ function isPrivateIpv4(ip: string): boolean {
   }
   const a = Number(v4[1])
   const b = Number(v4[2])
+  const c = Number(v4[3])
+  // Block every non-globally-routable / special-purpose IPv4 block (IANA "IPv4
+  // Special-Purpose Address Registry"), not just RFC1918: an SSRF guard that only
+  // rejects 10/8·172.16/12·192.168/16 still lets a config reach CGNAT, benchmarking,
+  // TEST-NET, multicast, and reserved space (all non-public destinations).
   return (
-    a === 0 ||
-    a === 127 ||
-    a === 10 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
+    a === 0 || // 0.0.0.0/8 "this host"
+    a === 10 || // 10.0.0.0/8 private
+    (a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 carrier-grade NAT
+    a === 127 || // 127.0.0.0/8 loopback
+    (a === 169 && b === 254) || // 169.254.0.0/16 link-local
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 private
+    (a === 192 && b === 0 && c === 0) || // 192.0.0.0/24 IETF protocol assignments
+    (a === 192 && b === 0 && c === 2) || // 192.0.2.0/24 TEST-NET-1
+    (a === 192 && b === 168) || // 192.168.0.0/16 private
+    (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 benchmarking
+    (a === 198 && b === 51 && c === 100) || // 198.51.100.0/24 TEST-NET-2
+    (a === 203 && b === 0 && c === 113) || // 203.0.113.0/24 TEST-NET-3
+    a >= 224 // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved + 255.255.255.255 broadcast
   )
 }
 

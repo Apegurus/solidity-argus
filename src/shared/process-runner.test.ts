@@ -102,6 +102,38 @@ test("assertAllowedHost rejects loopback, private, link-local, and non-http targ
   }
 })
 
+test("assertAllowedHost rejects non-global special-purpose IPv4 ranges", () => {
+  for (const bad of [
+    "http://100.64.0.1/x",
+    "http://100.127.255.254/x",
+    "http://198.18.0.1/x",
+    "http://198.19.255.1/x",
+    "http://192.0.0.1/x",
+    "http://192.0.2.5/x",
+    "http://198.51.100.5/x",
+    "http://203.0.113.5/x",
+    "http://224.0.0.1/x",
+    "http://240.0.0.1/x",
+    "http://255.255.255.255/x",
+    "http://[::ffff:100.64.0.1]/x",
+  ]) {
+    expect(() => assertAllowedHost(bad)).toThrow(ProcessRunnerError)
+  }
+})
+
+test("assertAllowedHost still allows genuine public IPv4 adjacent to special ranges", () => {
+  for (const ok of [
+    "http://8.8.8.8/x",
+    "http://100.63.255.255/x",
+    "http://100.128.0.1/x",
+    "http://198.17.255.255/x",
+    "http://198.20.0.1/x",
+    "http://223.255.255.255/x",
+  ]) {
+    expect(() => assertAllowedHost(ok)).not.toThrow()
+  }
+})
+
 test("safeCliValue passes a normal value through", () => {
   expect(safeCliValue("match-path", "test/Foo.t.sol")).toBe("test/Foo.t.sol")
 })
