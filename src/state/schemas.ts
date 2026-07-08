@@ -576,11 +576,11 @@ export function validateCanonicalToolExecution(
     })
   }
 
-  if (typeof raw.schema_version !== "string" || raw.schema_version.trim().length === 0) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
-      code: "required",
-      message: "schema_version is required and must be a non-empty string",
+      code: "version_mismatch",
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -588,7 +588,7 @@ export function validateCanonicalToolExecution(
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as CanonicalToolExecution }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as CanonicalToolExecution }
 }
 export function validateReportInput(raw: unknown): ValidationResult<ReportInput> {
   if (!isRecord(raw)) {

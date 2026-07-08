@@ -226,11 +226,15 @@ describe("deterministic replay projectors", () => {
     expect(reportHashes.size).toBe(1)
   })
 
-  test("replays a journal whose finding payloads are at a prior schema_version (WS-5 #27)", () => {
+  test("replays a legacy journal (envelope AND payload at a prior schema_version) (WS-5 #27 / adj_24)", () => {
     const priorVersionEvents: AuditEvent[] = fixtureEvents().map((event) => {
       if (event.type !== "finding.added") return event
       const payload = event.payload as CanonicalFinding
-      return { ...event, payload: { ...payload, schema_version: "2.0.0" } }
+      return {
+        ...event,
+        schema_version: "2.0.0",
+        payload: { ...payload, schema_version: "2.0.0" },
+      }
     })
 
     const findings = projectFindings(priorVersionEvents)

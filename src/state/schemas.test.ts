@@ -565,4 +565,35 @@ describe("schema migration (WS-5 #27)", () => {
       expect(result.data.schema_version).toBe(SCHEMA_VERSION)
     }
   })
+
+  test("validateCanonicalToolExecution accepts and upgrades a prior-schema record (adj_25)", () => {
+    const result = validateCanonicalToolExecution({
+      tool: "argus_slither_analyze",
+      startTime: 1700000000,
+      endTime: 1700000010,
+      success: true,
+      findingsCount: 0,
+      run_id: "run-1",
+      schema_version: "2.0.0",
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.schema_version).toBe(SCHEMA_VERSION)
+    }
+  })
+
+  test("validateCanonicalToolExecution rejects an unrecognized schema_version (adj_25)", () => {
+    const result = validateCanonicalToolExecution({
+      tool: "argus_slither_analyze",
+      startTime: 1700000000,
+      endTime: 1700000010,
+      success: true,
+      findingsCount: 0,
+      run_id: "run-1",
+      schema_version: "not-a-version",
+    })
+
+    expect(result.success).toBe(false)
+  })
 })
