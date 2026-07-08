@@ -21,19 +21,27 @@ describe("forge-runner", () => {
       expect(result.exitCode).toBe(0)
     })
 
-    it("should bound stderr without bounding stdout", async () => {
+    it("should bound BOTH stdout and stderr to the configured byte caps", async () => {
       const result = await runForgeCommand(
         [
           "bun",
           "-e",
-          "process.stdout.write('o'.repeat(201000)); process.stderr.write('e'.repeat(201000))",
+          "process.stdout.write('o'.repeat(5000)); process.stderr.write('e'.repeat(5000))",
         ],
-        {},
+        { maxStdoutBytes: 1000, maxStderrBytes: 1000 },
       )
 
-      expect(result.stdout.length).toBe(201_000)
-      expect(result.stderr.length).toBeLessThan(201_000)
-      expect(result.stderr).toContain("stderr truncated")
+      expect(result.stdout.startsWith("o".repeat(1000))).toBe(true)
+      expect(result.stdout).toContain("stdout truncated: 4000 bytes omitted")
+      expect(result.stderr.startsWith("e".repeat(1000))).toBe(true)
+      expect(result.stderr).toContain("stderr truncated: 4000 bytes omitted")
+      expect(result.exitCode).toBe(0)
+    })
+
+    it("should not append a truncation marker when output is under the cap", async () => {
+      const result = await runForgeCommand(["echo", "small"], {})
+      expect(result.stdout.trim()).toBe("small")
+      expect(result.stdout).not.toContain("truncated")
     })
 
     it("should pass env variables to the command", async () => {

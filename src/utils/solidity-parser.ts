@@ -1,5 +1,10 @@
 import * as parser from "@solidity-parser/parser"
 import { buildSafeEnv } from "../shared/process-runner"
+import {
+  MAX_SUBPROCESS_STDERR_BYTES,
+  MAX_SUBPROCESS_STDOUT_BYTES,
+  readStreamCapped,
+} from "../shared/subprocess-io"
 import type { ContractProfile } from "../state/types"
 
 const EXTERNAL_CALL_METHODS = new Set(["call", "transfer", "send", "delegatecall", "staticcall"])
@@ -164,10 +169,12 @@ async function spawnForgeInspect(
   })
 
   try {
-    const exitCode = await Promise.race([proc.exited, timer])
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    return { success: exitCode === 0, stdout, stderr }
+    const [exitCode, stdout, stderr] = await Promise.all([
+      Promise.race([proc.exited, timer]),
+      readStreamCapped(proc.stdout, MAX_SUBPROCESS_STDOUT_BYTES),
+      readStreamCapped(proc.stderr, MAX_SUBPROCESS_STDERR_BYTES),
+    ])
+    return { success: exitCode === 0, stdout: stdout.text, stderr: stderr.text }
   } finally {
     if (timerId !== undefined) clearTimeout(timerId)
   }

@@ -23,6 +23,13 @@ import {
 } from "../shared/binary-utils"
 import { buildSafeEnv } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
+import {
+  appendTruncationMarker,
+  DEFAULT_SUBPROCESS_TIMEOUT_MS,
+  MAX_SUBPROCESS_STDERR_BYTES,
+  MAX_SUBPROCESS_STDOUT_BYTES,
+  readStreamCapped,
+} from "../shared/subprocess-io"
 
 type SlitherArgs = {
   target: string
@@ -242,18 +249,19 @@ export const runSlitherCommand: RunSlitherCommand = async (command, signal, cwd)
     stdout: "pipe",
     stderr: "pipe",
     signal,
+    timeout: DEFAULT_SUBPROCESS_TIMEOUT_MS,
     env: buildSafeEnv(),
   })
 
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    readStreamCapped(child.stdout, MAX_SUBPROCESS_STDOUT_BYTES),
+    readStreamCapped(child.stderr, MAX_SUBPROCESS_STDERR_BYTES),
   ])
 
   return {
-    stdout,
-    stderr,
+    stdout: appendTruncationMarker(stdout, "stdout"),
+    stderr: appendTruncationMarker(stderr, "stderr"),
     exitCode,
   }
 }
