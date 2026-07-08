@@ -190,8 +190,18 @@ export function createEventSink(
       if (lastEvent) {
         lastSeq = lastEvent.seq
         lastEventType = lastEvent.type
-        if (sinkState.value !== "SEALED" && lastEvent.type === "run.finalization_failed") {
-          sinkState.value = "FAILED_RECOVERABLE"
+      }
+      // Derive FAILED_RECOVERABLE from the LATEST finalization-state event, not the literal last
+      // event: a failed run stays FAILED_RECOVERABLE while later remediation/finding/disposition
+      // events are appended, until a successful run.finalized. Marker-based SEALED keeps precedence.
+      if (sinkState.value !== "SEALED") {
+        for (let i = events.length - 1; i >= 0; i -= 1) {
+          const type = events[i]?.type
+          if (type === "run.finalized") break
+          if (type === "run.finalization_failed") {
+            sinkState.value = "FAILED_RECOVERABLE"
+            break
+          }
         }
       }
     } catch (err) {

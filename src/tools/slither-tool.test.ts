@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import {
+  defaultSpawnFn,
   detectViaIr,
   executeSlitherAnalyze,
   type FlattenFallbackDeps,
@@ -11,6 +12,12 @@ import {
   type SlitherRunResult,
   slitherTool,
 } from "./slither-tool"
+
+test("defaultSpawnFn drains stderr without deadlocking and returns stdout (adj_3 / Oracle blocker)", async () => {
+  const result = await defaultSpawnFn(["sh", "-c", "yes x | head -c 200000 >&2; printf done"])
+  expect(result.stdout).toBe("done")
+  expect(result.exitCode).toBe(0)
+})
 
 function createContext(overrides?: Partial<ToolContext>): {
   context: ToolContext

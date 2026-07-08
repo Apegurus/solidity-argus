@@ -88,6 +88,7 @@ describe("EventSink", () => {
     const sink1 = createEventSink(RUN_ID, projectDir)
     await sink1.append(makeEvent({ type: "session.created" }))
     await sink1.append(makeEvent({ type: "run.finalization_failed" }))
+    await sink1.append(makeEvent({ type: "finding.added" }))
     expect(sink1.state).toBe("FAILED_RECOVERABLE")
 
     resetSinkRegistry()
@@ -100,6 +101,7 @@ describe("EventSink", () => {
     expect(events.map((e) => e.type)).toEqual([
       "session.created",
       "run.finalization_failed",
+      "finding.added",
       "finding.added",
     ])
   })
