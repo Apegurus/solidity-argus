@@ -15,6 +15,7 @@ export interface FindingStore {
   addFinding(finding: Omit<Finding, "id">): Finding
   getFindings(filter?: { severity?: FindingSeverity; source?: Finding["source"] }): Finding[]
   hasFinding(check: string, file: string, lines: [number, number]): boolean
+  removeFindings(ids: readonly string[]): void
   serialize(): string
 }
 
@@ -116,6 +117,20 @@ export function createFindingStore(state: AuditState): FindingStore {
     )
   }
 
+  function removeFindings(ids: readonly string[]): void {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    for (let i = state.findings.length - 1; i >= 0; i -= 1) {
+      if (idSet.has(state.findings[i]?.id ?? "")) state.findings.splice(i, 1)
+    }
+    for (let i = hydratedFindings.length - 1; i >= 0; i -= 1) {
+      if (idSet.has(hydratedFindings[i]?.id ?? "")) hydratedFindings.splice(i, 1)
+    }
+    for (const [cid, f] of findingByContentId) {
+      if (idSet.has(f.id)) findingByContentId.delete(cid)
+    }
+  }
+
   function serialize(): string {
     const findings = hydratedFindings.slice()
     const contractCount = state.contractsReviewed.length
@@ -161,6 +176,7 @@ export function createFindingStore(state: AuditState): FindingStore {
     addFinding,
     getFindings,
     hasFinding,
+    removeFindings,
     serialize,
   }
 }

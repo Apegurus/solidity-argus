@@ -78,6 +78,46 @@ function createFailingSink(runId = "test-run"): EventSink {
   }
 }
 
+function createFindingAppendFailingSink(runId = "test-run"): EventSink {
+  const events: AuditEvent[] = []
+  let seq = 0
+  const owners = new Set<string>()
+  const state = { finalized: false }
+  return {
+    runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
+    get isFinalized() {
+      return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
+    },
+    markFinalized() {
+      state.finalized = true
+    },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
+    async append(event: AuditEvent): Promise<void> {
+      if (event.type === "finding.added") {
+        throw new Error("Sink write failure")
+      }
+      seq++
+      events.push({ ...event, seq })
+    },
+    async readAll(): Promise<AuditEvent[]> {
+      return [...events]
+    },
+  }
+}
+
 describe("createToolTrackingHook", () => {
   let auditState: AuditState
   let hook: (input: { tool: string; args: unknown; result: string }) => Promise<void>
@@ -250,6 +290,35 @@ describe("createToolTrackingHook", () => {
         result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
       }),
     ).rejects.toThrow(/no durable event sink|findings would be lost/i)
+
+    expect(auditState.findings).toHaveLength(before)
+  })
+
+  test("argus_record_finding rolls back live state when the durable append fails (WS-3 I6 / adj_9)", async () => {
+    const before = auditState.findings.length
+    const hookWithFailingSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => createFindingAppendFailingSink(),
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+    const findingItem = {
+      check: "manual-append-fails",
+      severity: "High",
+      confidence: "High",
+      description: "should be rolled back when the journal append fails",
+      file: "src/Auth.sol",
+      lines: [1, 2],
+      source: "manual",
+      reported_by_agent: "argus",
+    }
+
+    await expect(
+      hookWithFailingSink({
+        tool: "argus_record_finding",
+        args: { findings: JSON.stringify([findingItem]) },
+        result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
+      }),
+    ).rejects.toThrow(/Sink write failure|Failed to emit/i)
 
     expect(auditState.findings).toHaveLength(before)
   })

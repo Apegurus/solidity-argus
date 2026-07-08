@@ -1155,11 +1155,19 @@ export function createToolTrackingHook(
               },
               projectDir,
             )
-            await emitToSink(
-              sink,
-              buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
-              { failFast },
-            )
+            try {
+              await emitToSink(
+                sink,
+                buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
+                { failFast },
+              )
+            } catch (err) {
+              // WS-3 I6: the durable journal append failed — roll this finding and every
+              // later un-journaled one out of live state so the persisted snapshot never
+              // holds a finding the journal lacks. Already-journaled findings stay.
+              store.removeFindings(newFindings.slice(index).map((f) => f.id))
+              throw err
+            }
           }
         }
 
