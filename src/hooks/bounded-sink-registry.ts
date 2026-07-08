@@ -25,7 +25,10 @@ export function createBoundedSinkRegistry(options: {
   const createdAtByRunId = new Map<string, number>()
 
   function markFinalizedBestEffort(sink: EventSink): void {
-    if (sink.isFinalized) return
+    // A FAILED_RECOVERABLE sink (failed finalization awaiting remediation/disposition/regen,
+    // WS-3 I3) must NOT be force-sealed by capacity/TTL eviction — sealing would drop those
+    // later events. Its state is re-derived from the journal on the next createEventSink.
+    if (sink.isFinalized || sink.state === "FAILED_RECOVERABLE") return
 
     try {
       sink.markFinalized()

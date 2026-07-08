@@ -190,6 +190,9 @@ export function createEventSink(
       if (lastEvent) {
         lastSeq = lastEvent.seq
         lastEventType = lastEvent.type
+        if (sinkState.value !== "SEALED" && lastEvent.type === "run.finalization_failed") {
+          sinkState.value = "FAILED_RECOVERABLE"
+        }
       }
     } catch (err) {
       throw new EventSinkError("IO_ERROR", `Failed to initialize event sink: ${String(err)}`)
@@ -303,6 +306,7 @@ export function createEventSink(
     },
 
     async readAll(): Promise<AuditEvent[]> {
+      await ensureInitialized()
       const content = await readRawContent(journalPath)
       return parseJournalLines(content)
     },

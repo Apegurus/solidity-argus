@@ -6,22 +6,23 @@ import {
   createEventSink,
   type EventSink,
   resetSinkRegistry,
+  type SinkState,
 } from "../features/persistent-state/event-sink"
 import { createBoundedSinkRegistry } from "./bounded-sink-registry"
 
 const originalDateNow = Date.now
 
-function makeSink(runId: string): EventSink {
-  let finalized = false
+function makeSink(runId: string, initialState: SinkState = "ACTIVE"): EventSink {
+  let state: SinkState = initialState
   const owners = new Set<string>()
 
   return {
     runId,
     get state() {
-      return finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+      return state
     },
     get isFinalized() {
-      return finalized
+      return state === "SEALED"
     },
     get ownerSet(): ReadonlySet<string> {
       return owners
@@ -37,10 +38,14 @@ function makeSink(runId: string): EventSink {
       return []
     },
     markFinalized(): void {
-      finalized = true
+      state = "SEALED"
     },
-    markDraining(): void {},
-    markFailedRecoverable(): void {},
+    markDraining(): void {
+      if (state === "ACTIVE") state = "DRAINING"
+    },
+    markFailedRecoverable(): void {
+      if (state !== "SEALED") state = "FAILED_RECOVERABLE"
+    },
   }
 }
 
@@ -98,6 +103,17 @@ describe("createBoundedSinkRegistry", () => {
     expect(oldestSink.isFinalized).toBe(true)
     expect(registry.getForSession("session-old")).toBeUndefined()
     expect(registry.getForSession("session-new")).toBe(newestSink)
+  })
+
+  test("eviction does not force-seal a FAILED_RECOVERABLE sink (adj_11)", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 60 * 60 * 1000 })
+    const failed = makeSink("run-failed", "FAILED_RECOVERABLE")
+
+    registry.setForRun("run-failed", failed)
+    registry.setForRun("run-other", makeSink("run-other"))
+
+    expect(failed.state).toBe("FAILED_RECOVERABLE")
+    expect(failed.isFinalized).toBe(false)
   })
 
   test("releases the global run sink cache when max size evicts a run entry", () => {

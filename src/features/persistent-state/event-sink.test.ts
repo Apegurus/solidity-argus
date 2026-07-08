@@ -83,6 +83,27 @@ describe("EventSink", () => {
     expect(events.map((e) => e.type)).toEqual(["run.finalization_failed", "finding.added"])
   })
 
+  test("restores FAILED_RECOVERABLE from the journal on restart (adj_12)", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    await sink1.append(makeEvent({ type: "session.created" }))
+    await sink1.append(makeEvent({ type: "run.finalization_failed" }))
+    expect(sink1.state).toBe("FAILED_RECOVERABLE")
+
+    resetSinkRegistry()
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    await sink2.readAll()
+    expect(sink2.state).toBe("FAILED_RECOVERABLE")
+
+    await sink2.append(makeEvent({ type: "finding.added" }))
+    const events = await sink2.readAll()
+    expect(events.map((e) => e.type)).toEqual([
+      "session.created",
+      "run.finalization_failed",
+      "finding.added",
+    ])
+  })
+
   test("run.finalized seals the sink (SEALED terminal) and drops later non-finalized events (WS-3 I3)", async () => {
     const projectDir = makeTempDir()
     const sink = createEventSink(RUN_ID, projectDir)
