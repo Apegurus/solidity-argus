@@ -113,6 +113,45 @@ test("collectSolidityFiles caps discovery at maxFiles (WS-6)", () => {
   expect(collectSolidityFiles(root, 8, 100)).toHaveLength(6)
 })
 
+test("collectSolidityFiles excludes lib/out/cache only at the scan root, not nested (adj_5)", () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-scan-nested-"))
+  tempDirs.push(root)
+
+  const write = (rel: string): void => {
+    const abs = join(root, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, "// SPDX-License-Identifier: MIT\ncontract C {}\n")
+  }
+  write("src/Vault.sol")
+  write("src/protocol/lib/MathUtils.sol")
+  write("lib/forge-std/Test.sol")
+  write("out/Compiled.sol")
+  write("src/deep/node_modules/nested/Nested.sol")
+  write("src/weird/.git/Hooked.sol")
+
+  const found = collectSolidityFiles(root)
+    .map((p) => relative(root, p))
+    .sort()
+
+  expect(found).toEqual(["src/Vault.sol", "src/protocol/lib/MathUtils.sol"])
+})
+
+test("executePatternCheck refuses a target outside the project directory (adj_4)", async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-proj-"))
+  const outside = mkdtempSync(join(tmpdir(), "argus-outside-"))
+  tempDirs.push(projectDir, outside)
+  writeFileSync(join(outside, "Secret.sol"), "// SPDX-License-Identifier: MIT\ncontract S {}\n")
+
+  const result = await executePatternCheck(
+    { target: join(outside, "Secret.sol"), patterns: ["reentrancy"] },
+    createContextForDir(projectDir),
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error ?? "").toContain("escapes the project directory")
+  expect(result.sources).toHaveLength(0)
+})
+
 test("executePatternCheck detects reentrancy in VulnerableVault fixture", async () => {
   const result = await executePatternCheck(
     {
