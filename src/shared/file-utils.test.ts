@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { detectConfigFile, readJsoncFile, readTextCapped } from "./file-utils"
+import { detectConfigFile, readJsoncFile, readJsoncFileResult, readTextCapped } from "./file-utils"
 
 describe("file-utils", () => {
   const testDir = `/tmp/argus-test-${Date.now()}`
@@ -200,6 +200,50 @@ describe("file-utils", () => {
       expect(result.capped).toBe(true)
       expect(Buffer.byteLength(result.text, "utf8")).toBeLessThanOrEqual(1024)
       expect(result.text.length).toBeLessThan(5000)
+    })
+
+    it("throws on a non-regular file so a special file cannot bypass the cap (adj_2)", () => {
+      const dirPath = join(testDir, "a-directory")
+      mkdirSync(dirPath, { recursive: true })
+      expect(() => readTextCapped(dirPath, 1024)).toThrow()
+    })
+  })
+
+  describe("readJsoncFileResult (adj_1: distinguishes failure modes)", () => {
+    it("returns 'missing' for a non-existent file", () => {
+      expect(readJsoncFileResult(join(testDir, "nope.json")).status).toBe("missing")
+    })
+
+    it("returns 'empty' for a whitespace-only file", () => {
+      const p = join(testDir, "empty.jsonc")
+      writeFileSync(p, "   \n  ")
+      expect(readJsoncFileResult(p).status).toBe("empty")
+    })
+
+    it("returns 'invalid' for malformed JSONC, distinct from missing", () => {
+      const p = join(testDir, "bad.jsonc")
+      writeFileSync(p, "{ oops: }")
+      expect(readJsoncFileResult(p).status).toBe("invalid")
+    })
+
+    it("returns 'invalid' for a non-object top level", () => {
+      const p = join(testDir, "arr.json")
+      writeFileSync(p, "[1,2,3]")
+      expect(readJsoncFileResult(p).status).toBe("invalid")
+    })
+
+    it("returns 'too-large' for an oversized config", () => {
+      const p = join(testDir, "huge2.json")
+      writeFileSync(p, `{"k":"v"}${" ".repeat(600 * 1024)}`)
+      expect(readJsoncFileResult(p).status).toBe("too-large")
+    })
+
+    it("returns 'ok' with the parsed value for valid JSONC", () => {
+      const p = join(testDir, "good.jsonc")
+      writeFileSync(p, `{ "a": 1 /* c */ }`)
+      const r = readJsoncFileResult(p)
+      expect(r.status).toBe("ok")
+      expect(r.status === "ok" ? r.value : null).toEqual({ a: 1 })
     })
   })
 })
