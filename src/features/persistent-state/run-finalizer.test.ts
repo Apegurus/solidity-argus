@@ -457,6 +457,76 @@ describe("finalizeRun", () => {
     expect((latest?.payload as { status?: string } | undefined)?.status).toBe("failed-finalization")
   })
 
+  test("surfaces object-shaped quality-gate violation details (adj_6)", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: {
+          tool: "argus_generate_report",
+          success: true,
+          qualityGates: {
+            passed: false,
+            violations: [
+              {
+                findingId: "reentrancy-drain",
+                code: "MISSING_IMPACT",
+                message: "High finding lacks impact",
+              },
+            ],
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(
+      result.errors.some(
+        (e) => e.includes("MISSING_IMPACT") && e.includes("High finding lacks impact"),
+      ),
+    ).toBe(true)
+  })
+
+  test("reports an unresolved Themis rejection via the disposition verdict (adj_7)", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        tool_call_id: "report-tool-1",
+        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        tool_call_id: "themis-disposition-1",
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "rejected",
+            verdict: {
+              approved: false,
+              pipeline_issues: ["missing PoC"],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.invariantsPassed).toBe(false)
+    expect(result.errors).toContain("generated report has unresolved Themis issues")
+  })
+
   test("fails invariants when report generation is not followed by resolved themis disposition", async () => {
     const sink = makeInMemorySink([
       makeEvent({ type: "session.created", seq: 1 }),
@@ -672,40 +742,6 @@ describe("finalizeRun", () => {
     const result = await finalizeRun(RUN_ID, process.cwd(), sink)
 
     expect(result.invariantsPassed).toBe(true)
-  })
-
-  test("fails invariants when Themis rejects output and Argus records no disposition", async () => {
-    const sink = makeInMemorySink([
-      makeEvent({ type: "session.created", seq: 1 }),
-      makeEvent({
-        type: "tool.completed",
-        seq: 2,
-        tool_call_id: "report-tool-1",
-        payload: { tool: "argus_generate_report", success: true, findingsCount: 0 },
-      }),
-      makeEvent({
-        type: "tool.completed",
-        seq: 3,
-        tool_call_id: "themis-task-1",
-        payload: {
-          tool: "task",
-          success: true,
-          subagent_type: "themis",
-          themis: {
-            approved: false,
-            pipeline_issues: ["report mismatch"],
-            false_positives: [],
-            missed_findings: [],
-            severity_adjustments: [],
-          },
-        },
-      }),
-    ])
-
-    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
-
-    expect(result.invariantsPassed).toBe(false)
-    expect(result.errors).toContain("generated report has unresolved Themis issues")
   })
 
   test("failed finalization emits run.finalization_failed and does not seal the sink (WS-3 I3/#18)", async () => {
