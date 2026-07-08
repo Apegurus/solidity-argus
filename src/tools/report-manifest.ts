@@ -1,8 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { readTextCapped } from "../shared/file-utils"
 import { stableHash } from "../state/projectors"
 import { type ReportInput, SCHEMA_VERSION } from "../state/schemas"
+
+const MAX_REPORT_SCAN_BYTES = 4 * 1024 * 1024
 
 type ReportManifestEntry = {
   revision: number
@@ -104,7 +107,7 @@ export function scanRunReports(
     const filePath = path.join(outputDir, filename)
     try {
       if (!statSync(filePath).isFile()) continue
-      const content = readFileSync(filePath, "utf8")
+      const { text: content } = readTextCapped(filePath, MAX_REPORT_SCAN_BYTES)
       if (extractReportRunId(content) !== runId) continue
       entries.push({
         revision: reportRevisionFromFilename(filename),
