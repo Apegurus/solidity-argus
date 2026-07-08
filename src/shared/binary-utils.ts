@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { createLogger } from "./logger"
+import { buildSafeEnv } from "./process-runner"
 
 const logger = createLogger()
 
@@ -10,6 +11,7 @@ export function hasBinary(name: string): boolean {
       stdout: "ignore",
       stderr: "ignore",
       timeout: 5_000,
+      env: buildSafeEnv(),
     })
     return result.exitCode === 0
   } catch (_e) {
@@ -36,6 +38,7 @@ export async function parseSolcVersion(target: string): Promise<string | undefin
           stdout: "pipe",
           stderr: "pipe",
           signal: AbortSignal.timeout(10_000),
+          env: buildSafeEnv(),
         })
         const exitCode = await proc.exited
         if (exitCode === 0) {

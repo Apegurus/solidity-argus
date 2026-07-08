@@ -5,12 +5,44 @@ import {
   ALL_CATEGORIES,
   type ArgusInstall,
   buildSkillHealthReport,
+  checkBinary,
   detectInstallDrift,
   doctorCommand,
   enumerateArgusInstallCandidates,
   findDuplicateSkills,
   readJsonCapped,
 } from "./doctor"
+
+describe("checkBinary", () => {
+  it("withholds non-allowlisted host env vars from the probed child (adj_29)", () => {
+    const allowed = new Set([
+      "PATH",
+      "HOME",
+      "LANG",
+      "LC_ALL",
+      "LC_CTYPE",
+      "TMPDIR",
+      "TEMP",
+      "TMP",
+      "TERM",
+      "TZ",
+      "FOUNDRY_PROFILE",
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "NO_PROXY",
+      "http_proxy",
+      "https_proxy",
+      "no_proxy",
+    ])
+    const leakVar = Object.keys(Bun.env).find(
+      (k) => !allowed.has(k) && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && (Bun.env[k] ?? "").length > 0,
+    )
+    expect(leakVar).toBeDefined()
+    const result = checkBinary("sh", ["-c", `printf '%s' "\${${leakVar}:-ABSENT}"`])
+    expect(result.found).toBe(true)
+    expect(result.version).toBe("ABSENT")
+  })
+})
 
 describe("readJsonCapped", () => {
   it("rejects a null-body response instead of an unbounded json() fallback (adj_28)", async () => {

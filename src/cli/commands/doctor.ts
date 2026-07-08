@@ -10,7 +10,7 @@ import {
   ScvdNetworkError,
 } from "../../knowledge/scvd-client"
 import { createLogger } from "../../shared/logger"
-import { ProcessRunnerError } from "../../shared/process-runner"
+import { buildSafeEnv, ProcessRunnerError } from "../../shared/process-runner"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
@@ -175,7 +175,7 @@ export async function checkRemoteVersion(opts: {
   }
 }
 
-function checkBinary(
+export function checkBinary(
   name: string,
   versionArgs: string[] = ["--version"],
 ): { found: boolean; version: string | null } {
@@ -184,6 +184,7 @@ function checkBinary(
       stdout: "pipe",
       stderr: "pipe",
       timeout: 5000,
+      env: buildSafeEnv(),
     })
     if (result.exitCode !== 0) {
       return { found: false, version: null }
