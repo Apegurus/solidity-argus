@@ -44,6 +44,22 @@ test("executeForgeFuzz rejects a loopback/link-local fork_url without running fo
   expect(ran).toBe(false)
 })
 
+test("executeForgeFuzz rejects a flag-shaped match_test without running forge (adj_20)", async () => {
+  const { context } = createContext()
+  let ran = false
+  const result = await executeForgeFuzz(
+    { target: ".", match_test: "--fork-url=http://169.254.169.254" },
+    context,
+    async () => {
+      ran = true
+      return { stdout: "", stderr: "", exitCode: 0 }
+    },
+  )
+  expect(result.success).toBe(false)
+  expect(result.error ?? "").toMatch(/option injection|may not start with/i)
+  expect(ran).toBe(false)
+})
+
 test("executeForgeFuzz parses fuzz results and counterexamples", async () => {
   const { context, metadataCalls } = createContext()
   const output = [

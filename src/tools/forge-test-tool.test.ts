@@ -44,6 +44,24 @@ test("executeForgeTest rejects a loopback/link-local fork_url without running fo
   expect(ran).toBe(false)
 })
 
+test("executeForgeTest rejects a flag-shaped match_test/match_contract without running forge (adj_20)", async () => {
+  const { context } = createContext()
+  let ran = false
+  const run = async () => {
+    ran = true
+    return { stdout: "", stderr: "", exitCode: 0 }
+  }
+  for (const bad of [
+    { match_test: "--fork-url=http://169.254.169.254" },
+    { match_contract: "--gas-report" },
+  ]) {
+    const result = await executeForgeTest({ target: ".", ...bad }, context, run)
+    expect(result.success).toBe(false)
+    expect(result.error ?? "").toMatch(/option injection|may not start with/i)
+  }
+  expect(ran).toBe(false)
+})
+
 test("executeForgeTest parses contract-mapped forge test JSON", async () => {
   const { context, metadataCalls } = createContext()
   const stdout = JSON.stringify({

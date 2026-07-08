@@ -4,7 +4,7 @@ import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
 import { assertContained } from "../shared/path-safety"
-import { assertAllowedHost } from "../shared/process-runner"
+import { assertAllowedHost, safeCliValue } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 import { extractJson } from "../utils/solidity-parser"
 
@@ -317,10 +317,10 @@ function buildForgeTestCommand(args: NormalizedForgeTestArgs): string[] {
   const command = ["forge", "test", "--json", `-v${"v".repeat(args.verbosity - 1)}`]
 
   if (args.match_test) {
-    command.push("--match-test", args.match_test)
+    command.push("--match-test", safeCliValue("match-test", args.match_test))
   }
   if (args.match_contract) {
-    command.push("--match-contract", args.match_contract)
+    command.push("--match-contract", safeCliValue("match-contract", args.match_contract))
   }
   if (args.fork_url) {
     command.push("--fork-url", args.fork_url)
