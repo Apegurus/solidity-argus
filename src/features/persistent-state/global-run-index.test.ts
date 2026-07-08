@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { getGlobalRunIndexFile } from "../../shared/cache-paths"
-import { compactRunIndex } from "./global-run-index"
+import { compactRunIndex, resolveRunIdFromOpencodeSession } from "./global-run-index"
 
 function resolveFromLines(
   lines: string[],
@@ -171,6 +171,50 @@ describe("compactRunIndex", () => {
       expect(kept).toHaveLength(5)
       expect(JSON.parse(kept[0] as string).runId).toBe("run-15")
       expect(JSON.parse(kept[4] as string).runId).toBe("run-19")
+    } finally {
+      if (prev === undefined) {
+        delete process.env.ARGUS_CACHE_DIR
+      } else {
+        process.env.ARGUS_CACHE_DIR = prev
+      }
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("preserves a still-active run's mapping while dropping terminated runs (adj_10)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "argus-runindex-adj10-"))
+    const prev = process.env.ARGUS_CACHE_DIR
+    process.env.ARGUS_CACHE_DIR = dir
+    try {
+      mkdirSync(join(dir, "runs"), { recursive: true })
+      const file = getGlobalRunIndexFile()
+
+      const lines: string[] = [
+        JSON.stringify({
+          runId: "run-active",
+          opencodeSessionId: "ses-active",
+          projectDir: "/proj",
+          startedAt: Date.now() - 1000,
+          status: "active",
+        }),
+      ]
+      for (let i = 0; i < 10; i++) {
+        lines.push(
+          JSON.stringify({
+            runId: `run-term-${i}`,
+            opencodeSessionId: `ses-term-${i}`,
+            projectDir: "/proj",
+            startedAt: Date.now() - 500,
+            status: "active",
+          }),
+        )
+        lines.push(JSON.stringify({ runId: `run-term-${i}`, status: "finalized" }))
+      }
+      writeFileSync(file, `${lines.join("\n")}\n`)
+
+      await compactRunIndex(5)
+
+      expect(resolveRunIdFromOpencodeSession("ses-active", "/proj")).toBe("run-active")
     } finally {
       if (prev === undefined) {
         delete process.env.ARGUS_CACHE_DIR

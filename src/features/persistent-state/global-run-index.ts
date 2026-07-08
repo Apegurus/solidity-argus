@@ -28,50 +28,92 @@ async function ensureDir(): Promise<void> {
   dirEnsured = true
 }
 
+// Serialize all writers (append + compaction) in-process so a concurrent append can never land
+// between compaction's read and its full-file rewrite — that read-modify-write race silently
+// dropped just-appended entries. Cross-process races are out of scope: each process orders its own.
+let writeChain: Promise<unknown> = Promise.resolve()
+function serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const run = writeChain.then(fn, fn)
+  writeChain = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 export async function recordRun(entry: RunIndexEntry): Promise<void> {
-  try {
-    await ensureDir()
-    await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(entry)}\n`)
-    await compactRunIndexIfOversized()
-  } catch {
-    logger.debug("Failed to write global run index entry")
-  }
+  return serializeWrite(async () => {
+    try {
+      await ensureDir()
+      await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(entry)}\n`)
+      await compactIfOversizedUnlocked()
+    } catch {
+      logger.debug("Failed to write global run index entry")
+    }
+  })
 }
 
 const MAX_RUN_INDEX_BYTES = 1 * 1024 * 1024
 const RUN_INDEX_KEEP_ENTRIES = 500
 
-// The index is append-only (a line per run + status update); left unbounded it grows without limit
-// and resolveRunIdFromOpencodeSession re-reads all of it. Compaction rewrites the file to its most
-// recent entries once it crosses the byte budget — dropped entries are old (stale/terminated).
-export async function compactRunIndex(keepEntries: number): Promise<void> {
+// The index is append-only (one line per run + status update) and resolveRunIdFromOpencodeSession
+// re-reads all of it, so it is compacted once oversized. Only TERMINATED runs (finalized/failed)
+// are dropped — resolveRun ignores those anyway — while every live session->run mapping is retained.
+async function compactRunIndexUnlocked(keepEntries: number): Promise<void> {
   const file = getGlobalRunIndexFile()
   try {
     const lines = readFileSync(file, "utf-8")
       .split("\n")
       .filter((line) => line.trim().length > 0)
     if (lines.length <= keepEntries) return
-    await writeFile(file, `${lines.slice(-keepEntries).join("\n")}\n`)
+
+    const parsed = lines.map((line) => {
+      try {
+        const entry = JSON.parse(line) as Partial<RunIndexEntry>
+        return { line, runId: entry.runId, status: entry.status }
+      } catch {
+        return {
+          line,
+          runId: undefined as string | undefined,
+          status: undefined as RunStatus | undefined,
+        }
+      }
+    })
+    const terminated = new Set<string>()
+    for (const p of parsed) {
+      if ((p.status === "finalized" || p.status === "failed") && typeof p.runId === "string") {
+        terminated.add(p.runId)
+      }
+    }
+    const live = parsed.filter((p) => typeof p.runId === "string" && !terminated.has(p.runId))
+    const kept = live.length > keepEntries ? live.slice(-keepEntries) : live
+    await writeFile(file, kept.length > 0 ? `${kept.map((p) => p.line).join("\n")}\n` : "")
   } catch {
     logger.debug("Failed to compact global run index")
   }
 }
 
-async function compactRunIndexIfOversized(): Promise<void> {
+export async function compactRunIndex(keepEntries: number): Promise<void> {
+  return serializeWrite(() => compactRunIndexUnlocked(keepEntries))
+}
+
+async function compactIfOversizedUnlocked(): Promise<void> {
   const file = getGlobalRunIndexFile()
   if (existsSync(file) && statSync(file).size > MAX_RUN_INDEX_BYTES) {
-    await compactRunIndex(RUN_INDEX_KEEP_ENTRIES)
+    await compactRunIndexUnlocked(RUN_INDEX_KEEP_ENTRIES)
   }
 }
 
 export async function updateRunStatus(runId: string, status: RunStatus): Promise<void> {
-  try {
-    await ensureDir()
-    const update = { runId, status, finalizedAt: status === "finalized" ? Date.now() : undefined }
-    await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(update)}\n`)
-  } catch {
-    logger.debug("Failed to write run status update")
-  }
+  return serializeWrite(async () => {
+    try {
+      await ensureDir()
+      const update = { runId, status, finalizedAt: status === "finalized" ? Date.now() : undefined }
+      await appendFile(getGlobalRunIndexFile(), `${JSON.stringify(update)}\n`)
+    } catch {
+      logger.debug("Failed to write run status update")
+    }
+  })
 }
 
 const STALE_RUN_TTL_MS = 24 * 60 * 60 * 1000
