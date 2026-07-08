@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { resetSinkRegistry } from "../features/persistent-state/event-sink"
+import { type EventSink, resetSinkRegistry } from "../features/persistent-state/event-sink"
 import type { createRunJournal } from "../features/persistent-state/run-journal"
 import type { AuditStateManager } from "../managers/types"
 import type { Logger } from "../shared/logger"
@@ -37,9 +37,29 @@ function stubManager(recovered: AuditState | null = null): AuditStateManager {
   }
 }
 
+function makeFailingAppendSink(runId: string): EventSink {
+  const ownerSet = new Set<string>()
+  return {
+    runId,
+    ownerSet,
+    isFinalized: false,
+    addOwner: (s: string) => {
+      ownerSet.add(s)
+    },
+    removeOwner: (s: string) => {
+      ownerSet.delete(s)
+    },
+    markFinalized: () => {},
+    append: async () => {
+      throw new Error("durable append failed")
+    },
+  } as unknown as EventSink
+}
+
 function makeHarness(
   opts: {
     failSinkSetup?: boolean
+    failAppend?: boolean
     recoveredState?: AuditState
     parents?: Record<string, string>
   } = {},
@@ -74,9 +94,12 @@ function makeHarness(
     activatedSessions,
     pendingActivations: new Set<string>(),
     pendingSinkCreations: new Set<string>(),
+    ...(opts.failAppend
+      ? { createEventSink: (runId: string) => makeFailingAppendSink(runId) }
+      : {}),
   })
 
-  return { projectDir, activate, activatedSessions, auditStates }
+  return { projectDir, activate, activatedSessions, auditStates, sinkRegistry }
 }
 
 afterEach(() => {
@@ -89,6 +112,19 @@ test("does NOT mark a session activated when sink setup fails (WS-3 I5)", async 
   try {
     await h.activate(SESSION_ID)
     expect(h.activatedSessions.has(SESSION_ID)).toBe(false)
+  } finally {
+    rmSync(h.projectDir, { recursive: true, force: true })
+  }
+})
+
+test("rolls back the run-level sink registration when the durable append fails (adj_8)", async () => {
+  const h = makeHarness({ failAppend: true })
+  const state = createAuditState(h.projectDir).state
+  h.auditStates.set(SESSION_ID, state)
+  try {
+    await h.activate(SESSION_ID)
+    expect(h.activatedSessions.has(SESSION_ID)).toBe(false)
+    expect(h.sinkRegistry.getForRun(state.sessionId)).toBeUndefined()
   } finally {
     rmSync(h.projectDir, { recursive: true, force: true })
   }

@@ -25,6 +25,7 @@ interface SessionActivatorOptions {
   activatedSessions: Set<string>
   pendingActivations: Set<string>
   pendingSinkCreations: Set<string>
+  createEventSink?: (runId: string, projectDir: string) => EventSink
 }
 
 export function createSessionActivator(options: SessionActivatorOptions) {
@@ -41,6 +42,7 @@ export function createSessionActivator(options: SessionActivatorOptions) {
     activatedSessions,
     pendingActivations,
     pendingSinkCreations,
+    createEventSink: makeEventSink = createEventSink,
   } = options
 
   return async function activateSession(sessionId: string): Promise<void> {
@@ -197,7 +199,7 @@ export function createSessionActivator(options: SessionActivatorOptions) {
 
         const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
         try {
-          const sink = createEventSink(effectiveState.sessionId, projectDir)
+          const sink = makeEventSink(effectiveState.sessionId, projectDir)
           setEventSink(sink, sessionId)
           sinkRegistry.setForSession(sessionId, sink)
           sinkRegistry.setForRun(effectiveState.sessionId, sink)
@@ -227,20 +229,25 @@ export function createSessionActivator(options: SessionActivatorOptions) {
           )
           setEventSink(null, sessionId)
           sinkRegistry.deleteSession(sessionId)
+          sinkRegistry.deleteRun(effectiveState.sessionId)
         }
-        recordRun({
-          runId: effectiveState.sessionId,
-          opencodeSessionId: sessionId,
-          projectDir: effectiveState.projectDir,
-          statePath: resolver.paths().stateFile,
-          journalPath: resolver.paths().journalFile,
-          startedAt: effectiveState.startTime,
-          phase: effectiveState.currentPhase,
-          findingsCount: effectiveState.findings.length,
-          status: "active",
-        }).catch((err) =>
-          logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`),
-        )
+        if (sessionActivated) {
+          recordRun({
+            runId: effectiveState.sessionId,
+            opencodeSessionId: sessionId,
+            projectDir: effectiveState.projectDir,
+            statePath: resolver.paths().stateFile,
+            journalPath: resolver.paths().journalFile,
+            startedAt: effectiveState.startTime,
+            phase: effectiveState.currentPhase,
+            findingsCount: effectiveState.findings.length,
+            status: "active",
+          }).catch((err) =>
+            logger.warn(
+              `Failed to record run: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          )
+        }
 
         pruneStaleRuns(effectiveState.projectDir).catch((err) =>
           logger.warn(

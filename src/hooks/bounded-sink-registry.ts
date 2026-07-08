@@ -6,6 +6,7 @@ export interface BoundedSinkRegistry {
   setForSession(sessionId: string, sink: EventSink): void
   setForRun(runId: string, sink: EventSink): void
   deleteSession(sessionId: string): void
+  deleteRun(runId: string): void
   getNewestActiveRunSink(): EventSink | null
   getActiveRunSinks(): EventSink[]
   releaseUnreferencedRuns(): void
@@ -124,6 +125,12 @@ export function createBoundedSinkRegistry(options: {
       byOpencodeSession.get(sessionId)?.removeOwner(sessionId)
       byOpencodeSession.delete(sessionId)
       createdAtBySession.delete(sessionId)
+    },
+
+    deleteRun(runId: string): void {
+      releaseEventSink(runId)
+      byRunId.delete(runId)
+      createdAtByRunId.delete(runId)
     },
 
     getNewestActiveRunSink(): EventSink | null {
