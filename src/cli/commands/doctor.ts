@@ -103,13 +103,15 @@ function compareSemver(a: string, b: string): -1 | 0 | 1 {
 // Bounds the registry response so a misbehaving registry/proxy cannot OOM the
 // doctor command: rejects an oversized declared Content-Length up front, then
 // streams with a hard byte cap (covering responses that omit Content-Length).
-async function readJsonCapped(res: Response, capBytes: number): Promise<unknown> {
+export async function readJsonCapped(res: Response, capBytes: number): Promise<unknown> {
   const declared = Number(res.headers.get("content-length"))
   if (Number.isFinite(declared) && declared > capBytes) {
     throw new Error(`registry response too large (${declared} bytes)`)
   }
   const reader = res.body?.getReader()
-  if (!reader) return await res.json()
+  if (!reader) {
+    throw new Error("registry response has no readable body to bound")
+  }
   const chunks: Uint8Array[] = []
   let total = 0
   let chunk = await reader.read()

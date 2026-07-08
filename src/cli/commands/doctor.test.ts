@@ -9,7 +9,21 @@ import {
   doctorCommand,
   enumerateArgusInstallCandidates,
   findDuplicateSkills,
+  readJsonCapped,
 } from "./doctor"
+
+describe("readJsonCapped", () => {
+  it("rejects a null-body response instead of an unbounded json() fallback (adj_28)", async () => {
+    const res = new Response(null, { status: 200 })
+    await expect(readJsonCapped(res, 1024)).rejects.toThrow("no readable body")
+  })
+
+  it("parses a within-cap JSON body", async () => {
+    const res = new Response(JSON.stringify({ version: "1.2.3" }))
+    const body = (await readJsonCapped(res, 1024)) as { version: string }
+    expect(body.version).toBe("1.2.3")
+  })
+})
 
 function makeSkill(
   name: string,

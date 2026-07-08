@@ -228,7 +228,7 @@ export async function readJsonBodyCapped(
 ): Promise<unknown> {
   const stream = response.body
   if (!stream) {
-    return (await response.json()) as unknown
+    throw new ScvdNetworkError(`SCVD response from ${url} has no readable body to bound`)
   }
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []

@@ -259,4 +259,11 @@ describe("readJsonBodyCapped", () => {
       readJsonBodyCapped(response, "https://scvd.test/findings", 512),
     ).rejects.toBeInstanceOf(ScvdNetworkError)
   })
+
+  test("rejects a null-body response instead of an unbounded json() fallback (adj_27)", async () => {
+    const response = new Response(null, { status: 200 })
+    await expect(
+      readJsonBodyCapped(response, "https://scvd.test/stats", 512),
+    ).rejects.toBeInstanceOf(ScvdNetworkError)
+  })
 })
