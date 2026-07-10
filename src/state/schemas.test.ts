@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { normalizeToCanonicalFinding } from "./adapters"
 import {
   type CanonicalFinding,
+  MigrationError,
+  migrateToCurrentSchema,
   SCHEMA_VERSION,
   validateCanonicalFinding,
   validateCanonicalToolExecution,
@@ -517,5 +519,81 @@ describe("normalizeToCanonicalFinding field aliases", () => {
     }
     const result = normalizeToCanonicalFinding(raw, "run-loc2", 1)
     expect(result.data.file).toBe("src/Token.sol")
+  })
+})
+
+describe("schema migration (WS-5 #27)", () => {
+  test("migrateToCurrentSchema upgrades a prior-version record to a fresh copy, leaving the original intact", () => {
+    const original: Record<string, unknown> = { schema_version: "2.0.0", check: "reentrancy-eth" }
+    const snapshot = { ...original }
+
+    const migrated = migrateToCurrentSchema(original)
+
+    expect(migrated.schema_version).toBe(SCHEMA_VERSION)
+    expect(migrated).not.toBe(original)
+    expect(original).toEqual(snapshot)
+  })
+
+  test("migrateToCurrentSchema returns a current-version record unchanged", () => {
+    const current: Record<string, unknown> = { schema_version: SCHEMA_VERSION, check: "x" }
+    expect(migrateToCurrentSchema(current)).toBe(current)
+  })
+
+  test("migrateToCurrentSchema throws a typed MigrationError for an unrecognized version, leaving the original intact", () => {
+    const corrupt: Record<string, unknown> = { schema_version: "0.0.1-bogus", check: "x" }
+    const snapshot = { ...corrupt }
+
+    let caught: unknown
+    try {
+      migrateToCurrentSchema(corrupt)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(MigrationError)
+    expect((caught as MigrationError).fromVersion).toBe("0.0.1-bogus")
+    expect(corrupt).toEqual(snapshot)
+  })
+
+  test("validateCanonicalFinding accepts and upgrades a prior-schema finding instead of hard-rejecting", () => {
+    const priorFinding = makeCanonicalFinding({ schema_version: "2.0.0" })
+
+    const result = validateCanonicalFinding(priorFinding)
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.schema_version).toBe(SCHEMA_VERSION)
+    }
+  })
+
+  test("validateCanonicalToolExecution accepts and upgrades a prior-schema record (adj_25)", () => {
+    const result = validateCanonicalToolExecution({
+      tool: "argus_slither_analyze",
+      startTime: 1700000000,
+      endTime: 1700000010,
+      success: true,
+      findingsCount: 0,
+      run_id: "run-1",
+      schema_version: "2.0.0",
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.schema_version).toBe(SCHEMA_VERSION)
+    }
+  })
+
+  test("validateCanonicalToolExecution rejects an unrecognized schema_version (adj_25)", () => {
+    const result = validateCanonicalToolExecution({
+      tool: "argus_slither_analyze",
+      startTime: 1700000000,
+      endTime: 1700000010,
+      success: true,
+      findingsCount: 0,
+      run_id: "run-1",
+      schema_version: "not-a-version",
+    })
+
+    expect(result.success).toBe(false)
   })
 })

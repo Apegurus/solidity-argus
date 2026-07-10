@@ -22,7 +22,40 @@ import type {
   ToolExecution,
 } from "./types"
 
-export const SCHEMA_VERSION = "2.0.0"
+export const SCHEMA_VERSION = "2.1.0"
+
+// Prior schema versions that copy-on-read migration upgrades to SCHEMA_VERSION.
+const MIGRATABLE_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(["2.0.0"])
+
+export class MigrationError extends Error {
+  readonly fromVersion: string | undefined
+  constructor(message: string, fromVersion: string | undefined) {
+    super(message)
+    this.name = "MigrationError"
+    this.fromVersion = fromVersion
+  }
+}
+
+export function isMigratableSchemaVersion(version: unknown): boolean {
+  return (
+    version === SCHEMA_VERSION ||
+    (typeof version === "string" && MIGRATABLE_SCHEMA_VERSIONS.has(version))
+  )
+}
+
+// Copy-on-read: never mutates `raw`; an unrecognized/missing version throws MigrationError so the
+// on-disk journal is left intact rather than partially written.
+export function migrateToCurrentSchema<T extends Record<string, unknown>>(raw: T): T {
+  const version = raw.schema_version
+  if (version === SCHEMA_VERSION) return raw
+  if (typeof version === "string" && MIGRATABLE_SCHEMA_VERSIONS.has(version)) {
+    return { ...raw, schema_version: SCHEMA_VERSION }
+  }
+  throw new MigrationError(
+    `cannot migrate schema_version ${JSON.stringify(version)} to ${SCHEMA_VERSION}`,
+    typeof version === "string" ? version : undefined,
+  )
+}
 
 export type AuditEventType =
   | "session.created"
@@ -33,6 +66,7 @@ export type AuditEventType =
   | "finding.added"
   | "phase.changed"
   | "run.finalized"
+  | "run.finalization_failed"
 
 export interface ValidationError {
   field: string
@@ -455,11 +489,11 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     })
   }
 
-  if (raw.schema_version !== SCHEMA_VERSION) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
       code: "version_mismatch",
-      message: `schema_version must be ${SCHEMA_VERSION}`,
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -467,7 +501,7 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as CanonicalFinding }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as CanonicalFinding }
 }
 
 export function validateCanonicalToolExecution(
@@ -542,11 +576,11 @@ export function validateCanonicalToolExecution(
     })
   }
 
-  if (typeof raw.schema_version !== "string" || raw.schema_version.trim().length === 0) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
-      code: "required",
-      message: "schema_version is required and must be a non-empty string",
+      code: "version_mismatch",
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -554,7 +588,7 @@ export function validateCanonicalToolExecution(
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as CanonicalToolExecution }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as CanonicalToolExecution }
 }
 export function validateReportInput(raw: unknown): ValidationResult<ReportInput> {
   if (!isRecord(raw)) {
@@ -580,11 +614,11 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
   pushRequiredRootStringError(errors, raw, "schema_version")
   pushRequiredRootStringError(errors, raw, "projectDir")
 
-  if (raw.schema_version !== SCHEMA_VERSION) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
       code: "version_mismatch",
-      message: `schema_version must be ${SCHEMA_VERSION}`,
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -664,5 +698,5 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as ReportInput }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as ReportInput }
 }

@@ -10,14 +10,29 @@ function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] 
   const events: AuditEvent[] = []
   let seq = 0
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -31,19 +46,74 @@ function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] 
 
 function createFailingSink(runId = "test-run"): EventSink {
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },
     async readAll(): Promise<AuditEvent[]> {
       return []
+    },
+  }
+}
+
+function createFindingAppendFailingSink(runId = "test-run"): EventSink {
+  const events: AuditEvent[] = []
+  let seq = 0
+  const owners = new Set<string>()
+  const state = { finalized: false }
+  return {
+    runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
+    get isFinalized() {
+      return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
+    },
+    markFinalized() {
+      state.finalized = true
+    },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
+    async append(event: AuditEvent): Promise<void> {
+      if (event.type === "finding.added") {
+        throw new Error("Sink write failure")
+      }
+      seq++
+      events.push({ ...event, seq })
+    },
+    async readAll(): Promise<AuditEvent[]> {
+      return [...events]
     },
   }
 }
@@ -198,6 +268,86 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings.at(0)?.check).toBe("manual-auth-bypass")
     expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_record_finding")
     expect(sink.events.some((event) => event.type === "finding.added")).toBe(true)
+  })
+
+  test("argus_record_finding rejects before mutating when no durable sink exists (WS-3 I6)", async () => {
+    const before = auditState.findings.length
+    const findingItem = {
+      check: "manual-no-sink",
+      severity: "High",
+      confidence: "High",
+      description: "should not be recorded without a durable sink",
+      file: "src/Auth.sol",
+      lines: [1, 2],
+      source: "manual",
+      reported_by_agent: "argus",
+    }
+
+    await expect(
+      hook({
+        tool: "argus_record_finding",
+        args: { findings: JSON.stringify([findingItem]) },
+        result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
+      }),
+    ).rejects.toThrow(/no durable event sink|findings would be lost/i)
+
+    expect(auditState.findings).toHaveLength(before)
+  })
+
+  test("argus_record_finding rolls back live state when the durable append fails (WS-3 I6 / adj_9)", async () => {
+    const before = auditState.findings.length
+    const hookWithFailingSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => createFindingAppendFailingSink(),
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+    const findingItem = {
+      check: "manual-append-fails",
+      severity: "High",
+      confidence: "High",
+      description: "should be rolled back when the journal append fails",
+      file: "src/Auth.sol",
+      lines: [1, 2],
+      source: "manual",
+      reported_by_agent: "argus",
+    }
+
+    await expect(
+      hookWithFailingSink({
+        tool: "argus_record_finding",
+        args: { findings: JSON.stringify([findingItem]) },
+        result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
+      }),
+    ).rejects.toThrow(/Sink write failure|Failed to emit/i)
+
+    expect(auditState.findings).toHaveLength(before)
+  })
+
+  test("argus_generate_report completed event carries report quality-gate + file metadata (WS-3 I9)", async () => {
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+
+    await hookWithSink({
+      tool: "argus_generate_report",
+      args: {},
+      result: JSON.stringify({
+        filePath: "/tmp/report.md",
+        filename: "report.md",
+        qualityGates: { passed: false, violations: ["conservation gate failed"] },
+      }),
+    })
+
+    const completed = sink.events.find((event) => event.type === "tool.completed")
+    const payload = completed?.payload as Record<string, unknown>
+    expect(payload?.qualityGates).toEqual({
+      passed: false,
+      violations: ["conservation gate failed"],
+    })
+    expect(payload?.filePath).toBe("/tmp/report.md")
   })
 
   test("argus_record_finding preserves impact/recommendation/proofOfConcept through to event payload (Task 1 / Bug #3)", async () => {
@@ -2099,5 +2249,58 @@ Content...`
       expect(payload.success).toBe(false)
       expect(payload.soloditResults).toBeUndefined()
     })
+  })
+})
+
+describe("createToolTrackingHook orphan buffer bounds (WS-3 I7)", () => {
+  const CLEAN_RESULT = JSON.stringify({ success: true, findingsCount: 0, findings: [] })
+
+  function bufferingHook(orphanBufferBounds: {
+    maxSessions?: number
+    maxEventsPerSession?: number
+    ttlMs?: number
+  }): ReturnType<typeof createToolTrackingHook> {
+    const state = createAuditState("/test/project").state
+    state.sessionId = "orphan-run"
+    return createToolTrackingHook(() => state, undefined, { orphanBufferBounds })
+  }
+
+  function bufferSession(
+    hook: ReturnType<typeof createToolTrackingHook>,
+    sessionID: string,
+  ): Promise<void> {
+    return hook({ tool: "argus_check_patterns", args: {}, result: CLEAN_RESULT, sessionID })
+  }
+
+  test("evicts the stalest session when the global session cap is exceeded", async () => {
+    const hook = bufferingHook({ maxSessions: 2 })
+    await bufferSession(hook, "sess-A")
+    await bufferSession(hook, "sess-B")
+    await bufferSession(hook, "sess-C")
+
+    expect(await hook.flushOrphanEvents("sess-A", createMockSink("orphan-run"))).toBe(0)
+    expect(await hook.flushOrphanEvents("sess-B", createMockSink("orphan-run"))).toBeGreaterThan(0)
+    expect(await hook.flushOrphanEvents("sess-C", createMockSink("orphan-run"))).toBeGreaterThan(0)
+  })
+
+  test("proactively reclaims TTL-expired sessions when a new session buffers", async () => {
+    const hook = bufferingHook({ ttlMs: 50 })
+    await bufferSession(hook, "sess-old")
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await bufferSession(hook, "sess-new")
+
+    expect(await hook.flushOrphanEvents("sess-old", createMockSink("orphan-run"))).toBe(0)
+    expect(await hook.flushOrphanEvents("sess-new", createMockSink("orphan-run"))).toBeGreaterThan(
+      0,
+    )
+  })
+
+  test("clearOrphanEvents drops a session's buffer on session.deleted cleanup", async () => {
+    const hook = bufferingHook({})
+    await bufferSession(hook, "sess-x")
+
+    hook.clearOrphanEvents("sess-x")
+
+    expect(await hook.flushOrphanEvents("sess-x", createMockSink("orphan-run"))).toBe(0)
   })
 })

@@ -6,25 +6,45 @@ import {
   createEventSink,
   type EventSink,
   resetSinkRegistry,
+  type SinkState,
 } from "../features/persistent-state/event-sink"
 import { createBoundedSinkRegistry } from "./bounded-sink-registry"
 
 const originalDateNow = Date.now
 
-function makeSink(runId: string): EventSink {
-  let finalized = false
+function makeSink(runId: string, initialState: SinkState = "ACTIVE"): EventSink {
+  let state: SinkState = initialState
+  const owners = new Set<string>()
 
   return {
     runId,
+    get state() {
+      return state
+    },
     get isFinalized() {
-      return finalized
+      return state === "SEALED"
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     async append(): Promise<void> {},
     async readAll() {
       return []
     },
     markFinalized(): void {
-      finalized = true
+      state = "SEALED"
+    },
+    markDraining(): void {
+      if (state === "ACTIVE") state = "DRAINING"
+    },
+    markFailedRecoverable(): void {
+      if (state !== "SEALED") state = "FAILED_RECOVERABLE"
     },
   }
 }
@@ -83,6 +103,17 @@ describe("createBoundedSinkRegistry", () => {
     expect(oldestSink.isFinalized).toBe(true)
     expect(registry.getForSession("session-old")).toBeUndefined()
     expect(registry.getForSession("session-new")).toBe(newestSink)
+  })
+
+  test("eviction does not force-seal a FAILED_RECOVERABLE sink (adj_11)", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 60 * 60 * 1000 })
+    const failed = makeSink("run-failed", "FAILED_RECOVERABLE")
+
+    registry.setForRun("run-failed", failed)
+    registry.setForRun("run-other", makeSink("run-other"))
+
+    expect(failed.state).toBe("FAILED_RECOVERABLE")
+    expect(failed.isFinalized).toBe(false)
   })
 
   test("releases the global run sink cache when max size evicts a run entry", () => {
@@ -147,5 +178,33 @@ describe("createBoundedSinkRegistry", () => {
 
     expect(registry.getForRun("run-referenced")).toBe(referencedSink)
     expect(registry.getForRun("run-unreferenced")).toBeUndefined()
+  })
+
+  test("max-size eviction does not evict/finalize a run sink referenced by a live session (WS-3 I1)", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 1_000 })
+    const referencedSink = makeSink("run-ref")
+    const otherSink = makeSink("run-other")
+
+    registry.setForSession("session-1", referencedSink)
+    registry.setForRun("run-ref", referencedSink)
+    registry.setForRun("run-other", otherSink)
+
+    expect(referencedSink.isFinalized).toBe(false)
+    expect(registry.getForRun("run-ref")).toBe(referencedSink)
+  })
+
+  test("TTL eviction does not evict/finalize a run sink referenced by a live session (WS-3 I1)", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 10 })
+    const referencedSink = makeSink("run-ref")
+    const freshSink = makeSink("run-fresh")
+
+    Date.now = () => 100
+    registry.setForSession("session-1", referencedSink)
+    registry.setForRun("run-ref", referencedSink)
+    Date.now = () => 200
+    registry.setForRun("run-fresh", freshSink)
+
+    expect(referencedSink.isFinalized).toBe(false)
+    expect(registry.getForRun("run-ref")).toBe(referencedSink)
   })
 })

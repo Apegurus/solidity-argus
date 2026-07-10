@@ -78,6 +78,42 @@ describe("createConfigHandler", () => {
     expect(config.agent?.themis).toBeDefined()
   })
 
+  test("delegates companion clone + knowledge sync to injectable deps (network-free registration)", async () => {
+    let companionCalls = 0
+    let syncCalls = 0
+    const handler = createConfigHandler(createArgusConfig(), {
+      ensureCompanionSkills: () => {
+        companionCalls += 1
+      },
+      syncKnowledge: () => {
+        syncCalls += 1
+      },
+    })
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(companionCalls).toBe(1)
+    expect(syncCalls).toBe(1)
+  })
+
+  test("does not trigger knowledge sync when autoSync is disabled", async () => {
+    const argusConfig = createArgusConfig()
+    if (argusConfig.knowledge) argusConfig.knowledge.autoSync = false
+    let syncCalls = 0
+    const handler = createConfigHandler(argusConfig, {
+      ensureCompanionSkills: () => {},
+      syncKnowledge: () => {
+        syncCalls += 1
+      },
+    })
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(syncCalls).toBe(0)
+  })
+
   test("sets mode primary for argus and subagent for others", async () => {
     const handler = createConfigHandler(createArgusConfig())
     const config: Config = {}

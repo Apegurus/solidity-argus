@@ -15,6 +15,7 @@ export interface FindingStore {
   addFinding(finding: Omit<Finding, "id">): Finding
   getFindings(filter?: { severity?: FindingSeverity; source?: Finding["source"] }): Finding[]
   hasFinding(check: string, file: string, lines: [number, number]): boolean
+  removeFindings(ids: readonly string[]): void
   serialize(): string
 }
 
@@ -44,7 +45,21 @@ export function createFindingStore(state: AuditState): FindingStore {
       .substring(0, 16)
   }
 
-  const hydratedFindings = state.findings.filter(isValidHydrationFinding)
+  function contentId(f: Pick<Finding, "check" | "file" | "lines">): string {
+    return generateObservationId(f.check, normalizeStorePath(f.file, projectDir), f.lines)
+  }
+
+  // WS-5 #25: key dedup on the canonical content-id, not the persisted `id` (which may predate
+  // the current id scheme or a projectDir change). This dedupes a re-recorded finding against the
+  // hydrated journal and collapses legacy-scheme duplicates already in the persisted state.
+  const hydratedFindings: Finding[] = []
+  const findingByContentId = new Map<string, Finding>()
+  for (const f of state.findings.filter(isValidHydrationFinding)) {
+    const cid = contentId(f)
+    if (findingByContentId.has(cid)) continue
+    findingByContentId.set(cid, f)
+    hydratedFindings.push(f)
+  }
 
   function addFinding(finding: Omit<Finding, "id">): Finding {
     const normalizedFile = normalizeStorePath(finding.file, projectDir)
@@ -52,7 +67,7 @@ export function createFindingStore(state: AuditState): FindingStore {
       normalizedFile !== finding.file ? { ...finding, file: normalizedFile } : finding
     const id = generateObservationId(normalized.check, normalized.file, normalized.lines)
 
-    const existing = hydratedFindings.find((f) => f.id === id)
+    const existing = findingByContentId.get(id)
     if (existing) {
       return existing
     }
@@ -64,6 +79,7 @@ export function createFindingStore(state: AuditState): FindingStore {
 
     state.findings.push(newFinding)
     hydratedFindings.push(newFinding)
+    findingByContentId.set(id, newFinding)
 
     return newFinding
   }
@@ -91,14 +107,28 @@ export function createFindingStore(state: AuditState): FindingStore {
 
   function hasFinding(check: string, file: string, lines: [number, number]): boolean {
     const normalizedCheck = normalizeText(check)
-    const normalizedFile = normalizeText(file)
+    const normalizedFile = normalizeText(normalizeStorePath(file, projectDir))
     return hydratedFindings.some(
       (finding) =>
         normalizeText(finding.check) === normalizedCheck &&
-        normalizeText(finding.file) === normalizedFile &&
+        normalizeText(normalizeStorePath(finding.file, projectDir)) === normalizedFile &&
         finding.lines[0] === lines[0] &&
         finding.lines[1] === lines[1],
     )
+  }
+
+  function removeFindings(ids: readonly string[]): void {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    for (let i = state.findings.length - 1; i >= 0; i -= 1) {
+      if (idSet.has(state.findings[i]?.id ?? "")) state.findings.splice(i, 1)
+    }
+    for (let i = hydratedFindings.length - 1; i >= 0; i -= 1) {
+      if (idSet.has(hydratedFindings[i]?.id ?? "")) hydratedFindings.splice(i, 1)
+    }
+    for (const [cid, f] of findingByContentId) {
+      if (idSet.has(f.id)) findingByContentId.delete(cid)
+    }
   }
 
   function serialize(): string {
@@ -146,6 +176,7 @@ export function createFindingStore(state: AuditState): FindingStore {
     addFinding,
     getFindings,
     hasFinding,
+    removeFindings,
     serialize,
   }
 }

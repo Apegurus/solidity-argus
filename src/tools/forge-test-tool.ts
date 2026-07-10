@@ -3,7 +3,8 @@ import { relative } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
-import { assertContained, validateUrlScheme } from "../shared/path-containment"
+import { assertContained } from "../shared/path-safety"
+import { assertAllowedHost, safeCliValue } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 import { extractJson } from "../utils/solidity-parser"
 
@@ -14,7 +15,6 @@ type ForgeTestArgs = {
   fork_url?: string
   verbosity?: number
   gas_report?: boolean
-  coverage?: boolean
 }
 
 type NormalizedForgeTestArgs = {
@@ -24,7 +24,6 @@ type NormalizedForgeTestArgs = {
   fork_url?: string
   verbosity: number
   gas_report?: boolean
-  coverage: boolean
 }
 
 type ForgeTestItem = {
@@ -41,20 +40,11 @@ type ForgeTestSummary = {
   total: number
 }
 
-type ForgeCoverageFile = {
-  path: string
-  lines: number
-  branches: number
-  functions: number
-  uncoveredFunctions: string[]
-}
-
 type ForgeTestResult = {
   success: boolean
   summary: ForgeTestSummary
   tests: ForgeTestItem[]
   gasReport?: Record<string, unknown>
-  coverageReport?: { files: ForgeCoverageFile[] }
   executionTime: number
   error?: string
 }
@@ -182,11 +172,6 @@ async function appendNonAsciiDiagnostics(
   return `${error}; ${diagnostics.join("; ")}`
 }
 
-type CoveragePayload = {
-  files?: Array<Record<string, unknown>>
-  coverage?: Record<string, Record<string, unknown>>
-}
-
 function mapStatus(input?: string): "pass" | "fail" | "skip" {
   const normalized = (input ?? "").toLowerCase()
   if (normalized.includes("skip") || normalized.includes("ignore")) {
@@ -306,84 +291,13 @@ function parseTests(payload: ForgeTestPayload): {
   }
 }
 
-function valueFromRecord(record: Record<string, unknown>, keys: string[]): unknown {
-  for (const key of keys) {
-    if (key in record) {
-      return record[key]
-    }
-  }
-  return undefined
-}
-
-function parseUncoveredFunctions(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return []
-  }
-
-  return input
-    .map((value) => {
-      if (typeof value === "string") {
-        return value
-      }
-      if (value && typeof value === "object" && "name" in value) {
-        const name = (value as { name?: unknown }).name
-        return typeof name === "string" ? name : ""
-      }
-      return ""
-    })
-    .filter((value) => value.length > 0)
-}
-
-function normalizeCoverageFile(file: Record<string, unknown>): ForgeCoverageFile {
-  return {
-    path: (valueFromRecord(file, ["path", "file", "name"]) as string) ?? "unknown",
-    lines: toNumber(valueFromRecord(file, ["lines", "lineCoverage", "line_coverage"])),
-    branches: toNumber(valueFromRecord(file, ["branches", "branchCoverage", "branch_coverage"])),
-    functions: toNumber(
-      valueFromRecord(file, ["functions", "functionCoverage", "function_coverage"]),
-    ),
-    uncoveredFunctions: parseUncoveredFunctions(
-      valueFromRecord(file, ["uncoveredFunctions", "uncovered_functions"]),
-    ),
-  }
-}
-
-function parseCoverage(payload: CoveragePayload): { files: ForgeCoverageFile[] } {
-  if (Array.isArray(payload.files)) {
-    return {
-      files: payload.files
-        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
-        .map((item) => normalizeCoverageFile(item)),
-    }
-  }
-
-  if (payload.coverage && typeof payload.coverage === "object") {
-    const files: ForgeCoverageFile[] = []
-    for (const [path, metrics] of Object.entries(payload.coverage)) {
-      if (!metrics || typeof metrics !== "object") {
-        continue
-      }
-      files.push(
-        normalizeCoverageFile({
-          path,
-          ...metrics,
-        }),
-      )
-    }
-
-    return { files }
-  }
-
-  return { files: [] }
-}
-
 function normalizeArgs(args: ForgeTestArgs, context: ToolContext): NormalizedForgeTestArgs {
   const projectRoot = resolveProjectDir(context)
   const target =
     args.target && args.target !== "." ? assertContained(args.target, projectRoot) : projectRoot
 
-  if (args.fork_url && !validateUrlScheme(args.fork_url)) {
-    throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)
+  if (args.fork_url) {
+    assertAllowedHost(args.fork_url)
   }
 
   return {
@@ -396,7 +310,6 @@ function normalizeArgs(args: ForgeTestArgs, context: ToolContext): NormalizedFor
         ? args.verbosity
         : 3,
     gas_report: args.gas_report,
-    coverage: args.coverage ?? false,
   }
 }
 
@@ -404,10 +317,10 @@ function buildForgeTestCommand(args: NormalizedForgeTestArgs): string[] {
   const command = ["forge", "test", "--json", `-v${"v".repeat(args.verbosity - 1)}`]
 
   if (args.match_test) {
-    command.push("--match-test", args.match_test)
+    command.push("--match-test", safeCliValue("match-test", args.match_test))
   }
   if (args.match_contract) {
-    command.push("--match-contract", args.match_contract)
+    command.push("--match-contract", safeCliValue("match-contract", args.match_contract))
   }
   if (args.fork_url) {
     command.push("--fork-url", args.fork_url)
@@ -471,25 +384,6 @@ export async function executeForgeTest(
       output.gasReport = gasReport
     }
 
-    if (normalizedArgs.coverage) {
-      const coverageResult = await runCommand(["forge", "coverage", "--report", "json"], {
-        signal: context.abort,
-        cwd: normalizedArgs.target,
-      })
-      if (coverageResult.exitCode !== 0) {
-        output.error = coverageResult.stderr.trim() || "forge coverage failed"
-        output.success = false
-      } else {
-        try {
-          const coveragePayload = JSON.parse(coverageResult.stdout) as CoveragePayload
-          output.coverageReport = parseCoverage(coveragePayload)
-        } catch {
-          output.error = "Invalid JSON output from forge coverage"
-          output.success = false
-        }
-      }
-    }
-
     if (testResult.exitCode !== 0 && !output.error) {
       output.error =
         testResult.stderr.trim() || `forge test exited with code ${testResult.exitCode}`
@@ -514,7 +408,7 @@ export async function executeForgeTest(
 }
 
 export const forgeTestTool = tool({
-  description: "Run forge test with optional coverage and return normalized results.",
+  description: "Run forge test and return normalized results.",
   args: {
     target: tool.schema.string().default("."),
     match_test: tool.schema.string().optional(),
@@ -522,7 +416,6 @@ export const forgeTestTool = tool({
     fork_url: tool.schema.string().optional(),
     verbosity: tool.schema.number().min(1).max(5).default(3),
     gas_report: tool.schema.boolean().optional(),
-    coverage: tool.schema.boolean().default(false),
   },
   async execute(args, context) {
     const result = await executeForgeTest(args, context)

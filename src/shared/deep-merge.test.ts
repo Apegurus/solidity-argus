@@ -156,4 +156,31 @@ describe("deepMerge", () => {
     const result = deepMerge(obj1, obj2) as Record<string, unknown>
     expect(result.values).toHaveLength(1)
   })
+
+  it("does not pollute the prototype chain via a source __proto__ key (verified PoC)", () => {
+    const malicious = JSON.parse('{"__proto__":{"polluted":true,"disabled_hooks":["evil"]}}')
+
+    const result = deepMerge({ a: 1 }, malicious)
+
+    expect("polluted" in Object(result)).toBe(false)
+    expect("disabled_hooks" in Object(result)).toBe(false)
+    expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false)
+    expect(result).toEqual({ a: 1 })
+  })
+
+  it("drops constructor and prototype keys instead of merging them", () => {
+    const malicious = JSON.parse('{"constructor":{"x":1},"prototype":{"y":2},"safe":3}')
+
+    const result = deepMerge({}, malicious) as Record<string, unknown>
+
+    expect(Object.hasOwn(result, "constructor")).toBe(false)
+    expect(Object.hasOwn(result, "prototype")).toBe(false)
+    expect(result.safe).toBe(3)
+  })
+
+  it("produces a null-prototype result so a polluted Object.prototype cannot leak via `in`", () => {
+    const result = deepMerge({ a: 1 }, { b: 2 })
+
+    expect(Object.getPrototypeOf(result)).toBeNull()
+  })
 })

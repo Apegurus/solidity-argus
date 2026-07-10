@@ -21,7 +21,15 @@ import {
   hasBinary as hasBinaryShared,
   parseSolcVersion as parseSolcVersionShared,
 } from "../shared/binary-utils"
+import { buildSafeEnv } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
+import {
+  appendTruncationMarker,
+  DEFAULT_SUBPROCESS_TIMEOUT_MS,
+  MAX_SUBPROCESS_STDERR_BYTES,
+  MAX_SUBPROCESS_STDOUT_BYTES,
+  readStreamCapped,
+} from "../shared/subprocess-io"
 
 type SlitherArgs = {
   target: string
@@ -217,6 +225,7 @@ async function ensureSolc(version: string): Promise<boolean> {
       stdout: "pipe",
       stderr: "pipe",
       signal: AbortSignal.timeout(30_000),
+      env: buildSafeEnv(),
     })
     const installExit = await installProc.exited
     if (installExit !== 0) return false
@@ -225,6 +234,7 @@ async function ensureSolc(version: string): Promise<boolean> {
       stdout: "pipe",
       stderr: "pipe",
       signal: AbortSignal.timeout(30_000),
+      env: buildSafeEnv(),
     })
     const useExit = await useProc.exited
     return useExit === 0
@@ -239,17 +249,19 @@ export const runSlitherCommand: RunSlitherCommand = async (command, signal, cwd)
     stdout: "pipe",
     stderr: "pipe",
     signal,
+    timeout: DEFAULT_SUBPROCESS_TIMEOUT_MS,
+    env: buildSafeEnv(),
   })
 
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    readStreamCapped(child.stdout, MAX_SUBPROCESS_STDOUT_BYTES),
+    readStreamCapped(child.stderr, MAX_SUBPROCESS_STDERR_BYTES),
   ])
 
   return {
-    stdout,
-    stderr,
+    stdout: appendTruncationMarker(stdout, "stdout"),
+    stderr: appendTruncationMarker(stderr, "stderr"),
     exitCode,
   }
 }
@@ -269,7 +281,7 @@ export type FlattenFallbackDeps = {
   cwd: string
 }
 
-async function defaultSpawnFn(
+export async function defaultSpawnFn(
   command: string[],
   options?: { cwd?: string; timeout?: number },
 ): Promise<{ stdout: string; exitCode: number }> {
@@ -277,11 +289,20 @@ async function defaultSpawnFn(
     stdout: "pipe",
     stderr: "pipe",
     cwd: options?.cwd,
-    ...(options?.timeout ? { signal: AbortSignal.timeout(options.timeout) } : {}),
+    timeout: options?.timeout ?? DEFAULT_SUBPROCESS_TIMEOUT_MS,
+    env: buildSafeEnv(),
   })
-  const exitCode = await proc.exited
-  const stdout = await new Response(proc.stdout).text()
-  return { stdout, exitCode }
+  const [exitCode, stdout] = await Promise.all([
+    proc.exited,
+    readStreamCapped(proc.stdout, MAX_SUBPROCESS_STDOUT_BYTES),
+    readStreamCapped(proc.stderr, MAX_SUBPROCESS_STDERR_BYTES),
+  ])
+  if (stdout.truncated) {
+    throw new Error(
+      `subprocess stdout exceeded ${MAX_SUBPROCESS_STDOUT_BYTES} bytes; refusing to use truncated output`,
+    )
+  }
+  return { stdout: stdout.text, exitCode }
 }
 
 function getDefaultFlattenDeps(): FlattenFallbackDeps {

@@ -25,6 +25,7 @@ interface SessionActivatorOptions {
   activatedSessions: Set<string>
   pendingActivations: Set<string>
   pendingSinkCreations: Set<string>
+  createEventSink?: (runId: string, projectDir: string) => EventSink
 }
 
 export function createSessionActivator(options: SessionActivatorOptions) {
@@ -41,6 +42,7 @@ export function createSessionActivator(options: SessionActivatorOptions) {
     activatedSessions,
     pendingActivations,
     pendingSinkCreations,
+    createEventSink: makeEventSink = createEventSink,
   } = options
 
   return async function activateSession(sessionId: string): Promise<void> {
@@ -152,25 +154,28 @@ export function createSessionActivator(options: SessionActivatorOptions) {
 
       const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
       if (recoveredState) {
+        // WS-3 I10: reportGenerated is NOT terminal — a report-generated-but-unsealed run is
+        // still active (awaiting Themis disposition), so recovery discards only on staleness,
+        // never on report generation alone.
         const isStale =
           typeof recoveredState.startTime === "number" &&
           timestamp - recoveredState.startTime > STALE_STATE_TTL_MS
-        const isCompleted = recoveredState.reportGenerated === true
-        if (isStale || isCompleted) {
+        if (isStale) {
           logger.debug(
-            `Discarding recovered state for run ${recoveredState.sessionId}: ${isCompleted ? "report already generated" : "stale (>24h)"}`,
+            `Discarding stale recovered state for run ${recoveredState.sessionId} (>24h)`,
           )
           recoveredState = null
         }
       }
 
       if (recoveredState && auditState) {
+        // WS-3 I4: preserve the recovered run's original runId (sessionId) and startTime — do NOT
+        // rebind to the fresh activation's, which would split the run's journal/findings across a
+        // new runId. Only projectDir tracks the current activation (in case the path moved).
         setAuditState(
           {
             ...recoveredState,
-            sessionId: auditState.sessionId,
             projectDir: auditState.projectDir,
-            startTime: auditState.startTime,
           },
           sessionId,
         )
@@ -194,7 +199,7 @@ export function createSessionActivator(options: SessionActivatorOptions) {
 
         const resolver = createAuditArtifactResolver(effectiveState.sessionId, projectDir)
         try {
-          const sink = createEventSink(effectiveState.sessionId, projectDir)
+          const sink = makeEventSink(effectiveState.sessionId, projectDir)
           setEventSink(sink, sessionId)
           sinkRegistry.setForSession(sessionId, sink)
           sinkRegistry.setForRun(effectiveState.sessionId, sink)
@@ -216,24 +221,33 @@ export function createSessionActivator(options: SessionActivatorOptions) {
               scope: effectiveState.scope,
             },
           })
+
+          sessionActivated = true
         } catch (error) {
           logger.warn(
             `EventSink creation failed: ${error instanceof Error ? error.message : String(error)}`,
           )
+          setEventSink(null, sessionId)
+          sinkRegistry.deleteSession(sessionId)
+          sinkRegistry.deleteRun(effectiveState.sessionId)
         }
-        recordRun({
-          runId: effectiveState.sessionId,
-          opencodeSessionId: sessionId,
-          projectDir: effectiveState.projectDir,
-          statePath: resolver.paths().stateFile,
-          journalPath: resolver.paths().journalFile,
-          startedAt: effectiveState.startTime,
-          phase: effectiveState.currentPhase,
-          findingsCount: effectiveState.findings.length,
-          status: "active",
-        }).catch((err) =>
-          logger.warn(`Failed to record run: ${err instanceof Error ? err.message : String(err)}`),
-        )
+        if (sessionActivated) {
+          recordRun({
+            runId: effectiveState.sessionId,
+            opencodeSessionId: sessionId,
+            projectDir: effectiveState.projectDir,
+            statePath: resolver.paths().stateFile,
+            journalPath: resolver.paths().journalFile,
+            startedAt: effectiveState.startTime,
+            phase: effectiveState.currentPhase,
+            findingsCount: effectiveState.findings.length,
+            status: "active",
+          }).catch((err) =>
+            logger.warn(
+              `Failed to record run: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          )
+        }
 
         pruneStaleRuns(effectiveState.projectDir).catch((err) =>
           logger.warn(
@@ -241,8 +255,6 @@ export function createSessionActivator(options: SessionActivatorOptions) {
           ),
         )
       }
-
-      sessionActivated = true
     } finally {
       if (sessionActivated) {
         activatedSessions.add(sessionId)

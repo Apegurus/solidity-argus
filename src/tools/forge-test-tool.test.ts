@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
-import { executeForgeTest, type ForgeCommandResult, forgeTestTool } from "./forge-test-tool"
+import { executeForgeTest, forgeTestTool } from "./forge-test-tool"
 
 function createContext(): { context: ToolContext; metadataCalls: Array<{ title?: string }> } {
   const metadataCalls: Array<{ title?: string }> = []
@@ -28,6 +28,38 @@ test("forgeTestTool uses tool() helper contract", () => {
   expect(forgeTestTool.description.length).toBeGreaterThan(0)
   expect(forgeTestTool.args).toBeDefined()
   expect(typeof forgeTestTool.execute).toBe("function")
+})
+
+test("executeForgeTest rejects a loopback/link-local fork_url without running forge", async () => {
+  const { context } = createContext()
+  let ran = false
+  for (const forkUrl of ["http://169.254.169.254", "http://127.0.0.1:8545"]) {
+    const result = await executeForgeTest({ target: ".", fork_url: forkUrl }, context, async () => {
+      ran = true
+      return { stdout: "", stderr: "", exitCode: 0 }
+    })
+    expect(result.success).toBe(false)
+    expect(result.error ?? "").toMatch(/loopback|link-local|private|disallowed/i)
+  }
+  expect(ran).toBe(false)
+})
+
+test("executeForgeTest rejects a flag-shaped match_test/match_contract without running forge (adj_20)", async () => {
+  const { context } = createContext()
+  let ran = false
+  const run = async () => {
+    ran = true
+    return { stdout: "", stderr: "", exitCode: 0 }
+  }
+  for (const bad of [
+    { match_test: "--fork-url=http://169.254.169.254" },
+    { match_contract: "--gas-report" },
+  ]) {
+    const result = await executeForgeTest({ target: ".", ...bad }, context, run)
+    expect(result.success).toBe(false)
+    expect(result.error ?? "").toMatch(/option injection|may not start with/i)
+  }
+  expect(ran).toBe(false)
 })
 
 test("executeForgeTest parses contract-mapped forge test JSON", async () => {
@@ -134,107 +166,6 @@ test("executeForgeTest parses real forge --json output format", async () => {
   ])
 })
 
-test("executeForgeTest runs coverage command and parses report", async () => {
-  const { context } = createContext()
-  const responses: ForgeCommandResult[] = [
-    {
-      stdout: JSON.stringify({
-        tests: {
-          "VaultTest.sol": {
-            test_deposit: { status: "Success", gas: 21000 },
-          },
-        },
-        success: true,
-      }),
-      stderr: "",
-      exitCode: 0,
-    },
-    {
-      stdout: JSON.stringify({
-        files: [
-          {
-            path: "src/Vault.sol",
-            lineCoverage: 80,
-            branchCoverage: 70,
-            functionCoverage: 50,
-            uncoveredFunctions: ["withdraw", "emergencyWithdraw"],
-          },
-          {
-            path: "src/Token.sol",
-            lines: 100,
-            branches: 90,
-            functions: 100,
-            uncoveredFunctions: [],
-          },
-        ],
-      }),
-      stderr: "",
-      exitCode: 0,
-    },
-  ]
-
-  const calls: string[][] = []
-  const cwdCalls: string[] = []
-  const result = await executeForgeTest(
-    {
-      target: "contracts",
-      coverage: true,
-      match_test: "test_deposit",
-      match_contract: "VaultTest",
-      fork_url: "https://rpc.example",
-      gas_report: true,
-      verbosity: 4,
-    },
-    context,
-    async (command, options) => {
-      calls.push(command)
-      cwdCalls.push(options.cwd ?? "")
-      const next = responses.shift()
-      if (!next) {
-        throw new Error("missing mocked response")
-      }
-      return next
-    },
-  )
-
-  expect(calls).toEqual([
-    [
-      "forge",
-      "test",
-      "--json",
-      "-vvvv",
-      "--match-test",
-      "test_deposit",
-      "--match-contract",
-      "VaultTest",
-      "--fork-url",
-      "https://rpc.example",
-      "--gas-report",
-    ],
-    ["forge", "coverage", "--report", "json"],
-  ])
-  expect(cwdCalls).toEqual(["/tmp/project/contracts", "/tmp/project/contracts"])
-  expect(result.success).toBe(true)
-  expect(result.coverageReport).toEqual({
-    files: [
-      {
-        path: "src/Vault.sol",
-        lines: 80,
-        branches: 70,
-        functions: 50,
-        uncoveredFunctions: ["withdraw", "emergencyWithdraw"],
-      },
-      {
-        path: "src/Token.sol",
-        lines: 100,
-        branches: 90,
-        functions: 100,
-        uncoveredFunctions: [],
-      },
-    ],
-  })
-})
-
 test("executeForgeTest rejects path traversal in target", async () => {
   const { context } = createContext()
 
@@ -256,7 +187,7 @@ test("executeForgeTest rejects non-http fork_url", async () => {
     async () => ({ stdout: "{}", stderr: "", exitCode: 0 }),
   )
   expect(result.success).toBe(false)
-  expect(result.error).toContain("fork_url must use http:// or https://")
+  expect(result.error ?? "").toMatch(/scheme|http\/https/i)
 })
 
 test("executeForgeTest handles ENOENT when forge is missing", async () => {

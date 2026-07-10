@@ -111,6 +111,70 @@ describe("syncIncremental", () => {
     expect(result.newFindings).toBe(2)
     expect(result.totalIndexed).toBe(2)
   })
+
+  test("refreshes sync metadata on a same-count no-op so the index is not left stale", async () => {
+    mkdirSync(tempDir, { recursive: true })
+    const indexPath = join(tempDir, "scvd-index.json")
+    const client = createMockClient()
+    client.fetchAllFindings = async () => [createFinding("SCVD-1")]
+    await syncAll(client, indexPath)
+
+    const oldSync = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const loaded = await loadIndex(indexPath)
+    if (!loaded) throw new Error("index missing")
+    loaded.lastSync = oldSync
+    await saveIndex(loaded, indexPath)
+
+    client.fetchStats = async () => ({
+      total: 1,
+      by_severity: { High: 1 },
+      last_updated: "2026-02-16T00:00:00.000Z",
+    })
+    let fetchAllCalled = false
+    client.fetchAllFindings = async () => {
+      fetchAllCalled = true
+      return [createFinding("SCVD-1")]
+    }
+
+    const result = await syncIncremental(client, indexPath)
+
+    expect(result.success).toBe(true)
+    expect(result.newFindings).toBe(0)
+    expect(fetchAllCalled).toBe(false)
+    const after = await loadIndex(indexPath)
+    expect(after?.lastSync).not.toBe(oldSync)
+    expect(new Date(after?.lastSync ?? 0).getTime()).toBeGreaterThan(new Date(oldSync).getTime())
+  })
+
+  test("forces a full sync when the local index is stale even if the count matches", async () => {
+    mkdirSync(tempDir, { recursive: true })
+    const indexPath = join(tempDir, "scvd-index.json")
+    const client = createMockClient()
+    client.fetchAllFindings = async () => [createFinding("SCVD-1")]
+    await syncAll(client, indexPath)
+
+    const staleSync = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    const loaded = await loadIndex(indexPath)
+    if (!loaded) throw new Error("index missing")
+    loaded.lastSync = staleSync
+    await saveIndex(loaded, indexPath)
+
+    client.fetchStats = async () => ({
+      total: 1,
+      by_severity: { High: 1 },
+      last_updated: "2026-02-16T00:00:00.000Z",
+    })
+    let fetchAllCalled = false
+    client.fetchAllFindings = async () => {
+      fetchAllCalled = true
+      return [createFinding("SCVD-1")]
+    }
+
+    const result = await syncIncremental(client, indexPath)
+
+    expect(result.success).toBe(true)
+    expect(fetchAllCalled).toBe(true)
+  })
 })
 
 describe("getSyncStatus", () => {

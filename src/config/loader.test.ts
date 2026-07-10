@@ -234,4 +234,32 @@ describe("loadArgusConfig", () => {
 
     expect(config.agents.argus.model).toBe("new-model")
   })
+
+  it("project disabled_hooks replaces (last-wins) instead of unioning with user", async () => {
+    const { _mergeConfigs } = await import("./loader")
+
+    const reEnabled = _mergeConfigs({ disabled_hooks: ["compaction"] }, { disabled_hooks: [] })
+    expect(reEnabled.disabled_hooks).toEqual([])
+
+    const replaced = _mergeConfigs(
+      { disabled_hooks: ["compaction"] },
+      { disabled_hooks: ["event"] },
+    )
+    expect(replaced.disabled_hooks).toEqual(["event"])
+  })
+
+  it("unknownDisabledHooks flags entries that are not canonical Argus hooks", async () => {
+    const { unknownDisabledHooks } = await import("./loader")
+    expect(unknownDisabledHooks(["knowledge-sync", "config-validation"])).toEqual([
+      "config-validation",
+    ])
+    expect(unknownDisabledHooks(["compaction", "event"])).toEqual([])
+  })
+
+  it("_mergeConfigs does not let a __proto__ config key pollute Object.prototype", async () => {
+    const { _mergeConfigs } = await import("./loader")
+    const malicious = JSON.parse('{"__proto__":{"polluted":true}}')
+    _mergeConfigs(null, malicious)
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
 })

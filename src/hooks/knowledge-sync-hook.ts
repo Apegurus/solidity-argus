@@ -1,5 +1,5 @@
 import type { ArgusConfig } from "../config/types"
-import { ScvdClient } from "../knowledge/scvd-client"
+import { assertScvdApiUrlAllowed, ScvdClient } from "../knowledge/scvd-client"
 import { type SyncResult, syncIncremental } from "../knowledge/scvd-sync"
 import { getScvdIndexPath } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
@@ -38,6 +38,15 @@ export function createKnowledgeSyncHook(
     const indexPath = getScvdIndexPath()
 
     Promise.resolve().then(async () => {
+      try {
+        assertScvdApiUrlAllowed(apiUrl)
+      } catch {
+        createLogger().warn(
+          `[argus] SCVD auto-sync skipped: apiUrl ${apiUrl} is not an allowed host (loopback/link-local/private addresses are blocked)`,
+        )
+        return
+      }
+
       try {
         const client = dependencies.createClient(apiUrl)
         const result = await dependencies.syncIncrementalFn(client, indexPath)

@@ -129,9 +129,17 @@ function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
     const qualityGates = asRecord(payload?.qualityGates)
     if (qualityGates?.passed !== false) continue
 
-    const violations = Array.isArray(qualityGates.violations)
-      ? qualityGates.violations.filter((entry): entry is string => typeof entry === "string")
-      : []
+    const rawViolations = Array.isArray(qualityGates.violations) ? qualityGates.violations : []
+    const violations = rawViolations
+      .map((entry) => {
+        if (typeof entry === "string") return entry
+        const rec = asRecord(entry)
+        if (!rec) return ""
+        const head = [rec.code, rec.message].filter(hasText).join(": ")
+        const id = hasText(rec.findingId) ? ` [${rec.findingId}]` : ""
+        return `${head}${id}`.trim()
+      })
+      .filter((entry) => entry.length > 0)
     const details = violations.length > 0 ? `: ${violations.join("; ")}` : ""
     errors.push(`generated report failed quality gates${details}`)
   }
@@ -216,11 +224,8 @@ function collectThemisDispositionErrors(events: AuditEvent[]): string[] {
   const hasUnresolvedRejection = laterEvents.some((event) => {
     if (event.type !== "tool.completed") return false
     const payload = asRecord(event.payload)
-    return (
-      payload?.tool === "task" &&
-      payload.subagent_type === "themis" &&
-      hasRejectedThemisVerdict(payload.themis)
-    )
+    const disposition = asRecord(payload?.themisDisposition) as ThemisDisposition | null
+    return hasRejectedThemisVerdict(disposition?.verdict)
   })
 
   return hasUnresolvedRejection
@@ -447,8 +452,12 @@ export async function finalizeRun(
   const sessionId = events.at(-1)?.session_id ?? ""
 
   if (sink) {
+    // WS-3 I3/#18: SEAL (run.finalized) only on a SUCCESSFUL finalization. A failed
+    // finalization emits run.finalization_failed instead, leaving the sink FAILED_RECOVERABLE
+    // (open) so remediation / themis disposition / a regenerated report can still be recorded
+    // and finalizeRun can be retried.
     await sink.append({
-      type: "run.finalized",
+      type: invariantsPassed ? "run.finalized" : "run.finalization_failed",
       run_id: runId,
       seq: 0,
       session_id: sessionId,
@@ -466,7 +475,9 @@ export async function finalizeRun(
         build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
       },
     })
-    sink.markFinalized()
+    if (invariantsPassed) {
+      sink.markFinalized()
+    }
   }
 
   return {

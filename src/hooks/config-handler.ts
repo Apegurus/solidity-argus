@@ -11,6 +11,7 @@ import type { ArgusConfig } from "../config/types"
 import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
+import { buildSafeEnv } from "../shared/process-runner"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
@@ -70,6 +71,7 @@ function ensureTrailOfBitsSkills(): string[] {
           stdout: "ignore",
           stderr: "ignore",
           signal: AbortSignal.timeout(60_000),
+          env: buildSafeEnv(),
         },
       )
     } catch (spawnErr) {
@@ -105,8 +107,17 @@ function ensureTrailOfBitsSkills(): string[] {
   return []
 }
 
-export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) => Promise<void> {
-  const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
+export type ConfigHandlerDependencies = {
+  ensureCompanionSkills: () => void
+  syncKnowledge: () => void
+}
+
+export function createConfigHandler(
+  argusConfig: ArgusConfig,
+  deps: Partial<ConfigHandlerDependencies> = {},
+): (config: Config) => Promise<void> {
+  const ensureCompanionSkills = deps.ensureCompanionSkills ?? ensureTrailOfBitsSkills
+  const syncKnowledge = deps.syncKnowledge ?? createKnowledgeSyncHook(argusConfig)
 
   return async (config: Config): Promise<void> => {
     config.agent ??= {}
@@ -244,12 +255,12 @@ export function createConfigHandler(argusConfig: ArgusConfig): (config: Config) 
     // Argus skills load on demand via `argus_skill_load` (scoped to the Argus agents);
     // we deliberately do NOT register them in OpenCode's global `config.skills.paths`,
     // which would leak all bundled skill descriptions into every skill-enabled agent's
-    // context. The call below is kept for its side effect only: it clones the Trail of
-    // Bits companion skills into the cache that `argus_skill_load`'s resolver reads.
-    ensureTrailOfBitsSkills()
+    // context. The companion-clone/sync side effects are injectable so registration can
+    // run without network I/O (tests pass no-ops; production uses the real defaults).
+    ensureCompanionSkills()
 
     if (argusConfig.knowledge?.autoSync !== false) {
-      triggerKnowledgeSync()
+      syncKnowledge()
     }
   }
 }

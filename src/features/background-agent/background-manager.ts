@@ -98,7 +98,7 @@ export type Dispatcher = (
 
 export function createBackgroundManager(
   initialDispatcher: Dispatcher,
-  options?: { maxConcurrent?: number },
+  options?: { maxConcurrent?: number; maxRetainedTasks?: number },
 ): BackgroundManagerWithTaskCallbacks {
   const logger = createLogger()
   const tasks = new Map<string, TaskInfo>()
@@ -108,6 +108,7 @@ export function createBackgroundManager(
   const dispatcher = initialDispatcher
   let runningCount = 0
   const maxConcurrent = options?.maxConcurrent ?? 3
+  const maxRetainedTasks = options?.maxRetainedTasks ?? 1000
   let taskCount = 0
   let drainScheduled = false
 
@@ -209,6 +210,18 @@ export function createBackgroundManager(
     }
   }
 
+  // Terminal tasks are retained for late result/status reads but never removed on their own; evict
+  // the oldest terminal ones past the retention bound so a long-lived session can't leak the map.
+  function evictOldestTerminalTasks(): void {
+    if (tasks.size <= maxRetainedTasks) return
+    for (const [taskId, task] of tasks) {
+      if (tasks.size <= maxRetainedTasks) break
+      if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+        tasks.delete(taskId)
+      }
+    }
+  }
+
   function dispatch(agentName: string, prompt: string, options?: BackgroundTaskOptions): string {
     taskCount += 1
     const taskId = `task-${taskCount}`
@@ -221,6 +234,7 @@ export function createBackgroundManager(
       callbacks: new Set<CompletionCallback>(),
     })
 
+    evictOldestTerminalTasks()
     queue.push(taskId)
     scheduleDrain()
 

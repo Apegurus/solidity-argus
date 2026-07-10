@@ -56,6 +56,11 @@ export type ToolTrackingOptions = {
   dropPolicy?: DropPolicy
   onChildSessionDetected?: (parentSessionId: string, childSessionId: string) => void
   projectDir?: string
+  orphanBufferBounds?: {
+    maxSessions?: number
+    maxEventsPerSession?: number
+    ttlMs?: number
+  }
 }
 
 const VALID_SEVERITIES: ReadonlySet<string> = new Set([
@@ -638,13 +643,15 @@ type OrphanEvent = {
   bufferedAt: number
 }
 
-const ORPHAN_BUFFER_TTL_MS = 60_000
-const MAX_ORPHAN_EVENTS_PER_SESSION = 50
+const DEFAULT_ORPHAN_BUFFER_TTL_MS = 60_000
+const DEFAULT_MAX_ORPHAN_EVENTS_PER_SESSION = 50
+const DEFAULT_MAX_ORPHAN_SESSIONS = 200
 
 export type ToolTrackingHook = {
   (input: ToolHookInput): Promise<void>
   getLastDiagnostics(): DropDiagnostic[]
   flushOrphanEvents(sessionId: string, sink: EventSink): Promise<number>
+  clearOrphanEvents(sessionId: string): void
 }
 
 export function createToolTrackingHook(
@@ -656,16 +663,53 @@ export function createToolTrackingHook(
   const storesByState = new WeakMap<AuditState, FindingStore>()
   let lastDiagnostics: DropDiagnostic[] = []
   const orphanBuffer = new Map<string, OrphanEvent[]>()
+  const orphanTtlMs = options?.orphanBufferBounds?.ttlMs ?? DEFAULT_ORPHAN_BUFFER_TTL_MS
+  const maxOrphanEventsPerSession =
+    options?.orphanBufferBounds?.maxEventsPerSession ?? DEFAULT_MAX_ORPHAN_EVENTS_PER_SESSION
+  const maxOrphanSessions = options?.orphanBufferBounds?.maxSessions ?? DEFAULT_MAX_ORPHAN_SESSIONS
+
+  function newestBufferedAt(entries: OrphanEvent[]): number {
+    return entries[entries.length - 1]?.bufferedAt ?? 0
+  }
+
+  function stalestOrphanSession(): string | undefined {
+    let stalest: string | undefined
+    let oldest = Number.POSITIVE_INFINITY
+    for (const [sid, entries] of orphanBuffer) {
+      const ts = newestBufferedAt(entries)
+      if (ts < oldest) {
+        oldest = ts
+        stalest = sid
+      }
+    }
+    return stalest
+  }
 
   function bufferOrphanEvent(sessionId: string, entry: OrphanEvent): void {
     let entries = orphanBuffer.get(sessionId)
     if (!entries) {
+      // WS-3 I7: bound the buffer globally so sessions that never receive a sink cannot grow it
+      // without limit — reclaim TTL-expired sessions first, then evict the stalest live session
+      // while still at the session cap.
+      for (const [sid, buffered] of orphanBuffer) {
+        if (entry.bufferedAt - newestBufferedAt(buffered) >= orphanTtlMs) {
+          orphanBuffer.delete(sid)
+        }
+      }
+      while (orphanBuffer.size >= maxOrphanSessions) {
+        const stalest = stalestOrphanSession()
+        if (!stalest) break
+        logger.warn(
+          `Global orphan buffer at capacity (${maxOrphanSessions} sessions) — evicting stalest session ${stalest}`,
+        )
+        orphanBuffer.delete(stalest)
+      }
       entries = []
       orphanBuffer.set(sessionId, entries)
     }
-    if (entries.length >= MAX_ORPHAN_EVENTS_PER_SESSION) {
+    if (entries.length >= maxOrphanEventsPerSession) {
       logger.warn(
-        `Orphan event buffer full for session ${sessionId} (${MAX_ORPHAN_EVENTS_PER_SESSION} events) — dropping oldest`,
+        `Orphan event buffer full for session ${sessionId} (${maxOrphanEventsPerSession} events) — dropping oldest`,
       )
       entries.shift()
     }
@@ -966,6 +1010,14 @@ export function createToolTrackingHook(
             }
             break
           case "argus_record_finding":
+            if (!sink) {
+              // WS-3 I6 reject-before-mutate: refuse to record findings that cannot be
+              // journaled to a durable sink rather than mutating live state optimistically
+              // (an un-journaled finding is lost from the report on replay).
+              throw new Error(
+                "argus_record_finding: no durable event sink — findings would be lost from the report",
+              )
+            }
             findingsCount = processToolResult(
               record,
               store,
@@ -1087,19 +1139,6 @@ export function createToolTrackingHook(
           throw new Error("argus_record_finding did not persist any findings")
         }
 
-        if (input.tool === "argus_record_finding" && !sink) {
-          const newFindings = auditState.findings.slice(findingsCountBefore)
-          if (newFindings.length > 0) {
-            throw new Error(
-              `argus_record_finding produced ${newFindings.length} finding(s) but no event sink is available — findings would be lost from the report`,
-            )
-          }
-          diag.error(
-            "NO_EVENT_SINK",
-            "argus_record_finding: no active event sink — no new findings to emit",
-          )
-        }
-
         if (sink) {
           const failFast = input.tool === "argus_record_finding"
           const newFindings = auditState.findings.slice(findingsCountBefore)
@@ -1116,11 +1155,19 @@ export function createToolTrackingHook(
               },
               projectDir,
             )
-            await emitToSink(
-              sink,
-              buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
-              { failFast },
-            )
+            try {
+              await emitToSink(
+                sink,
+                buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
+                { failFast },
+              )
+            } catch (err) {
+              // WS-3 I6: the durable journal append failed — roll this finding and every
+              // later un-journaled one out of live state so the persisted snapshot never
+              // holds a finding the journal lacks. Already-journaled findings stay.
+              store.removeFindings(newFindings.slice(index).map((f) => f.id))
+              throw err
+            }
           }
         }
 
@@ -1207,6 +1254,16 @@ export function createToolTrackingHook(
                 enrichment.themisDisposition = completedRecord.themisDisposition
               }
               break
+            case "argus_generate_report":
+              // WS-3 I9: persist the report's quality-gate + file metadata in the completed
+              // event so run finalization certifies against gates/warnings it can actually read.
+              if (completedRecord?.qualityGates) {
+                enrichment.qualityGates = completedRecord.qualityGates
+              }
+              if (typeof completedRecord?.filePath === "string") {
+                enrichment.filePath = completedRecord.filePath
+              }
+              break
           }
         }
         await emitToSink(
@@ -1252,7 +1309,7 @@ export function createToolTrackingHook(
 
     orphanBuffer.delete(sessionId)
     const now = Date.now()
-    const fresh = entries.filter((e) => now - e.bufferedAt < ORPHAN_BUFFER_TTL_MS)
+    const fresh = entries.filter((e) => now - e.bufferedAt < orphanTtlMs)
 
     if (fresh.length < entries.length) {
       logger.debug(
@@ -1271,6 +1328,10 @@ export function createToolTrackingHook(
     }
 
     return flushed
+  }
+
+  hookFn.clearOrphanEvents = (sessionId: string): void => {
+    orphanBuffer.delete(sessionId)
   }
 
   return hookFn

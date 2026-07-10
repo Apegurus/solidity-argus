@@ -288,10 +288,12 @@ describe("Pipeline fixes E2E", () => {
     })
   })
 
-  describe("Fix #4: stale/completed state is discarded on session.created", () => {
-    test("recovered state with reportGenerated=true is discarded", async () => {
+  describe("Fix #4 / WS-3 I10: recovered state resumes on session.created unless stale (>24h)", () => {
+    test("report-generated (unsealed) state resumes under its original run identity, not discarded (WS-3 I10/I4)", async () => {
       const sessionId = "oc-new-session"
-      const staleState = makeAuditState({
+      // WS-3 I10: reportGenerated is not terminal — an unsealed report-generated run is still
+      // active (awaiting Themis disposition), so recovery must resume it rather than discard.
+      const reportGeneratedState = makeAuditState({
         sessionId: "old-completed-run",
         findings: [
           {
@@ -312,7 +314,7 @@ describe("Pipeline fixes E2E", () => {
         startTime: Date.now(),
       })
 
-      await writeSessionState(sessionId, staleState)
+      await writeSessionState(sessionId, reportGeneratedState)
       const managers = makeManagers()
 
       const hooks = createHooks({
@@ -327,19 +329,21 @@ describe("Pipeline fixes E2E", () => {
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
       await activateArgusSession(hooks, sessionId)
 
-      const freshRunId = await waitForRunId(sessionId)
-      const eventsPath = join(RUNS_DIR, freshRunId, "events.jsonl")
+      // WS-3 I4: the resumed run keeps its original runId, not a fresh one.
+      const resumedRunId = await waitForRunId(sessionId)
+      expect(resumedRunId).toBe("old-completed-run")
+      const eventsPath = join(RUNS_DIR, resumedRunId, "events.jsonl")
       expect(existsSync(eventsPath)).toBe(true)
 
       await hooks.event?.({
         event: { type: "session.idle", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
-      const journalEvents = await readEvents(freshRunId, FIXTURE_DIR)
+      const journalEvents = await readEvents(resumedRunId, FIXTURE_DIR)
       const idleEvent = journalEvents.find((e) => e.type === "session.idle")
       const idlePayload = idleEvent?.payload as Record<string, unknown> | undefined
-      expect(idlePayload?.findingsCount).toBe(0)
-      expect(idlePayload?.toolsExecutedCount).toBe(0)
+      expect(idlePayload?.findingsCount).toBe(1)
+      expect(idlePayload?.toolsExecutedCount).toBe(1)
     })
 
     test("recovered state older than 24h is discarded", async () => {

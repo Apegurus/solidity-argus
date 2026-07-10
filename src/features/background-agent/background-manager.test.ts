@@ -241,4 +241,20 @@ describe("createBackgroundManager", () => {
     expect(await manager.getTaskStatus("missing-task")).toBeUndefined()
     deferred.resolve("done")
   })
+
+  it("bounds retained tasks, evicting the oldest terminal ones (WS-6)", async () => {
+    const dispatcher = mock(async () => "done")
+    const manager = createBackgroundManager(dispatcher, { maxRetainedTasks: 3 })
+
+    const oldest = manager.dispatch("argus", "task 0")
+    await flushMicrotasks()
+    let newest = oldest
+    for (let i = 1; i < 5; i += 1) {
+      newest = manager.dispatch("argus", `task ${i}`)
+      await flushMicrotasks()
+    }
+
+    expect(await manager.getTaskStatus(oldest)).toBeUndefined()
+    expect((await manager.getTaskStatus(newest))?.status).toBe("completed")
+  })
 })

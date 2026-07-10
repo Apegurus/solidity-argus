@@ -24,14 +24,29 @@ function createMockSink(): EventSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
   let seq = 0
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId: "test-run",
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -45,14 +60,29 @@ function createMockSink(): EventSink & { events: AuditEvent[] } {
 
 function createFailingSink(): EventSink {
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId: "test-run",
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },
@@ -333,14 +363,29 @@ describe("createEventHook", () => {
       const events: AuditEvent[] = []
       let seq = 0
       const sinkState = { finalized: false }
+      const owners = new Set<string>()
       const sink: EventSink & { events: AuditEvent[] } = {
         runId: "run-shared",
+        get state() {
+          return sinkState.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+        },
         get isFinalized() {
           return sinkState.finalized
+        },
+        get ownerSet(): ReadonlySet<string> {
+          return owners
+        },
+        addOwner(sessionId: string): void {
+          owners.add(sessionId)
+        },
+        removeOwner(sessionId: string): void {
+          owners.delete(sessionId)
         },
         markFinalized() {
           sinkState.finalized = true
         },
+        markDraining(): void {},
+        markFailedRecoverable(): void {},
         events,
         async append(event: AuditEvent): Promise<void> {
           seq++

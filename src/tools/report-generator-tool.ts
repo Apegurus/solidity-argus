@@ -1,14 +1,13 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { mkdir } from "node:fs/promises"
+import { existsSync, statSync } from "node:fs"
 import path from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
+import { DEFAULT_CONFIDENCE_THRESHOLD } from "../config/schema"
 import type { ArgusConfig } from "../config/types"
 import { readEvents } from "../features/persistent-state/event-sink"
-import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/global-run-index"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
 import type { DropDiagnostic } from "../shared/drop-diagnostics"
-import { createDropDiagnosticsCollector } from "../shared/drop-diagnostics"
+import { readTextCapped } from "../shared/file-utils"
 import {
   computeFailedKeyTools,
   computeMissingKeyTools,
@@ -18,31 +17,53 @@ import {
 } from "../shared/key-tools"
 import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
+import { isContained } from "../shared/path-safety"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveReportPath } from "../shared/report-path-resolver"
 import { isNonEmptyString } from "../shared/type-guards"
 import { reconcileRubricVerdict, SEVERITY_RANK } from "../shared/validation-constants"
-import { normalizeToCanonicalFinding } from "../state/adapters"
 import {
   compareIssueFingerprintSets,
   finalizeProjectedFindings,
 } from "../state/finding-aggregation"
 import { projectFindings, stableHash } from "../state/projectors"
-import { type ReportInput, SCHEMA_VERSION, validateReportInput } from "../state/schemas"
-import type { ArgusAgentName, AuditState, Finding, FindingSeverity } from "../state/types"
+import type { ReportInput } from "../state/schemas"
+import type { AuditState, Finding, FindingSeverity } from "../state/types"
 import {
   assignStableFindingIds,
   loadFindingIdRegistry,
   persistFindingIdRegistry,
   SEVERITY_ID_PREFIX,
 } from "./finding-id-registry"
+import {
+  buildReportMetadataComment,
+  checkDuplicateWrite,
+  checkSafeForceOverwrite,
+  dedupedContentHash,
+  mergeReportEntries,
+  readReportManifest,
+  scanRunReports,
+  upsertReportEntry,
+  writeReportManifest,
+} from "./report-manifest"
 import { checkReportPreflight } from "./report-preflight"
+
+export { extractReportRunId, SINGLE_WRITER_POLICY_VERSION } from "./report-manifest"
+
+import {
+  parseReportInputPayload,
+  reportInputToAuditState,
+  resolveExpectedRunId,
+  UNKNOWN_TIMESTAMP_SENTINEL,
+} from "./report-input"
+
+export { normalizeRawFinding, parseLocationString } from "./report-input"
 
 type SeverityThreshold = "critical" | "high" | "medium" | "low" | "informational"
 
 type ToolCoveragePolicy = "enforce" | "warn" | "skip"
 
-type ReportGeneratorArgs = {
+export type ReportGeneratorArgs = {
   project_name: string
   scope: string[]
   include_executive_summary?: boolean
@@ -84,22 +105,6 @@ export type ReportGenerationResult = {
   error?: { code: string; message: string }
 }
 
-type ReportManifestEntry = {
-  revision: number
-  filePath: string
-  filename: string
-  contentHash: string
-  dedupedContentHash: string
-  createdAt: number
-}
-
-type ReportManifest = {
-  run_id: string
-  schema_version: string
-  updatedAt: number
-  reports: ReportManifestEntry[]
-}
-
 type QualityGatePolicy = "warn" | "strict-fail"
 
 type PreflightPolicy = "warn" | "strict-fail"
@@ -124,207 +129,6 @@ export type ReportGenerationDependencies = {
   resolveCanonicalRunId?: (sessionId: string, projectDir: string) => string | null | undefined
 }
 
-export const SINGLE_WRITER_POLICY_VERSION = "1.0.0"
-
-const REPORT_METADATA_REGEX = /<!-- argus:report_metadata (.+?) -->/
-
-/**
- * Extract the run_id from report metadata embedded as an HTML comment.
- * Returns null if no metadata is found or run_id is missing.
- */
-export function extractReportRunId(content: string): string | null {
-  const match = content.match(REPORT_METADATA_REGEX)
-  if (!match?.[1]) return null
-  try {
-    const metadata = JSON.parse(match[1])
-    return typeof metadata.run_id === "string" ? metadata.run_id : null
-  } catch {
-    return null
-  }
-}
-
-function buildReportMetadataComment(runId: string): string {
-  const metadata = {
-    run_id: runId,
-    policy_version: SINGLE_WRITER_POLICY_VERSION,
-  }
-  return `<!-- argus:report_metadata ${JSON.stringify(metadata)} -->`
-}
-
-function emptyReportManifest(runId: string): ReportManifest {
-  return {
-    run_id: runId,
-    schema_version: SCHEMA_VERSION,
-    updatedAt: Date.now(),
-    reports: [],
-  }
-}
-
-function readReportManifest(filePath: string, runId: string): ReportManifest {
-  if (!existsSync(filePath)) return emptyReportManifest(runId)
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Partial<ReportManifest>
-    if (!parsed || parsed.run_id !== runId || !Array.isArray(parsed.reports)) {
-      return emptyReportManifest(runId)
-    }
-    return {
-      run_id: runId,
-      schema_version:
-        typeof parsed.schema_version === "string" ? parsed.schema_version : SCHEMA_VERSION,
-      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
-      reports: parsed.reports.filter(
-        (entry): entry is ReportManifestEntry =>
-          typeof entry === "object" &&
-          entry !== null &&
-          typeof entry.revision === "number" &&
-          typeof entry.filePath === "string" &&
-          typeof entry.filename === "string" &&
-          typeof entry.contentHash === "string" &&
-          typeof entry.dedupedContentHash === "string" &&
-          typeof entry.createdAt === "number",
-      ),
-    }
-  } catch {
-    return emptyReportManifest(runId)
-  }
-}
-
-function reportRevisionFromFilename(filename: string): number {
-  const match = filename.match(/-r(\d+)\.md$/)
-  if (!match?.[1]) return 1
-  const revision = Number.parseInt(match[1], 10)
-  return Number.isInteger(revision) && revision >= 2 ? revision : 1
-}
-
-function scanRunReports(
-  outputDir: string,
-  runId: string,
-  dedupedContentHash: string,
-): ReportManifestEntry[] {
-  if (!existsSync(outputDir)) return []
-  const entries: ReportManifestEntry[] = []
-  for (const filename of readdirSync(outputDir)) {
-    if (!filename.endsWith(".md")) continue
-    const filePath = path.join(outputDir, filename)
-    try {
-      if (!statSync(filePath).isFile()) continue
-      const content = readFileSync(filePath, "utf8")
-      if (extractReportRunId(content) !== runId) continue
-      entries.push({
-        revision: reportRevisionFromFilename(filename),
-        filePath,
-        filename,
-        contentHash: stableHash(content),
-        dedupedContentHash,
-        createdAt: statSync(filePath).mtimeMs,
-      })
-    } catch {}
-  }
-  return entries
-}
-
-function mergeReportEntries(
-  manifestEntries: ReportManifestEntry[],
-  scannedEntries: ReportManifestEntry[],
-): ReportManifestEntry[] {
-  const byPath = new Map<string, ReportManifestEntry>()
-  for (const entry of manifestEntries) {
-    if (existsSync(entry.filePath)) byPath.set(entry.filePath, entry)
-  }
-  for (const entry of scannedEntries) {
-    const existing = byPath.get(entry.filePath)
-    byPath.set(
-      entry.filePath,
-      existing
-        ? {
-            ...entry,
-            dedupedContentHash: existing.dedupedContentHash,
-            createdAt: existing.createdAt,
-          }
-        : entry,
-    )
-  }
-  return Array.from(byPath.values()).sort((a, b) =>
-    a.revision === b.revision ? a.filePath.localeCompare(b.filePath) : a.revision - b.revision,
-  )
-}
-
-function isPathInsideDirectory(filePath: string, directory: string): boolean {
-  const resolvedFile = path.resolve(filePath)
-  const resolvedDirectory = path.resolve(directory)
-  const directoryPrefix = resolvedDirectory.endsWith(path.sep)
-    ? resolvedDirectory
-    : resolvedDirectory + path.sep
-  return resolvedFile.startsWith(directoryPrefix)
-}
-
-function upsertReportEntry(
-  entries: ReportManifestEntry[],
-  nextEntry: ReportManifestEntry,
-): ReportManifestEntry[] {
-  const byPath = new Map(entries.map((entry) => [entry.filePath, entry]))
-  byPath.set(nextEntry.filePath, nextEntry)
-  return Array.from(byPath.values()).sort((a, b) =>
-    a.revision === b.revision ? a.filePath.localeCompare(b.filePath) : a.revision - b.revision,
-  )
-}
-
-async function writeReportManifest(filePath: string, manifest: ReportManifest): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true })
-  await Bun.write(filePath, JSON.stringify({ ...manifest, updatedAt: Date.now() }, null, 2))
-}
-
-function dedupedContentHash(input: ReportInput): string {
-  return stableHash({
-    findings: input.findings,
-    dropped_observations: input.dropped_observations ?? [],
-  })
-}
-
-async function checkDuplicateWrite(
-  filePath: string,
-  runId: string,
-): Promise<{ code: string; message: string } | null> {
-  if (!existsSync(filePath)) return null
-  try {
-    const existingContent = await Bun.file(filePath).text()
-    const existingRunId = extractReportRunId(existingContent)
-    if (existingRunId === runId) {
-      return {
-        code: "DUPLICATE_WRITE_ATTEMPT",
-        message: `Report for run_id "${runId}" already exists at ${filePath}. Single-writer policy (v${SINGLE_WRITER_POLICY_VERSION}) prevents duplicate writes for the same run. To publish a corrected report, call argus_generate_report with revision: 2 (writes a -r2 file); do not retry the base write.`,
-      }
-    }
-  } catch {
-    // Cannot read existing file; allow write
-  }
-  return null
-}
-
-async function checkSafeForceOverwrite(
-  filePath: string,
-  runId: string,
-): Promise<{ code: string; message: string } | null> {
-  if (!existsSync(filePath)) return null
-  try {
-    const existingContent = await Bun.file(filePath).text()
-    const existingRunId = extractReportRunId(existingContent)
-    if (existingRunId === runId) return null
-    return {
-      code: "INSECURE_OVERWRITE_REFUSED",
-      message:
-        existingRunId == null
-          ? `Refusing to force overwrite ${filePath}: existing file has no Argus report metadata.`
-          : `Refusing to force overwrite ${filePath}: existing report belongs to run_id "${existingRunId}", not "${runId}".`,
-    }
-  } catch (err) {
-    return {
-      code: "INSECURE_OVERWRITE_REFUSED",
-      message: `Refusing to force overwrite ${filePath}: existing file could not be read (${err instanceof Error ? err.message : String(err)}).`,
-    }
-  }
-}
-
 const THRESHOLD_WEIGHT: Record<SeverityThreshold, number> = {
   critical: 5,
   high: 4,
@@ -340,9 +144,6 @@ const FINDING_WEIGHT: Record<FindingSeverity, number> = {
   Low: 2,
   Informational: 1,
 }
-
-/** Sentinel for missing/unknown tool execution timestamps (schema requires startTime > 0). */
-const UNKNOWN_TIMESTAMP_SENTINEL = 1
 
 const MISSING_IMPACT_TEXT = "Impact details were not provided in the finding payload."
 const MISSING_RECOMMENDATION_TEXT =
@@ -372,573 +173,6 @@ function emptyCounts(): FindingsCount {
  * Parse a location string like "File.sol:18-22" or "File.sol:18" into { file, lines }.
  * Returns undefined if the string doesn't match a recognized format.
  */
-export function parseLocationString(
-  location: string,
-): { file: string; lines: [number, number] } | undefined {
-  // "File.sol:18-22" or "File.sol:L18-L22"
-  const rangeMatch = location.match(/^(.+?):L?(\d+)\s*-\s*L?(\d+)$/)
-  if (rangeMatch) {
-    const file = rangeMatch.at(1)
-    const start = rangeMatch.at(2)
-    const end = rangeMatch.at(3)
-    if (file && start && end) {
-      return { file, lines: [Number(start), Number(end)] }
-    }
-  }
-  // "File.sol:18"
-  const singleMatch = location.match(/^(.+?):L?(\d+)$/)
-  if (singleMatch) {
-    const file = singleMatch.at(1)
-    const lineNum = singleMatch.at(2)
-    if (file && lineNum) {
-      const n = Number(lineNum)
-      return { file, lines: [n, n] }
-    }
-  }
-  return undefined
-}
-
-/**
- * Normalize a raw finding object from agent output into the canonical field format.
- * Handles common aliases:
- *   - title/name → check
- *   - location (string) → file + lines
- *   - case-insensitive severity → capitalized
- */
-export function normalizeRawFinding(raw: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...raw }
-
-  // check: accept title, name as aliases
-  if (typeof result.check !== "string" || (result.check as string).length === 0) {
-    const alias = result.title ?? result.name
-    if (typeof alias === "string" && alias.length > 0) {
-      result.check = alias
-    }
-  }
-
-  // file + lines: accept location string as alias.
-  // Always attempt to extract lines from location, even when file is already set.
-  // LLMs commonly provide both file and location (e.g. file="src/Vault.sol", location="Vault.sol:18-23").
-  if (typeof result.location === "string") {
-    const parsed = parseLocationString(result.location as string)
-    if (parsed) {
-      if (typeof result.file !== "string" || (result.file as string).length === 0) {
-        result.file = parsed.file
-      }
-      if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
-        result.lines = parsed.lines
-      }
-    }
-  }
-
-  // lines: accept [start] as [start, start], accept line_start/line_end
-  if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
-    if (Array.isArray(result.lines) && (result.lines as unknown[]).length === 1) {
-      const n = Number((result.lines as unknown[])[0])
-      if (!Number.isNaN(n)) {
-        result.lines = [n, n]
-      }
-    } else if (typeof result.line_start === "number" && typeof result.line_end === "number") {
-      result.lines = [result.line_start, result.line_end]
-    } else if (typeof result.line === "number") {
-      result.lines = [result.line, result.line]
-    }
-  }
-
-  // severity: case-insensitive normalization
-  if (typeof result.severity === "string") {
-    const lower = (result.severity as string).toLowerCase()
-    const SEVERITY_MAP: Record<string, string> = {
-      critical: "Critical",
-      high: "High",
-      medium: "Medium",
-      low: "Low",
-      informational: "Informational",
-      info: "Informational",
-    }
-    const mapped = SEVERITY_MAP[lower]
-    if (mapped) {
-      result.severity = mapped
-    }
-  }
-
-  // confidence: case-insensitive normalization
-  if (typeof result.confidence === "string") {
-    const lower = (result.confidence as string).toLowerCase()
-    const CONFIDENCE_MAP: Record<string, string> = {
-      high: "High",
-      medium: "Medium",
-      low: "Low",
-    }
-    const mapped = CONFIDENCE_MAP[lower]
-    if (mapped) {
-      result.confidence = mapped
-    }
-  }
-
-  // description: fall back to check if missing
-  if (typeof result.description !== "string" && typeof result.check === "string") {
-    result.description = result.check
-  }
-
-  if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
-    result.lines = [0, 0]
-  }
-
-  return result
-}
-
-type ParseReportInputResult = {
-  reportInput: ReportInput
-  diagnostics: DropDiagnostic[]
-}
-
-const VALID_AGENT_VALUES = new Set<ArgusAgentName>([
-  "argus",
-  "sentinel",
-  "pythia",
-  "audit-specialist",
-  "scribe",
-  "unknown",
-])
-
-function normalizeDedupedFindings(
-  rawFindings: unknown[],
-  runId: string,
-  projectDir: string,
-  dedupedBy: string,
-): Record<string, unknown>[] {
-  const reportedByAgent: ArgusAgentName = VALID_AGENT_VALUES.has(dedupedBy as ArgusAgentName)
-    ? (dedupedBy as ArgusAgentName)
-    : "scribe"
-  return rawFindings.map((raw, index) => {
-    const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
-    const normalized = normalizeRawFinding(input)
-    const result = normalizeToCanonicalFinding(
-      normalized,
-      runId,
-      index + 1,
-      { reportedByAgent },
-      projectDir,
-    )
-    return result.data as unknown as Record<string, unknown>
-  })
-}
-
-function diagnosticsSummary(diagnostics: DropDiagnostic[]): string {
-  return diagnostics.map((diag) => `${diag.reason.code}:${diag.reason.message}`).join("; ")
-}
-
-function throwContractMismatch(message: string, diagnostics: DropDiagnostic[]): never {
-  const details = diagnosticsSummary(diagnostics)
-  const fullMessage = details.length > 0 ? `${message}. Diagnostics: ${details}` : message
-  throw new Error(fullMessage)
-}
-
-function reportInputToAuditState(reportInput: ReportInput): AuditState {
-  return {
-    sessionId: reportInput.session_id,
-    projectDir: reportInput.projectDir,
-    contractsReviewed: Array.from(
-      new Set(reportInput.findings.map((finding) => finding.file)),
-    ).sort((a, b) => a.localeCompare(b)),
-    findings: reportInput.findings,
-    toolsExecuted: reportInput.toolsExecuted,
-    currentPhase: "complete",
-    scope: reportInput.scope,
-    startTime: 0,
-    soloditResults: reportInput.soloditResults,
-    fuzzCounterexamples: reportInput.fuzzCounterexamples,
-    coverageReport: reportInput.coverageReport,
-    gasHotspots: reportInput.gasHotspots,
-    proxyContracts: reportInput.proxyContracts,
-    patternVersion: reportInput.patternVersion,
-    skillsLoaded: reportInput.skillsLoaded,
-    unavailableTools: reportInput.unavailableTools,
-  }
-}
-
-function normalizeToolsExecutedDefaults(
-  parsed: unknown,
-  expectedRunId: string | undefined,
-  diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
-): void {
-  if (!parsed || typeof parsed !== "object") return
-  const obj = parsed as Record<string, unknown>
-  if (!Array.isArray(obj.toolsExecuted)) return
-
-  const runId = (typeof obj.run_id === "string" && obj.run_id) || expectedRunId || "unknown"
-  let patched = false
-
-  for (const entry of obj.toolsExecuted) {
-    if (!entry || typeof entry !== "object") continue
-    const rec = entry as Record<string, unknown>
-    if (typeof rec.startTime !== "number" || rec.startTime <= 0) {
-      rec.startTime = UNKNOWN_TIMESTAMP_SENTINEL
-      patched = true
-    }
-    if (typeof rec.success !== "boolean") {
-      rec.success = true
-      patched = true
-    }
-    if (typeof rec.findingsCount !== "number" || rec.findingsCount < 0) {
-      rec.findingsCount = 0
-      patched = true
-    }
-    if (!isNonEmptyString(rec.run_id)) {
-      rec.run_id = runId
-      patched = true
-    }
-    if (!isNonEmptyString(rec.schema_version)) {
-      rec.schema_version = SCHEMA_VERSION
-      patched = true
-    }
-  }
-
-  if (patched) {
-    diagnostics.warn(
-      "REPORT_INPUT_TOOLS_EXECUTED_NORMALIZED",
-      "toolsExecuted entries were missing canonical fields (startTime, success, findingsCount, run_id, schema_version); defaults applied.",
-      "toolsExecuted",
-    )
-  }
-}
-
-function resolveExpectedRunId(
-  args: ReportGeneratorArgs,
-  context: ToolContext,
-  deps: ReportGenerationDependencies,
-): string | undefined {
-  // 1. Explicit run_id from LLM args (highest priority)
-  if (isNonEmptyString(args.run_id)) {
-    return args.run_id.trim()
-  }
-
-  // 2. Global run index lookup by session ID
-  const sessionId = context.sessionID
-  const projectDir = resolveProjectDir(context)
-  if (isNonEmptyString(sessionId)) {
-    const resolveCanonicalRunId = deps.resolveCanonicalRunId ?? resolveRunIdFromOpencodeSession
-    const resolved = resolveCanonicalRunId(sessionId, projectDir)
-    if (isNonEmptyString(resolved)) {
-      return resolved
-    }
-  }
-
-  // When caller provides inline report_input, skip filesystem discovery —
-  // the caller already has their data and filesystem state may belong to a different run.
-  if (isNonEmptyString(args.report_input)) {
-    return undefined
-  }
-
-  // 3. Per-session state files (per-session managers write to sessions/state-{sessionId}.json)
-  const STALE_STATE_TTL_MS = 24 * 60 * 60 * 1000
-  const sessionsDir = path.join(projectDir, ".argus", "sessions")
-  try {
-    const entries = readdirSync(sessionsDir)
-    const stateFiles = entries.filter((e) => e.startsWith("state-") && e.endsWith(".json"))
-    const ranked = stateFiles
-      .map((name) => {
-        const filePath = path.join(sessionsDir, name)
-        try {
-          return { name, path: filePath, mtime: statSync(filePath).mtimeMs }
-        } catch {
-          return null
-        }
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-      .sort((a, b) => b.mtime - a.mtime)
-
-    for (const entry of ranked) {
-      try {
-        const stateRaw = JSON.parse(readFileSync(entry.path, "utf-8")) as Record<string, unknown>
-        const stateSessionId = stateRaw.sessionId
-        const savedAt = typeof stateRaw.savedAt === "number" ? stateRaw.savedAt : 0
-        const isFresh = Date.now() - savedAt < STALE_STATE_TTL_MS
-        if (
-          typeof stateSessionId === "string" &&
-          stateSessionId.trim().length > 0 &&
-          !stateSessionId.startsWith("ses_") &&
-          isFresh
-        ) {
-          const resolver = createAuditArtifactResolver(stateSessionId, projectDir)
-          const hasArtifacts =
-            existsSync(resolver.paths().reportInputFile) || existsSync(resolver.paths().journalFile)
-          if (hasArtifacts) {
-            return stateSessionId
-          }
-        }
-      } catch {
-        /* skip unreadable session file */
-      }
-    }
-  } catch {
-    /* sessions dir doesn't exist */
-  }
-
-  // 4. Shared audit state (legacy fallback)
-  try {
-    const sharedStatePath = path.join(projectDir, ".argus", "argus-state.json")
-    if (existsSync(sharedStatePath)) {
-      const stateRaw = JSON.parse(readFileSync(sharedStatePath, "utf-8")) as Record<string, unknown>
-      const stateSessionId = stateRaw.sessionId
-      const savedAt = typeof stateRaw.savedAt === "number" ? stateRaw.savedAt : 0
-      const isFresh = Date.now() - savedAt < STALE_STATE_TTL_MS
-      if (
-        typeof stateSessionId === "string" &&
-        stateSessionId.trim().length > 0 &&
-        !stateSessionId.startsWith("ses_") &&
-        isFresh
-      ) {
-        const resolver = createAuditArtifactResolver(stateSessionId, projectDir)
-        const hasArtifacts =
-          existsSync(resolver.paths().reportInputFile) || existsSync(resolver.paths().journalFile)
-        if (hasArtifacts) {
-          return stateSessionId
-        }
-      }
-    }
-  } catch {
-    /* fallback path */
-  }
-
-  return undefined
-}
-
-function finalizeReportInputSelection(
-  reportInput: ReportInput,
-  diagnostics: ReturnType<typeof createDropDiagnosticsCollector>,
-  expectedRunId?: string,
-): ParseReportInputResult {
-  if (reportInput.run_id.startsWith("ses_")) {
-    diagnostics.error(
-      "REPORT_INPUT_RUN_ID_MISMATCH",
-      "ReportInput run_id must be a canonical run identifier, not an OpenCode session id (ses_*).",
-      "run_id",
-    )
-    throwContractMismatch(
-      "ReportInput contract mismatch: run_id/session_id conflation detected",
-      diagnostics.getDiagnostics(),
-    )
-  }
-
-  if (expectedRunId && reportInput.run_id !== expectedRunId) {
-    diagnostics.error(
-      "REPORT_INPUT_CANONICAL_RUN_MISMATCH",
-      `ReportInput run_id ${reportInput.run_id} does not match canonical run_id ${expectedRunId}.`,
-      "run_id",
-    )
-    throwContractMismatch(
-      "ReportInput contract mismatch: report_input run_id diverges from canonical run_id",
-      diagnostics.getDiagnostics(),
-    )
-  }
-
-  return { reportInput, diagnostics: diagnostics.getDiagnostics() }
-}
-
-function parseReportInputPayload(
-  args: ReportGeneratorArgs,
-  context: ToolContext,
-  expectedRunId: string | undefined,
-): ParseReportInputResult {
-  const diagnostics = createDropDiagnosticsCollector(
-    "warn",
-    "report-generator",
-    "argus_generate_report",
-  )
-
-  if (isNonEmptyString(args.report_input)) {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(args.report_input)
-    } catch {
-      diagnostics.error(
-        "REPORT_INPUT_MALFORMED_JSON",
-        "report_input is not valid JSON. Expected serialized ReportInput object.",
-        "report_input",
-      )
-      throwContractMismatch(
-        "ReportInput contract mismatch: malformed report_input JSON",
-        diagnostics.getDiagnostics(),
-      )
-    }
-
-    normalizeToolsExecutedDefaults(parsed, expectedRunId, diagnostics)
-
-    const validation = validateReportInput(parsed)
-    if (!validation.success) {
-      for (const error of validation.errors) {
-        diagnostics.warn(
-          "REPORT_INPUT_INLINE_VALIDATION_FAILED",
-          `${error.field}: ${error.message}`,
-          error.field,
-        )
-      }
-      diagnostics.warn(
-        "REPORT_INPUT_INLINE_FALLTHROUGH",
-        `Inline report_input failed validation (${validation.errors.length} errors). Falling back to disk artifact.`,
-        "report_input",
-      )
-    } else {
-      return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
-    }
-  }
-
-  const effectiveRunId =
-    (isNonEmptyString(args.run_id) ? args.run_id.trim() : undefined) ?? expectedRunId
-
-  if (isNonEmptyString(effectiveRunId)) {
-    const projectDir = resolveProjectDir(context)
-    const resolver = createAuditArtifactResolver(effectiveRunId, projectDir)
-
-    const dedupedFile = resolver.paths().dedupedFindingsFile
-    if (existsSync(dedupedFile)) {
-      let dedupedArtifact: {
-        findings?: unknown[]
-        dropped_observations?: unknown[]
-        deduped_by?: string
-      }
-      try {
-        dedupedArtifact = JSON.parse(readFileSync(dedupedFile, "utf-8")) as typeof dedupedArtifact
-      } catch {
-        diagnostics.error(
-          "REPORT_INPUT_DEDUPED_CORRUPT",
-          `deduped-findings.json for run ${effectiveRunId} is not valid JSON.`,
-          "deduped-findings.json",
-        )
-        throwContractMismatch(
-          "ReportInput contract mismatch: corrupted deduped artifact",
-          diagnostics.getDiagnostics(),
-        )
-      }
-
-      if (!Array.isArray(dedupedArtifact.findings)) {
-        diagnostics.error(
-          "REPORT_INPUT_DEDUPED_VALIDATION_FAILED",
-          "findings must be an array in deduped-findings.json.",
-          "findings",
-        )
-        throwContractMismatch(
-          "ReportInput contract mismatch: deduped artifact failed schema validation",
-          diagnostics.getDiagnostics(),
-        )
-      }
-
-      const reportInputFile = resolver.paths().reportInputFile
-      let baseInput: Record<string, unknown> = {}
-      if (existsSync(reportInputFile)) {
-        try {
-          baseInput = JSON.parse(readFileSync(reportInputFile, "utf-8")) as Record<string, unknown>
-        } catch {
-          /* use empty base */
-        }
-      }
-      const normalizedFindings = normalizeDedupedFindings(
-        dedupedArtifact.findings,
-        effectiveRunId,
-        projectDir,
-        typeof dedupedArtifact.deduped_by === "string" ? dedupedArtifact.deduped_by : "scribe",
-      )
-      const merged: Record<string, unknown> = {
-        ...baseInput,
-        run_id: effectiveRunId,
-        findings: normalizedFindings,
-        dropped_observations: Array.isArray(dedupedArtifact.dropped_observations)
-          ? dedupedArtifact.dropped_observations
-          : baseInput.dropped_observations,
-      }
-      normalizeToolsExecutedDefaults(merged, effectiveRunId, diagnostics)
-      if (typeof merged.seq !== "number" || (merged.seq as number) < 0) {
-        merged.seq = 0
-      }
-      if (typeof merged.session_id !== "string" || (merged.session_id as string).length === 0) {
-        merged.session_id = "unknown"
-      }
-      if (typeof merged.tool_call_id !== "string" || (merged.tool_call_id as string).length === 0) {
-        merged.tool_call_id = `deduped:${effectiveRunId}`
-      }
-      if (typeof merged.source !== "string" || (merged.source as string).length === 0) {
-        merged.source = "deduped-findings"
-      }
-      if (typeof merged.schema_version !== "string" || merged.schema_version !== SCHEMA_VERSION) {
-        merged.schema_version = SCHEMA_VERSION
-      }
-      if (typeof merged.projectDir !== "string" || (merged.projectDir as string).length === 0) {
-        merged.projectDir = projectDir
-      }
-      if (!Array.isArray(merged.scope)) {
-        merged.scope = []
-      }
-      if (!Array.isArray(merged.toolsExecuted)) {
-        merged.toolsExecuted = []
-      }
-      const validation = validateReportInput(merged)
-      if (validation.success) {
-        return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
-      }
-      for (const error of validation.errors) {
-        diagnostics.error(
-          "REPORT_INPUT_DEDUPED_VALIDATION_FAILED",
-          `${error.field}: ${error.message}`,
-          error.field,
-        )
-      }
-      throwContractMismatch(
-        "ReportInput contract mismatch: deduped artifact failed schema validation",
-        diagnostics.getDiagnostics(),
-      )
-    }
-
-    const reportInputFile = resolver.paths().reportInputFile
-    if (existsSync(reportInputFile)) {
-      diagnostics.warn(
-        "REPORT_INPUT_DISK_FALLBACK",
-        `No report_input provided; reading materialized report-input.json from disk for run ${effectiveRunId}.`,
-        "report_input",
-      )
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(readFileSync(reportInputFile, "utf-8"))
-      } catch {
-        diagnostics.error(
-          "REPORT_INPUT_DISK_CORRUPT",
-          `Materialized report-input.json for run ${effectiveRunId} is not valid JSON.`,
-          "report_input",
-        )
-        throwContractMismatch(
-          "ReportInput contract mismatch: corrupted disk artifact",
-          diagnostics.getDiagnostics(),
-        )
-      }
-      const validation = validateReportInput(parsed)
-      if (!validation.success) {
-        for (const error of validation.errors) {
-          diagnostics.error(
-            "REPORT_INPUT_DISK_VALIDATION_FAILED",
-            `${error.field}: ${error.message}`,
-            error.field,
-          )
-        }
-        throwContractMismatch(
-          "ReportInput contract mismatch: disk artifact failed schema validation",
-          diagnostics.getDiagnostics(),
-        )
-      }
-      return finalizeReportInputSelection(validation.data, diagnostics, expectedRunId)
-    }
-  }
-  diagnostics.error(
-    "REPORT_INPUT_MISSING",
-    `Missing report_input payload. args.run_id=${args.run_id ?? "undefined"}, expectedRunId=${expectedRunId ?? "undefined"}. Provide report_input (preferred) or run_id for disk fallback.`,
-    "report_input",
-  )
-  throwContractMismatch(
-    "ReportInput contract mismatch: missing required payload",
-    diagnostics.getDiagnostics(),
-  )
-}
-
 // Strips Markdown/HTML-sensitive chars so LLM-controlled `check` values cannot
 // forge sections, links, code spans, or inline HTML in the rendered H3 heading.
 const HEADING_DANGEROUS_CHARS = /[\r\n\t`*<>[\]()#\\|]+/g
@@ -995,18 +229,21 @@ function sanitizeBodyMarkdown(text: string): string {
   return out.join("\n")
 }
 
-function sourceExcerpt(projectDir: string, finding: Finding): string | null {
+const MAX_SOURCE_EXCERPT_BYTES = 2 * 1024 * 1024
+
+export function sourceExcerpt(projectDir: string, finding: Finding): string | null {
   if (!finding.file || !Array.isArray(finding.lines) || finding.lines.length < 2) return null
   const start = finding.lines[0]
   const end = finding.lines[1]
   if (!Number.isInteger(start) || !Number.isInteger(end) || start <= 0 || end < start) {
     return null
   }
-  const absolutePath = path.isAbsolute(finding.file)
-    ? finding.file
-    : path.join(projectDir, finding.file)
+  // Security: finding.file is tool/LLM-controlled — only read a file proven to resolve
+  // inside projectDir; refuse absolute paths and traversal escapes before any read.
+  if (path.isAbsolute(finding.file) || !isContained(finding.file, projectDir)) return null
+  const absolutePath = path.join(projectDir, finding.file)
   if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) return null
-  const contents = readFileSync(absolutePath, "utf-8").split(/\r?\n/)
+  const contents = readTextCapped(absolutePath, MAX_SOURCE_EXCERPT_BYTES).text.split(/\r?\n/)
   const excerpt = contents.slice(start - 1, end).join("\n")
   return excerpt.trim().length > 0 ? excerpt : null
 }
@@ -1763,7 +1000,7 @@ export function renderReportMarkdown(
   const projectName = options.projectName ?? "Unknown Project"
   const includeExecutiveSummary = options.include_executive_summary ?? true
   const threshold = options.severity_threshold ?? "informational"
-  const confidenceThreshold = options.threshold ?? 80
+  const confidenceThreshold = options.threshold ?? DEFAULT_CONFIDENCE_THRESHOLD
   const preflightWarningSection = options.preflightWarningSection ?? null
   const toolsExecuted = input.toolsExecuted ?? []
   const state = reportInputToAuditState({ ...input, toolsExecuted })
@@ -1894,7 +1131,7 @@ export async function executeReportGeneration(
   const qualityGatePolicy = args.quality_gate_policy ?? "warn"
   const toolCoveragePolicy = args.tool_coverage_policy ?? "enforce"
   const expectedRunId = resolveExpectedRunId(args, context, deps)
-  let confidenceThreshold = 80
+  let confidenceThreshold = DEFAULT_CONFIDENCE_THRESHOLD
   let loadedConfig: ArgusConfig | undefined
   let configLoadFailed = false
   const invalidRegenerationOptions =
@@ -2131,7 +1368,9 @@ export async function executeReportGeneration(
   }
 
   const findings = sortFindingsDeterministically(
-    finalFindings.filter((finding) => shouldIncludeFinding(finding, threshold)),
+    finalFindings.filter(
+      (finding) => shouldIncludeFinding(finding, threshold) && isFindingInScope(finding, scope),
+    ),
   )
   // Quality gates apply to the Findings tier only; Leads are description-only per rubric.
   const { findings: confirmedFindings, leads: leadFindings } = splitFindingsByTier(
@@ -2204,7 +1443,7 @@ export async function executeReportGeneration(
   const { filename: canonicalFilename } = resolveReportPath({
     contractName: args.project_name,
     date: new Date(auditDate),
-    outputDir: ".opencode/reports/",
+    outputDir: loadedConfig?.reporting?.output_dir ?? ".argus/reports/",
     runId: runId || undefined,
     revision: invalidRegenerationOptions ? undefined : args.revision,
   })
@@ -2232,11 +1471,10 @@ export async function executeReportGeneration(
     const config = loadedConfig ?? loadConfig(projectDir)
     const rawOutputDir = config.reporting?.output_dir ?? ".argus/reports/"
     const resolvedOutput = path.resolve(projectDir, rawOutputDir)
-    const projectRoot = projectDir.endsWith(path.sep) ? projectDir : projectDir + path.sep
-    if (resolvedOutput !== projectDir && !resolvedOutput.startsWith(projectRoot)) {
+    if (!isContained(resolvedOutput, projectDir)) {
       result.error = {
         code: "OUTPUT_DIR_TRAVERSAL",
-        message: `output_dir "${rawOutputDir}" resolves outside the project root. Report not written.`,
+        message: `output_dir "${rawOutputDir}" resolves outside the project root (or via an escaping symlink). Report not written.`,
       }
       return result
     }
@@ -2256,8 +1494,7 @@ export async function executeReportGeneration(
     )
     const existingReports = manifest.reports.filter((entry) => existsSync(entry.filePath))
     const reusableReport = existingReports.find(
-      (entry) =>
-        entry.contentHash === contentHash && isPathInsideDirectory(entry.filePath, resolvedOutput),
+      (entry) => entry.contentHash === contentHash && isContained(entry.filePath, resolvedOutput),
     )
 
     if (runId && args.force !== true && reusableReport) {
@@ -2301,8 +1538,16 @@ export async function executeReportGeneration(
       }
     }
 
+    if (!isContained(fullPath, projectDir)) {
+      result.error = {
+        code: "OUTPUT_DIR_TRAVERSAL",
+        message: `resolved report path escapes the project root. Report not written.`,
+      }
+      return result
+    }
     await Bun.write(fullPath, reportMarkdown)
     result.filePath = fullPath
+    result.filename = path.basename(fullPath)
     result.reportStatus = "written"
     result.reportsManifestFile = manifestPath
     if (runId.length > 0 && idAssignments) {
@@ -2373,6 +1618,11 @@ export const reportGeneratorTool = tool({
   },
   async execute(args, context) {
     const result = await executeReportGeneration(args, context)
+    if (result.error) {
+      throw new Error(
+        `argus_generate_report failed [${result.error.code}]: ${result.error.message}`,
+      )
+    }
     // Return a slim payload to avoid OpenCode truncating large tool results.
     // The full markdown is already written to disk at result.filePath.
     // Truncated JSON breaks tool-tracking-hook parsing, which prevents

@@ -317,7 +317,6 @@ export function projectFindings(events: AuditEvent[]): CanonicalFinding[] {
       ...validation.data,
       seq: event.seq,
       run_id: event.run_id,
-      schema_version: event.schema_version,
     })
   }
 

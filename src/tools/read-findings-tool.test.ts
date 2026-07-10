@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
+import { createAuditState } from "../state/audit-state"
 import type { ReadFindingsResult } from "./read-findings-tool"
-import { executeReadFindings } from "./read-findings-tool"
+import { convertAuditStateToReportInput, executeReadFindings } from "./read-findings-tool"
 
 const tempDirs: string[] = []
 
@@ -19,6 +20,28 @@ async function makeTempDir(): Promise<string> {
   tempDirs.push(dir)
   return dir
 }
+
+test("convertAuditStateToReportInput dedups legacy-scheme duplicate findings (adj_26)", async () => {
+  const dir = await makeTempDir()
+  const { state } = createAuditState(dir)
+  const dup = {
+    check: "reentrancy-eth",
+    severity: "High" as const,
+    confidence: "High" as const,
+    description: "duplicate finding",
+    file: "src/Vault.sol",
+    lines: [10, 15] as [number, number],
+    source: "manual" as const,
+  }
+  state.findings = [
+    { ...dup, id: "legacy-a" },
+    { ...dup, id: "legacy-b" },
+  ]
+
+  const result = convertAuditStateToReportInput(state, "run-1", dir)
+
+  expect(result.findings).toHaveLength(1)
+})
 
 function createContext(dir: string): ToolContext {
   return {

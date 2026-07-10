@@ -23,6 +23,10 @@ export class CliProgram {
     this.commands.set(command.name, command)
   }
 
+  getCommandNames(): string[] {
+    return [...this.commands.keys()]
+  }
+
   async dispatch(args: string[]): Promise<number> {
     const subcommand = args[0]
 

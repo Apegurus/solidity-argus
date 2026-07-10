@@ -50,7 +50,7 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
     async (command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
       expect(command).toEqual(["forge", "coverage", "--report", "summary"])
       expect(options.signal).toBe(context.abort)
-      expect(options.cwd).toBe(".")
+      expect(options.cwd).toBe("/tmp/project")
       return { stdout, stderr: "", exitCode: 0 }
     },
   )
@@ -100,7 +100,7 @@ test("executeForgeCoverage forwards match_path and ir_minimum flags", async () =
         "test/WAlpha.t.sol",
         "--ir-minimum",
       ])
-      expect(options.cwd).toBe(".")
+      expect(options.cwd).toBe("/tmp/project")
       return { stdout, stderr: "", exitCode: 0 }
     },
   )
@@ -306,4 +306,45 @@ test("executeForgeCoverage resolves cwd from context when target is omitted", as
       }
     },
   )
+})
+
+test("executeForgeCoverage rejects an out-of-tree target without running forge", async () => {
+  const { context } = createContext({ directory: "/tmp/project" })
+
+  const result = await executeForgeCoverage({ target: "/etc" }, context, async () => {
+    throw new Error("runCommand must not be reached for an out-of-tree target")
+  })
+
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("outside root")
+})
+
+test("executeForgeCoverage rejects a match_path that escapes the project root", async () => {
+  const { context } = createContext({ directory: "/tmp/project" })
+
+  const result = await executeForgeCoverage(
+    { target: ".", match_path: "../outside.t.sol" },
+    context,
+    async () => {
+      throw new Error("runCommand must not be reached for an escaping match_path")
+    },
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("outside root")
+})
+
+test("executeForgeCoverage rejects a flag-shaped match_path (option injection)", async () => {
+  const { context } = createContext({ directory: "/tmp/project" })
+
+  const result = await executeForgeCoverage(
+    { match_path: "--fork-url=http://169.254.169.254" },
+    context,
+    async () => {
+      throw new Error("runCommand must not be reached for a flag-shaped match_path")
+    },
+  )
+
+  expect(result.success).toBe(false)
+  expect(result.error).toContain("option injection")
 })

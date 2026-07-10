@@ -3,8 +3,14 @@ import { homedir } from "node:os"
 import { basename, dirname, extname, join, resolve } from "node:path"
 import { loadArgusConfig } from "../../config/loader"
 import type { ArgusConfig } from "../../config/types"
-import { ScvdApiError, ScvdClient, ScvdNetworkError } from "../../knowledge/scvd-client"
+import {
+  assertScvdApiUrlAllowed,
+  ScvdApiError,
+  ScvdClient,
+  ScvdNetworkError,
+} from "../../knowledge/scvd-client"
 import { createLogger } from "../../shared/logger"
+import { buildSafeEnv, ProcessRunnerError } from "../../shared/process-runner"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
@@ -97,13 +103,15 @@ function compareSemver(a: string, b: string): -1 | 0 | 1 {
 // Bounds the registry response so a misbehaving registry/proxy cannot OOM the
 // doctor command: rejects an oversized declared Content-Length up front, then
 // streams with a hard byte cap (covering responses that omit Content-Length).
-async function readJsonCapped(res: Response, capBytes: number): Promise<unknown> {
+export async function readJsonCapped(res: Response, capBytes: number): Promise<unknown> {
   const declared = Number(res.headers.get("content-length"))
   if (Number.isFinite(declared) && declared > capBytes) {
     throw new Error(`registry response too large (${declared} bytes)`)
   }
   const reader = res.body?.getReader()
-  if (!reader) return await res.json()
+  if (!reader) {
+    throw new Error("registry response has no readable body to bound")
+  }
   const chunks: Uint8Array[] = []
   let total = 0
   let chunk = await reader.read()
@@ -167,7 +175,7 @@ export async function checkRemoteVersion(opts: {
   }
 }
 
-function checkBinary(
+export function checkBinary(
   name: string,
   versionArgs: string[] = ["--version"],
 ): { found: boolean; version: string | null } {
@@ -176,6 +184,7 @@ function checkBinary(
       stdout: "pipe",
       stderr: "pipe",
       timeout: 5000,
+      env: buildSafeEnv(),
     })
     if (result.exitCode !== 0) {
       return { found: false, version: null }
@@ -619,10 +628,13 @@ export const doctorCommand: CliCommand = {
       // Parse the stats body via the client (not just response.ok) so an API schema drift
       // surfaces as a real problem instead of a false "reachable"; 10s covers cold starts.
       const scvdApiUrl = config?.knowledge?.scvd?.apiUrl ?? "https://api.scvd.dev"
+      assertScvdApiUrlAllowed(scvdApiUrl)
       const stats = await new ScvdClient(scvdApiUrl, AbortSignal.timeout(10_000)).fetchStats()
       cliOutput.log(`${GREEN}✓${RESET} SCVD API: reachable (${stats.total} findings)`)
     } catch (error) {
-      if (error instanceof ScvdNetworkError) {
+      if (error instanceof ProcessRunnerError) {
+        cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: apiUrl not allowed — ${error.message}`)
+      } else if (error instanceof ScvdNetworkError) {
         cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: unreachable`)
       } else if (error instanceof ScvdApiError) {
         cliOutput.log(`${YELLOW}⚠${RESET} SCVD API: returned HTTP ${error.httpStatus}`)

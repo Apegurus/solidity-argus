@@ -108,6 +108,40 @@ test("createKnowledgeSyncHook triggers async sync with default index path", asyn
   expect(calls[2]).toContain("SCVD index updated: 2 new findings")
 })
 
+test("createKnowledgeSyncHook rejects a private/loopback SCVD host from config (SSRF)", async () => {
+  let clientCreated = false
+
+  const deps: KnowledgeSyncDependencies = {
+    createClient: () => {
+      clientCreated = true
+      return { kind: "client" }
+    },
+    syncIncrementalFn: async () => ({
+      status: "success" as const,
+      success: true,
+      newFindings: 0,
+      totalIndexed: 0,
+      lastSync: "2026-02-17T00:00:00.000Z",
+    }),
+    log: () => {
+      return
+    },
+  }
+
+  const config = createArgusConfig(true)
+  if (config.knowledge?.scvd) {
+    config.knowledge.scvd.apiUrl = "http://169.254.169.254/latest/meta-data"
+  }
+  const hook = createKnowledgeSyncHook(config, deps)
+  hook()
+
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+
+  expect(clientCreated).toBe(false)
+})
+
 test("createKnowledgeSyncHook skips sync when SCVD disabled", async () => {
   let syncCalled = false
 

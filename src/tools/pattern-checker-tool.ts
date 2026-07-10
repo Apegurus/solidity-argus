@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs"
+import { readdirSync, statSync } from "node:fs"
 import { dirname, extname, isAbsolute, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
@@ -10,7 +10,9 @@ import {
   searchIndex,
 } from "../knowledge/scvd-index"
 import { getScvdIndexPath } from "../shared/cache-paths"
+import { readTextCapped } from "../shared/file-utils"
 import { createLogger } from "../shared/logger"
+import { isContained } from "../shared/path-safety"
 import { normalizeFilePath } from "../shared/path-utils"
 import { resolveProjectDir } from "../shared/project-utils"
 import { resolveArgusSkills } from "../skills/argus-skill-resolver"
@@ -199,7 +201,16 @@ async function collectScvdMatches(
   }))
 }
 
-function collectSolidityFiles(target: string, maxDepth = 8): string[] {
+// Directories excluded from the default .sol discovery walk (scanning them pollutes findings
+// with third-party/generated code and is an unbounded-work vector). node_modules/.git are never
+// first-party and can nest, so they are excluded at ANY depth; the Foundry dependency/build dirs
+// live at the project root, so lib/out/cache are excluded ONLY as direct children of the scan
+// root — a nested dir named `lib` is first-party source and must still be scanned.
+const ALWAYS_EXCLUDED_SCAN_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git"])
+const ROOT_EXCLUDED_SCAN_DIRS: ReadonlySet<string> = new Set(["lib", "out", "cache"])
+const MAX_PATTERN_SCAN_FILE_BYTES = 5 * 1024 * 1024
+
+export function collectSolidityFiles(target: string, maxDepth = 8, maxFiles = 5000): string[] {
   const absoluteTarget = resolve(target)
   let stats: ReturnType<typeof statSync>
 
@@ -220,7 +231,7 @@ function collectSolidityFiles(target: string, maxDepth = 8): string[] {
   const discovered: string[] = []
   const stack: Array<{ path: string; depth: number }> = [{ path: absoluteTarget, depth: 0 }]
 
-  while (stack.length > 0) {
+  while (stack.length > 0 && discovered.length < maxFiles) {
     const current = stack.pop()
     if (!current || current.depth > maxDepth) {
       continue
@@ -230,12 +241,15 @@ function collectSolidityFiles(target: string, maxDepth = 8): string[] {
     for (const entry of entries) {
       const fullPath = resolve(current.path, entry.name)
       if (entry.isDirectory()) {
+        if (ALWAYS_EXCLUDED_SCAN_DIRS.has(entry.name)) continue
+        if (current.depth === 0 && ROOT_EXCLUDED_SCAN_DIRS.has(entry.name)) continue
         stack.push({ path: fullPath, depth: current.depth + 1 })
         continue
       }
 
       if (entry.isFile() && extname(entry.name) === ".sol") {
         discovered.push(fullPath)
+        if (discovered.length >= maxFiles) break
       }
     }
   }
@@ -273,7 +287,7 @@ function isExcludedMatch(content: string, index: number, pattern: LoadedPattern)
 }
 
 export function findMatches(file: string, patterns: LoadedPattern[], projectDir?: string): Match[] {
-  const content = readFileSync(file, "utf8")
+  const { text: content } = readTextCapped(file, MAX_PATTERN_SCAN_FILE_BYTES)
   const normalizedFile = projectDir ? normalizeFilePath(file, projectDir) : file
   const matches: Match[] = []
 
@@ -407,6 +421,19 @@ export async function executePatternCheck(
   const resolvedTarget = isAbsolute(args.target)
     ? args.target
     : resolve(baseProjectDir, args.target)
+  if (!isContained(resolvedTarget, baseProjectDir)) {
+    return {
+      success: false,
+      error: `Target escapes the project directory: ${args.target}`,
+      matches: [],
+      summary: { total: 0, bySeverity: {}, byCategory: {} },
+      sources: [],
+      patternsChecked: selectedPatterns.length,
+      executionTime: Date.now() - startedAt,
+      target: args.target,
+      patternVersion: PATTERN_PACK_VERSION,
+    }
+  }
   const solidityFiles = collectSolidityFiles(resolvedTarget)
   if (solidityFiles.length === 0) {
     return {

@@ -23,6 +23,25 @@ export {
 } from "./file-utils"
 export { stripJsoncComments } from "./jsonc-parser"
 export { createLogger, type Logger, type LoggerConfig } from "./logger"
+export {
+  assertContained,
+  isContained,
+  PathSafetyError,
+  safeForgeMatchPath,
+  safeForgeTarget,
+  validateRunId,
+  validateSessionId,
+} from "./path-safety"
+export {
+  assertAllowedHost,
+  buildSafeEnv,
+  ProcessRunnerError,
+  type RunOptions,
+  type RunResult,
+  runTrusted,
+  safeCliValue,
+  validateUrlScheme,
+} from "./process-runner"
 export { findFoundryProjectDir, resolveProjectDir } from "./project-utils"
 export {
   formatReportDate,
@@ -32,3 +51,9 @@ export {
   resolveReportPath,
   sanitizeContractName,
 } from "./report-path-resolver"
+export {
+  escapeMarkdown,
+  type FenceOptions,
+  fenceUntrusted,
+  type TrustTier,
+} from "./untrusted-content"

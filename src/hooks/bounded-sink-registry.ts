@@ -6,6 +6,7 @@ export interface BoundedSinkRegistry {
   setForSession(sessionId: string, sink: EventSink): void
   setForRun(runId: string, sink: EventSink): void
   deleteSession(sessionId: string): void
+  deleteRun(runId: string): void
   getNewestActiveRunSink(): EventSink | null
   getActiveRunSinks(): EventSink[]
   releaseUnreferencedRuns(): void
@@ -24,7 +25,10 @@ export function createBoundedSinkRegistry(options: {
   const createdAtByRunId = new Map<string, number>()
 
   function markFinalizedBestEffort(sink: EventSink): void {
-    if (sink.isFinalized) return
+    // A FAILED_RECOVERABLE sink (failed finalization awaiting remediation/disposition/regen,
+    // WS-3 I3) must NOT be force-sealed by capacity/TTL eviction — sealing would drop those
+    // later events. Its state is re-derived from the journal on the next createEventSink.
+    if (sink.isFinalized || sink.state === "FAILED_RECOVERABLE") return
 
     try {
       sink.markFinalized()
@@ -39,7 +43,14 @@ export function createBoundedSinkRegistry(options: {
     releaseRunSink: boolean
   }): void {
     const { sinkMap, timestampMap, releaseRunSink } = options
-    const oldestKey = sinkMap.keys().next().value
+    // Referenced-exempt (WS-3 I1/I11): a run sink whose ownerSet is non-empty is never
+    // sealed or released by eviction — skip to the oldest UNREFERENCED run sink instead.
+    let oldestKey: string | undefined
+    for (const key of sinkMap.keys()) {
+      if (releaseRunSink && (sinkMap.get(key)?.ownerSet.size ?? 0) > 0) continue
+      oldestKey = key
+      break
+    }
     if (oldestKey === undefined) return
 
     const sink = sinkMap.get(oldestKey)
@@ -64,6 +75,8 @@ export function createBoundedSinkRegistry(options: {
       if (now - createdAt <= ttlMs) continue
 
       const sink = sinkMap.get(key)
+      // Referenced run sinks are TTL-exempt (WS-3 I1): a live session still holds the run.
+      if (releaseRunSink && (sink?.ownerSet.size ?? 0) > 0) continue
       if (sink) {
         markFinalizedBestEffort(sink)
       }
@@ -103,6 +116,7 @@ export function createBoundedSinkRegistry(options: {
     },
 
     setForSession(sessionId: string, sink: EventSink): void {
+      sink.addOwner(sessionId)
       setBounded(byOpencodeSession, createdAtBySession, sessionId, sink, false)
     },
 
@@ -111,8 +125,15 @@ export function createBoundedSinkRegistry(options: {
     },
 
     deleteSession(sessionId: string): void {
+      byOpencodeSession.get(sessionId)?.removeOwner(sessionId)
       byOpencodeSession.delete(sessionId)
       createdAtBySession.delete(sessionId)
+    },
+
+    deleteRun(runId: string): void {
+      releaseEventSink(runId)
+      byRunId.delete(runId)
+      createdAtByRunId.delete(runId)
     },
 
     getNewestActiveRunSink(): EventSink | null {

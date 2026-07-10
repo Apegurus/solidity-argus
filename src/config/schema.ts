@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+export const DEFAULT_CONFIDENCE_THRESHOLD = 80
+
 const AgentConfigSchema = z.object({
   model: z.string().optional(),
   steps: z.number().positive().optional(),
@@ -34,7 +36,7 @@ const ReportingConfigSchema = z.object({
     .int()
     .min(0)
     .max(100)
-    .default(80)
+    .default(DEFAULT_CONFIDENCE_THRESHOLD)
     .describe(
       "Threshold (0-100) for splitting findings into '## Findings' (>=) and '## Leads' (<). Default 80.",
     ),
@@ -82,7 +84,7 @@ export const ArgusConfigSchema = z
       skillPrecedence: "bundled-first",
     }),
     reporting: ReportingConfigSchema.default({
-      confidenceThreshold: 80,
+      confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD,
       format: "markdown",
       severityThreshold: "low",
       gasAnalysis: false,

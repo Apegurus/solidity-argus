@@ -12,6 +12,7 @@ import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
 import { defaultRootResolver } from "../shared/path-root-resolver"
 import { resolveProjectDir } from "../shared/project-utils"
+import { createFindingStore } from "../state/finding-store"
 import type { CanonicalFinding, CanonicalToolExecution, ReportInput } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
 import type { AuditState } from "../state/types"
@@ -198,25 +199,27 @@ function buildTopFindings(
   })
 }
 
-function convertAuditStateToReportInput(
+export function convertAuditStateToReportInput(
   state: AuditState,
   runId: string,
   projectDir: string,
 ): ReportInput {
-  const findings: CanonicalFinding[] = (state.findings ?? []).map((f, i) => ({
-    ...f,
-    run_id: state.sessionId ?? runId,
-    seq: i + 1,
-    session_id: "audit",
-    tool_call_id: "",
-    source: f.source ?? ("unknown" as const),
-    schema_version: SCHEMA_VERSION,
-    issue_fingerprint: f.id ?? "",
-    observation_fingerprint: f.id ?? "",
-    observation_id: f.id ?? "",
-    reported_by_agent: f.reported_by_agent ?? ("unknown" as const),
-    reported_by_session_id: f.reported_by_session_id ?? "",
-  }))
+  const findings: CanonicalFinding[] = createFindingStore(state)
+    .getFindings()
+    .map((f, i) => ({
+      ...f,
+      run_id: state.sessionId ?? runId,
+      seq: i + 1,
+      session_id: "audit",
+      tool_call_id: "",
+      source: f.source ?? ("unknown" as const),
+      schema_version: SCHEMA_VERSION,
+      issue_fingerprint: f.id ?? "",
+      observation_fingerprint: f.id ?? "",
+      observation_id: f.id ?? "",
+      reported_by_agent: f.reported_by_agent ?? ("unknown" as const),
+      reported_by_session_id: f.reported_by_session_id ?? "",
+    }))
 
   return {
     run_id: state.sessionId ?? runId,
