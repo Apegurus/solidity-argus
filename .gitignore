@@ -51,6 +51,9 @@ docs/handoff-*.md
 .omo/
 .reviews/
 
+# isolated release worktrees
+/.worktrees/
+
 # local plugin state
 /.opencode/
 /.argus/

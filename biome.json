@@ -9,6 +9,11 @@
     "includes": [
       "src/**",
       "tests/**",
+      "scripts/release-version.ts",
+      "scripts/release-version.test.ts",
+      "scripts/stamp-build-info.ts",
+      "scripts/stamp-build-info.test.ts",
+      "scripts/verify-release-tarball.ts",
       "!.worktrees",
       "!**/lib",
       "!**/node_modules",
