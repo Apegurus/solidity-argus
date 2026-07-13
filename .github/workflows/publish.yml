@@ -1,0 +1,253 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+
+concurrency:
+  group: solidity-argus-publish
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run gates
+        run: |
+          bun run ci
+          bun run typecheck
+          bun test
+
+      - name: Clean release workspace
+        run: |
+          set -euo pipefail
+          status="$(git status --porcelain=v1 --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status" >&2
+            exit 1
+          fi
+
+      - name: Read package metadata
+        id: package
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const { readFileSync } = require("node:fs")
+          const { name, version } = JSON.parse(readFileSync("package.json", "utf8"))
+          console.log(`package_name=${name}`)
+          console.log(`stable_version=${version}`)
+          NODE
+
+      - name: Derive release version
+        id: release
+        env:
+          STABLE_VERSION: ${{ steps.package.outputs.stable_version }}
+        run: |
+          set -euo pipefail
+          version="$(bun scripts/release-version.ts "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" "$GITHUB_SHA" "$STABLE_VERSION")"
+          case "$GITHUB_REF_NAME" in
+            staging) tag=dev ;;
+            main) tag=latest ;;
+            *) echo "unexpected branch: $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
+          {
+            printf 'version=%s\n' "$version"
+            printf 'tag=%s\n' "$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Pack release tarball
+        id: pack
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          PACKAGE_NAME: ${{ steps.package.outputs.package_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          backup="$RUNNER_TEMP/package.json.bak"
+          pack_json="$RUNNER_TEMP/npm-pack.json"
+          restore_manifest() { if [ -f "$backup" ]; then mv "$backup" package.json; fi; }
+          trap restore_manifest EXIT
+          trap 'exit 130' HUP INT TERM
+          cp package.json "$backup"
+          node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("package.json", "utf8")); p.version=process.env.RELEASE_VERSION; fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n")'
+          bun scripts/stamp-build-info.ts --commit "$GITHUB_SHA" --dirty false
+          timeout --preserve-status 10m npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$pack_json"
+          tgz="$(bun scripts/verify-release-tarball.ts "$pack_json" "$PACKAGE_NAME" "$RELEASE_VERSION" "$GITHUB_SHA" "$RUNNER_TEMP")"
+          printf 'tgz=%s\n' "$tgz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable release tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-tarball
+          path: ${{ steps.pack.outputs.tgz }}
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: false
+
+      - name: Cleanup verify workspace
+        if: always()
+        run: rm -f build-info.json "$RUNNER_TEMP/npm-pack.json" "$RUNNER_TEMP/package.json.bak"
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download exact release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-tarball
+          path: ${{ runner.temp }}/release-artifact
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+
+      - name: Validate release artifact
+        id: artifact
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/release-artifact
+          EXPECTED_PACKAGE: solidity-argus
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(find "$ARTIFACT_DIR" -maxdepth 1 -type f -name '*.tgz' -print0)
+          if [ "${#files[@]}" -ne 1 ]; then
+            echo "expected exactly one tgz" >&2
+            exit 1
+          fi
+          TGZ="${files[0]}"
+          case "$TGZ" in
+            "$ARTIFACT_DIR"/*.tgz) ;;
+            *) echo "invalid tarball path" >&2; exit 1 ;;
+          esac
+          if [ "$(realpath -- "$TGZ")" != "$TGZ" ] || [ ! -f "$TGZ" ] || [ -L "$TGZ" ]; then
+            echo "unsafe tarball path" >&2
+            exit 1
+          fi
+          extract="$RUNNER_TEMP/release-validation"
+          mkdir -m 700 "$extract"
+          tar -xOf "$TGZ" package/package.json > "$extract/package.json"
+          tar -xOf "$TGZ" package/build-info.json > "$extract/build-info.json"
+          TGZ="$TGZ" EXTRACT="$extract" node <<'NODE' >> "$GITHUB_OUTPUT"
+          const { readFileSync } = require("node:fs")
+          const { resolve } = require("node:path")
+          const fail = (message) => { process.stderr.write(`${message}\n`); process.exit(1) }
+          const manifest = JSON.parse(readFileSync(resolve(process.env.EXTRACT, "package.json"), "utf8"))
+          const build = JSON.parse(readFileSync(resolve(process.env.EXTRACT, "build-info.json"), "utf8"))
+          const stablePattern = /^\d+\.\d+\.\d+$/
+          const sha = process.env.GITHUB_SHA?.slice(0, 7)
+          const devSuffix = `-dev.${process.env.GITHUB_RUN_ID}.g${sha}`
+          const branch = process.env.GITHUB_REF_NAME
+          const tag = branch === "staging" ? "dev" : branch === "main" ? "latest" : fail("unexpected branch")
+          if (manifest.name !== process.env.EXPECTED_PACKAGE) fail("package name mismatch")
+          if (manifest.publishConfig?.access !== "public") fail("package access mismatch")
+          if (manifest.publishConfig?.registry !== "https://registry.npmjs.org/") fail("package registry mismatch")
+          if (typeof manifest.version !== "string") fail("invalid package version")
+          if (branch === "main" && !stablePattern.test(manifest.version)) fail("invalid stable version")
+          if (branch === "staging") {
+            const stable = manifest.version.slice(0, -devSuffix.length)
+            if (!stablePattern.test(stable) || manifest.version !== `${stable}${devSuffix}`) fail("invalid dev version")
+          }
+          if (build.version !== manifest.version || build.commit !== process.env.GITHUB_SHA || build.dirty !== false) fail("build-info mismatch")
+          if (typeof process.env.TGZ !== "string" || !process.env.TGZ.endsWith(".tgz")) fail("invalid tarball")
+          console.log(`tgz=${process.env.TGZ}`)
+          console.log(`package_name=${manifest.name}`)
+          console.log(`version=${manifest.version}`)
+          console.log(`tag=${tag}`)
+          NODE
+
+      - name: Registry preflight
+        id: preflight
+        env:
+          PACKAGE_NAME: ${{ steps.artifact.outputs.package_name }}
+          RELEASE_VERSION: ${{ steps.artifact.outputs.version }}
+          RELEASE_TAG: ${{ steps.artifact.outputs.tag }}
+        run: |
+          set -euo pipefail
+          npm_view() {
+            local spec="$1" stdout="$2" stderr="$3"
+            if timeout --preserve-status 30s npm view "$spec" version --registry https://registry.npmjs.org/ --json >"$stdout" 2>"$stderr"; then
+              local value
+              value="$(node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (typeof value !== "string") process.exit(1); process.stdout.write(value)' "$stdout")" || return 1
+              printf 'ok\t%s' "$value"
+              return 0
+            fi
+            if node -e 'const fs=require("node:fs"); const text=fs.readFileSync(process.argv[1], "utf8"); process.exit(text.split(/\r?\n/).includes("npm error code E404") ? 0 : 1)' "$stderr"; then
+              printf 'missing\t'
+              return 0
+            fi
+            node -e 'process.stderr.write(require("node:fs").readFileSync(process.argv[1], "utf8"))' "$stderr"
+            return 1
+          }
+          candidate_stdout="$RUNNER_TEMP/npm-candidate.stdout"
+          candidate_stderr="$RUNNER_TEMP/npm-candidate.stderr"
+          tag_stdout="$RUNNER_TEMP/npm-tag.stdout"
+          tag_stderr="$RUNNER_TEMP/npm-tag.stderr"
+          candidate_failed=0
+          tag_failed=0
+          candidate_result="$(npm_view "$PACKAGE_NAME@$RELEASE_VERSION" "$candidate_stdout" "$candidate_stderr")" || candidate_failed=$?
+          tag_result="$(npm_view "$PACKAGE_NAME@$RELEASE_TAG" "$tag_stdout" "$tag_stderr")" || tag_failed=$?
+          [ "$candidate_failed" -eq 0 ] && [ "$tag_failed" -eq 0 ] || exit 1
+          candidate_status="${candidate_result%%$'\t'*}"
+          candidate_value="${candidate_result#*$'\t'}"
+          tag_status="${tag_result%%$'\t'*}"
+          tag_value="${tag_result#*$'\t'}"
+          if [ "$candidate_status" = ok ] && [ "$tag_status" = ok ] && [ "$candidate_value" = "$RELEASE_VERSION" ] && [ "$tag_value" = "$candidate_value" ]; then
+            printf 'already_published=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$candidate_status" = missing ] && [ "$tag_status" = missing ]; then
+            printf 'already_published=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$candidate_status" = missing ] && [ "$tag_status" = ok ]; then
+            if CANDIDATE="$RELEASE_VERSION" CURRENT="$tag_value" node -e 'const parse=v=>{const m=/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v); if(!m)process.exit(2); return [Number(m[1]),Number(m[2]),Number(m[3]),m[4]]}; const a=parse(process.env.CANDIDATE),b=parse(process.env.CURRENT); for(let i=0;i<3;i++){if(a[i]!==b[i])process.exit(a[i]>b[i]?0:1)}; if(a[3]===undefined)process.exit(b[3]===undefined?1:0); if(b[3]===undefined)process.exit(1); process.exit(String(a[3]).localeCompare(String(b[3]),undefined,{numeric:true})>0?0:1)'; then
+              printf 'already_published=false\n' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "registry preflight failed" >&2
+          exit 1
+
+      - name: Publish release tarball
+        if: steps.preflight.outputs.already_published != 'true'
+        env:
+          TGZ: ${{ steps.artifact.outputs.tgz }}
+          TAG: ${{ steps.artifact.outputs.tag }}
+        run: timeout --preserve-status 10m npm publish "$TGZ" --ignore-scripts --access public --provenance --tag "$TAG" --registry https://registry.npmjs.org/
+
+      - name: Cleanup publish artifacts
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/release-artifact" "$RUNNER_TEMP/release-validation" "$RUNNER_TEMP"/npm-*.stdout "$RUNNER_TEMP"/npm-*.stderr
