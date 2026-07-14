@@ -4,7 +4,7 @@ This file enables OpenCode agent discovery for the `solidity-argus` plugin.
 
 ## Architecture
 
-Modular factory-based architecture: `create-tools.ts`, `create-hooks.ts`, `create-managers.ts`, `plugin-interface.ts`.
+Direct plugin bootstrap in `index.ts` composes the `create-tools.ts` and `create-hooks.ts` factories.
 Multi-level config (user + project) with deep merge. Hook enable/disable via `disabled_hooks` config.
 CLI: `argus doctor`, `argus init`, `argus install`.
 

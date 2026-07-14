@@ -56,6 +56,7 @@ describe("initCommand", () => {
     )
     const parsed = JSON.parse(content)
     expect(parsed.knowledge.scvd.enabled).toBe(true)
-    expect(parsed.reporting.format).toBe("markdown")
+    expect(parsed.reporting.severityThreshold).toBe("low")
+    expect(parsed.solodit.enabled).toBe(true)
   })
 })

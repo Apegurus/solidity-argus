@@ -300,7 +300,6 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
   },
 
   "tools": {
-    "slitherPath": "/usr/local/bin/slither",
     "forgePath": "/usr/local/bin/forge"
   },
 
@@ -312,21 +311,14 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
   },
 
   "reporting": {
-    "format": "markdown",
-    "severityThreshold": "low",
-    "gasAnalysis": false
+    "severityThreshold": "low"
   },
 
   "solodit": {
-    "enabled": true,
-    "port": 54173
+    "enabled": true
   },
 
-  "disabled_hooks": [],
-
-  "background": {
-    "max_concurrent": 3
-  }
+  "disabled_hooks": []
 }
 ```
 
@@ -424,9 +416,12 @@ Selectively disable any hook via config:
 
 ```jsonc
 {
-  "disabled_hooks": ["context-monitor", "audit-enforcer"]
+  "disabled_hooks": ["system-prompt", "compaction"]
 }
 ```
+
+Supported hook gates are `compaction`, `tool-tracking`, `event`, `system-prompt`, and
+`audit-specialist-watchdog`.
 
 ### Multi-Level Configuration
 
@@ -438,15 +433,7 @@ Config is resolved by merging three layers (last wins):
 
 ### Background Agent Management
 
-Background tasks (knowledge sync, long-running analysis) are tracked with configurable concurrency limits:
-
-```jsonc
-{
-  "background": {
-    "max_concurrent": 3
-  }
-}
-```
+Background operations use internal scheduling and are not configured through the Argus schema.
 
 ### Persistent Audit State
 
@@ -465,7 +452,7 @@ Monitors token usage and adaptively reduces injection sizes when context pressur
 ## Companion Plugins
 
 - **Trail of Bits Skills** — Additional security research skills from Trail of Bits auditors
-- **Solodit MCP** — Direct MCP integration with Solodit's audit report database for richer vulnerability research
+- **Solodit research** — \`argus_solodit_search\` queries Solodit's audit report database directly via tRPC
 
 ---
 
@@ -474,7 +461,7 @@ Monitors token usage and adaptively reduces injection sizes when context pressur
 | Dependency | Required | Notes |
 |------------|----------|-------|
 | OpenCode | ✅ Required | The AI coding environment this plugin runs in |
-| Bun | ✅ Required | `>=1.0.0` — runtime for the plugin |
+| Bun | ✅ Required | `>=1.3.6` — runtime for the plugin (`Bun.JSONC.parse`) |
 | Slither | ⚠️ Optional | Enables `argus_slither_analyze`. Install: `pip install slither-analyzer` |
 | Foundry/Forge | ⚠️ Optional | Enables `argus_forge_test` and `argus_forge_fuzz`. Install: `curl -L https://foundry.paradigm.xyz \| bash` |
 

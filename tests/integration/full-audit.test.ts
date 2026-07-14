@@ -40,21 +40,11 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
   },
   reporting: {
     confidenceThreshold: 80,
-    format: "markdown",
     severityThreshold: "low",
-    gasAnalysis: false,
     output_dir: ".argus/reports/",
   },
-  solodit: {
-    enabled: true,
-    port: 54173,
-  },
+  solodit: { enabled: true },
   disabled_hooks: [],
-  hooks: {},
-  cli: {},
-  background: {
-    max_concurrent: 3,
-  },
 }
 
 function createMockContext(directory: string = FIXTURE_DIR) {
@@ -130,7 +120,7 @@ describe("full audit integration", () => {
     expect(typeof plugin.event).toBe("function")
   })
 
-  test("config handler registers Argus agents and Solodit MCP", async () => {
+  test("config handler registers Argus agents without Solodit MCP", async () => {
     const config: Config = { agent: {}, mcp: {} }
     const handler = createConfigHandler(DEFAULT_ARGUS_CONFIG)
 
@@ -141,7 +131,7 @@ describe("full audit integration", () => {
       expect.arrayContaining(["argus", "sentinel", "pythia", "scribe"]),
     )
     expect(config.agent?.argus?.mode).toBe("primary")
-    expect(config.mcp?.["solodit-mcp"]).toBeDefined()
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
   test("contract analyzer executes against fixture project", async () => {

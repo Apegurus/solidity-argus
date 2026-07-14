@@ -47,7 +47,7 @@ describe("checkBinary", () => {
 describe("readJsonCapped", () => {
   it("rejects a null-body response instead of an unbounded json() fallback (adj_28)", async () => {
     const res = new Response(null, { status: 200 })
-    await expect(readJsonCapped(res, 1024)).rejects.toThrow("no readable body")
+    expect(readJsonCapped(res, 1024)).rejects.toThrow("no readable body")
   })
 
   it("parses a within-cap JSON body", async () => {
@@ -110,21 +110,13 @@ describe("doctorCommand", () => {
     expect([0, 1]).toContain(exitCode)
   })
 
-  it("checks Solodit through the local MCP health probe", async () => {
-    const urls: string[] = []
+  it("reports Solodit as enabled without probing a local MCP server", async () => {
     const output: string[] = []
-    globalThis.fetch = mock((url: string | URL | Request) => {
-      const target = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url
-      urls.push(target)
-      return Promise.resolve(new Response("ok", { status: 200 }))
-    }) as unknown as typeof fetch
     cliOutput.log = (...args: unknown[]) => output.push(args.join(" "))
 
     await doctorCommand.execute([])
 
-    expect(urls).toContain("http://localhost:54173/mcp")
-    expect(urls.some((url) => url.includes("solodit.cyfrin.io/api/trpc/findings.get"))).toBe(false)
-    expect(output.join("\n")).toContain("Solodit MCP: reachable on port 54173")
+    expect(output.join("\n")).toContain("Solodit: enabled (direct tRPC search)")
   })
 })
 

@@ -11,7 +11,7 @@ const DEFAULT_CONFIG = {
   agents: {},
   tools: {},
   knowledge: { scvd: { enabled: true }, autoSync: true },
-  reporting: { format: "markdown", severityThreshold: "low" },
+  reporting: { severityThreshold: "low" },
   solodit: { enabled: true },
 }
 

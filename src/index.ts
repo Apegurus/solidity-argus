@@ -1,14 +1,10 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "./config/loader"
 import { createHooks } from "./create-hooks"
-import { createManagers } from "./create-managers"
 import { createTools } from "./create-tools"
-import type { Dispatcher } from "./features/background-agent/background-manager"
+import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
 import { createHookGuard } from "./hooks/hook-system"
-import { createPluginInterface } from "./plugin-interface"
 import { createLogger } from "./shared/logger"
-import { startSoloditMcp } from "./solodit-lifecycle"
-import { DEFAULT_SOLODIT_PORT } from "./tools/solodit-search-tool"
 
 const logger = createLogger()
 
@@ -23,41 +19,28 @@ const ArgusPlugin: Plugin = async (ctx) => {
   console.error(buildBanner)
   logger.info(buildBanner)
 
-  if (config.solodit?.enabled !== false) {
-    // MCP bootstrap must not block plugin load; the Solodit search tool falls
-    // back to direct HTTP when the local MCP is still coming up.
-    void startSoloditMcp(config.solodit?.port ?? DEFAULT_SOLODIT_PORT, {
-      waitForHealth: false,
-    })
-  }
-
   const isHookEnabled = createHookGuard(config.disabled_hooks)
-  const taskCandidate = (ctx as Record<string, unknown>).task
-  const backgroundDispatcher: Dispatcher | undefined =
-    typeof taskCandidate === "function"
-      ? async (agentName: string, prompt: string) => {
-          const result = await taskCandidate(agentName, prompt)
-          if (typeof result === "string") {
-            return result
-          }
-          if (typeof result === "object" && result !== null) {
-            const taskId = (result as Record<string, unknown>).task_id
-            if (typeof taskId === "string") {
-              return taskId
-            }
-          }
-          logger.warn(
-            `ctx.task returned unexpected shape (${typeof result}), using fabricated task ID`,
-          )
-          return `task-${Date.now()}`
-        }
-      : undefined
-
-  const managers = createManagers({ projectDir, config, backgroundDispatcher })
+  const auditStateManager = createAuditStateManager(projectDir)
   const tools = createTools(config)
-  const hooks = createHooks({ config, managers, projectDir, isHookEnabled })
+  const hooks = createHooks({ config, auditStateManager, projectDir, isHookEnabled })
 
-  return createPluginInterface({ tools, hooks })
+  return {
+    tool: tools,
+    config: hooks.config,
+    ...(hooks["chat.params"] ? { "chat.params": hooks["chat.params"] } : {}),
+    ...(hooks["chat.message"] ? { "chat.message": hooks["chat.message"] } : {}),
+    ...(hooks["experimental.chat.system.transform"]
+      ? { "experimental.chat.system.transform": hooks["experimental.chat.system.transform"] }
+      : {}),
+    ...(hooks["experimental.session.compacting"]
+      ? { "experimental.session.compacting": hooks["experimental.session.compacting"] }
+      : {}),
+    ...(hooks["experimental.text.complete"]
+      ? { "experimental.text.complete": hooks["experimental.text.complete"] }
+      : {}),
+    ...(hooks["tool.execute.after"] ? { "tool.execute.after": hooks["tool.execute.after"] } : {}),
+    ...(hooks.event ? { event: hooks.event } : {}),
+  }
 }
 
 export default ArgusPlugin

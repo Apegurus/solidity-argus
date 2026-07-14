@@ -27,15 +27,9 @@ describe("loadArgusConfig", () => {
     expect(config.knowledge.scvd.enabled).toBe(true)
     expect(config.knowledge.scvd.apiUrl).toBe("https://api.scvd.dev")
     expect(config.knowledge.autoSync).toBe(true)
-    expect(config.reporting.format).toBe("markdown")
     expect(config.reporting.severityThreshold).toBe("low")
-    expect(config.reporting.gasAnalysis).toBe(false)
-    expect(config.solodit.enabled).toBe(true)
     expect(config.solodit.enabled).toBe(true)
     expect(config.disabled_hooks).toEqual([])
-    expect(config.hooks).toEqual({})
-    expect(config.cli).toEqual({})
-    expect(config.background.max_concurrent).toBe(3)
   })
 
   it("loads config from project path .opencode/solidity-argus.json", async () => {
@@ -48,7 +42,7 @@ describe("loadArgusConfig", () => {
           argus: { model: "custom-model" },
         },
         reporting: {
-          gasAnalysis: true,
+          severityThreshold: "high",
         },
       }),
     )
@@ -57,8 +51,7 @@ describe("loadArgusConfig", () => {
     const config = loadArgusConfig(tempDir)
 
     expect(config.agents.argus.model).toBe("custom-model")
-    expect(config.reporting.gasAnalysis).toBe(true)
-    expect(config.reporting.format).toBe("markdown")
+    expect(config.reporting.severityThreshold).toBe("high")
     expect(config.knowledge.autoSync).toBe(true)
   })
 
@@ -94,7 +87,7 @@ describe("loadArgusConfig", () => {
         sentinel: { model: "user-sentinel" },
       },
       reporting: {
-        gasAnalysis: true,
+        severityThreshold: "medium" as const,
       },
     }
 
@@ -111,7 +104,6 @@ describe("loadArgusConfig", () => {
 
     expect(config.agents.argus.model).toBe("project-model")
     expect(config.agents.sentinel.model).toBe("user-sentinel")
-    expect(config.reporting.gasAnalysis).toBe(true)
     expect(config.reporting.severityThreshold).toBe("high")
   })
 
@@ -121,14 +113,14 @@ describe("loadArgusConfig", () => {
     writeFileSync(
       join(opencodeDir, "solidity-argus.json"),
       JSON.stringify({
-        background: { max_concurrent: -5 },
+        reporting: { confidenceThreshold: -5 },
       }),
     )
 
     const { loadArgusConfig } = await import("./loader")
     const config = loadArgusConfig(tempDir)
 
-    expect(config.background.max_concurrent).toBe(3)
+    expect(config.reporting.confidenceThreshold).toBe(80)
   })
 
   it("handles malformed JSON gracefully", async () => {
@@ -148,8 +140,7 @@ describe("loadArgusConfig", () => {
     const config = _mergeConfigs(null, null)
 
     expect(config.agents).toBeDefined()
-    expect(config.reporting.format).toBe("markdown")
-    expect(config.background.max_concurrent).toBe(3)
+    expect(config.reporting.severityThreshold).toBe("low")
   })
 
   it("_mergeConfigs with only user config", async () => {
@@ -157,16 +148,16 @@ describe("loadArgusConfig", () => {
     const config = _mergeConfigs({ agents: { argus: { model: "user-only" } } }, null)
 
     expect(config.agents.argus.model).toBe("user-only")
-    expect(config.reporting.format).toBe("markdown")
+    expect(config.reporting.severityThreshold).toBe("low")
   })
 
   it("_mergeConfigs with only project config", async () => {
     const { _mergeConfigs } = await import("./loader")
     const config = _mergeConfigs(null, {
-      reporting: { gasAnalysis: true },
+      reporting: { severityThreshold: "high" },
     })
 
-    expect(config.reporting.gasAnalysis).toBe(true)
+    expect(config.reporting.severityThreshold).toBe("high")
     expect(config.agents).toBeDefined()
   })
 
@@ -250,10 +241,34 @@ describe("loadArgusConfig", () => {
 
   it("unknownDisabledHooks flags entries that are not canonical Argus hooks", async () => {
     const { unknownDisabledHooks } = await import("./loader")
-    expect(unknownDisabledHooks(["knowledge-sync", "config-validation"])).toEqual([
+    expect(
+      unknownDisabledHooks([
+        "compaction",
+        "tool-tracking",
+        "event",
+        "system-prompt",
+        "audit-specialist-watchdog",
+      ]),
+    ).toEqual([])
+    expect(
+      unknownDisabledHooks([
+        "knowledge-sync",
+        "session-recovery",
+        "tool-error-recovery",
+        "context-window-monitor",
+        "tool-output-truncator",
+        "audit-continuation",
+        "config-validation",
+      ]),
+    ).toEqual([
+      "knowledge-sync",
+      "session-recovery",
+      "tool-error-recovery",
+      "context-window-monitor",
+      "tool-output-truncator",
+      "audit-continuation",
       "config-validation",
     ])
-    expect(unknownDisabledHooks(["compaction", "event"])).toEqual([])
   })
 
   it("_mergeConfigs does not let a __proto__ config key pollute Object.prototype", async () => {

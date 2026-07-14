@@ -5,13 +5,10 @@ export const DEFAULT_CONFIDENCE_THRESHOLD = 80
 const AgentConfigSchema = z.object({
   model: z.string().optional(),
   steps: z.number().positive().optional(),
-  permission: z.record(z.string(), z.unknown()).optional(),
-  tools: z.record(z.string(), z.boolean()).optional(),
   temperature: z.number().min(0).max(2).optional(),
 })
 
 const ToolsConfigSchema = z.object({
-  slitherPath: z.string().optional(),
   forgePath: z.string().optional(),
 })
 
@@ -40,19 +37,12 @@ const ReportingConfigSchema = z.object({
     .describe(
       "Threshold (0-100) for splitting findings into '## Findings' (>=) and '## Leads' (<). Default 80.",
     ),
-  format: z.enum(["markdown"]).default("markdown"),
   severityThreshold: z.enum(["critical", "high", "medium", "low", "informational"]).default("low"),
-  gasAnalysis: z.boolean().default(false),
   output_dir: z.string().default(".argus/reports/"),
 })
 
 const SoloditConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  port: z.number().default(54173),
-})
-
-const BackgroundConfigSchema = z.object({
-  max_concurrent: z.number().positive().default(3),
 })
 
 export const ArgusConfigSchema = z
@@ -85,20 +75,12 @@ export const ArgusConfigSchema = z
     }),
     reporting: ReportingConfigSchema.default({
       confidenceThreshold: DEFAULT_CONFIDENCE_THRESHOLD,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: ".argus/reports/",
     }),
     solodit: SoloditConfigSchema.default({
       enabled: true,
-      port: 54173,
     }),
     disabled_hooks: z.array(z.string()).default([]),
-    hooks: z.record(z.string(), z.unknown()).default({}),
-    cli: z.record(z.string(), z.unknown()).default({}),
-    background: BackgroundConfigSchema.default({
-      max_concurrent: 3,
-    }),
   })
   .strict()

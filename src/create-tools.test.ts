@@ -24,28 +24,20 @@ const baseConfig: ArgusConfig = {
   },
   reporting: {
     confidenceThreshold: 80,
-    format: "markdown",
     severityThreshold: "low",
-    gasAnalysis: false,
     output_dir: ".opencode/reports/",
   },
   solodit: {
     enabled: true,
-    port: 54173,
   },
   disabled_hooks: [],
-  hooks: {},
-  cli: {},
-  background: {
-    max_concurrent: 3,
-  },
 }
 
 describe("createTools", () => {
   it("registers exactly 18 tools when solodit is enabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
-      solodit: { enabled: true, port: 54173 },
+      solodit: { enabled: true },
     }
     const tools = createTools(config)
     const toolNames = Object.keys(tools).sort()
@@ -76,7 +68,7 @@ describe("createTools", () => {
   it("registers 17 tools when solodit is disabled", () => {
     const config: ArgusConfig = {
       ...baseConfig,
-      solodit: { enabled: false, port: 54173 },
+      solodit: { enabled: false },
     }
     const tools = createTools(config)
 

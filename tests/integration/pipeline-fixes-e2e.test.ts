@@ -6,6 +6,7 @@ import { join, resolve } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { ArgusConfigSchema } from "../../src/config/schema"
 import { createHooks } from "../../src/create-hooks"
+import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
 import {
   createEventSink,
   readEvents,
@@ -14,7 +15,6 @@ import {
 import { materializeReportInput } from "../../src/features/persistent-state/findings-materializer"
 import { resolveRunIdFromOpencodeSession } from "../../src/features/persistent-state/global-run-index"
 import { finalizeRun } from "../../src/features/persistent-state/run-finalizer"
-import type { Managers } from "../../src/managers/types"
 import type { AuditEvent } from "../../src/state/schemas"
 import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { AuditState } from "../../src/state/types"
@@ -105,30 +105,6 @@ function makeAuditState(overrides?: Partial<AuditState>): AuditState {
     currentPhase: "reconnaissance",
     scope: [],
     startTime: Date.now(),
-    ...overrides,
-  }
-}
-
-function makeManagers(overrides?: Partial<Managers>): Managers {
-  return {
-    backgroundManager: {
-      dispatch: () => "task-1",
-      cancel: () => {},
-      getResult: async () => null,
-      getTaskStatus: async () => undefined,
-      onComplete: () => {},
-      getActiveCount: () => 0,
-    },
-    auditStateManager: {
-      bindSession: () => {},
-      load: async () => null,
-      save: async () => {},
-      get: () => null,
-      update: async () => {},
-      reset: async () => {},
-      archive: async () => {},
-      dispose: async () => {},
-    },
     ...overrides,
   }
 }
@@ -315,11 +291,10 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await writeSessionState(sessionId, reportGeneratedState)
-      const managers = makeManagers()
-
+      const auditStateManager = createAuditStateManager(FIXTURE_DIR)
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
-        managers,
+        auditStateManager,
         projectDir: FIXTURE_DIR,
         isHookEnabled: () => true,
       })
@@ -368,11 +343,10 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await writeSessionState(sessionId, staleState)
-      const managers = makeManagers()
-
+      const auditStateManager = createAuditStateManager(FIXTURE_DIR)
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
-        managers,
+        auditStateManager,
         projectDir: FIXTURE_DIR,
         isHookEnabled: () => true,
       })
@@ -414,11 +388,10 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await writeSessionState(sessionId, freshState)
-      const managers = makeManagers()
-
+      const auditStateManager = createAuditStateManager(FIXTURE_DIR)
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
-        managers,
+        auditStateManager,
         projectDir: FIXTURE_DIR,
         isHookEnabled: () => true,
       })

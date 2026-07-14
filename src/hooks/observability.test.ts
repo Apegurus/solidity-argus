@@ -7,7 +7,6 @@ import { releaseSyncLock, type ScvdIndex, saveIndex } from "../knowledge/scvd-in
 import { getSyncStatus, syncAll } from "../knowledge/scvd-sync"
 import { resetLoggerSink } from "../shared/logger"
 import { createKnowledgeSyncHook, type KnowledgeSyncDependencies } from "./knowledge-sync-hook"
-import { safeCreateHook } from "./safe-create-hook"
 
 let stderrOutput: string[]
 let origStderrWrite: typeof process.stderr.write
@@ -40,16 +39,11 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: ".opencode/reports/",
     },
-    solodit: { enabled: true, port: 54173 },
+    solodit: { enabled: true },
     disabled_hooks: [],
-    hooks: {},
-    cli: {},
-    background: { max_concurrent: 3 },
   }
 }
 
@@ -65,28 +59,6 @@ function createFinding(id: string): ScvdFinding {
     sections: {},
   }
 }
-
-describe("safe-create-hook observability", () => {
-  test("logs error through logger on factory failure", () => {
-    const result = safeCreateHook(() => {
-      throw new Error("boom")
-    }, "test-hook")
-
-    expect(result).toBeUndefined()
-    const logLine = stderrOutput.find((line) => line.includes("[ERROR]"))
-    expect(logLine).toBeDefined()
-    expect(logLine).toContain('Failed to create hook "test-hook"')
-    expect(logLine).toContain("boom")
-  })
-
-  test("does not log when factory succeeds", () => {
-    const result = safeCreateHook(() => 42, "ok-hook")
-
-    expect(result).toBe(42)
-    const logLine = stderrOutput.find((line) => line.includes("Failed to create hook"))
-    expect(logLine).toBeUndefined()
-  })
-})
 
 describe("knowledge-sync-hook observability", () => {
   test("default log dependency uses logger for sync output", async () => {

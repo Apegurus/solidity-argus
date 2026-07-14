@@ -68,16 +68,11 @@ function makeConfigWithOutputDir(outputDir: string) {
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown" as const,
       severityThreshold: "low" as const,
-      gasAnalysis: false,
       output_dir: outputDir,
     },
-    solodit: { enabled: true, port: 54173 },
+    solodit: { enabled: true },
     disabled_hooks: [],
-    hooks: {},
-    cli: {},
-    background: { max_concurrent: 3 },
   }
 }
 
@@ -1367,16 +1362,11 @@ test("executeReportGeneration writes report to disk and returns filePath", async
           },
           reporting: {
             confidenceThreshold: 80,
-            format: "markdown" as const,
             severityThreshold: "low" as const,
-            gasAnalysis: false,
             output_dir: outputDir,
           },
-          solodit: { enabled: true, port: 54173 },
+          solodit: { enabled: true },
           disabled_hooks: [],
-          hooks: {},
-          cli: {},
-          background: { max_concurrent: 3 },
         }),
       },
     )
@@ -1459,16 +1449,11 @@ test("executeReportGeneration does not mutate finding ID registry on report outp
           },
           reporting: {
             confidenceThreshold: 80,
-            format: "markdown",
             severityThreshold: "low",
-            gasAnalysis: false,
             output_dir: "../outside-reports",
           },
-          solodit: { enabled: false, port: 0 },
+          solodit: { enabled: false },
           disabled_hooks: [],
-          hooks: {},
-          cli: {},
-          background: { max_concurrent: 3 },
         }),
       },
     )
@@ -1671,16 +1656,11 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
           },
           reporting: {
             confidenceThreshold: 80,
-            format: "markdown" as const,
             severityThreshold: "low" as const,
-            gasAnalysis: false,
             output_dir: outputDir,
           },
-          solodit: { enabled: true, port: 54173 },
+          solodit: { enabled: true },
           disabled_hooks: [],
-          hooks: {},
-          cli: {},
-          background: { max_concurrent: 3 },
         }),
       },
     )

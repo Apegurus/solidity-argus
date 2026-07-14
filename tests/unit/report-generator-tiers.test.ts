@@ -89,16 +89,11 @@ function makeConfig(confidenceThreshold: number): ArgusConfig {
     },
     reporting: {
       confidenceThreshold,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: "/tmp/argus-report-generator-tiers/",
     },
-    solodit: { enabled: true, port: 54173 },
+    solodit: { enabled: true },
     disabled_hooks: [],
-    hooks: {},
-    cli: {},
-    background: { max_concurrent: 3 },
   }
 }
 

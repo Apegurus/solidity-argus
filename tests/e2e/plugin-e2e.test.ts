@@ -9,12 +9,10 @@ import { initCommand } from "../../src/cli/commands/init"
 import { _mergeConfigs, loadArgusConfig } from "../../src/config/loader"
 import { ArgusConfigSchema } from "../../src/config/schema"
 import { createHooks } from "../../src/create-hooks"
-import { createManagers } from "../../src/create-managers"
 import { createTools } from "../../src/create-tools"
 import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
 import { createHookGuard } from "../../src/hooks/hook-system"
 import ArgusPlugin from "../../src/index"
-import { createPluginInterface } from "../../src/plugin-interface"
 
 const FIXTURE_DIR = path.resolve(import.meta.dir, "../fixtures/vulnerable-vault")
 
@@ -66,6 +64,7 @@ describe("E2E A: Plugin Load", () => {
     expect(typeof result["experimental.session.compacting"]).toBe("function")
     expect(typeof result["tool.execute.after"]).toBe("function")
     expect(typeof result.event).toBe("function")
+    expect("dispose" in result).toBe(false)
   })
 
   test("tool map contains all 18 argus tools", async () => {
@@ -105,7 +104,7 @@ describe("E2E A: Plugin Load", () => {
     }
   })
 
-  test("config hook registers 6 agents and Solodit MCP", async () => {
+  test("config hook registers 6 agents without Solodit MCP", async () => {
     const ctx = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const result = await ArgusPlugin(ctx)
 
@@ -122,7 +121,7 @@ describe("E2E A: Plugin Load", () => {
       "sentinel",
       "themis",
     ])
-    expect(config.mcp?.["solodit-mcp"]).toBeDefined()
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
   test("plugin works with arbitrary project dir (non-Solidity)", async () => {
@@ -229,11 +228,11 @@ describe("E2E C: Config Merge", () => {
   test("project config overrides user config via deep merge", () => {
     const userConfig = {
       agents: { argus: { model: "user-model" } },
-      reporting: { format: "markdown", severityThreshold: "high" },
+      reporting: { severityThreshold: "high" },
     }
     const projectConfig = {
       agents: { argus: { model: "project-model" } },
-      reporting: { format: "markdown", severityThreshold: "low" },
+      reporting: { severityThreshold: "low" },
     }
 
     const merged = _mergeConfigs(userConfig, projectConfig)
@@ -249,16 +248,15 @@ describe("E2E C: Config Merge", () => {
 
     const merged = _mergeConfigs(userConfig, null)
     expect(merged.agents.scribe.model).toBe("custom-scribe")
-    expect(merged.reporting.format).toBe("markdown")
+    expect(merged.reporting.severityThreshold).toBe("low")
     expect(merged.disabled_hooks).toEqual([])
   })
 
   test("empty configs produce valid defaults", () => {
     const merged = _mergeConfigs(null, null)
     expect(merged.agents).toBeDefined()
-    expect(merged.reporting.format).toBe("markdown")
+    expect(merged.reporting.severityThreshold).toBe("low")
     expect(merged.disabled_hooks).toEqual([])
-    expect(merged.background.max_concurrent).toBe(3)
   })
 
   test("loadArgusConfig reads real JSONC from disk", () => {
@@ -273,9 +271,7 @@ describe("E2E C: Config Merge", () => {
           '    "argus": { "model": "custom-opus" }',
           "  },",
           '  "reporting": {',
-          '    "format": "markdown",',
-          '    "severityThreshold": "medium",',
-          '    "gasAnalysis": true',
+          '    "severityThreshold": "medium"',
           "  }",
           "}",
         ].join("\n"),
@@ -284,7 +280,6 @@ describe("E2E C: Config Merge", () => {
       const config = loadArgusConfig(tmpDir)
       expect(config.agents.argus.model).toBe("custom-opus")
       expect(config.reporting.severityThreshold).toBe("medium")
-      expect(config.reporting.gasAnalysis).toBe(true)
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
     }
@@ -308,32 +303,26 @@ describe("E2E C: Config Merge", () => {
     expect(merged.solodit.enabled).toBe(false)
   })
 
-  test("background max_concurrent is configurable", () => {
-    const projectConfig = {
+  test("removed root config fields are not returned", () => {
+    const merged = _mergeConfigs(null, {
       background: { max_concurrent: 5 },
-    }
+      hooks: {},
+      cli: {},
+    })
 
-    const merged = _mergeConfigs(null, projectConfig)
-    expect(merged.background.max_concurrent).toBe(5)
-  })
-
-  test("invalid config falls back to defaults", () => {
-    const badConfig = {
-      background: { max_concurrent: -1 },
-    }
-
-    const merged = _mergeConfigs(null, badConfig)
-    expect(merged.background.max_concurrent).toBe(3)
+    expect(merged).not.toHaveProperty("background")
+    expect(merged).not.toHaveProperty("hooks")
+    expect(merged).not.toHaveProperty("cli")
   })
 })
 
 describe("E2E D: Hook Lifecycle", () => {
   test("compaction hook serializes audit state as XML block", async () => {
     const config = ArgusConfigSchema.parse({})
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
+    const auditStateManager = createAuditStateManager(FIXTURE_DIR)
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -349,10 +338,10 @@ describe("E2E D: Hook Lifecycle", () => {
 
   test("tool-after hook processes tool execution results", async () => {
     const config = ArgusConfigSchema.parse({})
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
+    const auditStateManager = createAuditStateManager(FIXTURE_DIR)
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -387,10 +376,10 @@ describe("E2E D: Hook Lifecycle", () => {
 
   test("event hook handles session lifecycle without throwing", async () => {
     const config = ArgusConfigSchema.parse({})
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
+    const auditStateManager = createAuditStateManager(FIXTURE_DIR)
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -415,18 +404,31 @@ describe("E2E D: Hook Lifecycle", () => {
       disabled_hooks: ["system-prompt", "compaction", "event"],
     })
     const isHookEnabled = createHookGuard(config.disabled_hooks)
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
+    const auditStateManager = createAuditStateManager(FIXTURE_DIR)
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled,
     })
 
-    const iface = createPluginInterface({
-      tools: createTools(config),
-      hooks,
-    })
+    const iface = {
+      tool: createTools(config),
+      config: hooks.config,
+      ...(hooks["chat.params"] ? { "chat.params": hooks["chat.params"] } : {}),
+      ...(hooks["chat.message"] ? { "chat.message": hooks["chat.message"] } : {}),
+      ...(hooks["experimental.chat.system.transform"]
+        ? { "experimental.chat.system.transform": hooks["experimental.chat.system.transform"] }
+        : {}),
+      ...(hooks["experimental.session.compacting"]
+        ? { "experimental.session.compacting": hooks["experimental.session.compacting"] }
+        : {}),
+      ...(hooks["experimental.text.complete"]
+        ? { "experimental.text.complete": hooks["experimental.text.complete"] }
+        : {}),
+      ...(hooks["tool.execute.after"] ? { "tool.execute.after": hooks["tool.execute.after"] } : {}),
+      ...(hooks.event ? { event: hooks.event } : {}),
+    }
 
     expect(iface["experimental.chat.system.transform"]).toBeUndefined()
     expect(iface["experimental.session.compacting"]).toBeUndefined()
@@ -442,18 +444,31 @@ describe("E2E D: Hook Lifecycle", () => {
       disabled_hooks: ["system-prompt", "compaction", "tool-tracking", "event"],
     })
     const isHookEnabled = createHookGuard(config.disabled_hooks)
-    const managers = createManagers({ projectDir: FIXTURE_DIR, config })
+    const auditStateManager = createAuditStateManager(FIXTURE_DIR)
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled,
     })
 
-    const iface = createPluginInterface({
-      tools: createTools(config),
-      hooks,
-    })
+    const iface = {
+      tool: createTools(config),
+      config: hooks.config,
+      ...(hooks["chat.params"] ? { "chat.params": hooks["chat.params"] } : {}),
+      ...(hooks["chat.message"] ? { "chat.message": hooks["chat.message"] } : {}),
+      ...(hooks["experimental.chat.system.transform"]
+        ? { "experimental.chat.system.transform": hooks["experimental.chat.system.transform"] }
+        : {}),
+      ...(hooks["experimental.session.compacting"]
+        ? { "experimental.session.compacting": hooks["experimental.session.compacting"] }
+        : {}),
+      ...(hooks["experimental.text.complete"]
+        ? { "experimental.text.complete": hooks["experimental.text.complete"] }
+        : {}),
+      ...(hooks["tool.execute.after"] ? { "tool.execute.after": hooks["tool.execute.after"] } : {}),
+      ...(hooks.event ? { event: hooks.event } : {}),
+    }
 
     expect(typeof iface.config).toBe("function")
   })

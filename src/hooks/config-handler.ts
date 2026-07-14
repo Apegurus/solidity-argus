@@ -134,7 +134,6 @@ export function createConfigHandler(
           argus_recommend_skills: true,
           argus_themis_disposition: true,
           task: true,
-          "solodit-mcp_*": false,
         },
         permission: {
           argus_list_skills: "allow",
@@ -241,16 +240,6 @@ export function createConfigHandler(
         },
       },
     })
-
-    if (argusConfig.solodit?.enabled !== false) {
-      const port = argusConfig.solodit?.port ?? 54173
-      config.mcp ??= {}
-      config.mcp["solodit-mcp"] = {
-        type: "remote",
-        url: `http://localhost:${port}/mcp`,
-        enabled: true,
-      }
-    }
 
     // Argus skills load on demand via `argus_skill_load` (scoped to the Argus agents);
     // we deliberately do NOT register them in OpenCode's global `config.skills.paths`,

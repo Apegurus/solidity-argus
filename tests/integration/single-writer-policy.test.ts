@@ -37,16 +37,11 @@ function createTestConfig(outputDir: string): ArgusConfig {
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown" as const,
       severityThreshold: "low" as const,
-      gasAnalysis: false,
       output_dir: outputDir,
     },
-    solodit: { enabled: true, port: 54173 },
+    solodit: { enabled: true },
     disabled_hooks: [],
-    hooks: {},
-    cli: {},
-    background: { max_concurrent: 3 },
   }
 }
 
