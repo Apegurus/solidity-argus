@@ -60,12 +60,12 @@ function passedForgeTests(toolExecutions: CanonicalToolExecution[]): string[] {
 // single exploit's token (maintenance guardrail #5), so the gate auto-derives
 // claims_value_extraction and omitting the flag cannot bypass it.
 const VALUE_EXTRACTION_TERMS = [
-  "drain",
-  "steal",
+  "drain(?:ed|ing|s)?",
+  "steal(?:ing|s)?",
   "stolen",
   "theft",
-  "siphon",
-  "exfiltrate",
+  "siphon(?:ed|ing|s)?",
+  "exfiltrat(?:e|ed|ing|es)",
   "attacker profit",
   "attacker gain",
   "attacker net gain",
@@ -84,12 +84,8 @@ const VALUE_EXTRACTION_NEGATION_PATTERN =
   /\b(no|not|never|without|zero|cannot|can't|does not|doesn't|impossible|false positive|non-extraction)\b|\brather than theft\b/i
 
 const VALUE_EXTRACTION_TERM_PATTERNS = VALUE_EXTRACTION_TERMS.map(
-  (term) => new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}([^a-z0-9]|$)`, "i"),
+  (term) => new RegExp(`(^|[^a-z0-9])${term}([^a-z0-9]|$)`, "i"),
 )
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
 
 function splitClaimSentences(value: string): string[] {
   return value
@@ -154,14 +150,13 @@ export function applyConservationGate(
   const passedTests = passedForgeTests(toolExecutions)
   return findings.map((finding) => {
     if (!requiresConservationGate(finding)) return finding
-    if (!options.forgeAvailable) {
-      return { ...finding, unproven_forge_unavailable: true }
-    }
-    if (proofRefMatchesPassedForgeTest(finding, passedTests)) return finding
+    if (options.forgeAvailable && proofRefMatchesPassedForgeTest(finding, passedTests))
+      return finding
     return {
       ...finding,
       rubric_verdict: "DEMOTED",
       gate_demoted: true,
+      ...(!options.forgeAvailable ? { unproven_forge_unavailable: true } : {}),
       description: prependGateNote(finding.description),
     }
   })

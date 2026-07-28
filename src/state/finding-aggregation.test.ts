@@ -224,7 +224,7 @@ describe("applyConservationGate", () => {
     expect(gated?.gate_demoted).toBeUndefined()
   })
 
-  test("marks unproven without changing verdict when forge is unavailable", () => {
+  test("demotes confirmed value-extraction claims when forge is unavailable", () => {
     const [gated] = applyConservationGate(
       [
         makeObs({
@@ -238,8 +238,8 @@ describe("applyConservationGate", () => {
       { forgeAvailable: false },
     )
 
-    expect(gated?.rubric_verdict).toBe("CONFIRMED")
-    expect(gated?.gate_demoted).toBeUndefined()
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
     expect(gated?.unproven_forge_unavailable).toBe(true)
   })
 
@@ -250,6 +250,24 @@ describe("applyConservationGate", () => {
           seq: 1,
           check: "reentrancy-eth-drain",
           description: "Attacker can drain all vault ETH via reentrancy",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+        }),
+      ],
+      [],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+  })
+
+  test("auto-derives value extraction from common inflections", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          description: "An attacker is draining and siphoned funds from the vault.",
           rubric_verdict: "CONFIRMED",
           confidence_score: 95,
         }),
