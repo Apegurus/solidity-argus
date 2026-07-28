@@ -38,6 +38,20 @@ import { detectAuditArtifacts } from "./utils/audit-artifact-detector"
 import { detectProject, type ProjectConfig } from "./utils/project-detector"
 
 const logger = createLogger()
+const RUNTIME_TO_CONFIG_AGENT_NAMES = {
+  argus: "argus",
+  sentinel: "sentinel",
+  pythia: "pythia",
+  "audit-specialist": "auditSpecialist",
+  scribe: "scribe",
+  themis: "themis",
+} as const
+
+function isRuntimeConfigAgentName(
+  agentName: string,
+): agentName is keyof typeof RUNTIME_TO_CONFIG_AGENT_NAMES {
+  return Object.hasOwn(RUNTIME_TO_CONFIG_AGENT_NAMES, agentName)
+}
 
 export function selectToolResultForParsing(
   rawOutput: string,
@@ -46,6 +60,8 @@ export function selectToolResultForParsing(
   cache: ToolResultCache,
 ): string {
   if (typeof sessionID !== "string") return rawOutput
+  const trackingResult = cache.takeTrackingMatch(sessionID, tool, rawOutput)
+  if (trackingResult !== undefined) return trackingResult
   // Same-tool parallel calls share the (sessionID, tool) key; prefix-match first, then FIFO for replacement truncation stubs.
   const capturedFull = cache.takeMatch(sessionID, tool, rawOutput)
   if (capturedFull !== undefined && capturedFull.length > rawOutput.length) {
@@ -60,6 +76,21 @@ export function selectToolResultForParsing(
   }
 
   return rawOutput
+}
+
+export function trimDeletedSessionTombstones(
+  deletedSessions: Set<string>,
+  pendingActivations: ReadonlySet<string>,
+  maxSessions: number,
+): void {
+  let excess = deletedSessions.size - maxSessions
+  if (excess <= 0) return
+  for (const sessionId of deletedSessions) {
+    if (excess === 0) break
+    if (pendingActivations.has(sessionId)) continue
+    deletedSessions.delete(sessionId)
+    excess -= 1
+  }
 }
 
 export type AgentTrackerRef = {
@@ -127,6 +158,15 @@ function extractReportErrorFromToolOutput(result: string): string | undefined {
   }
 
   return undefined
+}
+
+function isSuccessfulReportToolOutput(result: string): boolean {
+  try {
+    const parsed = JSON.parse(result) as Record<string, unknown>
+    return parsed.success === true
+  } catch {
+    return false
+  }
 }
 
 export function getAgentForSession(sessionID: string): string | undefined {
@@ -216,9 +256,9 @@ export function createHooks(args: {
   const MAX_SESSION_TRACKING = 500
   const SINK_TTL_MS = 24 * 60 * 60 * 1000
 
-  const pendingSinkCreations = new Set<string>()
   const activatedSessions = new Set<string>()
   const pendingActivations = new Set<string>()
+  const deletedSessions = new Set<string>()
 
   const sessionStateRegistry = createSessionStateRegistry({
     projectDir,
@@ -239,26 +279,21 @@ export function createHooks(args: {
    * activatedSessions uses FIFO eviction because it is a permanent dedup guard —
    * losing an entry could cause a redundant (but harmless) re-activation.
    *
-   * pendingSinkCreations and pendingActivations are transient guards that are
-   * removed after their async operation completes. If they overflow, .clear() is
-   * safe — the worst case is a redundant activation attempt that the rest of the
-   * pipeline handles idempotently.
+   * pendingActivations is a transient guard removed after its async operation completes.
    */
+  function trimOldestSessions(sessions: Set<string>): void {
+    const excess = sessions.size - MAX_SESSION_TRACKING
+    if (excess <= 0) return
+    const iterator = sessions.values()
+    for (let i = 0; i < excess; i++) {
+      const next = iterator.next()
+      if (!next.done) sessions.delete(next.value)
+    }
+  }
+
   function trimSessionSets(): void {
-    if (activatedSessions.size > MAX_SESSION_TRACKING) {
-      const excess = activatedSessions.size - MAX_SESSION_TRACKING
-      const iterator = activatedSessions.values()
-      for (let i = 0; i < excess; i++) {
-        const next = iterator.next()
-        if (!next.done) activatedSessions.delete(next.value)
-      }
-    }
-    if (pendingSinkCreations.size > MAX_SESSION_TRACKING) {
-      pendingSinkCreations.clear()
-    }
-    if (pendingActivations.size > MAX_SESSION_TRACKING) {
-      pendingActivations.clear()
-    }
+    trimOldestSessions(activatedSessions)
+    trimDeletedSessionTombstones(deletedSessions, pendingActivations, MAX_SESSION_TRACKING)
   }
 
   const sinkRegistry = createBoundedSinkRegistry({
@@ -473,7 +508,7 @@ export function createHooks(args: {
     logger,
     activatedSessions,
     pendingActivations,
-    pendingSinkCreations,
+    isSessionDeleted: (sessionId: string) => deletedSessions.has(sessionId),
   })
 
   auditStateGetter = () => getAuditState()
@@ -601,6 +636,7 @@ export function createHooks(args: {
               agent === "pythia" ||
               agent === "audit-specialist" ||
               agent === "scribe" ||
+              agent === "themis" ||
               agent === "unknown"
             ) {
               return agent
@@ -646,6 +682,11 @@ export function createHooks(args: {
         const isSessionDeleted = input.event.type === "session.deleted"
         const eventSessionId = extractSessionId(input.event)
         const finalizationBeforeDelete = isSessionDeleted ? getLastFinalizationResult() : null
+
+        if (isSessionDeleted && eventSessionId) {
+          deletedSessions.add(eventSessionId)
+          trimSessionSets()
+        }
 
         try {
           await eventHook(input)
@@ -698,18 +739,12 @@ export function createHooks(args: {
             if (deletedSessionId) {
               agentTracker.clearSession(deletedSessionId)
               sinkRegistry.deleteSession(deletedSessionId)
-              pendingSinkCreations.delete(deletedSessionId)
-              pendingActivations.delete(deletedSessionId)
               activatedSessions.delete(deletedSessionId)
               toolTrackingHook?.clearOrphanEvents(deletedSessionId)
               await sessionStateRegistry.deleteSession(deletedSessionId)
             }
 
             sinkRegistry.releaseUnreferencedRuns()
-
-            if (finalizationResult && finalizationResult.runId.length > 0) {
-              sinkRegistry.releaseGlobalRun(finalizationResult.runId)
-            }
 
             runJournal.log({
               type: "session.deleted",
@@ -732,9 +767,11 @@ export function createHooks(args: {
       // Non-Argus sessions are left untouched so other plugins are not affected.
       if (agentTracker.isArgusAgent(input.sessionID)) {
         const agentName = agentTracker.getAgentForSession(input.sessionID)
-        const agentConfig = agentName
-          ? config.agents?.[agentName as keyof typeof config.agents]
-          : undefined
+        const configAgentName =
+          agentName && isRuntimeConfigAgentName(agentName)
+            ? RUNTIME_TO_CONFIG_AGENT_NAMES[agentName]
+            : undefined
+        const agentConfig = configAgentName ? config.agents[configAgentName] : undefined
         output.temperature = agentConfig?.temperature ?? 0
 
         await activateSession(input.sessionID)
@@ -791,6 +828,35 @@ export function createHooks(args: {
             result: toolOutput,
           })
 
+          let reportState: AuditState | null = null
+          if (toolName === "argus_generate_report") {
+            reportState = getAuditState(input.sessionID)
+            if (!reportState || reportState.sessionId.length === 0) {
+              throw new Error("argus_generate_report completed without active audit state")
+            }
+            if (!isSuccessfulReportToolOutput(toolOutput)) {
+              throw new Error("argus_generate_report completed without success: true")
+            }
+
+            const reportedError = extractReportErrorFromToolOutput(toolOutput)
+            if (reportedError) {
+              throw new Error(`argus_generate_report failed: ${reportedError}`)
+            }
+            if (!extractReportFilePathFromToolOutput(toolOutput)) {
+              throw new Error("argus_generate_report completed without report filePath")
+            }
+
+            const extractedRunId = extractRunIdFromReportToolOutput(toolOutput)
+            if (!extractedRunId) {
+              throw new Error("argus_generate_report completed without run_id")
+            }
+            if (extractedRunId !== reportState.sessionId) {
+              throw new Error(
+                `argus_generate_report run_id ${extractedRunId} does not match active run ${reportState.sessionId}`,
+              )
+            }
+          }
+
           await toolTrackingHook({
             tool: toolName,
             args: input.args,
@@ -799,45 +865,24 @@ export function createHooks(args: {
             callID: input.callID,
           })
 
-          if (toolName === "argus_generate_report") {
-            const state = getAuditState(input.sessionID)
-            if (!state || state.sessionId.length === 0) {
-              throw new Error("argus_generate_report completed without active audit state")
-            }
-
-            const reportedError = extractReportErrorFromToolOutput(toolOutput)
-            if (reportedError) {
-              throw new Error(`argus_generate_report failed: ${reportedError}`)
-            }
-
-            const reportFilePath = extractReportFilePathFromToolOutput(toolOutput)
-            if (!reportFilePath) {
-              throw new Error("argus_generate_report completed without report filePath")
-            }
-
-            const extractedRunId = extractRunIdFromReportToolOutput(toolOutput)
-            if (!extractedRunId) {
-              throw new Error("argus_generate_report completed without run_id")
-            }
-            if (extractedRunId !== state.sessionId) {
-              logger.warn(
-                `argus_generate_report run_id ${extractedRunId} differs from state.sessionId ${state.sessionId} — proceeding with report`,
-              )
-            }
-
+          if (reportState) {
             await runMaterializeFindings(
-              state.sessionId,
-              state.projectDir,
+              reportState.sessionId,
+              reportState.projectDir,
               input.sessionID,
               "tool.execute.after",
               false,
             )
 
             try {
-              await materializeReportInput(state.sessionId, state.projectDir, input.sessionID)
+              await materializeReportInput(
+                reportState.sessionId,
+                reportState.projectDir,
+                input.sessionID,
+              )
             } catch (error) {
               logger.warn(
-                `Failed to materialize report-input artifact for run ${state.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+                `Failed to materialize report-input artifact for run ${reportState.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
               )
             }
 

@@ -3,7 +3,11 @@ import { mkdir, mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
-import { createHooks, selectToolResultForParsing } from "./create-hooks"
+import {
+  createHooks,
+  selectToolResultForParsing,
+  trimDeletedSessionTombstones,
+} from "./create-hooks"
 import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
 import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/global-run-index"
 import type { HookName } from "./hooks/types"
@@ -127,6 +131,27 @@ describe("createHooks", () => {
 
     expect(output.text.match(/Repeated stagnant analysis/g)?.length).toBe(1)
     expect(output.text).toContain("HANDOFF_JSON")
+  })
+
+  it("applies the audit-specialist configuration override", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({
+        agents: { auditSpecialist: { temperature: 1.25 } },
+      }),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      { sessionID: "specialist-temperature", agent: "audit-specialist" } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(1.25)
   })
 
   it("attributes audit-specialist tool findings to the specialist", async () => {
@@ -669,6 +694,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/live.md",
           report: "ok",
@@ -760,6 +786,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/cross.md",
           report: "ok",
@@ -841,6 +868,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: firstRunId,
           filePath: ".argus/reports/reuse.md",
           report: "ok",
@@ -922,6 +950,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/idle-finalize.md",
           report: "ok",
@@ -1013,6 +1042,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/idle-waits-themis.md",
           report: "ok",
@@ -1262,7 +1292,7 @@ describe("createHooks", () => {
     expect(completed[0]?.session_id).toBe(childSessionId)
   })
 
-  it("warns but proceeds when tool output run_id mismatches state run_id", async () => {
+  it("rejects report output whose run_id mismatches the active run", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-canonical-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
@@ -1292,77 +1322,30 @@ describe("createHooks", () => {
 
     const freshRunId = await waitForRunId("oc-canonical")
 
-    await hooks["tool.execute.after"]?.(
-      {
-        tool: "argus_generate_report",
-        args: { target: FIXTURE_DIR },
-      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
-      {
-        title: "argus_generate_report",
-        output: JSON.stringify({
-          run_id: "ses_should_not_be_used",
-          filePath: ".argus/reports/mismatch.md",
-          report: "ok",
-        }),
-        metadata: {},
-      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
-    )
+    const toolExecuteAfter = hooks["tool.execute.after"]
+    if (!toolExecuteAfter) throw new Error("tool.execute.after hook unavailable")
+    await expect(
+      toolExecuteAfter(
+        {
+          tool: "argus_generate_report",
+          args: { target: FIXTURE_DIR },
+          sessionID: "oc-canonical",
+        } as unknown as Parameters<typeof toolExecuteAfter>[0],
+        {
+          title: "argus_generate_report",
+          output: JSON.stringify({
+            success: true,
+            run_id: "ses_should_not_be_used",
+            filePath: ".argus/reports/mismatch.md",
+            report: "ok",
+          }),
+          metadata: {},
+        } as unknown as Parameters<typeof toolExecuteAfter>[1],
+      ),
+    ).rejects.toThrow("does not match active run")
 
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
-    expect(await Bun.file(findingsPath).exists()).toBe(true)
-  })
-
-  it("returns success when report.md is written even if materialization has no events (Task 2 / Bug #2)", async () => {
-    const config = ArgusConfigSchema.parse({})
-    const initialRunId = `run-orphan-init-${Date.now()}`
-    const activeState = makeAuditState({ sessionId: initialRunId, reportGenerated: false })
-
-    const auditStateManager = {
-      bindSession: () => {},
-      load: async () => activeState,
-      save: async () => {},
-      get: () => activeState,
-      update: async () => {},
-      reset: async () => {},
-      archive: async () => {},
-      dispose: async () => {},
-    }
-
-    const hooks = createHooks({
-      config,
-      auditStateManager,
-      projectDir: FIXTURE_DIR,
-      isHookEnabled: () => true,
-    })
-
-    await hooks.event?.({
-      event: { type: "session.created", properties: { info: { id: "oc-orphan" } } },
-    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-    await activateArgusSession(hooks, "oc-orphan")
-
-    const orphanRunId = `run-no-events-DOES-NOT-EXIST-${Date.now()}`
-    activeState.sessionId = orphanRunId
-
-    const toolExecuteAfter = hooks["tool.execute.after"]
-    expect(toolExecuteAfter).toBeDefined()
-    if (!toolExecuteAfter) return
-
-    await toolExecuteAfter(
-      {
-        tool: "argus_generate_report",
-        args: { target: FIXTURE_DIR },
-        sessionID: "oc-orphan",
-      } as unknown as Parameters<typeof toolExecuteAfter>[0],
-      {
-        title: "argus_generate_report",
-        output: JSON.stringify({
-          run_id: orphanRunId,
-          filePath: ".argus/reports/orphan.md",
-          report: "ok",
-        }),
-        metadata: {},
-      } as unknown as Parameters<typeof toolExecuteAfter>[1],
-    )
+    expect(await Bun.file(findingsPath).exists()).toBe(false)
   })
 
   it("dispose removes process exit handler", () => {
@@ -1386,6 +1369,16 @@ describe("createHooks", () => {
 })
 
 describe("selectToolResultForParsing", () => {
+  it("selects a full tracking payload without exposing it in output.output", () => {
+    const cache = createToolResultCache()
+    const compact = '{"success":true,"matches":["first"]}'
+    const full = '{"success":true,"sources":[{"matches":["first","second"]}]}'
+    cache.setTracking("ses_1", "argus_check_patterns", compact, full)
+
+    expect(selectToolResultForParsing(compact, "ses_1", "argus_check_patterns", cache)).toBe(full)
+    expect(cache.size()).toBe(0)
+  })
+
   it("prefers the captured full result over a truncated output.output", () => {
     const cache = createToolResultCache()
     const full = '{"success":true,"sources":[{"matches":[{"pattern":"reentrancy"}]}]}'
@@ -1475,5 +1468,21 @@ describe("selectToolResultForParsing", () => {
 
     expect(selectToolResultForParsing("raw", undefined, "argus_check_patterns", cache)).toBe("raw")
     expect(cache.size()).toBe(1)
+  })
+})
+
+describe("trimDeletedSessionTombstones", () => {
+  it("retains tombstones while activation work is in flight", () => {
+    const deletedSessions = new Set(Array.from({ length: 501 }, (_, index) => `session-${index}`))
+    const pendingActivations = new Set(["session-0"])
+
+    trimDeletedSessionTombstones(deletedSessions, pendingActivations, 500)
+    expect(deletedSessions.has("session-0")).toBe(true)
+    expect(deletedSessions.has("session-1")).toBe(false)
+    expect(deletedSessions.size).toBe(500)
+
+    pendingActivations.clear()
+    trimDeletedSessionTombstones(deletedSessions, pendingActivations, 500)
+    expect(deletedSessions.size).toBe(500)
   })
 })
