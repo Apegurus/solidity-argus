@@ -124,10 +124,6 @@ export function normalizeRawFinding(raw: Record<string, unknown>): Record<string
     result.description = result.check
   }
 
-  if (!Array.isArray(result.lines) || (result.lines as unknown[]).length !== 2) {
-    result.lines = [0, 0]
-  }
-
   return result
 }
 
@@ -142,6 +138,7 @@ const VALID_AGENT_VALUES = new Set<ArgusAgentName>([
   "pythia",
   "audit-specialist",
   "scribe",
+  "themis",
   "unknown",
 ])
 
@@ -221,7 +218,7 @@ function normalizeToolsExecutedDefaults(
       patched = true
     }
     if (typeof rec.success !== "boolean") {
-      rec.success = true
+      rec.success = false
       patched = true
     }
     if (typeof rec.findingsCount !== "number" || rec.findingsCount < 0) {
@@ -257,6 +254,10 @@ export function resolveExpectedRunId(
     return validateRunId(args.run_id.trim())
   }
 
+  if (isNonEmptyString(args.report_input)) {
+    return undefined
+  }
+
   // 2. Global run index lookup by session ID
   const sessionId = context.sessionID
   const projectDir = resolveProjectDir(context)
@@ -266,12 +267,6 @@ export function resolveExpectedRunId(
     if (isNonEmptyString(resolved)) {
       return resolved
     }
-  }
-
-  // When caller provides inline report_input, skip filesystem discovery —
-  // the caller already has their data and filesystem state may belong to a different run.
-  if (isNonEmptyString(args.report_input)) {
-    return undefined
   }
 
   // 3. Per-session state files (per-session managers write to sessions/state-{sessionId}.json)

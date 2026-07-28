@@ -86,6 +86,7 @@ type FindingsCount = {
 }
 
 export type ReportGenerationResult = {
+  success: boolean
   report: string
   /** Findings-tier counts only (confirmed/above-threshold); matches `qualityGates` scope. */
   findingsCount: FindingsCount
@@ -1449,6 +1450,7 @@ export async function executeReportGeneration(
   })
 
   const result: ReportGenerationResult = {
+    success: false,
     report: reportMarkdown,
     findingsCount,
     leadsTierCount,
@@ -1505,6 +1507,7 @@ export async function executeReportGeneration(
       result.reportsManifestFile = manifestPath
       manifest.reports = upsertReportEntry(manifest.reports, reusableReport)
       await writeReportManifest(manifestPath, manifest)
+      result.success = true
       return result
     }
 
@@ -1562,6 +1565,7 @@ export async function executeReportGeneration(
       createdAt: Date.now(),
     })
     await writeReportManifest(manifestPath, manifest)
+    result.success = true
   } catch (err: unknown) {
     const logger = createLogger()
     const message = err instanceof Error ? err.message : String(err)

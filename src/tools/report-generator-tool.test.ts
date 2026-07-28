@@ -32,6 +32,7 @@ import {
   reportGeneratorTool,
   sourceExcerpt,
 } from "./report-generator-tool"
+import { resolveExpectedRunId } from "./report-input"
 
 function createContext(): ToolContext {
   return {
@@ -808,6 +809,7 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
     const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
       reportSummary: string
     }
+    expect(parsed.success).toBe(true)
     expect(parsed.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
     expect(parsed.findingsCount.high).toBe(1)
   } finally {
@@ -1232,13 +1234,27 @@ test("normalizeRawFinding extracts lines from location even when file is already
   expect(result.lines).toEqual([18, 23])
 })
 
-test("normalizeRawFinding defaults lines to [0,0] when no line info available", () => {
+test("normalizeRawFinding leaves missing line info invalid", () => {
   const result = normalizeRawFinding({
     title: "Floating Pragma",
     file: "src/Token.sol",
     severity: "Informational",
   })
-  expect(result.lines).toEqual([0, 0])
+  expect(result.lines).toBeUndefined()
+})
+
+test("resolveExpectedRunId prefers inline report input over stale session mapping", () => {
+  const result = resolveExpectedRunId(
+    {
+      project_name: "Inline",
+      scope: [],
+      report_input: JSON.stringify(makeReportInput([])),
+    },
+    createContext(),
+    { resolveCanonicalRunId: () => "stale-run" },
+  )
+
+  expect(result).toBeUndefined()
 })
 
 test("provenance appendix shows data freshness with pattern version", async () => {
@@ -2430,7 +2446,7 @@ test("rejects report_input when explicit run_id mismatches report_input run_id",
   ).rejects.toThrow("canonical run_id")
 })
 
-test("rejects report_input when canonical run inferred from session mismatches", async () => {
+test("accepts report_input when a session mapping is stale", async () => {
   const reportInput = {
     run_id: "run-from-report-input",
     seq: 1,
@@ -2455,13 +2471,14 @@ test("rejects report_input when canonical run inferred from session mismatches",
         project_name: "InferredRunIdMismatch",
         scope: ["Vault.sol"],
         report_input: JSON.stringify(reportInput),
+        tool_coverage_policy: "skip",
       },
       context,
       {
         resolveCanonicalRunId: () => "run-canonical",
       },
     ),
-  ).rejects.toThrow("canonical run_id")
+  ).resolves.toBeDefined()
 })
 
 test("filename date matches body audit date (parity)", async () => {
