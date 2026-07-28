@@ -7,10 +7,8 @@ export interface BoundedSinkRegistry {
   setForRun(runId: string, sink: EventSink): void
   deleteSession(sessionId: string): void
   deleteRun(runId: string): void
-  getNewestActiveRunSink(): EventSink | null
   getActiveRunSinks(): EventSink[]
   releaseUnreferencedRuns(): void
-  releaseGlobalRun(runId: string): void
 }
 
 export function createBoundedSinkRegistry(options: {
@@ -55,7 +53,11 @@ export function createBoundedSinkRegistry(options: {
 
     const sink = sinkMap.get(oldestKey)
     if (sink) {
-      markFinalizedBestEffort(sink)
+      if (releaseRunSink) {
+        markFinalizedBestEffort(sink)
+      } else {
+        sink.removeOwner(oldestKey)
+      }
     }
     sinkMap.delete(oldestKey)
     timestampMap.delete(oldestKey)
@@ -78,7 +80,11 @@ export function createBoundedSinkRegistry(options: {
       // Referenced run sinks are TTL-exempt (WS-3 I1): a live session still holds the run.
       if (releaseRunSink && (sink?.ownerSet.size ?? 0) > 0) continue
       if (sink) {
-        markFinalizedBestEffort(sink)
+        if (releaseRunSink) {
+          markFinalizedBestEffort(sink)
+        } else {
+          sink.removeOwner(key)
+        }
       }
       sinkMap.delete(key)
       timestampMap.delete(key)
@@ -116,8 +122,12 @@ export function createBoundedSinkRegistry(options: {
     },
 
     setForSession(sessionId: string, sink: EventSink): void {
-      sink.addOwner(sessionId)
+      const previousSink = byOpencodeSession.get(sessionId)
+      if (previousSink && previousSink !== sink) {
+        previousSink.removeOwner(sessionId)
+      }
       setBounded(byOpencodeSession, createdAtBySession, sessionId, sink, false)
+      sink.addOwner(sessionId)
     },
 
     setForRun(runId: string, sink: EventSink): void {
@@ -136,25 +146,6 @@ export function createBoundedSinkRegistry(options: {
       createdAtByRunId.delete(runId)
     },
 
-    getNewestActiveRunSink(): EventSink | null {
-      const activeSinks = Array.from(byRunId.values()).filter((sink) => !sink.isFinalized)
-      if (activeSinks.length === 1) {
-        return activeSinks[0] ?? null
-      }
-      if (activeSinks.length === 0) {
-        return null
-      }
-
-      const newest = [...createdAtByRunId.entries()]
-        .filter(([runId]) => {
-          const sink = byRunId.get(runId)
-          return sink != null && !sink.isFinalized
-        })
-        .sort((a, b) => b[1] - a[1])[0]
-
-      return newest ? (byRunId.get(newest[0]) ?? null) : null
-    },
-
     getActiveRunSinks(): EventSink[] {
       return Array.from(byRunId.values()).filter((sink) => !sink.isFinalized)
     },
@@ -168,10 +159,6 @@ export function createBoundedSinkRegistry(options: {
         byRunId.delete(runId)
         createdAtByRunId.delete(runId)
       }
-    },
-
-    releaseGlobalRun(runId: string): void {
-      releaseEventSink(runId)
     },
   }
 }

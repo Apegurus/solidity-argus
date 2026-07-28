@@ -79,30 +79,33 @@ describe("createBoundedSinkRegistry", () => {
     expect(registry.getActiveRunSinks()).toEqual([sink])
   })
 
-  test("returns the newest active run sink", () => {
-    const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 1_000 })
-    const olderSink = makeSink("run-older")
-    const newerSink = makeSink("run-newer")
-
-    Date.now = () => 100
-    registry.setForRun("run-older", olderSink)
-    Date.now = () => 200
-    registry.setForRun("run-newer", newerSink)
-
-    expect(registry.getNewestActiveRunSink()).toBe(newerSink)
-  })
-
-  test("evicts and finalizes the oldest sink when max size is reached", () => {
+  test("removes only the evicted session owner when its shared live sink reaches capacity", () => {
     const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 1_000 })
     const oldestSink = makeSink("run-old")
     const newestSink = makeSink("run-new")
 
     registry.setForSession("session-old", oldestSink)
+    registry.setForRun("run-old", oldestSink)
     registry.setForSession("session-new", newestSink)
 
-    expect(oldestSink.isFinalized).toBe(true)
+    expect(oldestSink.isFinalized).toBe(false)
+    expect(oldestSink.ownerSet.has("session-old")).toBe(false)
     expect(registry.getForSession("session-old")).toBeUndefined()
+    expect(registry.getForRun("run-old")).toBe(oldestSink)
     expect(registry.getForSession("session-new")).toBe(newestSink)
+  })
+
+  test("same-key TTL refresh preserves the live session owner", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 10 })
+    const sink = makeSink("run-refresh")
+
+    Date.now = () => 100
+    registry.setForSession("session-refresh", sink)
+    Date.now = () => 111
+    registry.setForSession("session-refresh", sink)
+
+    expect(registry.getForSession("session-refresh")).toBe(sink)
+    expect(sink.ownerSet.has("session-refresh")).toBe(true)
   })
 
   test("eviction does not force-seal a FAILED_RECOVERABLE sink (adj_11)", () => {
