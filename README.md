@@ -135,7 +135,7 @@ The plugin ships with **103 curated SKILL.md files** organized into 5 metadata c
 
 Vulnerability detection patterns are defined as `detection_rules` in SKILL.md frontmatter. The pattern checker scans effective resolver winners from every Argus skill root — bundled, `customSkillsDir`, Trail of Bits cache, OpenCode project/global, and Claude project/global — but only when a skill has both `pattern_category` and non-empty `detection_rules`.
 
-- **61 scanner-eligible skills** with detection rules across **14 categories**
+- **57 scanner-eligible skills** with detection rules across **14 categories**
 - Categories: `reentrancy`, `oracle-manipulation`, `flash-loan`, `access-control`, `erc4626`, `proxy`, `signature`, `dos`, `front-running`, `governance`, `token-standard`, `gas-optimization`, `logic-error`, `delegatecall`
 
 #### Adding Custom Detection Rules
