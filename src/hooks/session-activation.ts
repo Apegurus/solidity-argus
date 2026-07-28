@@ -24,7 +24,7 @@ interface SessionActivatorOptions {
   logger: Logger
   activatedSessions: Set<string>
   pendingActivations: Set<string>
-  pendingSinkCreations: Set<string>
+  isSessionDeleted: (sessionId: string) => boolean
   createEventSink?: (runId: string, projectDir: string) => EventSink
 }
 
@@ -41,11 +41,12 @@ export function createSessionActivator(options: SessionActivatorOptions) {
     logger,
     activatedSessions,
     pendingActivations,
-    pendingSinkCreations,
+    isSessionDeleted,
     createEventSink: makeEventSink = createEventSink,
   } = options
 
   return async function activateSession(sessionId: string): Promise<void> {
+    if (isSessionDeleted(sessionId)) return
     // Finalized-run stale guard: if this session was activated for a run that has since
     // been finalized, a new audit in the same OpenCode session must start a fresh run
     // rather than inherit the closed run's findings/phase. Reset only on a finalized sink
@@ -57,7 +58,7 @@ export function createSessionActivator(options: SessionActivatorOptions) {
     if (activatedSessions.has(sessionId)) {
       const priorRunId = getAuditState(sessionId)?.sessionId
       const priorSink = priorRunId ? sinkRegistry.getForRun(priorRunId) : undefined
-      if (!priorSink?.isFinalized) return
+      if (priorSink && !priorSink.isFinalized) return
       activatedSessions.delete(sessionId)
       sinkRegistry.deleteSession(sessionId)
       setAuditState(createAuditState(projectDir).state, sessionId)
@@ -69,9 +70,6 @@ export function createSessionActivator(options: SessionActivatorOptions) {
     if (!auditState) return
 
     pendingActivations.add(sessionId)
-    // Must be set BEFORE the try block - if two concurrent activateSession calls race,
-    // the second must see this guard immediately to prevent duplicate sink creation.
-    pendingSinkCreations.add(sessionId)
     let sessionActivated = false
     try {
       const timestamp = Date.now()
@@ -145,6 +143,8 @@ export function createSessionActivator(options: SessionActivatorOptions) {
           findingsCount: recoveredState?.findings.length ?? 0,
         })
       }
+
+      if (isSessionDeleted(sessionId)) return
 
       // A session forced into a fresh run must not resume the finalized run's persisted
       // state, even if that snapshot predates a recorded report/disposition.
@@ -222,6 +222,13 @@ export function createSessionActivator(options: SessionActivatorOptions) {
             },
           })
 
+          if (isSessionDeleted(sessionId)) {
+            setEventSink(null, sessionId)
+            sinkRegistry.deleteSession(sessionId)
+            sinkRegistry.deleteRun(effectiveState.sessionId)
+            return
+          }
+
           sessionActivated = true
         } catch (error) {
           logger.warn(
@@ -256,11 +263,10 @@ export function createSessionActivator(options: SessionActivatorOptions) {
         )
       }
     } finally {
-      if (sessionActivated) {
+      if (sessionActivated && !isSessionDeleted(sessionId)) {
         activatedSessions.add(sessionId)
       }
       pendingActivations.delete(sessionId)
-      pendingSinkCreations.delete(sessionId)
     }
   }
 }

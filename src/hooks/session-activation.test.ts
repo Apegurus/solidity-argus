@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type EventSink, resetSinkRegistry } from "../features/persistent-state/event-sink"
-import type { createRunJournal } from "../features/persistent-state/run-journal"
 import type { AuditStateManager } from "../managers/types"
 import type { Logger } from "../shared/logger"
 import { createAuditState } from "../state/audit-state"
@@ -20,12 +19,13 @@ const silentLogger: Logger = {
   warn() {},
 }
 
-function stubManager(recovered: AuditState | null = null): AuditStateManager {
+function stubManager(
+  recovered: AuditState | null = null,
+  load: (() => Promise<AuditState | null>) | undefined = undefined,
+): AuditStateManager {
   return {
     bindSession() {},
-    async load() {
-      return recovered
-    },
+    load: load ?? (async () => recovered),
     async save() {},
     get() {
       return null
@@ -41,6 +41,7 @@ function makeFailingAppendSink(runId: string): EventSink {
   const ownerSet = new Set<string>()
   return {
     runId,
+    state: "ACTIVE",
     ownerSet,
     isFinalized: false,
     addOwner: (s: string) => {
@@ -53,7 +54,38 @@ function makeFailingAppendSink(runId: string): EventSink {
     append: async () => {
       throw new Error("durable append failed")
     },
-  } as unknown as EventSink
+    async readAll() {
+      return []
+    },
+    markDraining() {},
+    markFailedRecoverable() {},
+  }
+}
+
+function makeDelayedAppendSink(
+  runId: string,
+  appendStarted: () => void,
+  waitForAppend: Promise<void>,
+): EventSink {
+  const ownerSet = new Set<string>()
+  return {
+    runId,
+    state: "ACTIVE",
+    ownerSet,
+    isFinalized: false,
+    addOwner: (sessionId: string) => ownerSet.add(sessionId),
+    removeOwner: (sessionId: string) => ownerSet.delete(sessionId),
+    markFinalized() {},
+    async append() {
+      appendStarted()
+      await waitForAppend
+    },
+    async readAll() {
+      return []
+    },
+    markDraining() {},
+    markFailedRecoverable() {},
+  }
 }
 
 function makeHarness(
@@ -62,6 +94,9 @@ function makeHarness(
     failAppend?: boolean
     recoveredState?: AuditState
     parents?: Record<string, string>
+    isSessionDeleted?: (sessionId: string) => boolean
+    load?: () => Promise<AuditState | null>
+    createEventSink?: (runId: string) => EventSink
   } = {},
 ) {
   const projectDir = mkdtempSync(join(tmpdir(), "argus-session-activation-"))
@@ -88,15 +123,21 @@ function makeHarness(
           }
         }
       : () => {},
-    getSessionManager: () => stubManager(opts.recoveredState ?? null),
-    runJournal: { log: () => {} } as unknown as ReturnType<typeof createRunJournal>,
+    getSessionManager: () => stubManager(opts.recoveredState ?? null, opts.load),
+    runJournal: {
+      log() {},
+      async close() {},
+      getPath: () => join(projectDir, "argus-journal.jsonl"),
+    },
     logger: silentLogger,
     activatedSessions,
     pendingActivations: new Set<string>(),
-    pendingSinkCreations: new Set<string>(),
-    ...(opts.failAppend
-      ? { createEventSink: (runId: string) => makeFailingAppendSink(runId) }
-      : {}),
+    isSessionDeleted: opts.isSessionDeleted ?? (() => false),
+    ...(opts.createEventSink
+      ? { createEventSink: opts.createEventSink }
+      : opts.failAppend
+        ? { createEventSink: (runId: string) => makeFailingAppendSink(runId) }
+        : {}),
   })
 
   return { projectDir, activate, activatedSessions, auditStates, sinkRegistry }
@@ -182,6 +223,91 @@ test("re-activating a session with a live (non-finalized) sink is a no-op", asyn
 
     await h.activate(SESSION_ID)
     expect(h.auditStates.get(SESSION_ID)?.sessionId).toBe(runId)
+  } finally {
+    rmSync(h.projectDir, { recursive: true, force: true })
+  }
+})
+
+test("starts a fresh run when an activated session loses its run sink", async () => {
+  const h = makeHarness()
+  h.auditStates.set(SESSION_ID, createAuditState(h.projectDir).state)
+  try {
+    await h.activate(SESSION_ID)
+    const priorRunId = h.auditStates.get(SESSION_ID)?.sessionId
+    expect(priorRunId).toBeDefined()
+
+    h.sinkRegistry.deleteRun(priorRunId ?? "")
+    await h.activate(SESSION_ID)
+
+    expect(h.auditStates.get(SESSION_ID)?.sessionId).not.toBe(priorRunId)
+  } finally {
+    rmSync(h.projectDir, { recursive: true, force: true })
+  }
+})
+
+test("does not restore a session deleted while activation is in flight", async () => {
+  let markLoadStarted: () => void = () => {}
+  const loadStarted = new Promise<void>((resolve) => {
+    markLoadStarted = resolve
+  })
+  let completeLoad: () => void = () => {}
+  const load = new Promise<void>((resolve) => {
+    completeLoad = resolve
+  })
+  let sessionDeleted = false
+  const h = makeHarness({
+    isSessionDeleted: () => sessionDeleted,
+    load: async () => {
+      markLoadStarted()
+      await load
+      return null
+    },
+  })
+  const state = createAuditState(h.projectDir).state
+  h.auditStates.set(SESSION_ID, state)
+
+  try {
+    const activation = h.activate(SESSION_ID)
+    await loadStarted
+    sessionDeleted = true
+    completeLoad()
+    await activation
+
+    expect(h.activatedSessions.has(SESSION_ID)).toBe(false)
+    expect(h.sinkRegistry.getForSession(SESSION_ID)).toBeUndefined()
+    expect(h.sinkRegistry.getForRun(state.sessionId)).toBeUndefined()
+  } finally {
+    rmSync(h.projectDir, { recursive: true, force: true })
+  }
+})
+
+test("rolls back a sink when deletion occurs during the durable activation append", async () => {
+  let markAppendStarted: () => void = () => {}
+  const appendStarted = new Promise<void>((resolve) => {
+    markAppendStarted = resolve
+  })
+  let completeAppend: () => void = () => {}
+  const waitForAppend = new Promise<void>((resolve) => {
+    completeAppend = resolve
+  })
+  let sessionDeleted = false
+  const h = makeHarness({
+    isSessionDeleted: () => sessionDeleted,
+    createEventSink: (runId) => makeDelayedAppendSink(runId, markAppendStarted, waitForAppend),
+  })
+  const state = createAuditState(h.projectDir).state
+  h.auditStates.set(SESSION_ID, state)
+
+  try {
+    const activation = h.activate(SESSION_ID)
+    await appendStarted
+    sessionDeleted = true
+    completeAppend()
+    await activation
+
+    expect(h.activatedSessions.has(SESSION_ID)).toBe(false)
+    expect(h.sinkRegistry.getForSession(SESSION_ID)).toBeUndefined()
+    expect(h.sinkRegistry.getForRun(state.sessionId)).toBeUndefined()
   } finally {
     rmSync(h.projectDir, { recursive: true, force: true })
   }
