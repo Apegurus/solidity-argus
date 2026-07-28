@@ -108,6 +108,8 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternLoade
       }
 
       const skillName = parsed.data.name
+      if (parsed.data.category !== "vulnerability-pattern") continue
+
       const category = parsed.data.pattern_category
       if (!category) continue
 
@@ -129,6 +131,8 @@ export function extractDetectionRulesFromResolvedSkills(
   const errors: string[] = []
 
   for (const skill of skills) {
+    if (skill.category !== "vulnerability-pattern") continue
+
     appendSkillDetectionRules(
       extracted,
       errors,

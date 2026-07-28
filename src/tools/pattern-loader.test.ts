@@ -29,6 +29,7 @@ describe("extractDetectionRulesFromSkills", () => {
       `---
 name: reentrancy
 description: Reentrancy patterns
+category: vulnerability-pattern
 pattern_category: reentrancy
 detection_rules:
   - regex: '\\.call\\{value:'
@@ -84,12 +85,34 @@ detection_rules:
     expect(patterns).toEqual([])
   })
 
+  it("ignores protocol guidance rules even when they declare a pattern category", () => {
+    writeSkill(
+      "protocol-patterns/staking",
+      `---
+name: staking
+description: Protocol guidance must remain advisory
+category: protocol-pattern
+pattern_category: logic-error
+detection_rules:
+  - regex: 'notifyRewardAmount\\s*\\('
+    severity: High
+    description: Advisory protocol knowledge
+---
+
+# Staking`,
+    )
+
+    const { patterns } = extractDetectionRulesFromSkills(TEST_SKILLS_DIR)
+    expect(patterns).toEqual([])
+  })
+
   it("discovers skills dynamically from any pattern_category", () => {
     writeSkill(
       "vulnerability-patterns/my-dos-skill",
       `---
 name: my-dos-skill
 description: DoS pattern
+category: vulnerability-pattern
 pattern_category: dos
 detection_rules:
   - regex: 'while\\s*\\(true\\)'
@@ -104,6 +127,7 @@ detection_rules:
       `---
 name: my-sig-skill
 description: Signature pattern
+category: vulnerability-pattern
 pattern_category: signature
 detection_rules:
   - regex: 'ecrecover'
@@ -132,6 +156,7 @@ detection_rules:
       `---
 name: multi-rule
 description: Multiple rules
+category: vulnerability-pattern
 pattern_category: access-control
 detection_rules:
   - regex: 'onlyOwner'
@@ -159,6 +184,7 @@ detection_rules:
       `---
 name: unsafe-regex
 description: Unsafe regex
+category: vulnerability-pattern
 pattern_category: logic-error
 detection_rules:
   - regex: '(a+)+$'
@@ -185,6 +211,7 @@ detection_rules:
       `---
 name: lookaround-redos
 description: Lookaround ReDoS bypasses
+category: vulnerability-pattern
 pattern_category: logic-error
 detection_rules:
   - regex: '(?=((a*)*)b)a'
@@ -219,6 +246,7 @@ detection_rules:
       `---
 name: bad-regex
 description: Bad regex
+category: vulnerability-pattern
 pattern_category: logic-error
 detection_rules:
   - regex: '['
@@ -241,6 +269,7 @@ detection_rules:
       `---
 name: exclude-if
 description: Exclusion filters
+category: vulnerability-pattern
 pattern_category: logic-error
 detection_rules:
   - regex: 'dangerCall'
@@ -296,6 +325,7 @@ describe("extractDetectionRulesFromResolvedSkills", () => {
         name: "advisory-only",
         description: "Rules without pattern category are advisory only",
         category: "protocol-pattern",
+        pattern_category: "logic-error",
         detection_rules: [
           {
             regex: "advisoryOnly",
