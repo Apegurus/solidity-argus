@@ -1,6 +1,5 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs"
 import { join } from "node:path"
-import { stripJsoncComments } from "./jsonc-parser"
 import { createLogger } from "./logger"
 import { defaultRootResolver } from "./path-root-resolver"
 
@@ -65,7 +64,7 @@ export function readJsoncFileResult(filePath: string): JsoncReadResult {
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(stripJsoncComments(content))
+    parsed = Bun.JSONC.parse(content)
   } catch {
     return { status: "invalid" }
   }

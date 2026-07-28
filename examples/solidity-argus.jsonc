@@ -33,8 +33,6 @@
 
   // Tool configuration
   "tools": {
-    // Path to slither executable (default: "slither" from PATH)
-    "slitherPath": "slither",
     // Path to forge executable (default: "forge" from PATH)
     "forgePath": "forge"
   },
@@ -57,18 +55,14 @@
 
   // Reporting configuration
   "reporting": {
-    // Report format (default: "markdown") — only markdown supported in v1
-    "format": "markdown",
     // Minimum severity to include in reports (default: "low")
     // Options: "critical", "high", "medium", "low", "informational"
-    "severityThreshold": "low",
-    // Include gas analysis in reports (default: false)
-    "gasAnalysis": false
+    "severityThreshold": "low"
   },
 
-  // Solodit MCP configuration
+  // Solodit direct tRPC search configuration
   "solodit": {
-    // Enable Solodit MCP server auto-registration (default: true)
+    // Enable Solodit search tool (default: true)
     "enabled": true
   }
 }

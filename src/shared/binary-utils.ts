@@ -7,13 +7,9 @@ const logger = createLogger()
 
 export function hasBinary(name: string): boolean {
   try {
-    const result = Bun.spawnSync(["which", name], {
-      stdout: "ignore",
-      stderr: "ignore",
-      timeout: 5_000,
-      env: buildSafeEnv(),
-    })
-    return result.exitCode === 0
+    const { PATH } = buildSafeEnv()
+    if (!PATH) return false
+    return Bun.which(name, { PATH }) !== null
   } catch (_e) {
     return false
   }

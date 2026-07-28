@@ -30,30 +30,15 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: ".opencode/reports/",
       ...(overrides?.reporting ?? {}),
-    } as unknown as {
-      confidenceThreshold: number
-      format: "markdown"
-      severityThreshold: "critical" | "high" | "medium" | "low" | "informational"
-      gasAnalysis: boolean
-      output_dir: string
     },
     solodit: {
       enabled: true,
-      port: 54173,
       ...overrides?.solodit,
     },
     disabled_hooks: overrides?.disabled_hooks ?? [],
-    hooks: overrides?.hooks ?? {},
-    cli: overrides?.cli ?? {},
-    background: {
-      max_concurrent: 3,
-      ...overrides?.background,
-    },
   }
 }
 
@@ -217,7 +202,6 @@ describe("createConfigHandler", () => {
       argus_recommend_skills: true,
       argus_themis_disposition: true,
       task: true,
-      "solodit-mcp_*": false,
     })
   })
 
@@ -327,19 +311,13 @@ describe("createConfigHandler", () => {
     expect(config.agent?.scribe?.steps).toBe(DEFAULT_STEPS)
   })
 
-  test("registers Solodit MCP server when enabled", async () => {
+  test("does not register Solodit MCP server when enabled", async () => {
     const handler = createConfigHandler(createArgusConfig())
     const config: Config = {}
 
     await handler(config)
 
-    const solodit = config.mcp?.["solodit-mcp"] as
-      | { type: string; url: string; enabled?: boolean }
-      | undefined
-    expect(solodit).toBeDefined()
-    expect(solodit?.type).toBe("remote")
-    expect(solodit?.url).toBe("http://localhost:54173/mcp")
-    expect(solodit?.enabled).toBe(true)
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
   test("does not register Solodit MCP when disabled", async () => {
@@ -347,7 +325,6 @@ describe("createConfigHandler", () => {
       createArgusConfig({
         solodit: {
           enabled: false,
-          port: 54173,
         },
       }),
     )
@@ -381,7 +358,7 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.mcp?.["custom-mcp"]).toBeDefined()
-    expect(config.mcp?.["solodit-mcp"]).toBeDefined()
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
   test("leaves a user's existing config.skills.paths untouched", async () => {

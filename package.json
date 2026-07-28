@@ -75,7 +75,7 @@
     "url": "git+https://github.com/Apegurus/solidity-argus.git"
   },
   "engines": {
-    "bun": ">=1.0.0"
+    "bun": ">=1.3.6"
   },
   "publishConfig": {
     "access": "public",

@@ -31,13 +31,6 @@ export interface ResolvedReportPath {
   canonicalId: string
 }
 
-export function formatReportDate(date: Date): string {
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0")
-  const day = String(date.getUTCDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
 export function sanitizeContractName(name: string): string {
   const sanitized = name
     .replace(/\s+/g, "-")
@@ -61,7 +54,7 @@ export function resolveReportPath(options: ReportPathOptions): ResolvedReportPat
   }
 
   const resolvedDate = date ?? new Date()
-  const dateStr = formatReportDate(resolvedDate)
+  const dateStr = resolvedDate.toISOString().slice(0, 10)
   const sanitizedName = sanitizeContractName(contractName)
   const runIdSuffix = runId ? `-${runId.substring(0, 8)}` : ""
   const revisionSuffix = revision == null ? "" : `-r${revision}`

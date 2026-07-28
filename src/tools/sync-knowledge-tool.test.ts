@@ -54,19 +54,13 @@ function createArgusConfig(enabled: boolean, apiUrl = "https://api.scvd.dev"): A
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: ".opencode/reports/",
     },
     solodit: {
       enabled: true,
-      port: 54173,
     },
     disabled_hooks: [],
-    hooks: {},
-    cli: {},
-    background: { max_concurrent: 3 },
   }
 }
 

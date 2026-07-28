@@ -45,16 +45,11 @@ describe("argusSkillLoadTool", () => {
         },
         reporting: {
           confidenceThreshold: 80,
-          format: "markdown",
           severityThreshold: "low",
-          gasAnalysis: false,
           output_dir: ".opencode/reports/",
         },
-        solodit: { enabled: true, port: 54173 },
+        solodit: { enabled: true },
         disabled_hooks: [],
-        hooks: {},
-        cli: {},
-        background: { max_concurrent: 3 },
       }),
       resolveSkills: () =>
         new Map([
@@ -144,16 +139,11 @@ describe("argusSkillLoadTool", () => {
         },
         reporting: {
           confidenceThreshold: 80,
-          format: "markdown" as const,
           severityThreshold: "low" as const,
-          gasAnalysis: false,
           output_dir: ".opencode/reports/",
         },
-        solodit: { enabled: true, port: 54173 },
+        solodit: { enabled: true },
         disabled_hooks: [],
-        hooks: {},
-        cli: {},
-        background: { max_concurrent: 3 },
       }),
       resolveSkills: () =>
         new Map([
@@ -215,16 +205,11 @@ describe("argusSkillLoadTool", () => {
         },
         reporting: {
           confidenceThreshold: 80,
-          format: "markdown" as const,
           severityThreshold: "low" as const,
-          gasAnalysis: false,
           output_dir: ".opencode/reports/",
         },
-        solodit: { enabled: true, port: 54173 },
+        solodit: { enabled: true },
         disabled_hooks: [],
-        hooks: {},
-        cli: {},
-        background: { max_concurrent: 3 },
       }),
       resolveSkills: () =>
         new Map([
@@ -268,16 +253,11 @@ describe("argusSkillLoadTool", () => {
         },
         reporting: {
           confidenceThreshold: 80,
-          format: "markdown" as const,
           severityThreshold: "low" as const,
-          gasAnalysis: false,
           output_dir: ".opencode/reports/",
         },
-        solodit: { enabled: true, port: 54173 },
+        solodit: { enabled: true },
         disabled_hooks: [],
-        hooks: {},
-        cli: {},
-        background: { max_concurrent: 3 },
       }),
       resolveSkills: () =>
         new Map([
@@ -316,16 +296,11 @@ describe("argusSkillLoadTool", () => {
         },
         reporting: {
           confidenceThreshold: 80,
-          format: "markdown" as const,
           severityThreshold: "low" as const,
-          gasAnalysis: false,
           output_dir: ".opencode/reports/",
         },
-        solodit: { enabled: true, port: 54173 },
+        solodit: { enabled: true },
         disabled_hooks: [],
-        hooks: {},
-        cli: {},
-        background: { max_concurrent: 3 },
       }),
       resolveSkills: () =>
         new Map([

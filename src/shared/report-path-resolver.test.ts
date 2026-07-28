@@ -1,10 +1,5 @@
 import { expect, test } from "bun:test"
-import {
-  formatReportDate,
-  ReportPathError,
-  resolveReportPath,
-  sanitizeContractName,
-} from "./report-path-resolver"
+import { ReportPathError, resolveReportPath, sanitizeContractName } from "./report-path-resolver"
 
 const FIXED_DATE = new Date("2026-02-21T12:00:00.000Z")
 const FIXED_OUTPUT_DIR = "/tmp/reports"
@@ -73,14 +68,6 @@ test("whitespace-only outputDir throws ReportPathError", () => {
       outputDir: "   ",
     }),
   ).toThrow(ReportPathError)
-})
-
-test("formatReportDate returns YYYY-MM-DD", () => {
-  expect(formatReportDate(new Date("2026-02-21"))).toBe("2026-02-21")
-})
-
-test("formatReportDate pads month and day", () => {
-  expect(formatReportDate(new Date("2026-01-05"))).toBe("2026-01-05")
 })
 
 test("sanitizeContractName converts spaces to hyphens", () => {
@@ -159,22 +146,32 @@ test("uses current date when date not provided", () => {
     outputDir: FIXED_OUTPUT_DIR,
   })
   const after = new Date()
-  const todayStr = formatReportDate(before)
-  const tomorrowStr = formatReportDate(after)
+  const todayStr = before.toISOString().slice(0, 10)
+  const tomorrowStr = after.toISOString().slice(0, 10)
   const matchedDate = result.filename.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? ""
   expect([todayStr, tomorrowStr]).toContain(matchedDate)
 })
 
-test("formatReportDate uses UTC date regardless of local timezone (timezone boundary)", () => {
+test("resolveReportPath uses UTC date regardless of local timezone (timezone boundary)", () => {
   // A Date at UTC midnight: local time in UTC-N timezones would show the previous day
   const utcMidnight = new Date("2024-01-15T00:00:00Z")
-  expect(formatReportDate(utcMidnight)).toBe("2024-01-15")
+  const result = resolveReportPath({
+    contractName: "VulnerableVault",
+    date: utcMidnight,
+    outputDir: FIXED_OUTPUT_DIR,
+  })
+  expect(result.filename).toContain("-2024-01-15.md")
 })
 
-test("formatReportDate UTC midnight end-of-year boundary", () => {
+test("resolveReportPath handles UTC midnight end-of-year boundary", () => {
   // 2023-12-31T00:00:00Z — local UTC-5 would see 2023-12-30
   const utcMidnightNewYear = new Date("2023-12-31T00:00:00Z")
-  expect(formatReportDate(utcMidnightNewYear)).toBe("2023-12-31")
+  const result = resolveReportPath({
+    contractName: "VulnerableVault",
+    date: utcMidnightNewYear,
+    outputDir: FIXED_OUTPUT_DIR,
+  })
+  expect(result.filename).toContain("-2023-12-31.md")
 })
 
 test("runId first 8 chars appended to filename when provided", () => {

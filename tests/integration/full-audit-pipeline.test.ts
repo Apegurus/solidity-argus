@@ -5,7 +5,7 @@ import { join } from "node:path"
 import type { Event } from "@opencode-ai/sdk"
 import { ArgusConfigSchema } from "../../src/config/schema"
 import { createHooks } from "../../src/create-hooks"
-import { createManagers } from "../../src/create-managers"
+import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
 import { createEventSink, resetSinkRegistry } from "../../src/features/persistent-state/event-sink"
 import { finalizeRun } from "../../src/features/persistent-state/run-finalizer"
 import { pruneStaleRuns } from "../../src/features/persistent-state/run-pruner"
@@ -227,10 +227,10 @@ describe("Full Audit Pipeline Integration", () => {
     test("event hook handles full session lifecycle without throwing", async () => {
       const projectDir = makeTempDir()
       const config = ArgusConfigSchema.parse({})
-      const managers = createManagers({ projectDir, config })
+      const auditStateManager = createAuditStateManager(projectDir)
       const hooks = createHooks({
         config,
-        managers,
+        auditStateManager,
         projectDir,
         isHookEnabled: () => true,
       })

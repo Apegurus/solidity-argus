@@ -18,7 +18,7 @@ OpenCode Skills System
 │   └── 7,769+ findings, auto-synced from api.scvd.dev
 └── Companion Plugins (installed separately)
     ├── Trail of Bits Skills (trailofbits/skills)
-    └── Solodit MCP (auto-registered by Argus)
+    └── Solodit tRPC API (queried by \`argus_solodit_search\`)
 ```
 
 ## Source Attribution

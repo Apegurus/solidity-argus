@@ -1,11 +1,13 @@
 import { computeMissingKeyTools, KEY_TOOLS, TOOL_SHORT_NAMES } from "../shared/key-tools"
-import { estimateTokens } from "../shared/token-utils"
 import { countBySeverity } from "../shared/validation-constants"
 import type { AuditState } from "../state/types"
 
-export { estimateTokens }
-
 const DEFAULT_TOKEN_BUDGET = 2000
+const CHARS_PER_TOKEN = 4
+
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN)
+}
 
 export type ReportingThresholds = {
   confidenceThreshold: number

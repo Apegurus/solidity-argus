@@ -10,11 +10,11 @@ The Trail of Bits skills repository is the most important companion for Argus. I
 - **Why it's separate**: Trail of Bits content uses the CC-BY-SA-4.0 license. Argus references it as a companion rather than bundling it to respect licensing and allow for independent updates.
 - **How it complements Argus**: Trail of Bits covers advanced security topics and general Solidity best practices. Argus focuses on DeFi-specific patterns and protocol security.
 
-## Solodit MCP
+## Solodit Search
 
-Argus auto-registers the Solodit MCP server. No manual setup is required.
+Argus queries Solodit directly with `argus_solodit_search`; no local MCP server is auto-registered.
 
-- **Usage**: The `argus_solodit_search` tool queries Solodit automatically during analysis.
+- **Usage**: The `argus_solodit_search` tool queries Solodit directly during analysis.
 - **Query Examples**:
   - "reentrancy ERC4626"
   - "flash loan oracle manipulation"

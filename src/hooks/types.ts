@@ -7,12 +7,6 @@ export const HOOK_NAMES = [
   "compaction",
   "tool-tracking",
   "event",
-  "knowledge-sync",
-  "session-recovery",
-  "tool-error-recovery",
-  "context-window-monitor",
-  "tool-output-truncator",
-  "audit-continuation",
   "system-prompt",
   "audit-specialist-watchdog",
 ] as const

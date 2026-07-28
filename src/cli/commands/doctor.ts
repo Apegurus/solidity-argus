@@ -20,8 +20,6 @@ import {
 } from "../../skills/argus-skill-resolver"
 import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-schema"
 import { detectViaIr } from "../../tools/slither-tool"
-import { DEFAULT_SOLODIT_PORT } from "../../tools/solodit-search-tool"
-import { checkSoloditHealth } from "../../utils/solodit-health"
 import { cliOutput } from "../cli-output"
 import type { CliCommand } from "../types"
 
@@ -647,14 +645,7 @@ export const doctorCommand: CliCommand = {
 
     const soloditEnabled = config?.solodit?.enabled !== false
     if (soloditEnabled) {
-      const port = config?.solodit?.port ?? DEFAULT_SOLODIT_PORT
-      const status = await checkSoloditHealth(port, true)
-      if (status.reachable) {
-        cliOutput.log(`${GREEN}✓${RESET} Solodit MCP: reachable on port ${port}`)
-      } else {
-        const suffix = status.error ? ` (${status.error})` : ""
-        cliOutput.log(`${YELLOW}⚠${RESET} Solodit MCP: unreachable on port ${port}${suffix}`)
-      }
+      cliOutput.log(`${GREEN}✓${RESET} Solodit: enabled (direct tRPC search)`)
     } else {
       cliOutput.log(`${YELLOW}⚠${RESET} Solodit: disabled in config`)
     }
