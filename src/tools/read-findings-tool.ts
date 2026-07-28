@@ -211,21 +211,20 @@ export function convertAuditStateToReportInput(
       run_id: state.sessionId ?? runId,
       seq: i + 1,
       session_id: "audit",
-      tool_call_id: "",
-      source: f.source ?? ("unknown" as const),
+      tool_call_id: `audit-state:${runId}:${i + 1}`,
       schema_version: SCHEMA_VERSION,
-      issue_fingerprint: f.id ?? "",
-      observation_fingerprint: f.id ?? "",
-      observation_id: f.id ?? "",
+      issue_fingerprint: f.id,
+      observation_fingerprint: f.id,
+      observation_id: f.id,
       reported_by_agent: f.reported_by_agent ?? ("unknown" as const),
-      reported_by_session_id: f.reported_by_session_id ?? "",
+      ...(f.reported_by_session_id ? { reported_by_session_id: f.reported_by_session_id } : {}),
     }))
 
   return {
     run_id: state.sessionId ?? runId,
     seq: findings.length,
     session_id: "audit",
-    tool_call_id: "",
+    tool_call_id: `audit-state:${runId}`,
     source: "audit-state",
     schema_version: SCHEMA_VERSION,
     projectDir: state.projectDir ?? projectDir,
@@ -250,7 +249,7 @@ export function convertAuditStateToReportInput(
  * Scan .argus/sessions/ for the newest state file with findings.
  * Mirrors the fallback logic in audit-state-manager.ts load().
  */
-function readNewestSessionState(argusRoot: string): AuditState | null {
+function readNewestSessionState(argusRoot: string, runId: string): AuditState | null {
   const sessionsDir = join(argusRoot, "sessions")
   try {
     const entries = readdirSync(sessionsDir)
@@ -272,7 +271,7 @@ function readNewestSessionState(argusRoot: string): AuditState | null {
     for (const entry of ranked) {
       try {
         const state = JSON.parse(readFileSync(entry.path, "utf8")) as AuditState
-        if (state.findings && state.findings.length > 0) {
+        if (state.sessionId === runId && state.findings && state.findings.length > 0) {
           return state
         }
       } catch {
@@ -329,6 +328,11 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
       dropped_observations?: unknown[]
       run_id?: string
     }
+    if (dedupedRaw.run_id !== undefined && dedupedRaw.run_id !== runId) {
+      throw new Error(
+        `Invalid deduped findings artifact: run_id ${dedupedRaw.run_id} does not match requested run ${runId}`,
+      )
+    }
     if (Array.isArray(dedupedRaw.findings)) {
       logger.debug(`Loaded deduped findings from: ${dedupedFile}`)
       const rawFindings = readRawFindings(projectDir, runId)
@@ -364,7 +368,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
 
       return {
         ...baseReportInput,
-        run_id: dedupedRaw.run_id ?? runId,
+        run_id: runId,
         findings: dedupedRaw.findings as CanonicalFinding[],
         dropped_observations: droppedObservations,
         toolsExecuted: baseReportInput.toolsExecuted ?? [],
@@ -392,7 +396,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   const perRunFile = createAuditArtifactResolver(runId, projectDir).paths().reportInputFile
   try {
     const data = JSON.parse(readFileSync(perRunFile, "utf8")) as ReportInput
-    if (Array.isArray(data.findings)) {
+    if (data.run_id === runId && Array.isArray(data.findings)) {
       logger.debug(`Loaded report-input from per-run artifact: ${perRunFile}`)
       return data
     }
@@ -404,7 +408,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   const flatFile = join(argusRoot, "report-input.json")
   try {
     const data = JSON.parse(readFileSync(flatFile, "utf8")) as ReportInput
-    if (Array.isArray(data.findings)) {
+    if (data.run_id === runId && Array.isArray(data.findings)) {
       logger.debug(`Loaded report-input from flat file: ${flatFile}`)
       return data
     }
@@ -413,7 +417,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   }
 
   // 3. Per-session state files (per-session managers write to sessions/state-{sessionId}.json)
-  const sessionState = readNewestSessionState(argusRoot)
+  const sessionState = readNewestSessionState(argusRoot, runId)
   if (sessionState) {
     logger.debug("Loaded audit state from newest session state file")
     return convertAuditStateToReportInput(sessionState, runId, projectDir)
@@ -423,7 +427,7 @@ function readAuditStateAsReportInput(projectDir: string, runId: string): ReportI
   const sharedStateFile = join(argusRoot, "argus-state.json")
   try {
     const state = JSON.parse(readFileSync(sharedStateFile, "utf8")) as AuditState
-    if (state.findings && state.findings.length > 0) {
+    if (state.sessionId === runId && state.findings && state.findings.length > 0) {
       logger.debug(`Loaded audit state from shared file: ${sharedStateFile}`)
       return convertAuditStateToReportInput(state, runId, projectDir)
     }

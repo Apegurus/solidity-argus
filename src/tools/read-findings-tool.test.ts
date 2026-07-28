@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { createAuditState } from "../state/audit-state"
+import { validateReportInput } from "../state/schemas"
 import type { ReadFindingsResult } from "./read-findings-tool"
 import { convertAuditStateToReportInput, executeReadFindings } from "./read-findings-tool"
 
@@ -41,6 +42,27 @@ test("convertAuditStateToReportInput dedups legacy-scheme duplicate findings (ad
   const result = convertAuditStateToReportInput(state, "run-1", dir)
 
   expect(result.findings).toHaveLength(1)
+})
+
+test("convertAuditStateToReportInput produces canonical report input without legacy provenance", async () => {
+  const dir = await makeTempDir()
+  const { state } = createAuditState(dir)
+  state.findings = [
+    {
+      id: "legacy-finding",
+      check: "unchecked-call",
+      severity: "Medium",
+      confidence: "High",
+      description: "Unchecked low-level call",
+      file: "src/Vault.sol",
+      lines: [10, 10],
+      source: "manual",
+    },
+  ]
+
+  const result = validateReportInput(convertAuditStateToReportInput(state, state.sessionId, dir))
+
+  expect(result.success).toBe(true)
 })
 
 function createContext(dir: string): ToolContext {
@@ -100,7 +122,7 @@ function makeFinding(index: number, overrides: Record<string, unknown> = {}) {
     confidence: "High",
     description: `Finding ${index}: vulnerability description.`,
     file: `src/Contract${index}.sol`,
-    lines: [index * 10, index * 10 + 5],
+    lines: [index * 10 + 1, index * 10 + 6],
     source: "manual",
     reported_by_agent: "sentinel",
     reported_by_session_id: "ses-test",
@@ -243,13 +265,28 @@ test("prefers flat report-input.json over audit state", async () => {
   await writeFile(join(argusDir, "report-input.json"), JSON.stringify(flatInput))
   await writeAuditState(dir, makeAuditState({ findings: [makeFinding(0)] }))
 
-  const payload = await executeReadFindings({ run_id: "any" }, createContext(dir))
+  const payload = await executeReadFindings({ run_id: "flat-run" }, createContext(dir))
   const parsed = JSON.parse(payload) as ReadFindingsResult
 
   expect(parsed.success).toBe(true)
   if (!parsed.truncated) {
     expect(parsed.reportInput.findings[0]?.check).toBe("from-flat")
   }
+})
+
+test("rejects legacy fallbacks that are not bound to the requested run", async () => {
+  const dir = await makeTempDir()
+  const argusDir = join(dir, ".argus")
+  await mkdir(argusDir, { recursive: true })
+  await writeFile(
+    join(argusDir, "report-input.json"),
+    JSON.stringify({ run_id: "other-run", findings: [makeFinding(0)] }),
+  )
+  await writeAuditState(dir, makeAuditState({ sessionId: "other-run", findings: [makeFinding(1)] }))
+
+  expect(executeReadFindings({ run_id: "target-run" }, createContext(dir))).rejects.toThrow(
+    "Cannot read findings from any source",
+  )
 })
 
 test("preserves canonical observation_id from materialized report input", async () => {
@@ -426,6 +463,21 @@ test("rejects invalid deduped-findings lineage instead of returning stale data",
 
   expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
     "Invalid deduped findings lineage",
+  )
+})
+
+test("rejects a deduped artifact attributed to another run", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "findings.json", { findings: [] })
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: "other-run",
+    findings: [],
+  })
+
+  expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
+    "does not match requested run",
   )
 })
 
