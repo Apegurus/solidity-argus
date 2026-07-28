@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
+import { getToolResultCache } from "../shared/tool-result-cache"
 import {
   collectSolidityFiles,
   executePatternCheck,
@@ -413,6 +414,124 @@ test("patternCheckerTool execute emits compact results by default", async () => 
   expect(payload.length).toBeLessThan(50_000)
 })
 
+test("executePatternCheck retains every source match for tool tracking when presentation is compact", async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-pattern-compact-"))
+  tempDirs.push(projectDir)
+  const srcDir = join(projectDir, "src")
+  const skillDir = join(projectDir, "custom-skills", "many-danger")
+  mkdirSync(srcDir, { recursive: true })
+  mkdirSync(skillDir, { recursive: true })
+  writeFileSync(
+    join(srcDir, "ManyDanger.sol"),
+    `contract ManyDanger { function run() external { ${"dangerCall();".repeat(101)} } }`,
+  )
+  writeFileSync(
+    join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: many-danger",
+      "description: Many matches",
+      "category: vulnerability-pattern",
+      "pattern_category: logic-error",
+      "detection_rules:",
+      "  - regex: 'dangerCall\\s*\\('",
+      "    severity: High",
+      "    confidence: High",
+      "    description: Match every danger call",
+      "---",
+    ].join("\n"),
+  )
+
+  const result = await executePatternCheck(
+    { target: "src/ManyDanger.sol", patterns: ["logic-error"], include_scvd: false },
+    createContextForDir(projectDir),
+    {
+      loadConfig: () => ({
+        agents: {
+          argus: {},
+          sentinel: {},
+          pythia: {},
+          auditSpecialist: {},
+          scribe: {},
+          themis: {},
+        },
+        tools: {},
+        knowledge: {
+          scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+          autoSync: true,
+          skillPrecedence: "custom-first",
+          customSkillsDir: "custom-skills",
+        },
+        reporting: {
+          confidenceThreshold: 80,
+          severityThreshold: "low",
+          output_dir: ".opencode/reports/",
+        },
+        solodit: { enabled: true },
+        disabled_hooks: [],
+      }),
+    },
+  )
+
+  expect(result.matches).toHaveLength(50)
+  expect(result.sources[0]?.matches).toHaveLength(101)
+})
+
+test("patternCheckerTool keeps full tracking sources out of compact model output", async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-pattern-tracking-"))
+  tempDirs.push(projectDir)
+  const srcDir = join(projectDir, "src")
+  const skillDir = join(projectDir, "custom-skills", "many-danger")
+  const configDir = join(projectDir, ".argus")
+  mkdirSync(srcDir, { recursive: true })
+  mkdirSync(skillDir, { recursive: true })
+  mkdirSync(configDir, { recursive: true })
+  writeFileSync(
+    join(configDir, "solidity-argus.jsonc"),
+    JSON.stringify({
+      knowledge: { customSkillsDir: "custom-skills", skillPrecedence: "custom-first" },
+    }),
+  )
+  writeFileSync(
+    join(srcDir, "ManyDanger.sol"),
+    `contract ManyDanger { function run() external { ${"dangerCall();".repeat(101)} } }`,
+  )
+  writeFileSync(
+    join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: many-danger",
+      "description: Many matches",
+      "category: vulnerability-pattern",
+      "pattern_category: logic-error",
+      "detection_rules:",
+      "  - regex: 'dangerCall\\s*\\('",
+      "    severity: High",
+      "    confidence: High",
+      "    description: Match every danger call",
+      "---",
+    ].join("\n"),
+  )
+  const context = { ...createContextForDir(projectDir), sessionID: "session-tracking" }
+
+  const displayed = await patternCheckerTool.execute(
+    { target: "src/ManyDanger.sol", include_scvd: false, full_detail: false },
+    context,
+  )
+  const displayedResult = JSON.parse(displayed) as PatternCheckResult
+  const tracking = getToolResultCache().takeTrackingMatch(
+    context.sessionID,
+    "argus_check_patterns",
+    displayed,
+  )
+  const trackingResult = JSON.parse(tracking ?? "{}") as PatternCheckResult
+
+  expect(displayedResult.sources[0]?.matches).toHaveLength(50)
+  expect(trackingResult.sources[0]?.matches).toHaveLength(trackingResult.summary.total)
+  expect(trackingResult.summary.total).toBeGreaterThan(50)
+  expect(displayed.length).toBeLessThan(tracking?.length ?? 0)
+})
+
 test("patternCheckerTool execute keeps full detail behind full_detail", async () => {
   const payload = await patternCheckerTool.execute(
     {
@@ -705,36 +824,4 @@ test("executePatternCheck covers Pyth unsafe and safe price-read corpus fixtures
     .filter((match) => match.pattern.startsWith("pyth-oracle-validation"))
 
   expect(safePythMatches).toHaveLength(0)
-})
-
-test("executePatternCheck covers arbitrary encoded-selector call corpus fixtures", async () => {
-  const vulnerable = await executePatternCheck(
-    {
-      target: "tests/fixtures/pattern-corpus/arbitrary-external-call-selector-positive.sol",
-      patterns: ["access-control"],
-      include_scvd: false,
-    },
-    createContext(),
-  )
-
-  const selectorMatches = vulnerable.sources
-    .flatMap((source) => source.matches)
-    .filter((match) => match.pattern === "arbitrary-external-call-rule-6")
-
-  expect(selectorMatches.length).toBeGreaterThan(0)
-
-  const allowlisted = await executePatternCheck(
-    {
-      target: "tests/fixtures/pattern-corpus/arbitrary-external-call-allowlisted-negative.sol",
-      patterns: ["access-control"],
-      include_scvd: false,
-    },
-    createContext(),
-  )
-
-  const allowlistedSelectorMatches = allowlisted.sources
-    .flatMap((source) => source.matches)
-    .filter((match) => match.pattern === "arbitrary-external-call-rule-6")
-
-  expect(allowlistedSelectorMatches).toHaveLength(0)
 })

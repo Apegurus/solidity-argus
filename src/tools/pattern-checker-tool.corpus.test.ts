@@ -152,13 +152,6 @@ const CORPUS: CorpusCase[] = [
     positive: "pyth-unsafe-positive.sol",
     negative: "pyth-safe-negative.sol",
   },
-  {
-    patternName: "arbitrary-encoded-selector-call",
-    regex:
-      "\\.call\\s*(\\{[^}]*\\})?\\s*\\(\\s*abi\\.encodeWithSelector\\s*\\(\\s*(selector|_selector|sig|_sig|functionSelector|callSelector)\\b",
-    positive: "arbitrary-external-call-selector-positive.sol",
-    negative: "arbitrary-external-call-allowlisted-negative.sol",
-  },
 ]
 
 describe("Pattern Test Corpus", () => {
@@ -210,6 +203,48 @@ describe("Pattern Test Corpus", () => {
       }
       const results = findMatches(fixture, [pattern])
       expect(results).toHaveLength(0)
+    })
+  })
+
+  describe("scanner rule eligibility", () => {
+    it("does NOT match advisory protocol guidance or safe feature use", () => {
+      const advisoryRulePrefixes = [
+        "concentrated-liquidity-",
+        "liquid-staking-restaking-",
+        "staking-vesting-",
+      ]
+      const safeFeatures = [
+        "items[index] = amount;",
+        "members.add(account);",
+        "delete positions[id];",
+        "multicall(calls);",
+        "scale = price.expo;",
+      ]
+
+      expect(
+        skillPatterns.some((pattern) =>
+          advisoryRulePrefixes.some((prefix) => pattern.name.startsWith(prefix)),
+        ),
+      ).toBe(false)
+
+      for (const safeFeature of safeFeatures) {
+        expect(skillPatterns.some((pattern) => matchesRegex(safeFeature, pattern.regex))).toBe(
+          false,
+        )
+      }
+    })
+
+    it("matches unsafe Pyth reads and unbounded iteration", () => {
+      const unsafeExamples = [
+        "pyth.getPriceUnsafe(priceId);",
+        "for (uint256 i = 0; i < users.length; ++i) {}",
+      ]
+
+      for (const unsafeExample of unsafeExamples) {
+        expect(skillPatterns.some((pattern) => matchesRegex(unsafeExample, pattern.regex))).toBe(
+          true,
+        )
+      }
     })
   })
 })

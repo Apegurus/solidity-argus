@@ -83,6 +83,16 @@ describe("createToolResultCache", () => {
     expect(cache.takeMatch("ses_1", "argus_solodit_search", "AAAA")).toBe("AAAA")
   })
 
+  it("returns a tracking payload only for its exact displayed result", () => {
+    const cache = createToolResultCache()
+    cache.setTracking("ses_1", "argus_check_patterns", "compact-a", "full-a")
+    cache.setTracking("ses_1", "argus_check_patterns", "compact-b", "full-b")
+
+    expect(cache.takeTrackingMatch("ses_1", "argus_check_patterns", "compact-b")).toBe("full-b")
+    expect(cache.takeTrackingMatch("ses_1", "argus_check_patterns", "compact-a")).toBe("full-a")
+    expect(cache.size()).toBe(0)
+  })
+
   it("evicts the oldest entry when capacity is exceeded", () => {
     const cache = createToolResultCache(2)
     cache.set("ses", "t1", "1")

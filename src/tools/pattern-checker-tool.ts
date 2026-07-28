@@ -15,6 +15,7 @@ import { createLogger } from "../shared/logger"
 import { isContained } from "../shared/path-safety"
 import { normalizeFilePath } from "../shared/path-utils"
 import { resolveProjectDir } from "../shared/project-utils"
+import { getToolResultCache } from "../shared/tool-result-cache"
 import { resolveArgusSkills } from "../skills/argus-skill-resolver"
 import { extractDetectionRulesFromResolvedSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
@@ -365,12 +366,13 @@ function countByPattern(matches: Match[]): Record<string, number> {
 }
 
 function compactSources(sources: MatchSource[]): {
-  sources: MatchSource[]
   matches: Match[]
+  sources: MatchSource[]
   truncatedMatches: number
 } {
   let remaining = DEFAULT_MAX_MATCHES
   let truncatedMatches = 0
+  const matches: Match[] = []
   const compactedSources: MatchSource[] = []
 
   for (const source of sources) {
@@ -378,11 +380,11 @@ function compactSources(sources: MatchSource[]): {
     const kept = source.matches.slice(0, sourceLimit).map(compactMatch)
     truncatedMatches += Math.max(0, source.matches.length - kept.length)
     remaining -= kept.length
-    compactedSources.push({ ...source, matches: kept })
+    matches.push(...kept)
+    compactedSources.push({ source: source.source, matches: kept })
   }
 
-  const matches = compactedSources.flatMap((source) => source.matches)
-  return { sources: compactedSources, matches, truncatedMatches }
+  return { matches, sources: compactedSources, truncatedMatches }
 }
 
 export async function executePatternCheck(
@@ -501,7 +503,7 @@ export async function executePatternCheck(
     success: true,
     matches: compacted?.matches ?? allMatches,
     summary: { total: allMatches.length, bySeverity, byCategory },
-    sources: compacted?.sources ?? sources,
+    sources,
     patternsChecked: selectedPatterns.length,
     executionTime: Date.now() - startedAt,
     target: args.target,
@@ -522,6 +524,17 @@ export const patternCheckerTool = tool({
   },
   async execute(args, context) {
     const result = await executePatternCheck(args, context)
-    return JSON.stringify(result)
+    const trackingResult = JSON.stringify(result)
+    if (!result.compact) return trackingResult
+
+    const compacted = compactSources(result.sources)
+    const displayedResult = JSON.stringify({ ...result, sources: compacted.sources })
+    getToolResultCache().setTracking(
+      context.sessionID,
+      "argus_check_patterns",
+      displayedResult,
+      trackingResult,
+    )
+    return displayedResult
   },
 })

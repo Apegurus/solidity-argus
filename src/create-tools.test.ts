@@ -105,7 +105,9 @@ describe("withResultCapture", () => {
       set() {
         throw new Error("boom")
       },
+      setTracking() {},
       takeMatch: () => undefined,
+      takeTrackingMatch: () => undefined,
       takeNext: () => undefined,
       size: () => 0,
     }
