@@ -372,11 +372,18 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     })
   } else {
     const [start, end] = raw.lines
-    if (typeof start !== "number" || typeof end !== "number") {
+    if (
+      typeof start !== "number" ||
+      typeof end !== "number" ||
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 1 ||
+      end < start
+    ) {
       errors.push({
         field: "lines",
         code: "invalid",
-        message: "lines must contain numbers",
+        message: "lines must contain positive integers with start less than or equal to end",
       })
     }
   }
@@ -473,7 +480,7 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
       field: "reported_by_agent",
       code: "enum",
       message:
-        "reported_by_agent must be one of: argus, sentinel, pythia, audit-specialist, scribe, unknown",
+        "reported_by_agent must be one of: argus, sentinel, pythia, audit-specialist, scribe, themis, unknown",
     })
   }
 

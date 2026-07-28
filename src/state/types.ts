@@ -5,6 +5,7 @@ export type ArgusAgentName =
   | "pythia"
   | "audit-specialist"
   | "scribe"
+  | "themis"
   | "unknown"
 export type AuditPhase =
   | "reconnaissance"

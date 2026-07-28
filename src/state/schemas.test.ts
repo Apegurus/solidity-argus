@@ -9,6 +9,7 @@ import {
   validateCanonicalToolExecution,
   validateReportInput,
 } from "./schemas"
+import type { ArgusAgentName } from "./types"
 
 function makeCanonicalFinding(overrides: Partial<CanonicalFinding> = {}): CanonicalFinding {
   return {
@@ -101,6 +102,42 @@ describe("validateCanonicalFinding", () => {
     const result = validateCanonicalFinding(finding)
 
     expect(result.success).toBe(true)
+  })
+
+  test("preserves Themis provenance through canonical validation", () => {
+    const reportedBy: ArgusAgentName = "themis"
+    const provenance = {
+      timestamp: 1_700_000_000,
+      toolVersion: "2.1.0",
+      phase: "reporting",
+    } as const
+    const result = validateCanonicalFinding({
+      ...makeCanonicalFinding(),
+      reported_by_agent: reportedBy,
+      provenance,
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.reported_by_agent).toBe("themis")
+      expect(result.data.provenance).toEqual(provenance)
+    }
+  })
+
+  test("rejects zero, negative, and reversed source line ranges", () => {
+    const invalidRanges: CanonicalFinding["lines"][] = [
+      [0, 1],
+      [-1, 1],
+      [20, 10],
+    ]
+
+    for (const lines of invalidRanges) {
+      const result = validateCanonicalFinding(makeCanonicalFinding({ lines }))
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.errors.some((error) => error.field === "lines")).toBe(true)
+      }
+    }
   })
 })
 
