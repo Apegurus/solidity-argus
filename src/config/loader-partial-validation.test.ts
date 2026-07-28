@@ -36,6 +36,37 @@ describe("_mergeConfigs partial field validation", () => {
     expect(newLogs).toContain("disabled_hooks")
   })
 
+  test("preserves valid nested siblings when an adjacent value is invalid", () => {
+    const config = _mergeConfigs(
+      {
+        agents: {
+          argus: { temperature: 0.4, steps: "not-a-number" },
+        },
+      },
+      null,
+    )
+
+    expect(config.agents.argus.temperature).toBe(0.4)
+    expect(config.agents.argus.steps).toBeUndefined()
+
+    const newLogs = getLogContent().slice(logBefore.length)
+    expect(newLogs).toContain("agents.argus.steps")
+  })
+
+  test("warns when ignoring known removed configuration fields", () => {
+    const config = _mergeConfigs(
+      {
+        reporting: { format: "json", severityThreshold: "high" },
+      },
+      null,
+    )
+
+    expect(config.reporting.severityThreshold).toBe("high")
+
+    const newLogs = getLogContent().slice(logBefore.length)
+    expect(newLogs).toContain("Removed config field 'reporting.format'")
+  })
+
   test("returns defaults with ERROR log when all fields are invalid", () => {
     const config = _mergeConfigs(
       {
