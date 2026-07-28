@@ -10,6 +10,7 @@ tests/eval/
 ├── types.ts           ← Fixture / GroundTruth / AuditResult / RunMetrics types
 ├── metrics.ts         ← precision / recall / F1 / matching algorithm
 ├── runner.ts          ← loadFixture + runFixture entry points
+├── drivers/           ← replay and deterministic plugin-pipeline drivers
 ├── example.test.ts    ← smoke test against the vulnerable-vault fixture
 └── fixtures/
     ├── README.md      ← per-fixture authoring guide
@@ -68,12 +69,12 @@ audit(fixture: FixtureManifest): Promise<{ predicted: PredictedFinding[]; tokens
 
 Implementations are responsible for:
 
-1. Spawning an argus run against `fixture.project.root`
+1. Spawning an Argus plugin run against `fixture.project.root`
 2. Collecting the resulting `findings[]` from the persisted run artifact
 3. Mapping each finding to a `PredictedFinding` (subset of argus's `Finding` shape — see `types.ts`)
 4. (Optional) Returning a token-cost estimate
 
-A reference driver that drives the full argus pipeline lives at `tests/eval/drivers/argus-pipeline-driver.ts` (TODO — first real driver lands with the first non-smoke fixture).
+A reference driver at `tests/eval/drivers/argus-pipeline-driver.ts` executes the real deterministic plugin boundary: packaged tools, OpenCode lifecycle hooks, durable state, and finding materialization. Live LLM orchestration remains a credentialed/manual eval because CI has no OpenCode session runner or model credentials.
 
 The smoke test in `example.test.ts` uses an inline mock driver to avoid spinning up the full pipeline and to keep the test deterministic.
 
@@ -84,6 +85,6 @@ The smoke test in `example.test.ts` uses an inline mock driver to avoid spinning
 | Types + metrics + runner | ✅ |
 | Smoke fixture (vulnerable-vault) | ✅ |
 | Smoke test | ✅ |
-| Reference AuditDriver wiring the full argus pipeline | ⏳ ships with first real fixture |
+| Reference AuditDriver wiring the deterministic plugin pipeline | ✅ |
 | 5 production fixtures (Code4rena × 3, pashov × 3, EVMBench) | ⏳ Sprint 1 follow-up |
 | CI integration (regression gate on PR) | ⏳ after first 3 real fixtures land |

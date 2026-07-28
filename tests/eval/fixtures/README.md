@@ -38,6 +38,8 @@ The runner filters predicted findings below the configured `severity_threshold` 
 ## Fixtures shipped
 
 - `vulnerable-vault` — internal smoke fixture (existing `tests/fixtures/vulnerable-vault`). Smoke-only; not a benchmark.
+- `scanner-retained-control` — deterministic recall control for a retained Pyth unsafe-price rule.
+- `scanner-safe-control` — deterministic access-control precision control for an allowlisted forwarding helper.
 
 ## Fixtures to add next
 
