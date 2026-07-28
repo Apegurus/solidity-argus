@@ -22,6 +22,11 @@ const ManifestSchema = z.object({
     access: z.literal("public"),
     registry: z.literal("https://registry.npmjs.org/"),
   }),
+  bin: z.object({
+    "solidity-argus": z.literal("src/cli/index.ts"),
+    argus: z.literal("src/cli/index.ts"),
+  }),
+  scripts: z.record(z.string(), z.string()).optional(),
 })
 const BuildInfoSchema = z.object({
   version: z.string(),
@@ -32,8 +37,13 @@ const requiredFiles = [
   "package/package.json",
   "package/build-info.json",
   "package/README.md",
+  "package/AGENTS.md",
+  "package/LICENSE",
   "package/src/index.ts",
+  "package/src/cli/index.ts",
 ] as const
+const packagedSkillsDirectory = "package/skills/"
+const installLifecycleScripts = ["preinstall", "install", "postinstall", "prepare"] as const
 const forbiddenTestArtifact =
   /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|$)|\.(?:test|spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i
 
@@ -68,10 +78,14 @@ function verify(): string {
 
   const extractJson = (innerPath: string): unknown =>
     parseJson(execFileSync("tar", ["-xOf", tgz, innerPath], { encoding: "utf8" }), innerPath)
-  const manifest = ManifestSchema.safeParse(extractJson("package/package.json"))
-  if (!manifest.success) return fail("publishConfig mismatch")
+  const manifestRaw = extractJson("package/package.json")
+  const manifest = ManifestSchema.safeParse(manifestRaw)
+  if (!manifest.success) return fail("package manifest mismatch")
   if (manifest.data.name !== packageName) return fail("package name mismatch")
   if (manifest.data.version !== releaseVersion) return fail("package version mismatch")
+  if (installLifecycleScripts.some((script) => manifest.data.scripts?.[script] !== undefined)) {
+    return fail("install lifecycle scripts forbidden")
+  }
   const buildInfo = BuildInfoSchema.safeParse(extractJson("package/build-info.json"))
   if (
     !buildInfo.success ||
@@ -82,7 +96,12 @@ function verify(): string {
     return fail("build-info mismatch")
 
   const files = execFileSync("tar", ["-tzf", tgz], { encoding: "utf8" }).trim().split(/\r?\n/)
-  if (!requiredFiles.every((file) => files.includes(file))) return fail("required files missing")
+  if (
+    !requiredFiles.every((file) => files.includes(file)) ||
+    !files.some((file) => file.startsWith(packagedSkillsDirectory))
+  ) {
+    return fail("required files missing")
+  }
   if (files.some((file) => forbiddenTestArtifact.test(file)))
     return fail("forbidden test files packed")
   return tgz

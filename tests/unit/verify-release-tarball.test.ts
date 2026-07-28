@@ -22,12 +22,21 @@ const fixture = (
     readonly dirty?: boolean
     readonly forbiddenPath?: string
     readonly omitReadme?: boolean
+    readonly omitSkills?: boolean
+    readonly omitAgents?: boolean
+    readonly omitLicense?: boolean
+    readonly omitCli?: boolean
+    readonly bin?: {
+      readonly "solidity-argus"?: string
+      readonly argus?: string
+    }
+    readonly scripts?: Record<string, string>
   } = {},
 ): readonly [string, string] => {
   const root = mkdtempSync(join(tmpdir(), "argus-tarball-"))
   roots.push(root)
   const packageRoot = join(root, "package")
-  mkdirSync(join(packageRoot, "src"), { recursive: true })
+  mkdirSync(join(packageRoot, "src", "cli"), { recursive: true })
   writeFileSync(
     join(packageRoot, "package.json"),
     JSON.stringify({
@@ -37,6 +46,11 @@ const fixture = (
         access: "public",
         registry: "https://registry.npmjs.org/",
       },
+      bin: changes.bin ?? {
+        "solidity-argus": "src/cli/index.ts",
+        argus: "src/cli/index.ts",
+      },
+      scripts: changes.scripts ?? { prepack: "bun scripts/stamp-build-info.ts" },
     }),
   )
   writeFileSync(
@@ -48,7 +62,15 @@ const fixture = (
     }),
   )
   writeFileSync(join(packageRoot, "src", "index.ts"), "export const ok = true\n")
+  if (!changes.omitCli)
+    writeFileSync(join(packageRoot, "src", "cli", "index.ts"), "#!/usr/bin/env bun\n")
   if (!changes.omitReadme) writeFileSync(join(packageRoot, "README.md"), "# Argus\n")
+  if (!changes.omitSkills) {
+    mkdirSync(join(packageRoot, "skills", "example"), { recursive: true })
+    writeFileSync(join(packageRoot, "skills", "example", "SKILL.md"), "# Example\n")
+  }
+  if (!changes.omitAgents) writeFileSync(join(packageRoot, "AGENTS.md"), "# Agents\n")
+  if (!changes.omitLicense) writeFileSync(join(packageRoot, "LICENSE"), "MIT\n")
   if (changes.forbiddenPath) {
     const forbidden = join(packageRoot, changes.forbiddenPath)
     mkdirSync(join(forbidden, ".."), { recursive: true })
@@ -81,12 +103,31 @@ describe("release tarball verifier", () => {
     [
       "publishConfig differs",
       { publishConfig: { access: "restricted" } },
-      "publishConfig mismatch",
+      "package manifest mismatch",
     ],
     ["build version differs", { buildVersion: "9.9.9" }, "build-info mismatch"],
     ["full commit differs", { buildCommit: commit.slice(0, 7) }, "build-info mismatch"],
     ["build is dirty", { dirty: true }, "build-info mismatch"],
     ["README is absent", { omitReadme: true }, "required files missing"],
+    ["skills are absent", { omitSkills: true }, "required files missing"],
+    ["agent instructions are absent", { omitAgents: true }, "required files missing"],
+    ["license is absent", { omitLicense: true }, "required files missing"],
+    ["the declared CLI target is absent", { omitCli: true }, "required files missing"],
+    [
+      "the argus bin target is absent",
+      { bin: { "solidity-argus": "src/cli/index.ts" } },
+      "package manifest mismatch",
+    ],
+    [
+      "an install lifecycle script is declared",
+      { scripts: { install: "node install.js" } },
+      "install lifecycle scripts forbidden",
+    ],
+    [
+      "a prepare lifecycle script is declared",
+      { scripts: { prepare: "node prepare.js" } },
+      "install lifecycle scripts forbidden",
+    ],
     [
       "test source is packed",
       { forbiddenPath: "src/index.test.ts" },
