@@ -25,6 +25,8 @@ import { isRecord } from "../shared/type-guards"
 
 const DEFAULT_PAGE_SIZE = 100
 const MAX_SCVD_RESPONSE_BYTES = 16 * 1024 * 1024
+const MAX_SCVD_PAGES = 100
+const MAX_SCVD_FINDINGS = 10_000
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -316,21 +318,28 @@ export class ScvdClient {
   async fetchAllFindings(onProgress?: (count: number) => void): Promise<ScvdFinding[]> {
     const results: ScvdFinding[] = []
     let cursor: string | undefined
+    let pagesFetched = 0
     const seenCursors = new Set<string>()
 
     // SCVD schema 0.1 uses opaque cursor pagination (next_cursor); offset is ignored. Stop on an
-    // empty page, a missing cursor, or a repeated cursor (defensive against a non-advancing API).
-    while (true) {
+    // empty page, a missing/repeated cursor, or finite page/result caps.
+    while (pagesFetched < MAX_SCVD_PAGES && results.length < MAX_SCVD_FINDINGS) {
       const page = await this.fetchFindings({ limit: DEFAULT_PAGE_SIZE, cursor })
+      pagesFetched += 1
 
       if (page.findings.length === 0) {
         break
       }
 
-      results.push(...page.findings)
+      const remaining = MAX_SCVD_FINDINGS - results.length
+      results.push(...page.findings.slice(0, remaining))
       onProgress?.(results.length)
 
-      if (!page.nextCursor || seenCursors.has(page.nextCursor)) {
+      if (
+        results.length === MAX_SCVD_FINDINGS ||
+        !page.nextCursor ||
+        seenCursors.has(page.nextCursor)
+      ) {
         break
       }
       seenCursors.add(page.nextCursor)

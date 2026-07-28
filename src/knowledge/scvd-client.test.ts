@@ -220,6 +220,41 @@ describe("ScvdClient", () => {
     expect(progress).toEqual([100, 101])
   })
 
+  test("fetchAllFindings stops after 100 pages with advancing cursors", async () => {
+    let callCount = 0
+    setMockFetch(async () => {
+      callCount += 1
+      if (callCount > 100) throw new Error("pagination limit was exceeded")
+      return createMockResponse({
+        json: { items: [sampleFinding(`SCVD-${callCount}`)], next_cursor: `cursor-${callCount}` },
+      })
+    })
+
+    const client = new ScvdClient("https://api.scvd.dev")
+    const findings = await client.fetchAllFindings()
+
+    expect(findings).toHaveLength(100)
+    expect(callCount).toBe(100)
+  })
+
+  test("fetchAllFindings retains no more than 10000 findings from a page", async () => {
+    const overflowingPage = Array.from({ length: 10_001 }, (_, index) =>
+      sampleFinding(`SCVD-${index + 1}`),
+    )
+    let callCount = 0
+    setMockFetch(async () => {
+      callCount += 1
+      if (callCount > 1) throw new Error("finding limit was exceeded")
+      return createMockResponse({ json: { items: overflowingPage, next_cursor: "cursor-1" } })
+    })
+
+    const client = new ScvdClient("https://api.scvd.dev")
+    const findings = await client.fetchAllFindings()
+
+    expect(findings).toHaveLength(10_000)
+    expect(callCount).toBe(1)
+  })
+
   test("abort signal is forwarded to fetch", async () => {
     const abortController = new AbortController()
     const signals: Array<AbortSignal | null> = []
