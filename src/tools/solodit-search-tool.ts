@@ -7,6 +7,7 @@ const logger = createLogger()
 
 const DEFAULT_LIMIT = 10
 const SOLODIT_TRPC_TIMEOUT_MS = 15_000
+const MAX_SOLODIT_TRPC_RESPONSE_BYTES = 1_048_576
 const SOLODIT_TRPC_ENDPOINT = "https://solodit.cyfrin.io/api/trpc/findings.get"
 
 type SoloditSearchArgs = {
@@ -176,6 +177,31 @@ function parseTrpcData(dataStr: string): { findings?: unknown } {
   return findings ? { findings } : {}
 }
 
+async function readSoloditResponseTextCapped(response: Response): Promise<string> {
+  const stream = response.body
+  if (!stream) {
+    throw new Error("Solodit tRPC response has no readable body to bound")
+  }
+
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    received += value.byteLength
+    if (received > MAX_SOLODIT_TRPC_RESPONSE_BYTES) {
+      await reader.cancel()
+      throw new Error(
+        `Solodit tRPC response exceeded the ${MAX_SOLODIT_TRPC_RESPONSE_BYTES}-byte cap`,
+      )
+    }
+    chunks.push(value)
+  }
+
+  return Buffer.concat(chunks).toString("utf8")
+}
+
 async function callSoloditTrpc(
   query: string,
   limit: number,
@@ -203,7 +229,7 @@ async function callSoloditTrpc(
       }
     }
 
-    const responseText = await response.text()
+    const responseText = await readSoloditResponseTextCapped(response)
     const batchResults = JSON.parse(responseText) as Array<Record<string, unknown>>
     const first = batchResults[0] as { result?: { data?: unknown } } | undefined
     const dataStr = typeof first?.result?.data === "string" ? first.result.data : ""

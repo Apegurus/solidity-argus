@@ -1,12 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
-import {
-  _testExports,
-  executeSoloditSearch,
-  type SoloditFetch,
-  type SoloditSearchResult,
-  soloditSearchTool,
-} from "./solodit-search-tool"
+import { _testExports, executeSoloditSearch, type SoloditFetch } from "./solodit-search-tool"
 
 const { buildTrpcInput, mapTrpcFinding, truncateDescription, parseFinding, parseTrpcData } =
   _testExports
@@ -65,13 +59,6 @@ test("parseTrpcData handles standard JSON and malformed payloads", () => {
   expect(parseTrpcData("not-json")).toEqual({})
 })
 
-test("soloditSearchTool.execute returns JSON string", async () => {
-  const output = await soloditSearchTool.execute({ query: "reentrancy" }, createContext())
-  const parsed = JSON.parse(output) as SoloditSearchResult
-  expect(parsed.query).toBe("reentrancy")
-  expect(parsed.results).toBeInstanceOf(Array)
-})
-
 test("executeSoloditSearch uses direct tRPC results", async () => {
   const mockFetch: SoloditFetch = async () =>
     new Response(
@@ -89,6 +76,15 @@ test("executeSoloditSearch uses direct tRPC results", async () => {
   expect(result.error).toBeUndefined()
   expect(result.totalFound).toBe(1)
   expect(result.results[0]?.title).toBe("Valid")
+})
+
+test("executeSoloditSearch rejects an oversized tRPC response before parsing it", async () => {
+  const mockFetch: SoloditFetch = async () => new Response("x".repeat(1_048_577))
+
+  const result = await executeSoloditSearch({ query: "oversized" }, createContext(), mockFetch)
+
+  expect(result.results).toEqual([])
+  expect(result.error).toContain("exceeded the 1048576-byte cap")
 })
 
 test("executeSoloditSearch parses the live devalue response shape without evaluating code", async () => {
