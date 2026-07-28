@@ -98,7 +98,7 @@ function resolveFindingsCount(payload: Record<string, unknown>): number {
 }
 
 function resolveToolSuccess(payload: Record<string, unknown>): boolean {
-  return payload.success !== false
+  return payload.success === true
 }
 
 const FINDING_COUNT_FIELDS = [

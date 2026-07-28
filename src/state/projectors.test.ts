@@ -50,6 +50,31 @@ describe("projectToolExecutions", () => {
     expect(executions[0]?.findingsCount).toBe(0)
   })
 
+  test("treats missing or non-boolean completion success as failed", () => {
+    const events: AuditEvent[] = [
+      makeEvent({ type: "tool.started", seq: 1, timestamp: 1000, tool_call_id: "missing" }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        timestamp: 1001,
+        tool_call_id: "missing",
+        payload: { tool: "argus_check_patterns" },
+      }),
+      makeEvent({ type: "tool.started", seq: 3, timestamp: 1002, tool_call_id: "malformed" }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 4,
+        timestamp: 1003,
+        tool_call_id: "malformed",
+        payload: { tool: "argus_check_patterns", success: "true" },
+      }),
+    ]
+
+    const executions = projectToolExecutions(events)
+
+    expect(executions.map((execution) => execution.success)).toEqual([false, false])
+  })
+
   test("projects additive finding counts from tool.completed payload", () => {
     const events: AuditEvent[] = [
       makeEvent({ type: "tool.started", seq: 1, timestamp: 1000 }),
