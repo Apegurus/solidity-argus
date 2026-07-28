@@ -125,7 +125,11 @@ function toLines(value: unknown): [number, number] | undefined {
     Array.isArray(value) &&
     value.length >= 2 &&
     typeof value[0] === "number" &&
-    typeof value[1] === "number"
+    typeof value[1] === "number" &&
+    Number.isInteger(value[0]) &&
+    Number.isInteger(value[1]) &&
+    value[0] >= 1 &&
+    value[1] >= value[0]
   ) {
     return [value[0], value[1]]
   }
@@ -260,7 +264,7 @@ function identifyMissingFields(
   for (const field of requiredFields) {
     if (field === "lines") {
       if (!toLines(finding.lines)) missing.push(field)
-    } else if (typeof finding[field] !== "string") {
+    } else if (typeof finding[field] !== "string" || finding[field].length === 0) {
       missing.push(field)
     }
   }
@@ -371,6 +375,7 @@ function processToolResult(
       typeof check !== "string" ||
       typeof description !== "string" ||
       typeof file !== "string" ||
+      file.length === 0 ||
       !lines
     ) {
       const missing = identifyMissingFields(item, config.requiredFields)
@@ -970,6 +975,7 @@ export function createToolTrackingHook(
           return
         }
         completedRecord = record
+        completedSuccess = record.success === true
 
         switch (input.tool) {
           case "argus_slither_analyze": {
@@ -1053,6 +1059,7 @@ export function createToolTrackingHook(
             processFuzzResult(record, auditState)
             break
           case "argus_generate_report": {
+            if (!completedSuccess) break
             const reportError = toRecord(record.error)
             const filePath = record.filePath
             if (reportError) {
@@ -1170,8 +1177,6 @@ export function createToolTrackingHook(
             }
           }
         }
-
-        completedSuccess = record.success !== false
       }
 
       const findingCounts = buildFindingCounts(auditState, findingsCount)
@@ -1192,7 +1197,7 @@ export function createToolTrackingHook(
         toolEvidence,
       )
 
-      const nextPhase = inferPhaseAdvancement(auditState, input.tool)
+      const nextPhase = completedSuccess ? inferPhaseAdvancement(auditState, input.tool) : null
       if (nextPhase) {
         auditState.currentPhase = nextPhase
         if (sink) {
@@ -1208,6 +1213,8 @@ export function createToolTrackingHook(
 
       onStateChanged?.({ tool: input.tool, findingsCount, sessionId: input.sessionID })
     } catch (error) {
+      completedSuccess = false
+      findingsCount = Math.max(0, auditState.findings.length - findingsCountBefore)
       completionError = error instanceof Error ? error.message : String(error)
       throw error
     } finally {

@@ -296,8 +296,9 @@ describe("createToolTrackingHook", () => {
 
   test("argus_record_finding rolls back live state when the durable append fails (WS-3 I6 / adj_9)", async () => {
     const before = auditState.findings.length
+    const sink = createFindingAppendFailingSink()
     const hookWithFailingSink = createToolTrackingHook(() => auditState, undefined, {
-      getEventSink: () => createFindingAppendFailingSink(),
+      getEventSink: () => sink,
       getSessionId: () => "oc-session-1",
       getAgentName: () => "argus",
     })
@@ -321,6 +322,9 @@ describe("createToolTrackingHook", () => {
     ).rejects.toThrow(/Sink write failure|Failed to emit/i)
 
     expect(auditState.findings).toHaveLength(before)
+    const completed = (await sink.readAll()).find((event) => event.type === "tool.completed")
+    expect((completed?.payload as Record<string, unknown> | undefined)?.success).toBe(false)
+    expect((completed?.payload as Record<string, unknown> | undefined)?.findingsCount).toBe(0)
   })
 
   test("argus_generate_report completed event carries report quality-gate + file metadata (WS-3 I9)", async () => {
@@ -335,6 +339,7 @@ describe("createToolTrackingHook", () => {
       tool: "argus_generate_report",
       args: {},
       result: JSON.stringify({
+        success: true,
         filePath: "/tmp/report.md",
         filename: "report.md",
         qualityGates: { passed: false, violations: ["conservation gate failed"] },
@@ -549,6 +554,53 @@ describe("createToolTrackingHook", () => {
     expect(auditState.toolsExecuted.at(0)?.findingsCount).toBe(0)
   })
 
+  test("records missing and malformed tool success as failed", async () => {
+    await hook({
+      tool: "argus_forge_test",
+      args: { target: "." },
+      result: JSON.stringify({ summary: { passed: 1, failed: 0, skipped: 0, total: 1 } }),
+    })
+
+    expect(auditState.toolsExecuted.at(0)?.success).toBe(false)
+
+    await hook({
+      tool: "argus_forge_test",
+      args: { target: "." },
+      result: JSON.stringify({
+        success: "true",
+        summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+      }),
+    })
+
+    expect(auditState.toolsExecuted.at(1)?.success).toBe(false)
+  })
+
+  test("does not persist pattern correlations without a target file", async () => {
+    await hook({
+      tool: "argus_check_patterns",
+      args: { target: "." },
+      result: JSON.stringify({
+        success: true,
+        sources: [
+          {
+            source: "scvd",
+            matches: [
+              {
+                pattern: "SCVD-107-1",
+                description: "Corpus correlation",
+                file: "",
+                lines: [1, 1],
+                severity: "Informational",
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(0)
+  })
+
   test("forge test failed count is tracked from summary.failed", async () => {
     const forgeResult = {
       success: false,
@@ -742,6 +794,7 @@ describe("createToolTrackingHook", () => {
       auditState.currentPhase = "scanning"
 
       const soloditResult = {
+        success: true,
         results: [],
         totalFound: 0,
         query: "test",
@@ -778,6 +831,7 @@ describe("createToolTrackingHook", () => {
       auditState.currentPhase = "testing"
 
       const reportResult = {
+        success: true,
         report: "# Report",
         format: "markdown",
         findingsCount: 0,
@@ -1279,6 +1333,7 @@ Content...`
   describe("report generation tracking", () => {
     test("report generation sets reportGenerated to true", async () => {
       const reportResult = {
+        success: true,
         report: "# Audit Report\n...",
         format: "markdown",
         findingsCount: 5,
@@ -1295,6 +1350,21 @@ Content...`
       expect(auditState.reportGenerated).toBe(true)
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_generate_report")
+    })
+
+    test("failed report generation does not set reportGenerated", async () => {
+      await hook({
+        tool: "argus_generate_report",
+        args: { project_name: "Vault" },
+        result: JSON.stringify({
+          success: false,
+          run_id: "run-test",
+          filePath: ".argus/reports/failed.md",
+        }),
+      })
+
+      expect(auditState.reportGenerated).not.toBe(true)
+      expect(auditState.toolsExecuted.at(0)?.success).toBe(false)
     })
   })
 
@@ -2058,6 +2128,7 @@ Content...`
         tool: "argus_solodit_search",
         args: { query: "reentrancy" },
         result: JSON.stringify({
+          success: true,
           results: [
             {
               title: "Reentrancy in withdraw",
@@ -2091,6 +2162,7 @@ Content...`
         tool: "argus_forge_fuzz",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           counterexamples: [{ testName: "testFuzz_withdraw(uint256)", inputs: ["999"] }],
           totalRuns: 128,
         }),
@@ -2115,6 +2187,7 @@ Content...`
         tool: "argus_forge_coverage",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           report: {
             files: [
               {
@@ -2147,6 +2220,7 @@ Content...`
         tool: "argus_gas_analysis",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           hotspots: [{ contract: "Vault", function: "withdraw", avgGas: 150000 }],
           threshold: 50000,
           totalContracts: 1,
@@ -2172,6 +2246,7 @@ Content...`
         tool: "argus_proxy_detection",
         args: { file_path: "src/VaultProxy.sol" },
         result: JSON.stringify({
+          success: true,
           isProxy: true,
           file: "src/VaultProxy.sol",
           proxyType: "UUPS",
@@ -2219,6 +2294,7 @@ Content...`
         tool: "argus_check_patterns",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           sources: [],
           patternsChecked: 5,
           patternVersion: "1.0.0",

@@ -59,6 +59,27 @@ function makeInMemorySink(initialEvents: AuditEvent[]) {
 }
 
 describe("finalizeRun", () => {
+  test("ignores failed report completions", () => {
+    const events = [
+      makeEvent({
+        type: "tool.completed",
+        seq: 1,
+        payload: { tool: "argus_generate_report", success: false, findingsCount: 0 },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: { status: "approved" },
+        },
+      }),
+    ]
+
+    expect(hasResolvedThemisDispositionAfterReport(events)).toBe(false)
+  })
+
   test("requires disposition after latest report generation", () => {
     const events = [
       makeEvent({ type: "session.created", seq: 1 }),
@@ -455,6 +476,53 @@ describe("finalizeRun", () => {
     )
     const latest = sink.getEvents().at(-1)
     expect((latest?.payload as { status?: string } | undefined)?.status).toBe("failed-finalization")
+  })
+
+  test("uses only the latest successful report quality gates", async () => {
+    const sink = makeInMemorySink([
+      makeEvent({ type: "session.created", seq: 1 }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 2,
+        payload: {
+          tool: "argus_generate_report",
+          success: true,
+          qualityGates: { passed: false, violations: ["old failure"] },
+        },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 3,
+        payload: {
+          tool: "argus_generate_report",
+          success: true,
+          qualityGates: { passed: true, violations: [] },
+        },
+      }),
+      makeEvent({
+        type: "tool.completed",
+        seq: 4,
+        payload: {
+          tool: "argus_themis_disposition",
+          success: true,
+          themisDisposition: {
+            status: "approved",
+            verdict: {
+              approved: true,
+              pipeline_issues: [],
+              false_positives: [],
+              missed_findings: [],
+              severity_adjustments: [],
+            },
+          },
+        },
+      }),
+    ])
+
+    const result = await finalizeRun(RUN_ID, process.cwd(), sink)
+
+    expect(result.errors).not.toContain("generated report failed quality gates: old failure")
+    expect(result.invariantsPassed).toBe(true)
   })
 
   test("surfaces object-shaped quality-gate violation details (adj_6)", async () => {

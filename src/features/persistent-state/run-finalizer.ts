@@ -95,18 +95,24 @@ function isGenerateReportCompletion(event: AuditEvent): boolean {
   if (event.type !== "tool.completed") return false
   const payload = asRecord(event.payload)
   if (!payload) return false
+  if (payload.success !== true) return false
   return payload.tool === "argus_generate_report" || payload.name === "argus_generate_report"
+}
+
+function latestGenerateReportCompletion(events: AuditEvent[]): AuditEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event && isGenerateReportCompletion(event)) return event
+  }
+  return undefined
 }
 
 async function collectReportCompletenessWarnings(events: AuditEvent[]): Promise<string[]> {
   const warnings: string[] = []
-  const reportEvents = events.filter(isGenerateReportCompletion)
-
-  for (const event of reportEvents) {
-    const payload = asRecord(event.payload)
-    const filePath = payload?.filePath
-    if (typeof filePath !== "string" || filePath.length === 0) continue
-
+  const reportEvent = latestGenerateReportCompletion(events)
+  const payload = asRecord(reportEvent?.payload)
+  const filePath = payload?.filePath
+  if (typeof filePath === "string" && filePath.length > 0) {
     try {
       const report = await Bun.file(filePath).text()
       if (report.includes("## ⚠ Completeness Warning")) {
@@ -122,13 +128,10 @@ async function collectReportCompletenessWarnings(events: AuditEvent[]): Promise<
 
 function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
   const errors: string[] = []
-  const reportEvents = events.filter(isGenerateReportCompletion)
-
-  for (const event of reportEvents) {
-    const payload = asRecord(event.payload)
-    const qualityGates = asRecord(payload?.qualityGates)
-    if (qualityGates?.passed !== false) continue
-
+  const reportEvent = latestGenerateReportCompletion(events)
+  const payload = asRecord(reportEvent?.payload)
+  const qualityGates = asRecord(payload?.qualityGates)
+  if (qualityGates?.passed === false) {
     const rawViolations = Array.isArray(qualityGates.violations) ? qualityGates.violations : []
     const violations = rawViolations
       .map((entry) => {
