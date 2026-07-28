@@ -2,34 +2,8 @@
 name: concentrated-liquidity
 description: "Concentrated-liquidity managers (UniV3 ALMs) and Uniswap V4 hooks are exploited through sandwichable owner/rebalance functions, missing TWAP calm-period checks, stale approvals, and hook permission/delta/settlement bugs."
 category: protocol-pattern
-pattern_category: oracle-manipulation
 source_url: "https://dacian.me/concentrated-liquidity-manager-vulnerabilities"
 imported_at: "2026-06-19T00:00:00Z"
-detection_rules:
-  - regex: '(rebalance|reposition|compound|rerange|tend)\s*\('
-    severity: High
-    confidence: Low
-    description: "CLM rebalance/reposition — if it mints/swaps at spot without a TWAP calm-period check it is sandwichable by MEV"
-  - regex: '\bslot0\s*\(\s*\)'
-    severity: High
-    confidence: Medium
-    description: "slot0() spot price/tick read — manipulable in-block; CLM/position logic must use a TWAP, not slot0"
-  - regex: '(beforeSwap|afterSwap|beforeAddLiquidity|afterAddLiquidity|beforeRemoveLiquidity)\s*\('
-    severity: Medium
-    confidence: Low
-    description: "Uniswap V4 hook callback — verify onlyPoolManager gating, delta accounting, and pool isolation"
-  - regex: '(BeforeSwapDelta|toBeforeSwapDelta|lpFeeOverride|LPFeeLibrary)'
-    severity: High
-    confidence: Medium
-    description: "V4 hook delta/fee override — wrong sign/direction or unbounded fee override can drain swappers or the pool"
-  - regex: '(unlockCallback|lockAcquired)\s*\('
-    severity: High
-    confidence: Medium
-    description: "V4 unlock callback — must authenticate the PoolManager caller; an unauthenticated callback can forge settlement"
-  - regex: '(safeApprove|approve)\s*\([^)]*type\s*\(\s*uint256\s*\)\s*\.\s*max'
-    severity: Medium
-    confidence: Low
-    description: "Standing max router approval in a CLM — stale approval becomes a drain surface if the router is compromised"
 ---
 <!-- Source: Dacian — Concentrated Liquidity Manager Vulnerabilities (cited) -->
 <!-- Source: Hacken / OpenZeppelin — Uniswap V4 hooks security (cited) -->

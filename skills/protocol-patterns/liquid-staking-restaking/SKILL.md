@@ -2,34 +2,8 @@
 name: liquid-staking-restaking
 description: "Liquid-staking (stETH/rETH/cbETH/sfrxETH) and restaking/EigenLayer integrations are exploited through rebasing/exchange-rate assumptions, validator-credential hijacking, phantom unverified-ETH accounting, and broken beacon-chain proofs."
 category: protocol-pattern
-pattern_category: token-standard
 source_url: "https://blog.sigmaprime.io/liquid-restaking.html"
 imported_at: "2026-06-19T00:00:00Z"
-detection_rules:
-  - regex: '\b(stETH|wstETH|rETH|cbETH|sfrxETH|frxETH|ankrETH|swETH)\b'
-    severity: Medium
-    confidence: Low
-    description: "Liquid-staking token integration — verify rebasing vs wrapped handling, non-monotonic/downward rates, blocklist, and withdrawal-queue assumptions"
-  - regex: '(withdrawal_credentials|withdrawalCredentials)'
-    severity: Critical
-    confidence: Medium
-    description: "Validator withdrawal credentials — front-runnable same-pubkey deposit can hijack credentials if not bound/verified"
-  - regex: '(DepositContract|depositContract)\b[\s\S]{0,200}\.deposit\s*\('
-    severity: High
-    confidence: Medium
-    description: "Beacon deposit path — verify pubkey/credential binding and front-running protection"
-  - regex: '(stakedButUnverified|effectiveBalance|BEACON_CHAIN_STRATEGY)'
-    severity: High
-    confidence: Medium
-    description: "Restaking native-ETH accounting — phantom shares if verification subtracts effective balance instead of nominal 32 ETH"
-  - regex: '(BeaconChainProof|beaconStateRoot|validatorFields|proofLength|treeHeight|DENEB|CAPELLA)'
-    severity: Critical
-    confidence: Low
-    description: "Beacon-chain proof verification — hardcoded pre-Deneb tree height / field layout breaks after a consensus upgrade"
-  - regex: '(rebasing|rebase|sharesOf|getPooledEth|getExchangeRate)\s*\('
-    severity: Medium
-    confidence: Low
-    description: "Rebasing/share accounting — balance can change without a transfer; integrate the wrapped (non-rebasing) version"
 ---
 <!-- Source: Sigma Prime — Liquid Restaking security research (cited) -->
 <!-- Source: beirao.xyz audit checklist (cited) -->

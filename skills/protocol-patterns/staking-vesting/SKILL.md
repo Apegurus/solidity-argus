@@ -2,12 +2,6 @@
 name: staking-vesting
 description: Staking security guidance for reward accounting, lock periods, timing attacks, and withdrawals.
 category: protocol-pattern
-pattern_category: logic-error
-detection_rules:
-  - regex: 'notifyRewardAmount\s*\('
-    severity: Medium
-    confidence: Low
-    description: Synthetix-style reward notification — notifyRewardAmount(0) or dust extends periodFinish and dilutes the reward rate
 ---
 <!-- Source: DeFiFoFum/fofum-solidity-skills (MIT) -->
 
