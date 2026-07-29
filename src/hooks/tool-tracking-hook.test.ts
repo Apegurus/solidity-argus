@@ -355,7 +355,7 @@ describe("createToolTrackingHook", () => {
     expect(payload?.filePath).toBe("/tmp/report.md")
   })
 
-  test("argus_record_finding preserves impact/recommendation/proofOfConcept through to event payload (Task 1 / Bug #3)", async () => {
+  test("argus_record_finding preserves enrichment and conservation fields through to event payload", async () => {
     const sink = createMockSink()
     const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
       getEventSink: () => sink,
@@ -375,6 +375,8 @@ describe("createToolTrackingHook", () => {
             file: "src/Vault.sol",
             lines: [42, 58],
             source: "slither",
+            claims_value_extraction: true,
+            net_gain_proof_ref: "ReentrancyPoCTest:testReentrancyDrain",
             impact: "Complete vault drain via cross-function reentrancy",
             recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
             proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
@@ -394,6 +396,8 @@ describe("createToolTrackingHook", () => {
             lines: [42, 58],
             source: "slither",
             reported_by_agent: "sentinel",
+            claims_value_extraction: true,
+            net_gain_proof_ref: "ReentrancyPoCTest:testReentrancyDrain",
             impact: "Complete vault drain via cross-function reentrancy",
             recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
             proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
@@ -404,6 +408,8 @@ describe("createToolTrackingHook", () => {
 
     expect(auditState.findings).toHaveLength(1)
     const stored = auditState.findings.at(0)
+    expect(stored?.claims_value_extraction).toBe(true)
+    expect(stored?.net_gain_proof_ref).toBe("ReentrancyPoCTest:testReentrancyDrain")
     expect(stored?.impact).toBe("Complete vault drain via cross-function reentrancy")
     expect(stored?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
     expect(stored?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
@@ -411,6 +417,8 @@ describe("createToolTrackingHook", () => {
     const findingEvent = sink.events.find((e) => e.type === "finding.added")
     expect(findingEvent).toBeDefined()
     const payload = findingEvent?.payload as Record<string, unknown> | undefined
+    expect(payload?.claims_value_extraction).toBe(true)
+    expect(payload?.net_gain_proof_ref).toBe("ReentrancyPoCTest:testReentrancyDrain")
     expect(payload?.impact).toBe("Complete vault drain via cross-function reentrancy")
     expect(payload?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
     expect(payload?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")

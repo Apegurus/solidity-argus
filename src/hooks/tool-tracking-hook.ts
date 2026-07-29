@@ -425,6 +425,12 @@ function processToolResult(
       findingPayload.rubric_verdict = isValidRubricVerdict(item.rubric_verdict)
         ? item.rubric_verdict
         : undefined
+      findingPayload.claims_value_extraction =
+        typeof item.claims_value_extraction === "boolean" ? item.claims_value_extraction : undefined
+      findingPayload.net_gain_proof_ref =
+        typeof item.net_gain_proof_ref === "string" && item.net_gain_proof_ref.length > 0
+          ? item.net_gain_proof_ref
+          : undefined
       findingPayload.impact = typeof item.impact === "string" ? item.impact : undefined
       findingPayload.recommendation =
         typeof item.recommendation === "string" ? item.recommendation : undefined
