@@ -1208,6 +1208,41 @@ describe("createHooks", () => {
     expect(unrelatedRunId).not.toBe(primaryRunId)
   })
 
+  it("binds a child created with parent lineage before activation to the canonical run", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({}),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+    const suffix = Date.now()
+    const parentSession = `oc-lineage-parent-${suffix}`
+    const childSession = `oc-lineage-child-${suffix}`
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: parentSession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, parentSession)
+    const parentRunId = await waitForRunId(parentSession)
+
+    await hooks.event?.({
+      event: {
+        type: "session.created",
+        properties: { info: { id: childSession, parentID: parentSession } },
+      },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await hooks["chat.params"]?.(
+      { sessionID: childSession, agent: "sentinel" } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[0],
+      { temperature: 0, topP: 1, topK: 0, options: {} } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[1],
+    )
+
+    expect(await waitForRunId(childSession)).toBe(parentRunId)
+  })
+
   it("tool tracking continues after session.idle without losing sink", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-persist-sink-${Date.now()}`

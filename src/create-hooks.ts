@@ -21,7 +21,7 @@ import { createBoundedSinkRegistry } from "./hooks/bounded-sink-registry"
 import { createCompactionHook } from "./hooks/compaction-hook"
 import { createConfigHandler } from "./hooks/config-handler"
 import { getTokenBudgetForAgent } from "./hooks/context-budget"
-import { createEventHook, extractSessionId } from "./hooks/event-hook"
+import { createEventHook, extractParentSessionId, extractSessionId } from "./hooks/event-hook"
 import type { ReconContext } from "./hooks/recon-context-builder"
 import { buildReconContextBlock } from "./hooks/recon-context-builder"
 import { createSessionActivator } from "./hooks/session-activation"
@@ -681,7 +681,12 @@ export function createHooks(args: {
     ? async (input: Parameters<typeof eventHook>[0]) => {
         const isSessionDeleted = input.event.type === "session.deleted"
         const eventSessionId = extractSessionId(input.event)
+        const parentSessionId = extractParentSessionId(input.event)
         const finalizationBeforeDelete = isSessionDeleted ? getLastFinalizationResult() : null
+
+        if (eventSessionId && parentSessionId) {
+          agentTracker.trackChildSession(parentSessionId, eventSessionId)
+        }
 
         if (isSessionDeleted && eventSessionId) {
           deletedSessions.add(eventSessionId)
