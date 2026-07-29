@@ -115,25 +115,27 @@ function requiresConservationGate(finding: CanonicalFinding): boolean {
   )
 }
 
+function canonicalForgeTestId(value: string): string | undefined {
+  const segments = value
+    .split(/::|:/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+  const testName = segments.at(-1)?.replace(/\(\)$/, "")
+  const contractName = segments.at(-2)
+  return contractName &&
+    /^[A-Za-z_]\w*$/.test(contractName) &&
+    testName &&
+    /^test\w*$/.test(testName)
+    ? `${contractName}:${testName}`
+    : undefined
+}
+
 function proofRefMatchesPassedForgeTest(finding: CanonicalFinding, passedTests: string[]): boolean {
   if (typeof finding.net_gain_proof_ref !== "string") return false
-  const proofRef = finding.net_gain_proof_ref.trim()
-  if (proofRef.length === 0) return false
-
-  const proofTokens = proofRef
-    .split(/[\s,`'"()]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0)
-  const proofTestNames = proofTokens
-    .flatMap((token) => token.split(/::|:/))
-    .map((token) => token.trim())
-    .filter((token) => /^test\w*/.test(token))
-
-  return passedTests.some((passedTest) => {
-    if (passedTest === proofRef || proofTokens.includes(passedTest)) return true
-    const passedTestName = passedTest.split(/::|:/).at(-1)
-    return passedTestName ? proofTestNames.includes(passedTestName) : false
-  })
+  const proofTestId = canonicalForgeTestId(finding.net_gain_proof_ref)
+  return proofTestId
+    ? passedTests.some((passedTest) => canonicalForgeTestId(passedTest) === proofTestId)
+    : false
 }
 
 function prependGateNote(description: string): string {
@@ -149,9 +151,22 @@ export function applyConservationGate(
 ): CanonicalFinding[] {
   const passedTests = passedForgeTests(toolExecutions)
   return findings.map((finding) => {
+    const hasPassedProof =
+      options.forgeAvailable && proofRefMatchesPassedForgeTest(finding, passedTests)
+    if (finding.gate_demoted === true && claimsValueExtraction(finding) && hasPassedProof) {
+      const cleared = {
+        ...finding,
+        rubric_verdict: "CONFIRMED" as const,
+        description: finding.description.startsWith(GATE_DEMOTION_NOTE)
+          ? finding.description.slice(GATE_DEMOTION_NOTE.length).trimStart()
+          : finding.description,
+      }
+      delete cleared.gate_demoted
+      delete cleared.unproven_forge_unavailable
+      return cleared
+    }
     if (!requiresConservationGate(finding)) return finding
-    if (options.forgeAvailable && proofRefMatchesPassedForgeTest(finding, passedTests))
-      return finding
+    if (hasPassedProof) return finding
     return {
       ...finding,
       rubric_verdict: "DEMOTED",

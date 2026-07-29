@@ -205,23 +205,92 @@ describe("applyConservationGate", () => {
     expect(gated?.gate_demoted).toBe(true)
   })
 
-  test("keeps confirmed value-extraction claim when proof ref matches a passed forge test", () => {
+  test("keeps confirmed value-extraction claim when its contract-qualified proof ref matches", () => {
     const [gated] = applyConservationGate(
       [
         makeObs({
           seq: 1,
           claims_value_extraction: true,
-          net_gain_proof_ref: "test/Repro.t.sol:testNetGain",
+          net_gain_proof_ref: "test/Repro.t.sol::ReproTest::testNetGain",
           rubric_verdict: "CONFIRMED",
           confidence_score: 90,
         }),
       ],
-      [forgeExecutionWithPassedTests(["test/Repro.t.sol:testNetGain"])],
+      [forgeExecutionWithPassedTests(["ReproTest:testNetGain()", "testNetGain()"])],
       { forgeAvailable: true },
     )
 
     expect(gated?.rubric_verdict).toBe("CONFIRMED")
     expect(gated?.gate_demoted).toBeUndefined()
+  })
+
+  test("does not use free-form PoC text as a Forge proof reference", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+          net_gain_proof_ref: "UnrelatedTest:testOtherInvariant()",
+          proofOfConcept:
+            "Forge test VulnerableVaultReentrancyTest:testReentrancyNetGain() passed and asserted positive attacker net gain.",
+        }),
+      ],
+      [
+        forgeExecutionWithPassedTests([
+          "testReentrancyNetGain()",
+          "VulnerableVaultReentrancyTest:testReentrancyNetGain()",
+        ]),
+      ],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+  })
+
+  test("does not reuse a passing test with the same method name from another contract", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          net_gain_proof_ref: "ExploitTest:testWithdraw()",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 95,
+        }),
+      ],
+      [forgeExecutionWithPassedTests(["UnrelatedTest:testWithdraw()", "testWithdraw()"])],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("DEMOTED")
+    expect(gated?.gate_demoted).toBe(true)
+  })
+
+  test("clears a stale machine demotion when its exact Forge proof later passes", () => {
+    const [gated] = applyConservationGate(
+      [
+        makeObs({
+          seq: 1,
+          claims_value_extraction: true,
+          net_gain_proof_ref:
+            "test/ReentrancyPoC.t.sol::ReentrancyPoCTest::testReentrancyDrainsVault",
+          rubric_verdict: "DEMOTED",
+          confidence_score: 95,
+          gate_demoted: true,
+          description:
+            "[gate] Demoted: value-extraction claim lacks a passing forge net-gain PoC. Confirmed drain.",
+        }),
+      ],
+      [forgeExecutionWithPassedTests(["ReentrancyPoCTest:testReentrancyDrainsVault()"])],
+      { forgeAvailable: true },
+    )
+
+    expect(gated?.rubric_verdict).toBe("CONFIRMED")
+    expect(gated?.gate_demoted).toBeUndefined()
+    expect(gated?.description).toBe("Confirmed drain.")
   })
 
   test("demotes confirmed value-extraction claims when forge is unavailable", () => {
