@@ -510,15 +510,6 @@ export const doctorCommand: CliCommand = {
       hasFailure = true
     }
 
-    const solcSelect = checkBinary("solc-select", ["versions"])
-    if (solcSelect.found) {
-      cliOutput.log(`${GREEN}✓${RESET} solc-select: installed (${solcSelect.version})`)
-    } else {
-      cliOutput.log(
-        `${YELLOW}⚠${RESET} solc-select: not found — pipx install solc-select (needed for via_ir flatten fallback)`,
-      )
-    }
-
     const projectType = checkSolidityProject(cwd)
     if (projectType) {
       cliOutput.log(`${GREEN}✓${RESET} Project: ${projectType} detected`)
@@ -571,17 +562,8 @@ export const doctorCommand: CliCommand = {
 
     if (projectType === "foundry" && detectViaIr(cwd)) {
       cliOutput.log(
-        `${YELLOW}⚠${RESET} via_ir: enabled in foundry.toml — Slither will use flatten fallback`,
+        `${GREEN}✓${RESET} via_ir: enabled in foundry.toml — Slither will use Foundry compilation`,
       )
-      if (!forge.found) {
-        cliOutput.log(
-          `${RED}✗${RESET}   forge is required for via_ir flatten fallback but is missing`,
-        )
-        hasFailure = true
-      }
-      if (!solcSelect.found) {
-        cliOutput.log(`${YELLOW}⚠${RESET}   solc-select is recommended for via_ir flatten fallback`)
-      }
     }
 
     let config: ReturnType<typeof loadArgusConfig> | undefined

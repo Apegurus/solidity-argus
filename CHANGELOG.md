@@ -12,6 +12,9 @@
 - Expanded `argus_check_patterns` to scan resolver-effective skill detection rules across bundled, custom, Trail of Bits, OpenCode, and Claude roots, while preserving strict `pattern_category + detection_rules` gating and making broad protocol-guide rules advisory-only unless explicitly scanned.
 
 ### Fixes
+- Added fail-closed report rendering recovery after repeated Scribe runtime failures. Argus can render only an existing Scribe-persisted deduped artifact, with persisted scope and strict lineage/quality gates; it cannot deduplicate, revise, force-overwrite, or inject inline report input.
+- Temporarily pinned the default Scribe model to Claude Sonnet 4.5 while OpenCode's Claude 4.6 assistant-prefill compatibility fix remains unreleased. Agent model overrides remain supported.
+- Restored Slither coverage for Foundry projects using `via_ir` by compiling through Foundry directly. Failed IR analysis now emits structured capability loss and proceeds through manual/pattern fallbacks instead of retrying through incompatible source flattening.
 - Preserved the v0.7.1 skill-scoping guarantee while adding discovery: Argus can call only the lightweight discovery tools directly, non-Argus agents still do not receive global Argus skill injection, and Scribe remains excluded from discovery tools.
 - Hardened skill-derived regex loading against ReDoS by rejecting unsafe repeated groups, lookaround assertions, backreferences, invalid expressions, and unsafe `exclude_if` filters before scan execution.
 - Enforced bundled `category` metadata in `argus lint-skills` and cleaned stale skill metadata, citation markers, and source-license noise.

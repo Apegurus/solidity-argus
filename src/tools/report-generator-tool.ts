@@ -1621,7 +1621,31 @@ export const reportGeneratorTool = tool({
       ),
   },
   async execute(args, context) {
-    const result = await executeReportGeneration(args, context)
+    let effectiveArgs: ReportGeneratorArgs = args
+    if (context.agent === "argus") {
+      const runId = args.run_id?.trim()
+      if (!runId || runId.startsWith("ses_")) {
+        throw new Error("Argus report recovery requires a canonical run_id")
+      }
+      if (args.force === true || args.revision != null) {
+        throw new Error("Argus report recovery cannot force or revise reports")
+      }
+      const dedupedFile = createAuditArtifactResolver(runId, resolveProjectDir(context)).paths()
+        .dedupedFindingsFile
+      if (!existsSync(dedupedFile)) {
+        throw new Error("Argus report recovery requires persisted deduped findings")
+      }
+      effectiveArgs = {
+        ...args,
+        report_input: undefined,
+        scope: [],
+        severity_threshold: "informational",
+        preflight_policy: "strict-fail",
+        quality_gate_policy: "strict-fail",
+      }
+    }
+
+    const result = await executeReportGeneration(effectiveArgs, context)
     if (result.error) {
       throw new Error(
         `argus_generate_report failed [${result.error.code}]: ${result.error.message}`,

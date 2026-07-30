@@ -289,7 +289,16 @@ test("executeSlitherAnalyze attempts direct slither before flatten fallback when
 
   expect(result.success).toBe(true)
   expect(commands).toEqual([
-    ["slither", "src/WAlpha.sol", "--json", "-", "--filter-paths", "node_modules"],
+    [
+      "slither",
+      "src/WAlpha.sol",
+      "--json",
+      "-",
+      "--filter-paths",
+      "node_modules",
+      "--compile-force-framework",
+      "foundry",
+    ],
   ])
 })
 
@@ -527,25 +536,23 @@ test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with
   expect(result.findings[0]?.check).toBe("reentrancy-eth")
 })
 
-test("executeSlitherAnalyze uses flatten fallback after direct via_ir analysis fails", async () => {
+test("executeSlitherAnalyze reports capability loss without flattening when direct via_ir analysis fails", async () => {
   const { context } = createContext()
-  let primaryCalled = false
+  const commands: string[][] = []
 
   const result = await executeSlitherAnalyze(
     { target: "/tmp/project", via_ir: true },
     context,
     async (command, _signal, _cwd) => {
-      if (command.includes("slither") && !command.some((c) => c.includes(".flat.sol"))) {
-        primaryCalled = true
-      }
-      return { stdout: "{}", stderr: "", exitCode: 1 }
+      commands.push(command)
+      return { stdout: "not-json", stderr: "YulException", exitCode: 1 }
     },
   )
 
-  expect(primaryCalled).toBe(true)
+  expect(commands).toHaveLength(1)
+  expect(commands[0]).toContain("--compile-force-framework")
   expect(result.success).toBe(false)
-  // flattenFallback returns structured error (forge not found or solc version missing)
-  expect(result.error).toBeDefined()
+  expect(result.error).toContain("SLITHER_VIA_IR_ANALYSIS_FAILED")
 })
 
 test("executeSlitherAnalyze runs primary when via_ir is false", async () => {

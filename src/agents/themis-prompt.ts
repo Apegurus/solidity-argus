@@ -25,7 +25,7 @@ You can use only these tools:
 
 You also use the Read tool to inspect files from disk.
 
-**Hard rule**: You NEVER call \`argus_generate_report\`. Only Scribe writes reports.
+**Hard rule**: You NEVER call \`argus_generate_report\`. Scribe authors report content; Argus may invoke the same deterministic writer only for sanctioned render recovery.
 
 ## OPERATING CONTRACT
 

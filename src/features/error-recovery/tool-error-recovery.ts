@@ -29,9 +29,6 @@ const TOOL_FALLBACKS: Record<string, ToolFallbackEntry> = {
   },
 }
 
-const VIA_IR_HINT =
-  "Project uses via_ir — Slither uses forge-flatten fallback automatically. Ensure forge and solc-select are installed."
-
 function isToolUnavailable(lowerResult: string): boolean {
   return (
     lowerResult.includes("enoent") ||
@@ -63,15 +60,9 @@ export function createToolErrorRecoveryHandler(
     if (!result || typeof result !== "string") return null
     const lowerResult = result.toLowerCase()
 
-    const isViaIr =
-      lowerResult.includes("via_ir") ||
-      lowerResult.includes("via-ir") ||
-      lowerResult.includes("flatten fallback") ||
-      lowerResult.includes("flatten-fallback")
-
-    if (isViaIr && tool.includes("slither")) {
-      logger.info(`Tool error recovery hint for ${tool}: ${VIA_IR_HINT}`)
-      return `\n[Argus Recovery Hint] ${VIA_IR_HINT}`
+    if (tool.includes("slither") && lowerResult.includes("slither_via_ir_analysis_failed")) {
+      logger.info(`Tool error recovery hint for ${tool}: via_ir capability loss`)
+      return `\n[Argus Recovery Hint] ${TOOL_FALLBACKS.slither?.fallback ?? "Continue with manual analysis."}`
     }
 
     if (!isToolError(lowerResult)) return null

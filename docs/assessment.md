@@ -155,7 +155,7 @@ Commit `55b24e7` migrated subagent configs from deprecated `tools` to `permissio
 
 | Agent | Permission Model | Notes |
 |-------|-----------------|-------|
-| Argus | `tools` (wildcard deny) + `permission` (task delegation, skill) | Keeps `tools: { "argus_*": false, "solodit-mcp_*": false }` — `permission` doesn't support globs |
+| Argus | `tools` (wildcard deny) + `permission` | Task delegation, skill discovery, Themis disposition, and fail-closed report render recovery |
 | Sentinel | `permission` only | `argus_slither_analyze`, `argus_forge_test`, `argus_forge_fuzz`, `argus_analyze_contract`, `argus_check_patterns`, `skill` |
 | Pythia | `permission` only | `argus_solodit_search`, `argus_check_patterns`, `skill` |
 | Scribe | `permission` only | `argus_generate_report`, `skill` |
@@ -192,9 +192,8 @@ Three components work together:
 Commit `1492bc8` added automatic detection of `via_ir = true` in `foundry.toml`:
 
 - `slither-tool.ts:476-486`: `detectViaIr()` reads foundry.toml, regex matches `via_ir = true` or `via-ir = true`
-- When detected, skips direct Slither analysis (which fails with via_ir) and goes straight to flatten fallback
-- Flatten fallback: `forge flatten` each .sol file → run Slither on flattened output → remap findings back to original files
-- FALLBACK_TRIGGERS expanded with via_ir-related strings
+- When detected, Slither compiles through Foundry with `--compile-force-framework foundry`, preserving project remappings and IR settings.
+- If direct Foundry analysis fails, Argus emits structured capability loss and continues with contract analysis and pattern scanning instead of invoking the incompatible flatten fallback.
 
 ---
 

@@ -130,12 +130,14 @@ export function createConfigHandler(
         prompt: ARGUS_PROMPT,
         tools: {
           "argus_*": false,
+          argus_generate_report: true,
           argus_list_skills: true,
           argus_recommend_skills: true,
           argus_themis_disposition: true,
           task: true,
         },
         permission: {
+          argus_generate_report: "allow",
           argus_list_skills: "allow",
           argus_recommend_skills: "allow",
           argus_themis_disposition: "allow",

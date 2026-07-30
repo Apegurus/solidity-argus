@@ -57,7 +57,7 @@ Audit Session
 Argus (orchestrator)
   → collects findings via hooks (tool-tracking-hook.ts)
   → dispatches Scribe with structured ReportInput payload
-  → Scribe calls argus_generate_report (ONLY writer)
+  → Scribe calls argus_generate_report (Argus may invoke it only for render recovery)
   → report written to canonical path
   → contentHash embedded in report metadata comment
 ```

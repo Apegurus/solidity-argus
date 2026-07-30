@@ -47,13 +47,6 @@ describe("Argus skill boundary prompt guidance", () => {
     )
   })
 
-  test("Argus prompt does not tell the orchestrator to bypass Scribe report tools", () => {
-    expect(ARGUS_PROMPT).toContain("Do not call `argus_generate_report` yourself")
-    expect(ARGUS_PROMPT).not.toContain(
-      "If Scribe fails a second time, call `argus_generate_report` yourself",
-    )
-  })
-
   test("Sentinel prompt forbids generic skill for Argus audit knowledge", () => {
     expect(SENTINEL_PROMPT).toContain("argus_skill_load")
     expect(SENTINEL_PROMPT).toContain("NEVER call the generic OpenCode `skill` tool")

@@ -290,7 +290,7 @@ describe("Full audit session lifecycle", () => {
         run_id: runId,
         tool_coverage_policy: "skip",
       },
-      createMockContext(sessionID),
+      { ...createMockContext(sessionID), agent: "scribe" },
     )
 
     await fireToolAfter(
@@ -700,7 +700,7 @@ describe("Report generation with provenance", () => {
         severity_threshold: "informational",
         run_id: runId,
       },
-      createMockContext(sessionID),
+      { ...createMockContext(sessionID), agent: "scribe" },
     )
 
     await fireToolAfter(

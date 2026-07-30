@@ -40,7 +40,7 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 
 **Role**: Audit report writer
 **Description**: Transforms raw findings into professional markdown audit reports. Produces structured output with severity classifications (Critical/High/Medium/Low/Informational), impact assessments, proof-of-concept steps, and actionable recommendations. Dispatched by Argus only after all analysis is complete.
-**Model**: anthropic/claude-sonnet-4-6
+**Model**: anthropic/claude-sonnet-4-5
 **Tools**: argus_read_findings, argus_persist_deduped, argus_generate_report, skill
 
 ## themis

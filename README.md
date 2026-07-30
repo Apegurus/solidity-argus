@@ -69,7 +69,7 @@ Argus will automatically:
 | `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
 | `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
 | `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-4-6 |
-| `@scribe` | Audit report writer | claude-sonnet-4-6 |
+| `@scribe` | Audit report writer | claude-sonnet-4-5 |
 | `@themis` | Independent audit quality gate | gpt-5.5 |
 
 ### @argus — The Orchestrator
@@ -111,7 +111,7 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 | `argus_record_finding` | Sentinel, Pythia, Audit Specialist | Records verified manual, static-analysis, research, or testing findings into durable audit state |
 | `argus_read_findings` | Scribe, Themis | Reads persisted findings and audit artifacts for report generation and validation |
 | `argus_persist_deduped` | Scribe | Persists deduplicated findings before final report generation and validation |
-| `argus_generate_report` | Scribe | Generates the final structured audit report in professional markdown format |
+| `argus_generate_report` | Scribe, Argus recovery | Generates the final structured audit report from Scribe-persisted findings |
 | `argus_themis_disposition` | Argus | Records Argus' resolved disposition for Themis validation: approved, remediated, or explicitly overridden |
 | `argus_sync_knowledge` | Argus | Syncs the local vulnerability database from SCVD (api.scvd.dev) |
 
@@ -295,7 +295,7 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
     "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
     "pythia": { "model": "anthropic/claude-sonnet-4-6" },
     "auditSpecialist": { "model": "anthropic/claude-sonnet-4-6" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-6" },
+    "scribe": { "model": "anthropic/claude-sonnet-4-5" },
     "themis": { "model": "openai/gpt-5.5" }
   },
 

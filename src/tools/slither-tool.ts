@@ -133,6 +133,7 @@ function createFindingID(check: string, file: string, lines: [number, number]): 
 
 function buildCommand(args: SlitherArgs): string[] {
   const command = ["slither", args.target, "--json", "-", "--filter-paths", "node_modules"]
+  if (args.via_ir) command.push("--compile-force-framework", "foundry")
 
   if (args.detectors && args.detectors.length > 0) {
     command.push("--detect", args.detectors.join(","))
@@ -564,7 +565,7 @@ export async function executeSlitherAnalyze(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown parse error"
       const diagnostics = mixedPragmaDiagnostics(args, projectDir, errors, runResult.stderr)
-      if (!diagnostics && (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))) {
+      if (!args.via_ir && !diagnostics && shouldTryFlattenFallback(errors, runResult.stderr)) {
         const fallbackResult = await flattenFallback(args, context, {
           ...getDefaultFlattenDeps(),
           runCommand,
@@ -578,7 +579,9 @@ export async function executeSlitherAnalyze(
         findings: [],
         executionTime: Date.now() - startedAt,
         errors,
-        error: `Slither output parse error: ${message}`,
+        error: args.via_ir
+          ? `SLITHER_VIA_IR_ANALYSIS_FAILED: Slither output parse error: ${message}`
+          : `Slither output parse error: ${message}`,
         ...diagnostics,
       }
     }
@@ -596,7 +599,8 @@ export async function executeSlitherAnalyze(
       !success &&
       findings.length === 0 &&
       !diagnostics &&
-      (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))
+      !args.via_ir &&
+      shouldTryFlattenFallback(errors, runResult.stderr)
     ) {
       const fallbackResult = await flattenFallback(args, context, {
         ...getDefaultFlattenDeps(),
@@ -612,6 +616,10 @@ export async function executeSlitherAnalyze(
       findings,
       executionTime: Date.now() - startedAt,
       errors,
+      error:
+        args.via_ir && !success
+          ? "SLITHER_VIA_IR_ANALYSIS_FAILED: direct Foundry analysis failed"
+          : undefined,
       ...diagnostics,
     }
   } catch (error) {

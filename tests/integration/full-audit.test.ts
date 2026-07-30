@@ -236,7 +236,7 @@ describe("full audit integration", () => {
           scope: ["VulnerableVault.sol"],
         }),
       } as Parameters<typeof reportGeneratorTool.execute>[0],
-      createMockContext(reportRoot),
+      { ...createMockContext(reportRoot), agent: "scribe" },
     )
 
     const result = JSON.parse(payload) as {

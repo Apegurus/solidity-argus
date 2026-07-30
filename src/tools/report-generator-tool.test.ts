@@ -803,7 +803,7 @@ test("reportGeneratorTool execute returns stringified ReportGenerationResult", a
         report_input: JSON.stringify(makeReportInput(findings)),
         tool_coverage_policy: "skip",
       } as Parameters<typeof reportGeneratorTool.execute>[0],
-      { ...createContext(), directory: tempDir, worktree: tempDir },
+      { ...createContext(), directory: tempDir, worktree: tempDir, agent: "scribe" },
     )
 
     const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
@@ -829,7 +829,7 @@ test("reportGeneratorTool execute surfaces a tool-level error when no report is 
         tool_coverage_policy: "skip",
         revision: 1,
       } as Parameters<typeof reportGeneratorTool.execute>[0],
-      createContext(),
+      { ...createContext(), agent: "scribe" },
     ),
   ).rejects.toThrow(/INVALID_REGENERATION_OPTIONS/)
 })
@@ -1395,6 +1395,121 @@ test("executeReportGeneration writes report to disk and returns filePath", async
     const content = await Bun.file(result.filePath ?? "").text()
     expect(content).toContain("# Security Audit Report — DiskWriteTest")
     expect(content).toContain("### [HIGH-1] Disk Write Test · severity: High · evidence: High")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("Argus recovery refuses report generation without persisted deduped findings", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-recovery-"))
+  const runId = "run-missing-deduped"
+  const resolver = createAuditArtifactResolver(runId, tempDir)
+
+  try {
+    mkdirSync(path.dirname(resolver.paths().reportInputFile), { recursive: true })
+    writeFileSync(
+      resolver.paths().reportInputFile,
+      JSON.stringify(makeReportInput([], { run_id: runId, scope: ["src/Vault.sol"] })),
+    )
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+      agent: "argus",
+    }
+
+    await expect(
+      reportGeneratorTool.execute(
+        {
+          project_name: "RecoveryTest",
+          scope: ["src/Vault.sol"],
+          run_id: runId,
+          include_executive_summary: true,
+          severity_threshold: "informational",
+        },
+        context,
+      ),
+    ).rejects.toThrow("persisted deduped findings")
+    expect(existsSync(resolver.paths().dedupedFindingsFile)).toBe(false)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("Argus recovery renders persisted deduped findings idempotently with persisted scope", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-recovery-"))
+  const runId = "run-valid-recovery"
+  const paths = createAuditArtifactResolver(runId, tempDir).paths()
+
+  try {
+    mkdirSync(paths.runDir, { recursive: true })
+    writeFileSync(
+      paths.journalFile,
+      `${JSON.stringify({
+        type: "session.created",
+        run_id: runId,
+        seq: 1,
+        session_id: "session-argus",
+        source: "create-hooks",
+        schema_version: SCHEMA_VERSION,
+        timestamp: 1_774_880_000_000,
+        payload: { projectDir: tempDir, sessionId: runId, scope: ["src/Vault.sol"] },
+      })}\n`,
+    )
+    writeFileSync(
+      paths.reportInputFile,
+      JSON.stringify(makeReportInput([], { run_id: runId, scope: ["src/Vault.sol"] })),
+    )
+    writeFileSync(
+      paths.dedupedFindingsFile,
+      JSON.stringify({
+        run_id: runId,
+        schema_version: SCHEMA_VERSION,
+        deduped_at: 1_774_880_000_000,
+        deduped_by: "scribe",
+        findings_count: 0,
+        findings: [],
+        dropped_observations: [],
+      }),
+    )
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+      agent: "argus",
+    }
+    const args = {
+      project_name: "RecoveryTest",
+      scope: ["wrong/Scope.sol"],
+      include_executive_summary: true,
+      severity_threshold: "critical" as const,
+      tool_coverage_policy: "skip" as const,
+      run_id: runId,
+      report_input: JSON.stringify({
+        ...makeReportInput(
+          [makeFinding({ id: "injected", check: "injected-finding", file: "wrong/Scope.sol" })],
+          { run_id: runId, scope: ["wrong/Scope.sol"] },
+        ),
+        projectDir: tempDir,
+      }),
+    }
+
+    const first = JSON.parse(await reportGeneratorTool.execute(args, context)) as {
+      reportStatus: string
+      filePath: string
+    }
+    const second = JSON.parse(await reportGeneratorTool.execute(args, context)) as {
+      reportStatus: string
+      filePath: string
+    }
+
+    expect(first.reportStatus).toBe("written")
+    expect(second.reportStatus).toBe("reused")
+    expect(second.filePath).toBe(first.filePath)
+    const report = readFileSync(first.filePath, "utf8")
+    expect(report).toContain("- src/Vault.sol")
+    expect(report).not.toContain("wrong/Scope.sol")
+    expect(report).not.toContain("Injected Finding")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

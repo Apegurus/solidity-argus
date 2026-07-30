@@ -120,6 +120,7 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.permission).toEqual({
+      argus_generate_report: "allow",
       argus_list_skills: "allow",
       argus_recommend_skills: "allow",
       argus_themis_disposition: "allow",
@@ -198,10 +199,14 @@ describe("createConfigHandler", () => {
     const argusTools = readToolsConfig(config.agent?.argus)
     expect(argusTools).toMatchObject({
       "argus_*": false,
+      argus_generate_report: true,
       argus_list_skills: true,
       argus_recommend_skills: true,
       argus_themis_disposition: true,
       task: true,
+    })
+    expect(config.agent?.argus?.permission).toMatchObject({
+      argus_generate_report: "allow",
     })
   })
 
@@ -296,6 +301,7 @@ describe("createConfigHandler", () => {
     expect(config.agent?.pythia?.model).toBe(DEFAULT_MODELS.pythia)
     expect(config.agent?.["audit-specialist"]?.model).toBe(DEFAULT_MODELS.auditSpecialist)
     expect(config.agent?.scribe?.model).toBe(DEFAULT_MODELS.scribe)
+    expect(config.agent?.scribe?.model).toBe("anthropic/claude-sonnet-4-5")
   })
 
   test("sets default steps for all Argus agents", async () => {
