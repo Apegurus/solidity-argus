@@ -31,12 +31,6 @@
     }
   },
 
-  // Tool configuration
-  "tools": {
-    // Path to forge executable (default: "forge" from PATH)
-    "forgePath": "forge"
-  },
-
   // Knowledge base configuration
   "knowledge": {
     // SCVD (Smart Contract Vulnerability Database) integration

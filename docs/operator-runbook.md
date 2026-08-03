@@ -79,9 +79,6 @@ Create `.argus/solidity-argus.jsonc`. The project-level `.opencode/solidity-argu
 
 ```jsonc
 {
-  "tools": {
-    "forgePath": "/usr/local/bin/forge"
-  },
   "reporting": {
     "confidenceThreshold": 80,
     "severityThreshold": "low",
@@ -94,7 +91,10 @@ Create `.argus/solidity-argus.jsonc`. The project-level `.opencode/solidity-argu
 }
 ```
 
-The schema rejects unsupported fields and falls back to defaults after logging a warning. Review the Argus log after configuration changes, and use the generated starter from `argus init` when creating a new configuration.
+Forge and Slither executables are resolved from the host `PATH`; audited projects cannot override
+them. The schema rejects unsupported fields and falls back to defaults after logging a warning.
+Review the Argus log after configuration changes, and use the generated starter from `argus init`
+when creating a new configuration.
 
 ---
 
@@ -111,15 +111,18 @@ argus doctor
 
 Expected output:
 ```
-✓ Slither: installed
-✓ Forge: installed
+✓ Slither: installed (<version>, Python <version>)
+✓ Forge: installed (<version>)
+✓ solc-select: installed (<version>)
 ✓ Config: valid
 ✓ Skills: required audit skills resolvable
 ✓ SCVD API: reachable
 ✓ Solodit: enabled (direct tRPC search)
 ```
 
-The Solodit line confirms configuration only; it does not probe the upstream service. If any check fails, resolve before proceeding.
+The Solodit line confirms configuration only; it does not probe the upstream service. A missing
+`solc-select` is advisory unless the guarded Slither flatten fallback is needed. If any required
+check fails, resolve it before proceeding.
 
 ### 4.2 Full Test Suite
 
@@ -449,9 +452,6 @@ Evidence artifacts from CI runs are uploaded to the `production-readiness-eviden
 ```jsonc
 // .argus/solidity-argus.jsonc
 {
-  "tools": {
-    "forgePath": "/usr/local/bin/forge"
-  },
   "reporting": {
     "confidenceThreshold": 80,
     "severityThreshold": "low"
