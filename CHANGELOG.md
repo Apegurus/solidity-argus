@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 (2026-06-19)
+## 0.8.0 (2026-08-03)
 
 ### Features
 - Expanded the bundled DeFi vulnerability knowledge base. Techniques were inferred from primary sources and authored as original content (not ported verbatim): Dacian (`devdacian/ai-auditor-primers`, MIT), `0xJuancito/multichain-auditor` (MIT), Sigma Prime, beirao.xyz, Cyfrin, Hacken, and Pyth.
@@ -15,6 +15,10 @@
 - Added fail-closed report rendering recovery after repeated Scribe runtime failures. Argus can render only an existing Scribe-persisted deduped artifact, with persisted scope and strict lineage/quality gates; it cannot deduplicate, revise, force-overwrite, or inject inline report input.
 - Temporarily pinned the default Scribe model to Claude Sonnet 4.5 while OpenCode's Claude 4.6 assistant-prefill compatibility fix remains unreleased. Agent model overrides remain supported.
 - Restored Slither coverage for Foundry projects using `via_ir` by compiling through Foundry directly. Failed IR analysis now emits structured capability loss and proceeds through manual/pattern fallbacks instead of retrying through incompatible source flattening.
+- Slither now compiles the nearest in-project Foundry root while returning findings only for the requested contract or source scope, and `argus doctor` warns when Python 3.14 may be incompatible with the installed Slither release.
+- The guarded non-`via_ir` flatten fallback now honors root, source-directory, and file targets, runs from the selected Foundry root, and marks locations as approximate instead of presenting flattened line numbers as original-source positions.
+- Slither analysis now rejects repository-controlled compiler executables, compiler overrides, config indirection, and escaping source/library symlinks before invoking Foundry. Project-local Slither configuration is disabled through a trusted empty config, while version-pinned Foundry compilers remain supported.
+- Flatten fallback failures now fail closed instead of reporting a clean scan, retain file-level detectors with approximate locations, and scan the literal requested scope.
 - Preserved the v0.7.1 skill-scoping guarantee while adding discovery: Argus can call only the lightweight discovery tools directly, non-Argus agents still do not receive global Argus skill injection, and Scribe remains excluded from discovery tools.
 - Hardened skill-derived regex loading against ReDoS by rejecting unsafe repeated groups, lookaround assertions, backreferences, invalid expressions, and unsafe `exclude_if` filters before scan execution.
 - Enforced bundled `category` metadata in `argus lint-skills` and cleaned stale skill metadata, citation markers, and source-license noise.
