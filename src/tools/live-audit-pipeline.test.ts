@@ -146,7 +146,11 @@ async function writeDeduped(
   await mkdir(dirname(dedupedFile), { recursive: true })
   await writeFile(
     dedupedFile,
-    JSON.stringify({ run_id: runId, findings, dropped_observations }, null, 2),
+    JSON.stringify(
+      { run_id: runId, findings, dropped_observations, deduped_by: "scribe" },
+      null,
+      2,
+    ),
   )
 }
 

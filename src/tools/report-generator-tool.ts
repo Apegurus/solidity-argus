@@ -1642,6 +1642,7 @@ export const reportGeneratorTool = tool({
         severity_threshold: "informational",
         preflight_policy: "strict-fail",
         quality_gate_policy: "strict-fail",
+        tool_coverage_policy: "enforce",
       }
     }
 

@@ -1443,35 +1443,31 @@ test("Argus recovery renders persisted deduped findings idempotently with persis
 
   try {
     mkdirSync(paths.runDir, { recursive: true })
-    writeFileSync(
-      paths.journalFile,
-      `${JSON.stringify({
-        type: "session.created",
-        run_id: runId,
-        seq: 1,
-        session_id: "session-argus",
-        source: "create-hooks",
-        schema_version: SCHEMA_VERSION,
-        timestamp: 1_774_880_000_000,
-        payload: { projectDir: tempDir, sessionId: runId, scope: ["src/Vault.sol"] },
-      })}\n`,
-    )
+    const sessionEvent = {
+      type: "session.created",
+      run_id: runId,
+      seq: 1,
+      session_id: "session-argus",
+      source: "create-hooks",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_774_880_000_000,
+      payload: { projectDir: tempDir, sessionId: runId, scope: ["src/Vault.sol"] },
+    }
+    writeFileSync(paths.journalFile, `${JSON.stringify(sessionEvent)}\n`)
     writeFileSync(
       paths.reportInputFile,
       JSON.stringify(makeReportInput([], { run_id: runId, scope: ["src/Vault.sol"] })),
     )
-    writeFileSync(
-      paths.dedupedFindingsFile,
-      JSON.stringify({
-        run_id: runId,
-        schema_version: SCHEMA_VERSION,
-        deduped_at: 1_774_880_000_000,
-        deduped_by: "scribe",
-        findings_count: 0,
-        findings: [],
-        dropped_observations: [],
-      }),
-    )
+    const dedupedArtifact = {
+      run_id: runId,
+      schema_version: SCHEMA_VERSION,
+      deduped_at: 1_774_880_000_000,
+      deduped_by: "scribe",
+      findings_count: 0,
+      findings: [],
+      dropped_observations: [],
+    }
+    writeFileSync(paths.dedupedFindingsFile, JSON.stringify(dedupedArtifact))
     const context: ToolContext = {
       ...createContext(),
       directory: tempDir,
@@ -1493,6 +1489,64 @@ test("Argus recovery renders persisted deduped findings idempotently with persis
         projectDir: tempDir,
       }),
     }
+
+    await expect(reportGeneratorTool.execute(args, context)).rejects.toThrow(
+      "Tool coverage gate failed",
+    )
+
+    const keyTools = [
+      "argus_slither_analyze",
+      "argus_forge_test",
+      "argus_check_patterns",
+      "argus_solodit_search",
+      "argus_analyze_contract",
+    ]
+    const toolEvents = keyTools.flatMap((tool, index) => {
+      const seq = index * 2 + 2
+      const toolCallId = `recovery-tool-${index}`
+      return [
+        {
+          type: "tool.started",
+          run_id: runId,
+          seq,
+          session_id: "session-argus",
+          tool_call_id: toolCallId,
+          source: "create-hooks",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_774_880_000_000 + seq,
+          payload: { tool },
+        },
+        {
+          type: "tool.completed",
+          run_id: runId,
+          seq: seq + 1,
+          session_id: "session-argus",
+          tool_call_id: toolCallId,
+          source: "create-hooks",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_774_880_000_001 + seq,
+          payload: { tool, success: true, findingsCount: 0 },
+        },
+      ]
+    })
+    writeFileSync(
+      paths.journalFile,
+      `${[sessionEvent, ...toolEvents].map((event) => JSON.stringify(event)).join("\n")}\n`,
+    )
+
+    writeFileSync(
+      paths.dedupedFindingsFile,
+      JSON.stringify({ ...dedupedArtifact, run_id: "run-other" }),
+    )
+    await expect(reportGeneratorTool.execute(args, context)).rejects.toThrow("run_id mismatch")
+    writeFileSync(
+      paths.dedupedFindingsFile,
+      JSON.stringify({ ...dedupedArtifact, deduped_by: "argus" }),
+    )
+    await expect(reportGeneratorTool.execute(args, context)).rejects.toThrow(
+      "invalid deduped artifact provenance",
+    )
+    writeFileSync(paths.dedupedFindingsFile, JSON.stringify(dedupedArtifact))
 
     const first = JSON.parse(await reportGeneratorTool.execute(args, context)) as {
       reportStatus: string

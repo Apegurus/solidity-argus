@@ -433,6 +433,7 @@ export function parseReportInputPayload(
     const dedupedFile = resolver.paths().dedupedFindingsFile
     if (existsSync(dedupedFile)) {
       let dedupedArtifact: {
+        run_id?: string
         findings?: unknown[]
         dropped_observations?: unknown[]
         deduped_by?: string
@@ -447,6 +448,29 @@ export function parseReportInputPayload(
         )
         throwContractMismatch(
           "ReportInput contract mismatch: corrupted deduped artifact",
+          diagnostics.getDiagnostics(),
+        )
+      }
+
+      if (dedupedArtifact.run_id !== effectiveRunId) {
+        diagnostics.error(
+          "REPORT_INPUT_DEDUPED_RUN_MISMATCH",
+          `deduped-findings.json belongs to run ${String(dedupedArtifact.run_id)}, expected ${effectiveRunId}.`,
+          "run_id",
+        )
+        throwContractMismatch(
+          "ReportInput contract mismatch: deduped artifact run_id mismatch",
+          diagnostics.getDiagnostics(),
+        )
+      }
+      if (dedupedArtifact.deduped_by !== "scribe") {
+        diagnostics.error(
+          "REPORT_INPUT_DEDUPED_PROVENANCE_INVALID",
+          "deduped-findings.json must be persisted by Scribe.",
+          "deduped_by",
+        )
+        throwContractMismatch(
+          "ReportInput contract mismatch: invalid deduped artifact provenance",
           diagnostics.getDiagnostics(),
         )
       }
