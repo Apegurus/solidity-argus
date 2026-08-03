@@ -150,9 +150,8 @@ async function spawnForgeInspect(
   contractName: string,
   inspectType: string,
   cwd: string,
-  forgePath: string,
 ): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  const proc = Bun.spawn([forgePath, "inspect", contractName, inspectType, "--json"], {
+  const proc = Bun.spawn(["forge", "inspect", contractName, inspectType, "--json"], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -189,7 +188,6 @@ async function spawnForgeInspect(
 export async function extractContractInfo(
   contractName: string,
   projectDir: string,
-  forgePath = "forge",
 ): Promise<ContractProfile> {
   const result: ContractProfile = {
     name: contractName,
@@ -205,8 +203,8 @@ export async function extractContractInfo(
   try {
     // Run both forge inspect commands in parallel (async, non-blocking)
     const [abiResult, storageResult] = await Promise.all([
-      spawnForgeInspect(contractName, "abi", projectDir, forgePath),
-      spawnForgeInspect(contractName, "storage-layout", projectDir, forgePath),
+      spawnForgeInspect(contractName, "abi", projectDir),
+      spawnForgeInspect(contractName, "storage-layout", projectDir),
     ])
 
     if (!abiResult.success) {

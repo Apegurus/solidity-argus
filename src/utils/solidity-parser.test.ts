@@ -181,7 +181,7 @@ test("extractContractInfo - parses basic contract with ownable pattern", async (
   }
 })
 
-test("extractContractInfo - uses the provided forgePath for the forge inspect binary", async () => {
+test("extractContractInfo - always uses the trusted forge executable", async () => {
   const seen: string[][] = []
   const spy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[] | unknown) => {
     const args = cmd as string[]
@@ -191,9 +191,9 @@ test("extractContractInfo - uses the provided forgePath for the forge inspect bi
   }) as typeof Bun.spawn)
 
   try {
-    await extractContractInfo("TestContract", "/test/project", "/custom/bin/forge")
+    await extractContractInfo("TestContract", "/test/project")
     expect(seen.length).toBe(2)
-    expect(seen.every((cmd) => cmd[0] === "/custom/bin/forge")).toBe(true)
+    expect(seen.every((cmd) => cmd[0] === "forge")).toBe(true)
   } finally {
     spy.mockRestore()
   }
