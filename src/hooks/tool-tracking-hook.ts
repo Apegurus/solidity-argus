@@ -418,6 +418,10 @@ function processToolResult(
           : metadata.reportedBySessionId,
     }
 
+    if (config.toolLabel === "Slither" && typeof item.source_location_id === "string") {
+      findingPayload.source_location_id = item.source_location_id
+    }
+
     if (config.extractOptionalFields) {
       findingPayload.confidence_score = isValidConfidenceScore(item.confidence_score)
         ? item.confidence_score

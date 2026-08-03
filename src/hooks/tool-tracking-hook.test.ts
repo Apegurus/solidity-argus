@@ -155,6 +155,7 @@ describe("createToolTrackingHook", () => {
           file: "src/Vault.sol",
           lines: [10, 20],
           source: "slither",
+          source_location_id: "flattened:10-20",
         },
         {
           id: "def456",
@@ -184,6 +185,7 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings.at(0)?.source).toBe("slither")
     expect(auditState.findings.at(0)?.file).toBe("src/Vault.sol")
     expect(auditState.findings.at(0)?.lines).toEqual([10, 20])
+    expect(auditState.findings.at(0)?.source_location_id).toBe("flattened:10-20")
     expect(auditState.findings.at(1)?.check).toBe("unchecked-transfer")
     expect(auditState.findings.at(1)?.severity).toBe("Medium")
   })
