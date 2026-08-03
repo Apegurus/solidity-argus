@@ -71,4 +71,26 @@ describe("findFoundryProjectDir", () => {
 
     expect(findFoundryProjectDir(filePath)).toBe(root)
   })
+
+  it("accepts a Foundry project directory as the starting path", () => {
+    const root = mkdtempSync(join(tmpdir(), "argus-proj-utils-"))
+    tempDirs.push(root)
+
+    writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+
+    expect(findFoundryProjectDir(root)).toBe(root)
+  })
+
+  it("does not select a Foundry root above the active project boundary", () => {
+    const parent = mkdtempSync(join(tmpdir(), "argus-proj-utils-parent-"))
+    tempDirs.push(parent)
+    writeFileSync(join(parent, "foundry.toml"), "[profile.default]\n")
+    const projectRoot = join(parent, "workspace")
+    const sourceDir = join(projectRoot, "src")
+    mkdirSync(sourceDir, { recursive: true })
+    const filePath = join(sourceDir, "Vault.sol")
+    writeFileSync(filePath, "contract Vault {}")
+
+    expect(findFoundryProjectDir(filePath, projectRoot)).toBe(sourceDir)
+  })
 })
