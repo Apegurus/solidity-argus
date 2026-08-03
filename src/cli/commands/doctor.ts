@@ -22,6 +22,7 @@ import { parseFrontmatter, validateSkillFrontmatter } from "../../skills/skill-s
 import { detectViaIr } from "../../tools/slither-tool"
 import { cliOutput } from "../cli-output"
 import type { CliCommand } from "../types"
+import { inspectSlitherPythonRuntime } from "./slither-runtime"
 
 const logger = createLogger()
 
@@ -494,9 +495,24 @@ export const doctorCommand: CliCommand = {
 
     const slither = checkBinary("slither")
     if (slither.found) {
-      cliOutput.log(`${GREEN}✓${RESET} Slither: installed (${slither.version})`)
+      const runtime = inspectSlitherPythonRuntime("slither", cwd)
+      if (runtime.status === "compatibility-warning") {
+        cliOutput.log(
+          `${YELLOW}⚠${RESET} Slither: installed (${slither.version}, Python ${runtime.version}); Python 3.14 compatibility varies by Slither release — Python 3.13 is recommended`,
+        )
+      } else if (runtime.status === "supported") {
+        cliOutput.log(
+          `${GREEN}✓${RESET} Slither: installed (${slither.version}, Python ${runtime.version})`,
+        )
+      } else {
+        cliOutput.log(
+          `${YELLOW}⚠${RESET} Slither: installed (${slither.version}); Python runtime could not be verified`,
+        )
+      }
     } else {
-      cliOutput.log(`${RED}✗${RESET} Slither: not found — pip install slither-analyzer`)
+      cliOutput.log(
+        `${RED}✗${RESET} Slither: not found — pipx install --python python3.13 slither-analyzer`,
+      )
       hasFailure = true
     }
 
@@ -508,6 +524,15 @@ export const doctorCommand: CliCommand = {
         `${RED}✗${RESET} Forge: not found — curl -L https://foundry.paradigm.xyz | bash`,
       )
       hasFailure = true
+    }
+
+    const solcSelect = checkBinary("solc-select")
+    if (solcSelect.found) {
+      cliOutput.log(`${GREEN}✓${RESET} solc-select: installed (${solcSelect.version})`)
+    } else {
+      cliOutput.log(
+        `${YELLOW}⚠${RESET} solc-select: not found — required only for the Slither flatten fallback`,
+      )
     }
 
     const projectType = checkSolidityProject(cwd)

@@ -118,6 +118,15 @@ describe("doctorCommand", () => {
 
     expect(output.join("\n")).toContain("Solodit: enabled (direct tRPC search)")
   })
+
+  it("reports solc-select availability for the flatten fallback", async () => {
+    const output: string[] = []
+    cliOutput.log = (...args: unknown[]) => output.push(args.join(" "))
+
+    await doctorCommand.execute([])
+
+    expect(output.join("\n")).toContain("solc-select")
+  })
 })
 
 describe("buildSkillHealthReport", () => {
