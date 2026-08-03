@@ -13,7 +13,7 @@ CLI: `argus doctor`, `argus init`, `argus install`.
 **Role**: Primary security audit orchestrator
 **Description**: Argus Panoptes, the All-Seeing Guardian. Coordinates full Solidity security audits by dispatching Sentinel (analysis), Pythia (research), Audit Specialist (deep/adversarial profiles), Scribe (reporting), and Themis (validation). Follows a rigorous 7-step methodology: Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, and Reporting.
 **Model**: anthropic/claude-opus-4-8
-**Tools**: 17 core argus_* tools plus optional Solodit. Argus can use metadata-only discovery directly (`argus_list_skills`, `argus_recommend_skills`) and records final Themis disposition with `argus_themis_disposition`; heavyweight audit execution remains delegated. Core tools include argus_slither_analyze, argus_analyze_contract, argus_check_patterns, argus_proxy_detection, argus_forge_test, argus_gas_analysis, argus_forge_fuzz, argus_forge_coverage, argus_list_skills, argus_recommend_skills, argus_skill_load, argus_generate_report, argus_record_finding, argus_read_findings, argus_sync_knowledge, argus_themis_disposition. `argus_persist_deduped` is reserved for Scribe.
+**Tools**: Argus directly receives `argus_generate_report`, `argus_list_skills`, `argus_recommend_skills`, and `argus_themis_disposition`. Heavyweight analysis, testing, finding persistence, knowledge loading, and research tools are delegated to Sentinel, Pythia, Audit Specialist, Scribe, and Themis according to their allowlists below. `argus_persist_deduped` is reserved for Scribe.
 
 ## sentinel
 

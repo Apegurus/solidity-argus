@@ -299,10 +299,6 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
     "themis": { "model": "openai/gpt-5.5" }
   },
 
-  "tools": {
-    "forgePath": "/usr/local/bin/forge"
-  },
-
   "knowledge": {
     "scvd": { "enabled": true, "apiUrl": "https://api.scvd.dev" },
     "autoSync": true,
@@ -462,10 +458,23 @@ Monitors token usage and adaptively reduces injection sizes when context pressur
 |------------|----------|-------|
 | OpenCode | ✅ Required | The AI coding environment this plugin runs in |
 | Bun | ✅ Required | `>=1.3.6` — runtime for the plugin (`Bun.JSONC.parse`) |
-| Slither | ⚠️ Optional | Enables `argus_slither_analyze`. Install: `pip install slither-analyzer` |
+| Slither | ⚠️ Optional | Enables `argus_slither_analyze`. Python 3.13 is recommended: `pipx install --python python3.13 slither-analyzer` (Python 3.14 compatibility varies by Slither release) |
 | Foundry/Forge | ⚠️ Optional | Enables `argus_forge_test` and `argus_forge_fuzz`. Install: `curl -L https://foundry.paradigm.xyz \| bash` |
+| solc-select | ⚠️ Optional | Required only if the final Slither flatten fallback must install or select the project's pinned compiler. Install: `pipx install solc-select` |
 
 If Slither or Foundry are unavailable, Argus gracefully falls back to manual review mode and notes the limitation in the audit report.
+
+For Foundry projects, Argus compiles the nearest project root so Slither retains remappings,
+inheritance, and cross-project dependencies. The requested target remains the reporting scope:
+request the project root for all findings, or request a contract/source directory to filter out
+findings outside that narrower scope.
+
+Argus ignores project-local `slither.config.json` compiler settings and rejects Foundry compiler
+paths or config indirection so an audited repository cannot select host executables.
+
+If eligible non-`via_ir` analysis still fails, Argus can retry through `forge flatten` as a final
+compatibility fallback. Flattened findings are returned with low confidence and an explicit
+flattened-line reference because exact original-source line mapping cannot be guaranteed.
 
 ---
 
