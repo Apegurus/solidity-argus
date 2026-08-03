@@ -37,16 +37,27 @@ function isValidHydrationFinding(f: unknown): f is Finding {
 export function createFindingStore(state: AuditState): FindingStore {
   const projectDir = state.projectDir
 
-  function generateObservationId(check: string, file: string, lines: [number, number]): string {
+  function generateObservationId(
+    check: string,
+    file: string,
+    lines: [number, number],
+    sourceLocationId?: string,
+  ): string {
+    const content = `${normalizeText(check)}:${normalizeText(file)}:${lines[0]}-${lines[1]}`
     return crypto
       .createHash("sha256")
-      .update(`${normalizeText(check)}:${normalizeText(file)}:${lines[0]}-${lines[1]}`)
+      .update(sourceLocationId ? `${content}:${sourceLocationId}` : content)
       .digest("hex")
       .substring(0, 16)
   }
 
-  function contentId(f: Pick<Finding, "check" | "file" | "lines">): string {
-    return generateObservationId(f.check, normalizeStorePath(f.file, projectDir), f.lines)
+  function contentId(f: Pick<Finding, "check" | "file" | "lines" | "source_location_id">): string {
+    return generateObservationId(
+      f.check,
+      normalizeStorePath(f.file, projectDir),
+      f.lines,
+      f.source_location_id,
+    )
   }
 
   // WS-5 #25: key dedup on the canonical content-id, not the persisted `id` (which may predate
@@ -65,7 +76,12 @@ export function createFindingStore(state: AuditState): FindingStore {
     const normalizedFile = normalizeStorePath(finding.file, projectDir)
     const normalized =
       normalizedFile !== finding.file ? { ...finding, file: normalizedFile } : finding
-    const id = generateObservationId(normalized.check, normalized.file, normalized.lines)
+    const id = generateObservationId(
+      normalized.check,
+      normalized.file,
+      normalized.lines,
+      normalized.source_location_id,
+    )
 
     const existing = findingByContentId.get(id)
     if (existing) {

@@ -200,6 +200,25 @@ describe("FindingStore", () => {
     expect(state.findings).toHaveLength(1)
   })
 
+  test("addFinding preserves distinct approximate source locations", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+    const finding = {
+      check: "reentrancy-eth",
+      severity: "High" as const,
+      confidence: "Low" as const,
+      description: "Flattened fallback finding",
+      file: "src/Vault.sol",
+      lines: [1, 1] as [number, number],
+      source: "slither" as const,
+    }
+
+    store.addFinding({ ...finding, source_location_id: "flattened:10-12" })
+    store.addFinding({ ...finding, source_location_id: "flattened:40-44" })
+
+    expect(store.getFindings()).toHaveLength(2)
+  })
+
   test("serialize reflects observation counts", () => {
     const state = createBaseState()
     const store = createFindingStore(state)
