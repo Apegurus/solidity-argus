@@ -11,6 +11,7 @@ const KNOWN_HOOK_NAMES: ReadonlySet<string> = new Set(HOOK_NAMES)
 const REMOVED_CONFIG_PATHS: ReadonlySet<string> = new Set([
   "agents.*.permission",
   "agents.*.tools",
+  "tools.forgePath",
   "tools.slitherPath",
   "reporting.format",
   "reporting.gasAnalysis",

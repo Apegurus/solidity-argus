@@ -8,9 +8,7 @@ const AgentConfigSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
 })
 
-const ToolsConfigSchema = z.object({
-  forgePath: z.string().optional(),
-})
+const ToolsConfigSchema = z.object({})
 
 const ScvdConfigSchema = z.object({
   enabled: z.boolean().default(true),

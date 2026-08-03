@@ -11,9 +11,7 @@ describe("ArgusConfigSchema", () => {
         auditSpecialist: { model: "anthropic/claude-sonnet-4-6" },
         scribe: { model: "anthropic/claude-sonnet-4-6" },
       },
-      tools: {
-        forgePath: "/usr/local/bin/forge",
-      },
+      tools: {},
       knowledge: {
         scvd: {
           enabled: true,

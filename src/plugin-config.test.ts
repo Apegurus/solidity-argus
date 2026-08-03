@@ -99,7 +99,7 @@ test("loadArgusConfig falls back to defaults for invalid config", () => {
   expect(config.agents.argus).toEqual({})
 })
 
-test("loadArgusConfig accepts valid full config", () => {
+test("loadArgusConfig ignores removed executable paths while preserving valid config", () => {
   const configDir = join(testDir, ".opencode")
   mkdirSync(configDir, { recursive: true })
 
@@ -131,7 +131,7 @@ test("loadArgusConfig accepts valid full config", () => {
 
   expect(config.agents.argus.model).toBe("anthropic/claude-opus-4-7")
   expect(config.agents.sentinel.model).toBe("anthropic/claude-sonnet-4-6")
-  expect(config.tools.forgePath).toBe("/usr/local/bin/forge")
+  expect(config.tools).toEqual({})
   expect(config.knowledge.customSkillsDir).toBe("/path/to/skills")
   expect(config.reporting.severityThreshold).toBe("high")
 })
