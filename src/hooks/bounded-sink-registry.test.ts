@@ -108,6 +108,20 @@ describe("createBoundedSinkRegistry", () => {
     expect(sink.ownerSet.has("session-refresh")).toBe(true)
   })
 
+  test("same-key writes refresh TTL before another key triggers eviction", () => {
+    const registry = createBoundedSinkRegistry({ maxSinks: 10, ttlMs: 10 })
+    const refreshed = makeSink("run-refresh")
+
+    Date.now = () => 100
+    registry.setForSession("session-refresh", refreshed)
+    Date.now = () => 109
+    registry.setForSession("session-refresh", refreshed)
+    Date.now = () => 111
+    registry.setForSession("session-other", makeSink("run-other"))
+
+    expect(registry.getForSession("session-refresh")).toBe(refreshed)
+  })
+
   test("eviction does not force-seal a FAILED_RECOVERABLE sink (adj_11)", () => {
     const registry = createBoundedSinkRegistry({ maxSinks: 1, ttlMs: 60 * 60 * 1000 })
     const failed = makeSink("run-failed", "FAILED_RECOVERABLE")

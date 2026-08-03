@@ -101,14 +101,18 @@ export function createBoundedSinkRegistry(options: {
     sink: EventSink,
     releaseRunSink: boolean,
   ): void {
+    if (sinkMap.has(key)) {
+      sinkMap.set(key, sink)
+      timestampMap.set(key, Date.now())
+      onSet?.()
+      return
+    }
     evictStale({ sinkMap, timestampMap, releaseRunSink })
-    if (sinkMap.size >= maxSinks && !sinkMap.has(key)) {
+    if (sinkMap.size >= maxSinks) {
       evictOldest({ sinkMap, timestampMap, releaseRunSink })
     }
     sinkMap.set(key, sink)
-    if (!timestampMap.has(key)) {
-      timestampMap.set(key, Date.now())
-    }
+    timestampMap.set(key, Date.now())
     onSet?.()
   }
 
