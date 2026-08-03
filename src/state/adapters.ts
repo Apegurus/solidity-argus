@@ -51,6 +51,7 @@ const KNOWN_INPUT_FIELDS = new Set([
   "line_start",
   "line_end",
   "source",
+  "source_location_id",
   "recommendation",
   "proofOfConcept",
   "proof_of_concept",
@@ -277,6 +278,10 @@ export function normalizeToCanonicalFinding(
       : undefined) ??
     options.reportedBySessionId
 
+  const sourceLocationId =
+    typeof input.source_location_id === "string" && input.source_location_id.length > 0
+      ? input.source_location_id
+      : undefined
   const issueFingerprint =
     (typeof input.issue_fingerprint === "string" && input.issue_fingerprint.length > 0
       ? input.issue_fingerprint
@@ -289,6 +294,7 @@ export function normalizeToCanonicalFinding(
       file,
       lines: lines ?? [0, 0],
       severity: VALID_SEVERITIES.has(severity) ? severity : "Informational",
+      sourceLocationId,
     })
 
   const observationId =
@@ -407,6 +413,7 @@ export function normalizeToCanonicalFinding(
     file,
     lines: lines ?? [0, 0],
     source,
+    ...(sourceLocationId ? { source_location_id: sourceLocationId } : {}),
     reported_by_agent: reportedByAgent,
     reported_by_session_id: reportedBySessionId,
     issue_fingerprint: issueFingerprint,

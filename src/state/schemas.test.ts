@@ -139,6 +139,18 @@ describe("validateCanonicalFinding", () => {
       }
     }
   })
+
+  test("rejects invalid source_location_id values", () => {
+    const result = validateCanonicalFinding({
+      ...makeCanonicalFinding(),
+      source_location_id: 42,
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors.some((error) => error.field === "source_location_id")).toBe(true)
+    }
+  })
 })
 
 describe("normalizeToCanonicalFinding", () => {
@@ -234,6 +246,24 @@ describe("normalizeToCanonicalFinding", () => {
     expect(result.data.recommendation).toBe("Add nonReentrant modifier to withdraw function")
     expect(result.data.proofOfConcept).toBe("See test/ReentrancyPoC.t.sol::testReentrancyExploit")
     expect(result.diagnostics.some((d) => d.code === "field.dropped")).toBe(false)
+  })
+
+  test("preserves approximate source location identity through normalization", () => {
+    const raw = {
+      check: "reentrancy-eth",
+      severity: "High",
+      confidence: "Low",
+      description: "Flattened fallback finding",
+      file: "src/Vault.sol",
+      lines: [1, 1],
+      source: "slither",
+      source_location_id: "flattened:10-20",
+    }
+
+    const result = normalizeToCanonicalFinding(raw, "run-flattened", 1)
+
+    expect(result.data.source_location_id).toBe("flattened:10-20")
+    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "field.dropped")).toBe(false)
   })
 
   test("normalizes proof_of_concept snake_case alias to proofOfConcept", () => {

@@ -6,6 +6,7 @@ type IssueFingerprintInput = {
   file: string
   lines: [number, number]
   severity: FindingSeverity
+  sourceLocationId?: string
 }
 
 type ObservationFingerprintInput = {
@@ -26,13 +27,15 @@ export function normalizeText(value: string): string {
 }
 
 export function computeIssueFingerprint(input: IssueFingerprintInput): string {
-  return hash([
+  const parts = [
     normalizeText(input.check),
     normalizeText(input.file),
     String(input.lines[0]),
     String(input.lines[1]),
     input.severity,
-  ])
+  ]
+  if (input.sourceLocationId) parts.push(input.sourceLocationId)
+  return hash(parts)
 }
 
 export function computeObservationFingerprint(input: ObservationFingerprintInput): string {

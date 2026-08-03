@@ -51,6 +51,7 @@ export interface Finding {
   description: string
   file: string // relative file path
   lines: [number, number] // [start, end]
+  source_location_id?: string // Stable identity when display lines are intentionally approximate
   source: "slither" | "manual" | "pattern" | "scvd" | "solodit" | "fuzz"
   reported_by_agent?: ArgusAgentName
   reported_by_session_id?: string

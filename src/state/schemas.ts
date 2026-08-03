@@ -462,6 +462,17 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
   }
 
   if (
+    "source_location_id" in raw &&
+    (typeof raw.source_location_id !== "string" || raw.source_location_id.trim().length === 0)
+  ) {
+    errors.push({
+      field: "source_location_id",
+      code: "invalid",
+      message: "source_location_id must be a non-empty string when provided",
+    })
+  }
+
+  if (
     typeof raw.source !== "string" ||
     !VALID_SOURCES.has(raw.source as CanonicalFinding["source"])
   ) {
