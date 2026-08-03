@@ -30,7 +30,7 @@ export async function parseSolcVersion(target: string): Promise<string | undefin
     const srcDir = join(target, "src")
     if (existsSync(srcDir)) {
       try {
-        const proc = Bun.spawn(["find", srcDir, "-maxdepth", "3", "-name", "*.sol"], {
+        const proc = Bun.spawn(["find", srcDir, "-name", "*.sol"], {
           stdout: "pipe",
           stderr: "pipe",
           signal: AbortSignal.timeout(10_000),
