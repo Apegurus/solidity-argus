@@ -22,6 +22,12 @@ describe("createSessionStateRegistry", () => {
     return dir
   }
 
+  test("rejects non-positive session limits", () => {
+    expect(() => createSessionStateRegistry({ projectDir: makeTempDir(), maxSessions: 0 })).toThrow(
+      "maxSessions must be a positive integer",
+    )
+  })
+
   test("caches a state manager per session", () => {
     const registry = createSessionStateRegistry({ projectDir: makeTempDir(), maxSessions: 10 })
 

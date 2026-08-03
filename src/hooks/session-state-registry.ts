@@ -20,6 +20,9 @@ export function createSessionStateRegistry(options: {
   maxSessions: number
 }): SessionStateRegistry {
   const { projectDir, maxSessions } = options
+  if (!Number.isInteger(maxSessions) || maxSessions < 1) {
+    throw new RangeError("maxSessions must be a positive integer")
+  }
   const managers = new Map<string, AuditStateManager>()
   const debouncedSaves = new Map<string, DebouncedSave>()
 
