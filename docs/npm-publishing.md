@@ -130,9 +130,9 @@ Users on `@latest` never see staging builds. The `dev` tag is a moving pointer; 
 
 ---
 
-## First staging publish: verification walkthrough
+## Staging publish verification walkthrough
 
-After merging this feature branch into staging (with prerequisites complete), the publish workflow runs automatically. Follow these steps to confirm it worked.
+After a push or merge to staging, the publish workflow runs automatically. Follow these steps to confirm it worked.
 
 ### Step 1: Watch the run
 
@@ -519,12 +519,14 @@ If the volume of dev versions becomes a concern, the solution is to reduce push 
 
 ---
 
-## Current registry state (as of this writing)
+## Verify current registry state
 
-```
-npm latest: 0.7.0
-package.json version (staging branch): 0.8.0
-dev dist-tag: not yet published
+```bash
+npm view solidity-argus dist-tags --json
+npm view solidity-argus@dev version
+npm view solidity-argus@latest version
 ```
 
-The first staging publish after merging this feature will create `0.8.0-dev.<run-id>.g<sha>` and set the `dev` tag. The first main publish (after bumping to `0.8.0` and merging) will set `latest` to `0.8.0`.
+Do not copy registry values into this runbook: `dev` advances after every successful staging
+publish, while `latest` advances only after a successful main publish. Compare the reported dev
+version's run ID and SHA with the completed workflow before treating a deployment as verified.
