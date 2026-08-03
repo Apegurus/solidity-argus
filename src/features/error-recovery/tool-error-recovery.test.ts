@@ -80,6 +80,8 @@ describe("createToolErrorRecoveryHandler", () => {
 
     expect(result).toContain("argus_analyze_contract")
     expect(result).toContain("argus_check_patterns")
+    expect(result).toContain("could not analyze this via_ir target")
+    expect(result).not.toContain("unavailable")
     expect(result).not.toContain("flatten")
   })
 
@@ -143,7 +145,7 @@ describe("createToolErrorRecoveryHandler", () => {
     })
 
     expect(result).toContain("[Argus Recovery Hint]")
-    expect(result).toContain("pip install slither-analyzer")
+    expect(result).toContain("pipx install --python python3.13 slither-analyzer")
     expect(result).toContain("argus_analyze_contract")
   })
 })

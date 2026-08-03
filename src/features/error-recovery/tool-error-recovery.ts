@@ -8,7 +8,7 @@ type ToolFallbackEntry = {
 
 const TOOL_FALLBACKS: Record<string, ToolFallbackEntry> = {
   slither: {
-    install: "pip install slither-analyzer",
+    install: "pipx install --python python3.13 slither-analyzer",
     fallback:
       'Slither is unavailable. PROCEED with the audit using `argus_analyze_contract` for structural profiling and `argus_check_patterns` for vulnerability scanning. Note in the final report: "Automated static analysis (Slither) was unavailable; manual review intensity increased."',
   },
@@ -62,7 +62,7 @@ export function createToolErrorRecoveryHandler(
 
     if (tool.includes("slither") && lowerResult.includes("slither_via_ir_analysis_failed")) {
       logger.info(`Tool error recovery hint for ${tool}: via_ir capability loss`)
-      return `\n[Argus Recovery Hint] ${TOOL_FALLBACKS.slither?.fallback ?? "Continue with manual analysis."}`
+      return "\n[Argus Recovery Hint] Slither could not analyze this via_ir target. Continue with `argus_analyze_contract` for structural profiling and `argus_check_patterns` for vulnerability scanning, and record the static-analysis capability limitation in the final report."
     }
 
     if (!isToolError(lowerResult)) return null
