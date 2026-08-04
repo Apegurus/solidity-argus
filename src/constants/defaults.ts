@@ -7,4 +7,13 @@ export const DEFAULT_MODELS = {
   themis: "openai/gpt-5.6-sol",
 } as const
 
+export const DEFAULT_VARIANTS = {
+  argus: "max",
+  sentinel: "high",
+  pythia: "high",
+  auditSpecialist: "xhigh",
+  scribe: "medium",
+  themis: "xhigh",
+} as const
+
 export const DEFAULT_STEPS = 50 as const

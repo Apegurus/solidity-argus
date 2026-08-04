@@ -8,7 +8,7 @@ import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
 import { THEMIS_PROMPT } from "../agents/themis-prompt"
 import type { ArgusConfig } from "../config/types"
-import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
+import { DEFAULT_MODELS, DEFAULT_STEPS, DEFAULT_VARIANTS } from "../constants/defaults"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
 import { buildSafeEnv } from "../shared/process-runner"
@@ -125,6 +125,7 @@ export function createConfigHandler(
       argus: {
         mode: "primary",
         model: argusConfig.agents?.argus?.model ?? DEFAULT_MODELS.argus,
+        variant: argusConfig.agents?.argus?.variant ?? DEFAULT_VARIANTS.argus,
         steps: argusConfig.agents?.argus?.steps ?? DEFAULT_STEPS,
         description: "Solidity security auditor — the All-Seeing Guardian",
         prompt: ARGUS_PROMPT,
@@ -154,6 +155,7 @@ export function createConfigHandler(
       sentinel: {
         mode: "subagent",
         model: argusConfig.agents?.sentinel?.model ?? DEFAULT_MODELS.sentinel,
+        variant: argusConfig.agents?.sentinel?.variant ?? DEFAULT_VARIANTS.sentinel,
         steps: argusConfig.agents?.sentinel?.steps ?? DEFAULT_STEPS,
         description: "Static analysis and testing specialist",
         prompt: SENTINEL_PROMPT,
@@ -176,6 +178,7 @@ export function createConfigHandler(
       pythia: {
         mode: "subagent",
         model: argusConfig.agents?.pythia?.model ?? DEFAULT_MODELS.pythia,
+        variant: argusConfig.agents?.pythia?.variant ?? DEFAULT_VARIANTS.pythia,
         steps: argusConfig.agents?.pythia?.steps ?? DEFAULT_STEPS,
         description: "Vulnerability researcher",
         prompt: PYTHIA_PROMPT,
@@ -192,6 +195,7 @@ export function createConfigHandler(
       "audit-specialist": {
         mode: "subagent",
         model: argusConfig.agents?.auditSpecialist?.model ?? DEFAULT_MODELS.auditSpecialist,
+        variant: argusConfig.agents?.auditSpecialist?.variant ?? DEFAULT_VARIANTS.auditSpecialist,
         steps: argusConfig.agents?.auditSpecialist?.steps ?? DEFAULT_STEPS,
         description: "Profile-driven adversarial specialist auditor",
         prompt: AUDIT_SPECIALIST_PROMPT,
@@ -215,6 +219,7 @@ export function createConfigHandler(
       scribe: {
         mode: "subagent",
         model: argusConfig.agents?.scribe?.model ?? DEFAULT_MODELS.scribe,
+        variant: argusConfig.agents?.scribe?.variant ?? DEFAULT_VARIANTS.scribe,
         steps: argusConfig.agents?.scribe?.steps ?? DEFAULT_STEPS,
         description: "Audit report writer",
         prompt: SCRIBE_PROMPT,
@@ -228,6 +233,7 @@ export function createConfigHandler(
       themis: {
         mode: "subagent",
         model: argusConfig.agents?.themis?.model ?? DEFAULT_MODELS.themis,
+        variant: argusConfig.agents?.themis?.variant ?? DEFAULT_VARIANTS.themis,
         steps: argusConfig.agents?.themis?.steps ?? DEFAULT_STEPS,
         description: "Audit quality gate — independent cross-validation (GPT-5.6 Sol)",
         prompt: THEMIS_PROMPT,
