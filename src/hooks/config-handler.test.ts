@@ -339,7 +339,7 @@ describe("createConfigHandler", () => {
     expect(config.agent?.["audit-specialist"]?.variant).toBe(DEFAULT_VARIANTS.auditSpecialist)
     expect(config.agent?.["audit-specialist"]?.variant).toBe("xhigh")
     expect(config.agent?.scribe?.variant).toBe(DEFAULT_VARIANTS.scribe)
-    expect(config.agent?.scribe?.variant).toBe("high")
+    expect(config.agent?.scribe?.variant).toBeUndefined()
     expect(config.agent?.themis?.variant).toBe(DEFAULT_VARIANTS.themis)
     expect(config.agent?.themis?.variant).toBe("xhigh")
   })

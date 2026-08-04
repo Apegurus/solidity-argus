@@ -12,7 +12,7 @@ export const DEFAULT_VARIANTS = {
   sentinel: "high",
   pythia: "high",
   auditSpecialist: "xhigh",
-  scribe: "high",
+  scribe: undefined,
   themis: "xhigh",
 } as const
 
