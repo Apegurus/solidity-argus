@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["solidity-argus"],
-  "model": "anthropic/claude-sonnet-5",
-  "theme": "opencode"
+  "model": "anthropic/claude-sonnet-5"
 }
