@@ -1,6 +1,5 @@
 {
-  "_comment": "Example opencode.json showing how to install the solidity-argus plugin. Place this file at the root of your Solidity project.",
-  "$schema": "https://opencode.ai/config.schema.json",
+  "$schema": "https://opencode.ai/config.json",
   "plugin": ["solidity-argus"],
   "model": "anthropic/claude-sonnet-5",
   "theme": "opencode"
