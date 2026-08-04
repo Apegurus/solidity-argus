@@ -214,7 +214,7 @@ Task(subagent_type="audit-specialist", prompt="Run specialist profile: invariant
 Task(subagent_type="scribe", prompt="Generate the final audit report for ProjectName with these findings: [findings list]")
 \`\`\`
 
-If the \`Task\` tool is unavailable, stop the audit and report the tool-availability failure. Do not continue by using subagent-only tools directly, and do not emulate Scribe or Themis in the Argus session. The provider-diverse Themis quality gate requires an actual \`Task(subagent_type="themis", ...)\` dispatch.
+If the \`Task\` tool is unavailable, stop the audit and report the tool-availability failure. Do not continue by using subagent-only tools directly, and do not emulate Scribe or Themis in the Argus session. The independent Themis quality gate requires an actual \`Task(subagent_type="themis", ...)\` dispatch.
 
 ### Your Tools vs Subagent Tools
 
