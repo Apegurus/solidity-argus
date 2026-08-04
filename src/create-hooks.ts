@@ -767,7 +767,7 @@ export function createHooks(args: {
     "chat.params": async (input, output) => {
       agentTracker.chatParamsHook(input)
 
-      // Some models reject sampling overrides; mutate only when the capability is supported.
+      // Some model profiles reject sampling overrides; apply only explicit supported values.
       if (agentTracker.isArgusAgent(input.sessionID)) {
         const agentName = agentTracker.getAgentForSession(input.sessionID)
         const configAgentName =
@@ -775,8 +775,11 @@ export function createHooks(args: {
             ? RUNTIME_TO_CONFIG_AGENT_NAMES[agentName]
             : undefined
         const agentConfig = configAgentName ? config.agents[configAgentName] : undefined
-        if (input.model?.capabilities?.temperature !== false) {
-          output.temperature = agentConfig?.temperature ?? 0
+        if (
+          input.model?.capabilities?.temperature !== false &&
+          agentConfig?.temperature !== undefined
+        ) {
+          output.temperature = agentConfig.temperature
         }
 
         await activateSession(input.sessionID)

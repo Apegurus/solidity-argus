@@ -179,6 +179,27 @@ describe("createHooks", () => {
     expect(output.temperature).toBe(0.7)
   })
 
+  it("leaves provider temperature untouched without an explicit override", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({}),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0.7, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      {
+        sessionID: "sentinel-default-temperature",
+        agent: "sentinel",
+        model: { capabilities: { temperature: true } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(0.7)
+  })
+
   it("attributes audit-specialist tool findings to the specialist", async () => {
     const parentSessionId = `specialist-parent-${Date.now()}`
     const sessionId = `specialist-provenance-${Date.now()}`
