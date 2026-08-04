@@ -30,7 +30,7 @@
       "model": "anthropic/claude-sonnet-5"
     },
     "themis": {
-      // Independent quality gate — different provider for reasoning diversity
+      // Independent quality gate with a separate reasoning profile
       "model": "openai/gpt-5.6-sol"
     }
   },
