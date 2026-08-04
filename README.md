@@ -63,14 +63,14 @@ Argus will automatically:
 
 ## Agents
 
-| Agent | Role | Model |
-|-------|------|-------|
-| `@argus` | Orchestrator — coordinates the full audit | claude-opus-5 |
-| `@sentinel` | Static analysis & testing specialist | claude-sonnet-5 |
-| `@pythia` | Vulnerability researcher | gpt-5.6-terra |
-| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-5 |
-| `@scribe` | Audit report writer | claude-sonnet-5 |
-| `@themis` | Independent audit quality gate | gpt-5.6-sol |
+| Agent | Role | Model | Reasoning |
+|-------|------|-------|-----------|
+| `@argus` | Orchestrator — coordinates the full audit | claude-opus-5 | max |
+| `@sentinel` | Static analysis & testing specialist | claude-sonnet-5 | high |
+| `@pythia` | Vulnerability researcher | gpt-5.6-terra | high |
+| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-5 | xhigh |
+| `@scribe` | Audit report writer | claude-sonnet-5 | medium |
+| `@themis` | Independent audit quality gate | gpt-5.6-sol | xhigh |
 
 ### @argus — The Orchestrator
 Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Audit Specialist, Scribe, and Themis as needed.
@@ -291,12 +291,12 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 ```jsonc
 {
   "agents": {
-    "argus": { "model": "anthropic/claude-opus-5" },
-    "sentinel": { "model": "anthropic/claude-sonnet-5" },
-    "pythia": { "model": "openai/gpt-5.6-terra" },
-    "auditSpecialist": { "model": "anthropic/claude-sonnet-5" },
-    "scribe": { "model": "anthropic/claude-sonnet-5" },
-    "themis": { "model": "openai/gpt-5.6-sol" }
+    "argus": { "model": "anthropic/claude-opus-5", "variant": "max" },
+    "sentinel": { "model": "anthropic/claude-sonnet-5", "variant": "high" },
+    "pythia": { "model": "openai/gpt-5.6-terra", "variant": "high" },
+    "auditSpecialist": { "model": "anthropic/claude-sonnet-5", "variant": "xhigh" },
+    "scribe": { "model": "anthropic/claude-sonnet-5", "variant": "medium" },
+    "themis": { "model": "openai/gpt-5.6-sol", "variant": "xhigh" }
   },
 
   "knowledge": {
