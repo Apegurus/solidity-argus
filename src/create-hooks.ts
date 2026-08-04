@@ -767,9 +767,7 @@ export function createHooks(args: {
     "chat.params": async (input, output) => {
       agentTracker.chatParamsHook(input)
 
-      // Enforce deterministic LLM output for Argus-family agents (temperature=0).
-      // Per-agent overrides are supported via config.agents.<name>.temperature.
-      // Non-Argus sessions are left untouched so other plugins are not affected.
+      // Some models reject sampling overrides; mutate only when the capability is supported.
       if (agentTracker.isArgusAgent(input.sessionID)) {
         const agentName = agentTracker.getAgentForSession(input.sessionID)
         const configAgentName =
@@ -777,7 +775,9 @@ export function createHooks(args: {
             ? RUNTIME_TO_CONFIG_AGENT_NAMES[agentName]
             : undefined
         const agentConfig = configAgentName ? config.agents[configAgentName] : undefined
-        output.temperature = agentConfig?.temperature ?? 0
+        if (input.model?.capabilities?.temperature !== false) {
+          output.temperature = agentConfig?.temperature ?? 0
+        }
 
         await activateSession(input.sessionID)
       }
