@@ -65,12 +65,12 @@ Argus will automatically:
 
 | Agent | Role | Model |
 |-------|------|-------|
-| `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-8 |
-| `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
-| `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
-| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-4-6 |
-| `@scribe` | Audit report writer | claude-sonnet-4-5 |
-| `@themis` | Independent audit quality gate | gpt-5.5 |
+| `@argus` | Orchestrator — coordinates the full audit | claude-opus-5 |
+| `@sentinel` | Static analysis & testing specialist | claude-sonnet-5 |
+| `@pythia` | Vulnerability researcher | gpt-5.6-terra |
+| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-5 |
+| `@scribe` | Audit report writer | claude-sonnet-5 |
+| `@themis` | Independent audit quality gate | gpt-5.6-sol |
 
 ### @argus — The Orchestrator
 Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Audit Specialist, Scribe, and Themis as needed.
@@ -291,12 +291,12 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 ```jsonc
 {
   "agents": {
-    "argus": { "model": "anthropic/claude-opus-4-8" },
-    "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
-    "pythia": { "model": "anthropic/claude-sonnet-4-6" },
-    "auditSpecialist": { "model": "anthropic/claude-sonnet-4-6" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-5" },
-    "themis": { "model": "openai/gpt-5.5" }
+    "argus": { "model": "anthropic/claude-opus-5" },
+    "sentinel": { "model": "anthropic/claude-sonnet-5" },
+    "pythia": { "model": "openai/gpt-5.6-terra" },
+    "auditSpecialist": { "model": "anthropic/claude-sonnet-5" },
+    "scribe": { "model": "anthropic/claude-sonnet-5" },
+    "themis": { "model": "openai/gpt-5.6-sol" }
   },
 
   "knowledge": {
