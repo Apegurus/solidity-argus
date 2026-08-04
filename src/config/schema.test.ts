@@ -5,7 +5,7 @@ describe("ArgusConfigSchema", () => {
   it("validates a complete valid config", () => {
     const config = {
       agents: {
-        argus: { model: "anthropic/claude-opus-4-7" },
+        argus: { model: "anthropic/claude-opus-4-7", variant: "custom-reasoning-profile" },
         sentinel: { model: "anthropic/claude-sonnet-4-6" },
         pythia: { model: "anthropic/claude-sonnet-4-6" },
         auditSpecialist: { model: "anthropic/claude-sonnet-4-6" },
@@ -33,6 +33,7 @@ describe("ArgusConfigSchema", () => {
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.agents.argus.model).toBe("anthropic/claude-opus-4-7")
+      expect(result.data.agents.argus.variant).toBe("custom-reasoning-profile")
       expect(result.data.solodit.enabled).toBe(true)
     }
   })

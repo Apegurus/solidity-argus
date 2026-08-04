@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Config } from "@opencode-ai/sdk/v2"
 import type { ArgusConfig } from "../config/types"
-import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
+import { DEFAULT_MODELS, DEFAULT_STEPS, DEFAULT_VARIANTS } from "../constants/defaults"
 import { createConfigHandler } from "./config-handler"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
@@ -230,6 +230,7 @@ describe("createConfigHandler", () => {
         agents: {
           argus: {
             model: "openai/gpt-5",
+            variant: "low",
           },
           sentinel: {},
           pythia: {},
@@ -244,6 +245,7 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.model).toBe("openai/gpt-5")
+    expect(config.agent?.argus?.variant).toBe("low")
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
   })
 
@@ -296,12 +298,17 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.model).toBe(DEFAULT_MODELS.argus)
-    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-4-8")
+    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-5")
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
+    expect(config.agent?.sentinel?.model).toBe("anthropic/claude-sonnet-5")
     expect(config.agent?.pythia?.model).toBe(DEFAULT_MODELS.pythia)
+    expect(config.agent?.pythia?.model).toBe("openai/gpt-5.6-terra")
     expect(config.agent?.["audit-specialist"]?.model).toBe(DEFAULT_MODELS.auditSpecialist)
+    expect(config.agent?.["audit-specialist"]?.model).toBe("anthropic/claude-sonnet-5")
     expect(config.agent?.scribe?.model).toBe(DEFAULT_MODELS.scribe)
     expect(config.agent?.scribe?.model).toBe("anthropic/claude-sonnet-4-5")
+    expect(config.agent?.themis?.model).toBe(DEFAULT_MODELS.themis)
+    expect(config.agent?.themis?.model).toBe("openai/gpt-5.6-sol")
   })
 
   test("sets default steps for all Argus agents", async () => {
@@ -315,6 +322,26 @@ describe("createConfigHandler", () => {
     expect(config.agent?.pythia?.steps).toBe(DEFAULT_STEPS)
     expect(config.agent?.["audit-specialist"]?.steps).toBe(DEFAULT_STEPS)
     expect(config.agent?.scribe?.steps).toBe(DEFAULT_STEPS)
+  })
+
+  test("sets role-specific reasoning variants for all Argus agents", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.agent?.argus?.variant).toBe(DEFAULT_VARIANTS.argus)
+    expect(config.agent?.argus?.variant).toBe("max")
+    expect(config.agent?.sentinel?.variant).toBe(DEFAULT_VARIANTS.sentinel)
+    expect(config.agent?.sentinel?.variant).toBe("high")
+    expect(config.agent?.pythia?.variant).toBe(DEFAULT_VARIANTS.pythia)
+    expect(config.agent?.pythia?.variant).toBe("high")
+    expect(config.agent?.["audit-specialist"]?.variant).toBe(DEFAULT_VARIANTS.auditSpecialist)
+    expect(config.agent?.["audit-specialist"]?.variant).toBe("xhigh")
+    expect(config.agent?.scribe?.variant).toBe(DEFAULT_VARIANTS.scribe)
+    expect(config.agent?.scribe?.variant).toBeUndefined()
+    expect(config.agent?.themis?.variant).toBe(DEFAULT_VARIANTS.themis)
+    expect(config.agent?.themis?.variant).toBe("xhigh")
   })
 
   test("does not register Solodit MCP server when enabled", async () => {

@@ -4,6 +4,7 @@ export const DEFAULT_CONFIDENCE_THRESHOLD = 80
 
 const AgentConfigSchema = z.object({
   model: z.string().optional(),
+  variant: z.string().min(1).optional(),
   steps: z.number().positive().optional(),
   temperature: z.number().min(0).max(2).optional(),
 })

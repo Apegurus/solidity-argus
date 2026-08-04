@@ -145,13 +145,59 @@ describe("createHooks", () => {
     const output = { temperature: 0, topP: 1, topK: 0, options: {} }
 
     await hooks["chat.params"]?.(
-      { sessionID: "specialist-temperature", agent: "audit-specialist" } as Parameters<
-        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
-      >[0],
+      {
+        sessionID: "specialist-temperature",
+        agent: "audit-specialist",
+        model: { capabilities: { temperature: true } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
       output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
     )
 
     expect(output.temperature).toBe(1.25)
+  })
+
+  it("leaves temperature untouched when the model does not support it", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({
+        agents: { scribe: { temperature: 1.25 } },
+      }),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0.7, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      {
+        sessionID: "scribe-temperature",
+        agent: "scribe",
+        model: { capabilities: { temperature: false } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(0.7)
+  })
+
+  it("leaves provider temperature untouched without an explicit override", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({}),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0.7, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      {
+        sessionID: "sentinel-default-temperature",
+        agent: "sentinel",
+        model: { capabilities: { temperature: true } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(0.7)
   })
 
   it("attributes audit-specialist tool findings to the specialist", async () => {

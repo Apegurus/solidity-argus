@@ -3,6 +3,8 @@
 ## 0.8.0 (2026-08-03)
 
 ### Features
+- Upgraded the default audit model stack to Claude Opus 5, Claude Sonnet 5, GPT-5.6 Terra, and GPT-5.6 Sol while retaining Scribe's temporary Claude Sonnet 4.5 compatibility pin.
+- Added provider-neutral per-agent `variant` overrides with role-specific defaults: Argus `max`, Sentinel `high`, Pythia `high`, Audit Specialist `xhigh`, Scribe provider default, and Themis `xhigh`.
 - Expanded the bundled DeFi vulnerability knowledge base. Techniques were inferred from primary sources and authored as original content (not ported verbatim): Dacian (`devdacian/ai-auditor-primers`, MIT), `0xJuancito/multichain-auditor` (MIT), Sigma Prime, beirao.xyz, Cyfrin, Hacken, and Pyth.
   - **5 new skills**: `liquidation-vulnerabilities` (over-seize, partial-liq bad-debt bypass, liquidation DoS, auction liquidation), `liquid-staking-restaking` (LSD quirks + EigenLayer credential/proof/accounting), `concentrated-liquidity` (CLM sandwich + Uniswap V4 hooks), `pyth-oracle-validation` (pull-oracle freshness/confidence/exponent), `arbitrary-external-call` (approval-drain via user-controlled call + calldata).
   - **Extended** `oracle-manipulation` (L2 sequencer-uptime feed, minAnswer/maxAnswer depeg breaker, per-feed heartbeat, unhandled revert, deprecated `latestAnswer`), `lack-of-precision` (rounding-direction matrix, cross-decimal scaling, round-to-zero), `lending-borrowing` (AAVE/Compound integration semantics, collateral valuation), `erc4626-exchange-rate-manipulation` (EIP-4626 compliance), `flash-loan-attacks` (flash-mint `totalSupply`, flash-deposit reward extraction), `staking-vesting` (reward-rate dilution, lock/cooldown bypass).
@@ -13,7 +15,7 @@
 
 ### Fixes
 - Added fail-closed report rendering recovery after repeated Scribe runtime failures. Argus can render only an existing Scribe-persisted deduped artifact, with persisted scope and strict lineage/quality gates; it cannot deduplicate, revise, force-overwrite, or inject inline report input.
-- Temporarily pinned the default Scribe model to Claude Sonnet 4.5 while OpenCode's Claude 4.6 assistant-prefill compatibility fix remains unreleased. Agent model overrides remain supported.
+- Temporarily pinned the default Scribe model to Claude Sonnet 4.5 while OpenCode's Claude 4.6+ assistant-prefill compatibility fix remains unreleased. Agent model overrides remain supported.
 - Restored Slither coverage for Foundry projects using `via_ir` by compiling through Foundry directly. Failed IR analysis now emits structured capability loss and proceeds through manual/pattern fallbacks instead of retrying through incompatible source flattening.
 - Slither now compiles the nearest in-project Foundry root while returning findings only for the requested contract or source scope, and `argus doctor` warns when Python 3.14 may be incompatible with the installed Slither release.
 - The guarded non-`via_ir` flatten fallback now honors root, source-directory, and file targets, runs from the selected Foundry root, and marks locations as approximate instead of presenting flattened line numbers as original-source positions.
