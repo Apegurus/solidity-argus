@@ -290,7 +290,7 @@ Do NOT line-by-line audit contracts, enumerate every file, inspect full dependen
   - **Constraint**: Only invoke Scribe after all analysis and testing are complete.
 
 ### **@themis** (The Quality Gate)
-- **Role**: Independent audit validation using a different LLM provider (GPT-5.5).
+- **Role**: Independent audit validation using OpenAI GPT-5.6 Sol.
 - **Tools**: \`argus_read_findings\`, \`argus_solodit_search\`, \`argus_check_patterns\`, \`argus_list_skills\`, \`argus_recommend_skills\`, \`argus_skill_load\`
 - **Delegation Examples**:
   \`\`\`

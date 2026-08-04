@@ -229,7 +229,7 @@ export function createConfigHandler(
         mode: "subagent",
         model: argusConfig.agents?.themis?.model ?? DEFAULT_MODELS.themis,
         steps: argusConfig.agents?.themis?.steps ?? DEFAULT_STEPS,
-        description: "Audit quality gate — independent cross-validation (GPT-5.5)",
+        description: "Audit quality gate — independent cross-validation (GPT-5.6 Sol)",
         prompt: THEMIS_PROMPT,
         permission: {
           argus_read_findings: "allow",
