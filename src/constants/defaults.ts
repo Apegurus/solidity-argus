@@ -3,7 +3,7 @@ export const DEFAULT_MODELS = {
   sentinel: "anthropic/claude-sonnet-5",
   pythia: "openai/gpt-5.6-terra",
   auditSpecialist: "anthropic/claude-sonnet-5",
-  scribe: "anthropic/claude-sonnet-5",
+  scribe: "anthropic/claude-sonnet-4-5",
   themis: "openai/gpt-5.6-sol",
 } as const
 
@@ -12,7 +12,7 @@ export const DEFAULT_VARIANTS = {
   sentinel: "high",
   pythia: "high",
   auditSpecialist: "xhigh",
-  scribe: "medium",
+  scribe: "high",
   themis: "xhigh",
 } as const
 
