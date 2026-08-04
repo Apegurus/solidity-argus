@@ -296,12 +296,17 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.model).toBe(DEFAULT_MODELS.argus)
-    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-4-8")
+    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-5")
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
+    expect(config.agent?.sentinel?.model).toBe("anthropic/claude-sonnet-5")
     expect(config.agent?.pythia?.model).toBe(DEFAULT_MODELS.pythia)
+    expect(config.agent?.pythia?.model).toBe("openai/gpt-5.6-terra")
     expect(config.agent?.["audit-specialist"]?.model).toBe(DEFAULT_MODELS.auditSpecialist)
+    expect(config.agent?.["audit-specialist"]?.model).toBe("anthropic/claude-sonnet-5")
     expect(config.agent?.scribe?.model).toBe(DEFAULT_MODELS.scribe)
-    expect(config.agent?.scribe?.model).toBe("anthropic/claude-sonnet-4-5")
+    expect(config.agent?.scribe?.model).toBe("anthropic/claude-sonnet-5")
+    expect(config.agent?.themis?.model).toBe(DEFAULT_MODELS.themis)
+    expect(config.agent?.themis?.model).toBe("openai/gpt-5.6-sol")
   })
 
   test("sets default steps for all Argus agents", async () => {
