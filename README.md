@@ -69,7 +69,7 @@ Argus will automatically:
 | `@sentinel` | Static analysis & testing specialist | claude-sonnet-5 | high |
 | `@pythia` | Vulnerability researcher | gpt-5.6-terra | high |
 | `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-5 | xhigh |
-| `@scribe` | Audit report writer | claude-sonnet-4-5 | high |
+| `@scribe` | Audit report writer | claude-sonnet-4-5 | default |
 | `@themis` | Independent audit quality gate | gpt-5.6-sol | xhigh |
 
 ### @argus — The Orchestrator
@@ -295,7 +295,7 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
     "sentinel": { "model": "anthropic/claude-sonnet-5", "variant": "high" },
     "pythia": { "model": "openai/gpt-5.6-terra", "variant": "high" },
     "auditSpecialist": { "model": "anthropic/claude-sonnet-5", "variant": "xhigh" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-5", "variant": "high" },
+    "scribe": { "model": "anthropic/claude-sonnet-4-5" },
     "themis": { "model": "openai/gpt-5.6-sol", "variant": "xhigh" }
   },
 

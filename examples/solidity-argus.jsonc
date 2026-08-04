@@ -31,8 +31,7 @@
     },
     "scribe": {
       // Report writer
-      "model": "anthropic/claude-sonnet-4-5",
-      "variant": "high"
+      "model": "anthropic/claude-sonnet-4-5"
     },
     "themis": {
       // Independent quality gate with a separate reasoning profile
