@@ -69,6 +69,11 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(SCRIBE_PROMPT).toContain("Scribe synthesizes the durable findings")
   })
 
+  test("Scribe prompt enrolls the safe large-payload persistence path", () => {
+    expect(SCRIBE_PROMPT).toContain("deduped_findings_path")
+    expect(SCRIBE_PROMPT).toContain("scribe-deduped-input.json")
+  })
+
   test("Audit Specialist prompt requires profile skills through argus_skill_load", () => {
     expect(AUDIT_SPECIALIST_PROMPT).toContain("Run specialist profile")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("argus_skill_load")
