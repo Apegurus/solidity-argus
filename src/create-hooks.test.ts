@@ -238,27 +238,21 @@ describe("createHooks", () => {
 
     await hooks["tool.execute.after"]?.(
       {
-        tool: "argus_check_patterns",
+        tool: "argus_slither_analyze",
         sessionID: sessionId,
         args: {},
       } as Parameters<NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>>[0],
       {
-        title: "argus_check_patterns",
+        title: "argus_slither_analyze",
         output: JSON.stringify({
           success: true,
-          patternVersion: "1.0.0",
-          sources: [
+          findings: [
             {
-              source: "pattern-db",
-              matches: [
-                {
-                  pattern: "reentrancy",
-                  description: "External call before state update",
-                  file: "src/VulnerableVault.sol",
-                  lines: [10, 20],
-                  severity: "High",
-                },
-              ],
+              check: "reentrancy",
+              description: "External call before state update",
+              file: "src/VulnerableVault.sol",
+              lines: [10, 20],
+              severity: "High",
             },
           ],
         }),
@@ -612,7 +606,7 @@ describe("createHooks", () => {
     expect(findingsArtifact.event_count).toBe(3)
   })
 
-  it("captures findings from a large cached pattern result when output.output is replaced by a truncation stub", async () => {
+  it("recovers a truncated pattern result from cache without enrolling findings", async () => {
     const config = ArgusConfigSchema.parse({})
     const activeState = makeAuditState({ sessionId: `run-trunc-${Date.now()}` })
     const toolResultCache = createToolResultCache()
@@ -689,7 +683,7 @@ describe("createHooks", () => {
       toolsExecuted: Array<{ tool: string; success: boolean; error?: string }>
     }
     expect(findingsArtifact.event_count).toBeGreaterThanOrEqual(3)
-    expect(findingsArtifact.findings).toHaveLength(1)
+    expect(findingsArtifact.findings).toHaveLength(0)
 
     const completed = findingsArtifact.toolsExecuted.find(
       (tool) => tool.tool === "argus_check_patterns",

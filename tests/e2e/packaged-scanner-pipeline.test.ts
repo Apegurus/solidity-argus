@@ -13,12 +13,6 @@ const ResultSchema = z.object({
   safeMatches: z.number(),
   bulkDisplayedMatches: z.number(),
   bulkTotalMatches: z.number(),
-  persistedPatternFindings: z.number(),
-  persistedRetainedFinding: z.object({
-    check: z.string(),
-    severity: z.string(),
-    source: z.string(),
-  }),
 })
 
 function run(
@@ -56,7 +50,7 @@ afterEach(() => {
 })
 
 describe("installed package scanner pipeline", () => {
-  test("Given the packed package When controls are scanned Then precision and full persistence survive installation", () => {
+  test("Given the packed package When controls are scanned Then scanner precision survives installation", () => {
     const sandbox = mkdtempSync(join(tmpdir(), "argus-packaged-scanner-"))
     sandboxes.push(sandbox)
     const packDir = join(sandbox, "pack")
@@ -104,11 +98,5 @@ describe("installed package scanner pipeline", () => {
     expect(result.safeMatches).toBe(0)
     expect(result.bulkDisplayedMatches).toBe(50)
     expect(result.bulkTotalMatches).toBe(60)
-    expect(result.persistedPatternFindings).toBe(61)
-    expect(result.persistedRetainedFinding).toEqual({
-      check: "pyth-oracle-validation-rule-1",
-      severity: "High",
-      source: "pattern",
-    })
   })
 })

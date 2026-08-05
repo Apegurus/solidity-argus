@@ -177,7 +177,7 @@ describe("full audit lifecycle simulation", () => {
     expect(state.findings[0]?.source).toBe("slither")
   })
 
-  it("pattern checker execution populates pattern findings", async () => {
+  it("pattern checker matches are hints, not enrolled findings", async () => {
     const { state, toolHook } = createHarness()
 
     await toolHook({
@@ -203,9 +203,7 @@ describe("full audit lifecycle simulation", () => {
       }),
     })
 
-    expect(state.findings).toHaveLength(1)
-    expect(state.findings[0]?.source).toBe("pattern")
-    expect(state.findings[0]?.check).toBe("state-update-after-call")
+    expect(state.findings).toHaveLength(0)
   })
 
   it("solodit search captures research evidence", async () => {
@@ -330,7 +328,6 @@ describe("full audit lifecycle simulation", () => {
       }),
     })
 
-    // Same check+file+lines from different tools are deduplicated
     expect(state.findings).toHaveLength(1)
     expect(state.findings[0]?.source).toBe("slither")
   })
@@ -356,7 +353,7 @@ describe("full audit lifecycle simulation", () => {
     expect(output.system).toHaveLength(2)
     expect(output.system[0]).toContain('<argus-context agent="argus">')
     expect(output.system[0]).toContain("Contracts: 1 reviewed")
-    expect(output.system[0]).toContain("Findings: Critical=0 High=1 Medium=1 Low=0 Info=0")
+    expect(output.system[0]).toContain("Findings: Critical=0 High=1 Medium=0 Low=0 Info=0")
     expect(output.system[0]).toContain(
       "Tools: argus_slither_analyze, argus_check_patterns, argus_solodit_search, argus_forge_fuzz, argus_analyze_contract",
     )
@@ -439,7 +436,6 @@ describe("full audit lifecycle simulation", () => {
     expect(result.report).toContain("## Appendix: Data Provenance")
     expect(result.report).toContain("### Source Breakdown")
     expect(result.report).toContain("| slither | 1 |")
-    expect(result.report).toContain("| pattern | 1 |")
     expect(result.report).toContain("### Tool Execution Summary")
     expect(result.report).toContain("argus_slither_analyze")
     expect(result.report).toContain("argus_forge_fuzz")
@@ -541,14 +537,14 @@ describe("full audit lifecycle simulation", () => {
       createContext(),
     )
 
-    expect(state.findings).toHaveLength(2)
+    expect(state.findings).toHaveLength(1)
     expect(state.soloditResults).toHaveLength(1)
     expect(state.fuzzCounterexamples).toHaveLength(1)
     expect(state.contractsReviewed).toEqual(["src/Vault.sol"])
     expect(state.toolsExecuted).toHaveLength(5)
 
     expect(systemOutput.system[0]).toContain('<argus-context agent="argus">')
-    expect(systemOutput.system[0]).toContain("Findings: Critical=0 High=1 Medium=1 Low=0 Info=0")
+    expect(systemOutput.system[0]).toContain("Findings: Critical=0 High=1 Medium=0 Low=0 Info=0")
     expect(systemOutput.system[1]).toContain("[Argus Audit Enforcer]")
 
     expect(compacted).toContain("<argus-audit-state>")
