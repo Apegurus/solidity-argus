@@ -74,6 +74,11 @@ describe("Argus skill boundary prompt guidance", () => {
     expect(SCRIBE_PROMPT).toContain("scribe-deduped-input.json")
   })
 
+  test("Argus delegation exposes Scribe's file-backed persistence input", () => {
+    expect(ARGUS_PROMPT).toContain("deduped_findings_path")
+    expect(ARGUS_PROMPT).toContain("scribe-deduped-input.json")
+  })
+
   test("Audit Specialist prompt requires profile skills through argus_skill_load", () => {
     expect(AUDIT_SPECIALIST_PROMPT).toContain("Run specialist profile")
     expect(AUDIT_SPECIALIST_PROMPT).toContain("argus_skill_load")
