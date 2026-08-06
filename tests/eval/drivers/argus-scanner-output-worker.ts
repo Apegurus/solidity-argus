@@ -15,6 +15,9 @@ const PatternResultSchema = z.object({
   error: z.string().optional(),
   patternsChecked: z.number().int().nonnegative(),
   matches: z.array(PatternMatchSchema),
+  summary: z.object({ total: z.number().int().nonnegative() }),
+  compact: z.boolean(),
+  truncatedMatches: z.number().int().nonnegative(),
 })
 const PatternsSchema = z.array(z.string())
 
@@ -72,12 +75,19 @@ try {
     target: projectDir,
     patterns: patterns.length > 0 ? patterns : undefined,
     include_scvd: false,
+    full_detail: true,
   }
   const displayedOutput = await patternTool.execute(args, createContext())
   const scanResult = PatternResultSchema.parse(JSON.parse(displayedOutput))
   if (!scanResult.success) throw new Error(scanResult.error ?? "pattern scan failed")
   if (scanResult.patternsChecked === 0) {
     throw new Error("pattern scan selected zero scanner patterns")
+  }
+  if (scanResult.compact || scanResult.truncatedMatches > 0) {
+    throw new Error("scanner-output eval requires complete, untruncated matches")
+  }
+  if (scanResult.matches.length !== scanResult.summary.total) {
+    throw new Error("scanner-output eval match count differs from scanner summary")
   }
   process.stdout.write(JSON.stringify({ predicted: mapPredictions(scanResult.matches) }))
 } finally {

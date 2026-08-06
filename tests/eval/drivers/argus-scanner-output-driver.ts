@@ -19,24 +19,26 @@ const PredictedFindingSchema = z.object({
 
 const WorkerResultSchema = z.object({ predicted: z.array(PredictedFindingSchema) })
 
-export type ArgusPipelineDriverOptions = {
+export type ArgusScannerOutputDriverOptions = {
   readonly patterns?: readonly string[]
   readonly repoRoot?: string
 }
 
-class ArgusPipelineWorkerError extends Error {
+class ArgusScannerOutputWorkerError extends Error {
   readonly exitCode: number
 
   constructor(exitCode: number, stderr: string) {
     super(`Argus pipeline worker exited with code ${exitCode}: ${stderr.trim()}`)
-    this.name = "ArgusPipelineWorkerError"
+    this.name = "ArgusScannerOutputWorkerError"
     this.exitCode = exitCode
   }
 }
 
-export function createArgusPipelineDriver(options: ArgusPipelineDriverOptions = {}): AuditDriver {
+export function createArgusScannerOutputDriver(
+  options: ArgusScannerOutputDriverOptions = {},
+): AuditDriver {
   const repoRoot = options.repoRoot ?? resolve(import.meta.dir, "..", "..", "..")
-  const workerPath = join(import.meta.dir, "argus-pipeline-worker.ts")
+  const workerPath = join(import.meta.dir, "argus-scanner-output-worker.ts")
 
   return {
     async audit(fixture) {
@@ -67,7 +69,7 @@ export function createArgusPipelineDriver(options: ArgusPipelineDriverOptions = 
           new Response(worker.stdout).text(),
           new Response(worker.stderr).text(),
         ])
-        if (exitCode !== 0) throw new ArgusPipelineWorkerError(exitCode, stderr)
+        if (exitCode !== 0) throw new ArgusScannerOutputWorkerError(exitCode, stderr)
         return WorkerResultSchema.parse(JSON.parse(stdout))
       } finally {
         rmSync(sandbox, { recursive: true, force: true })
