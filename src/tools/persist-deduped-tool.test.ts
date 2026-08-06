@@ -296,30 +296,38 @@ test("executePersistDeduped is idempotent for semantically identical key order c
 test("executePersistDeduped accepts a deduped_findings_path inside the run directory", async () => {
   const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-path-"))
   try {
-    const runId = "run-path"
-    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const inlineRunId = "run-inline"
+    const fileRunId = "run-path"
+    const raw = finding({ id: "raw-a", observation_id: "obs-a" })
+    writeRawFindings(tempDir, inlineRunId, [raw])
+    writeRawFindings(tempDir, fileRunId, [raw])
     const deduped = [finding({ id: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 })]
 
     const inline = JSON.parse(
       await executePersistDeduped(
-        { run_id: runId, deduped_findings: JSON.stringify(deduped) },
+        { run_id: inlineRunId, deduped_findings: JSON.stringify(deduped) },
         context(tempDir),
       ),
     )
 
-    const runDir = createAuditArtifactResolver(runId, tempDir).paths().runDir
+    const filePaths = createAuditArtifactResolver(fileRunId, tempDir).paths()
+    const runDir = filePaths.runDir
     const inputPath = path.join(runDir, "scribe-deduped-input.json")
     writeFileSync(inputPath, JSON.stringify(deduped))
     const viaFile = JSON.parse(
       await executePersistDeduped(
-        { run_id: runId, deduped_findings_path: inputPath },
+        { run_id: fileRunId, deduped_findings_path: inputPath },
         context(tempDir),
       ),
     )
 
     expect(inline.success).toBe(true)
     expect(viaFile.success).toBe(true)
+    expect(viaFile.idempotent).toBeUndefined()
     expect(viaFile.content_hash).toBe(inline.content_hash)
+    expect(JSON.parse(readFileSync(filePaths.dedupedFindingsFile, "utf8")).findings).toEqual(
+      deduped,
+    )
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
