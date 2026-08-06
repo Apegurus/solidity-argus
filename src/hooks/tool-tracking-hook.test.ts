@@ -190,7 +190,7 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings.at(1)?.severity).toBe("Medium")
   })
 
-  test("pattern scanner hits are surfaced as hints, never enrolled as findings", async () => {
+  test("pattern scanner hints require explicit verified promotion into finding lineage", async () => {
     // Contract: argus_check_patterns matches are hints, not canonical
     // observations; enrolling them floods the report and breaks lineage parity.
     const patternResult = {
@@ -221,6 +221,51 @@ describe("createToolTrackingHook", () => {
     expect(auditState.patternVersion).toBe("1.0.0")
     const exec = auditState.toolsExecuted.find((t) => t.tool === "argus_check_patterns")
     expect(exec?.findingsCount).toBe(0)
+
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-pattern-promotion",
+      getAgentName: () => "sentinel",
+    })
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {
+        finding: JSON.stringify({
+          check: "reentrancy",
+          severity: "High",
+          confidence: "High",
+          description: "Verified reentrancy candidate",
+          file: "src/Vault.sol",
+          lines: [15, 25],
+          source: "pattern",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      },
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "reentrancy",
+            severity: "High",
+            confidence: "High",
+            description: "Verified reentrancy candidate",
+            file: "src/Vault.sol",
+            lines: [15, 25],
+            source: "pattern",
+            rubric_verdict: "CONFIRMED",
+            confidence_score: 90,
+            reported_by_agent: "sentinel",
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(1)
+    expect(auditState.findings.at(0)?.source).toBe("pattern")
+    expect(sink.events.filter((event) => event.type === "finding.added")).toHaveLength(1)
   })
 
   test("argus_record_finding records manual findings", async () => {
