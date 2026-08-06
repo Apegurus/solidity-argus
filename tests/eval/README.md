@@ -10,7 +10,7 @@ tests/eval/
 ├── types.ts           ← Fixture / GroundTruth / AuditResult / RunMetrics types
 ├── metrics.ts         ← precision / recall / F1 / matching algorithm
 ├── runner.ts          ← loadFixture + runFixture entry points
-├── drivers/           ← replay and deterministic plugin-pipeline drivers
+├── drivers/           ← replay and deterministic scanner-output drivers
 ├── example.test.ts    ← smoke test against the vulnerable-vault fixture
 └── fixtures/
     ├── README.md      ← per-fixture authoring guide
@@ -67,14 +67,14 @@ The runner takes an `AuditDriver` with a single method:
 audit(fixture: FixtureManifest): Promise<{ predicted: PredictedFinding[]; tokens_used?: number }>
 ```
 
-Implementations are responsible for:
+Full-audit implementations are responsible for:
 
 1. Spawning an Argus plugin run against `fixture.project.root`
 2. Collecting the resulting `findings[]` from the persisted run artifact
 3. Mapping each finding to a `PredictedFinding` (subset of argus's `Finding` shape — see `types.ts`)
 4. (Optional) Returning a token-cost estimate
 
-A reference driver at `tests/eval/drivers/argus-pipeline-driver.ts` executes the real deterministic plugin boundary: packaged tools, OpenCode lifecycle hooks, durable state, and finding materialization. Live LLM orchestration remains a credentialed/manual eval because CI has no OpenCode session runner or model credentials.
+The deterministic control driver at `tests/eval/drivers/argus-scanner-output-driver.ts` measures complete, untruncated `argus_check_patterns` match output. It verifies scanner recall and precision only; it does not exercise agent verification, `argus_record_finding`, lifecycle hooks, durable finding state, rubric/tier routing, or report materialization. Live LLM orchestration and persisted-pipeline quality remain credentialed/manual evals because CI has no OpenCode session runner or model credentials.
 
 The smoke test in `example.test.ts` uses an inline mock driver to avoid spinning up the full pipeline and to keep the test deterministic.
 
@@ -85,6 +85,7 @@ The smoke test in `example.test.ts` uses an inline mock driver to avoid spinning
 | Types + metrics + runner | ✅ |
 | Smoke fixture (vulnerable-vault) | ✅ |
 | Smoke test | ✅ |
-| Reference AuditDriver wiring the deterministic plugin pipeline | ✅ |
+| Deterministic scanner-output control driver | ✅ |
+| Persisted plugin-pipeline AuditDriver | ⏳ credentialed/manual |
 | 5 production fixtures (Code4rena × 3, pashov × 3, EVMBench) | ⏳ Sprint 1 follow-up |
 | CI integration (regression gate on PR) | ⏳ after first 3 real fixtures land |
