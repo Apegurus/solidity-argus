@@ -1,4 +1,11 @@
-import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs"
+import {
+  closeSync,
+  existsSync,
+  constants as fsConstants,
+  fstatSync,
+  openSync,
+  readSync,
+} from "node:fs"
 import { join } from "node:path"
 import { createLogger } from "./logger"
 import { defaultRootResolver } from "./path-root-resolver"
@@ -98,8 +105,14 @@ export function readJsoncFile(filePath: string): Record<string, unknown> | null 
 export function readTextCapped(
   filePath: string,
   maxBytes: number,
+  options: { noFollow?: boolean } = {},
 ): { text: string; capped: boolean } {
-  const fd = openSync(filePath, "r")
+  // O_NONBLOCK so a FIFO/device open returns immediately instead of blocking
+  // before the regular-file check; O_NOFOLLOW rejects a final-component symlink
+  // for untrusted paths (TOCTOU defense once containment is already proven).
+  const flags =
+    fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | (options.noFollow ? fsConstants.O_NOFOLLOW : 0)
+  const fd = openSync(filePath, flags)
   try {
     const stats = fstatSync(fd)
     if (!stats.isFile()) {
@@ -114,7 +127,10 @@ export function readTextCapped(
       }
       bytesRead += n
     }
-    return { text: buffer.subarray(0, bytesRead).toString("utf-8"), capped: stats.size > maxBytes }
+    // Probe one byte past the cap rather than trusting fstat.size, which can lie
+    // for a file being written concurrently.
+    const capped = bytesRead === maxBytes && readSync(fd, Buffer.allocUnsafe(1), 0, 1, maxBytes) > 0
+    return { text: buffer.subarray(0, bytesRead).toString("utf-8"), capped }
   } finally {
     closeSync(fd)
   }

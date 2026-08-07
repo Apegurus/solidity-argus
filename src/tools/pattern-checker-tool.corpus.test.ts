@@ -57,12 +57,6 @@ const CORPUS: CorpusCase[] = [
     negative: "flash-loan-unchecked-negative.sol",
   },
   {
-    patternName: "missing-access-modifier",
-    regex: "function\\s+\\w+\\s*\\([^)]*\\)\\s+(external|public)",
-    positive: "access-control-missing-positive.sol",
-    negative: "access-control-missing-negative.sol",
-  },
-  {
     patternName: "unprotected-initialize",
     regex: "function\\s+initialize",
     positive: "access-control-initialize-positive.sol",
@@ -219,6 +213,7 @@ describe("Pattern Test Corpus", () => {
         "delete positions[id];",
         "multicall(calls);",
         "scale = price.expo;",
+        "function withdraw(uint256 amount) external {",
       ]
 
       expect(
@@ -244,6 +239,19 @@ describe("Pattern Test Corpus", () => {
         expect(skillPatterns.some((pattern) => matchesRegex(unsafeExample, pattern.regex))).toBe(
           true,
         )
+      }
+    })
+
+    it("does NOT load context-free function/math presence rules", () => {
+      const removedRegexSources = [
+        "function\\s+\\w+\\s*\\(",
+        "function\\s+\\w+\\s*\\([^)]*\\)\\s+(external|public)",
+        "mulDiv|roundUp|roundDown|FullMath",
+      ]
+      const loadedSources = new Set(skillPatterns.map((pattern) => pattern.regex))
+
+      for (const source of removedRegexSources) {
+        expect(loadedSources.has(source)).toBe(false)
       }
     })
   })

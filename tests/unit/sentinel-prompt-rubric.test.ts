@@ -40,6 +40,10 @@ describe("sentinel prompt rubric instructions", () => {
     expect(SENTINEL_PROMPT).toMatch(/confidence_score\s*[≤<=]+\s*30/)
   })
 
+  test("exposes the machine-consumed source for verified pattern promotions", () => {
+    expect(SENTINEL_PROMPT).toContain('source: "pattern"')
+  })
+
   test("requires property-based PoC truthfulness for theft and drain claims", () => {
     expect(SENTINEL_PROMPT).toContain("attacker_net_gain")
     expect(SENTINEL_PROMPT).toContain("conservation")

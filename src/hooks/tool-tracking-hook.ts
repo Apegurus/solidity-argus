@@ -272,7 +272,6 @@ function identifyMissingFields(
 }
 
 const SLITHER_REQUIRED = ["check", "description", "file", "lines"] as const
-const PATTERN_REQUIRED = ["pattern", "description", "file", "lines"] as const
 const MANUAL_REQUIRED = ["check", "description", "file", "lines"] as const
 
 type ProcessorConfig = {
@@ -295,19 +294,6 @@ const SLITHER_CONFIG: ProcessorConfig = {
   requiredFields: SLITHER_REQUIRED,
   sourceLabel: "slither",
   confidenceMode: "read",
-  extractOptionalFields: false,
-  allowReportedByOverride: false,
-}
-
-const PATTERN_CONFIG: ProcessorConfig = {
-  toolLabel: "Pattern",
-  arrayKey: "sources",
-  nestedArrayKey: "matches",
-  primaryIdField: "pattern",
-  requiredFields: PATTERN_REQUIRED,
-  sourceLabel: "pattern",
-  confidenceMode: "fixed",
-  confidenceDefault: "Medium",
   extractOptionalFields: false,
   allowReportedByOverride: false,
 }
@@ -1013,14 +999,9 @@ export function createToolTrackingHook(
             break
           }
           case "argus_check_patterns":
-            findingsCount = processToolResult(
-              record,
-              store,
-              diag,
-              findingMetadata,
-              PATTERN_CONFIG,
-              projectDir,
-            )
+            // Pattern matches are hints to verify, not canonical observations:
+            // they are surfaced in the tool's direct output and never enrolled
+            // as findings, so the report is not flooded and lineage stays exact.
             if (typeof record.patternVersion === "string") {
               auditState.patternVersion = record.patternVersion
             }

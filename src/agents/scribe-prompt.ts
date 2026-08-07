@@ -60,9 +60,9 @@ Argus provides you with a \`run_id\`. Your job: read findings, deduplicate, enri
    - Write specific \`recommendation\` (exact fix, not "fix the code")
    - NEVER output "Impact details were not provided" — write it yourself
 
-4. **Persist deduped findings**: Call \`argus_persist_deduped\` with:
-   - \`run_id\`: the run ID from Argus
+4. **Persist deduped findings**: Call \`argus_persist_deduped\` with the \`run_id\` and EXACTLY ONE of \`deduped_findings\` or \`deduped_findings_path\`:
    - \`deduped_findings\`: either a JSON array of deduped findings, or a JSON object \`{ "findings": [...], "dropped_observations": [...] }\` when any raw observation is excluded from final findings. Each dropped observation must be \`{ "observation_id": "...", "reason": "out-of-scope" | "false-positive" | "merged-into" | "non-actionable-noise", "note": "..." }\`. Use \`merged-into\` only for an excluded raw observation that is not present in any deduped finding's \`observation_ids\`; normal deduplication merges should preserve all contributing raw IDs in \`observation_ids\` instead.
+   - \`deduped_findings_path\`: the path to a transient file you write at \`.argus/runs/{run_id}/scribe-deduped-input.json\` containing the same payload. Use this ONLY when the inline array would be too large to pass safely — in particular when \`argus_read_findings\` returned \`truncated: true\` and gave you a \`compactReportInputFile\`. In that case read the compact file as raw input, synthesize your deduped output into the SEPARATE \`scribe-deduped-input.json\`, and pass its path. NEVER point \`deduped_findings_path\` at the compact input file or the canonical \`deduped-findings.json\`, and never overwrite either.
 
    This writes the source-of-truth JSON to disk at \`.argus/runs/{run_id}/deduped-findings.json\`.
 

@@ -595,9 +595,9 @@ Scope: {list of audited files}
 
 STEPS:
 1. Call argus_read_findings with run_id above to load all findings
-2. Deduplicate: group findings by vulnerability class + code location, merge into single entries. Include \`observation_ids\` on every deduped finding. If any raw observation is outside scope, false-positive, or non-actionable noise, account for it in \`dropped_observations\` instead of rendering it as a finding.
+2. Deduplicate: group findings by vulnerability class + code location, merge into single entries. Include \`observation_ids\` on every deduped finding. If any raw observation is outside scope, false-positive, or non-actionable noise, account for it in \`dropped_observations\` instead of rendering it as a finding. If \`argus_read_findings\` reports \`truncated: true\`, read its \`compactReportInputFile\` to process the complete raw input.
 3. Enrich: for each Critical/High finding, write specific impact and recommendation
-4. Call argus_persist_deduped with run_id and either your deduped findings array or \`{ "findings": [...], "dropped_observations": [...] }\` when observations are intentionally excluded — this writes the source-of-truth JSON to disk
+4. Call argus_persist_deduped with run_id and exactly one input: use \`deduped_findings\` for a safely sized inline array/object, or write the same payload to \`.argus/runs/{run_id}/scribe-deduped-input.json\` and use \`deduped_findings_path\` when the payload is large or the read result was truncated. Never point the path at \`compactReportInputFile\` or \`deduped-findings.json\` — this writes the source-of-truth JSON to disk
 5. Call argus_generate_report with run_id, project_name, scope, preflight_policy: "strict-fail", and quality_gate_policy: "strict-fail" — the tool reads deduped findings from disk
 
 Overall risk assessment: {your assessment}

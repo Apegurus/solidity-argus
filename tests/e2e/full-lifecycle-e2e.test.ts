@@ -253,7 +253,7 @@ describe("Full audit session lifecycle", () => {
     expect(compactBlock).toContain("Contracts Reviewed: src/VulnerableVault.sol")
     expect(compactBlock).toContain("Critical: 0")
     expect(compactBlock).toContain("High: 1")
-    expect(compactBlock).toContain("Medium: 1")
+    expect(compactBlock).toContain("Medium: 0")
     expect(compactBlock).toContain(
       "Tools Executed: argus_slither_analyze, argus_check_patterns, argus_analyze_contract, argus_forge_test, argus_forge_fuzz",
     )
@@ -269,7 +269,7 @@ describe("Full audit session lifecycle", () => {
     const systemJoined = systemOutput.system.join("\n")
     expect(systemJoined).toContain('<argus-context agent="argus">')
     expect(systemJoined).toContain("Contracts: 1 reviewed")
-    expect(systemJoined).toContain("Findings: Critical=0 High=1 Medium=1 Low=0 Info=0")
+    expect(systemJoined).toContain("Findings: Critical=0 High=1 Medium=0 Low=0 Info=0")
     expect(systemJoined).toContain(
       "Tools: argus_slither_analyze, argus_check_patterns, argus_analyze_contract, argus_forge_test, argus_forge_fuzz",
     )

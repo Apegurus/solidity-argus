@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { detectConfigFile, readJsoncFile, readJsoncFileResult, readTextCapped } from "./file-utils"
 
@@ -206,6 +207,36 @@ describe("file-utils", () => {
       const dirPath = join(testDir, "a-directory")
       mkdirSync(dirPath, { recursive: true })
       expect(() => readTextCapped(dirPath, 1024)).toThrow()
+    })
+
+    it("rejects a FIFO without blocking on the open", () => {
+      const fifoPath = join(testDir, "pipe.fifo")
+      execFileSync("mkfifo", [fifoPath])
+      expect(() => readTextCapped(fifoPath, 1024)).toThrow("not a regular file")
+    })
+
+    it("rejects a final-component symlink when noFollow is set", () => {
+      const target = join(testDir, "symlink-target.txt")
+      writeFileSync(target, "secret")
+      const link = join(testDir, "escape.txt")
+      symlinkSync(target, link)
+      expect(() => readTextCapped(link, 1024, { noFollow: true })).toThrow()
+    })
+
+    it("follows a symlink to a regular file when noFollow is not set", () => {
+      const target = join(testDir, "followed-target.txt")
+      writeFileSync(target, "followed")
+      const link = join(testDir, "followed-link.txt")
+      symlinkSync(target, link)
+      expect(readTextCapped(link, 1024).text).toBe("followed")
+    })
+
+    it("does not flag a file exactly at the byte budget as capped", () => {
+      const filePath = join(testDir, "exact.txt")
+      writeFileSync(filePath, "A".repeat(1024))
+      const result = readTextCapped(filePath, 1024)
+      expect(result.capped).toBe(false)
+      expect(result.text.length).toBe(1024)
     })
   })
 

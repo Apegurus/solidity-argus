@@ -190,23 +190,24 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings.at(1)?.severity).toBe("Medium")
   })
 
-  test("pattern checker findings extracted", async () => {
+  test("pattern scanner hints require explicit verified promotion into finding lineage", async () => {
+    // Contract: argus_check_patterns matches are hints, not canonical
+    // observations; enrolling them floods the report and breaks lineage parity.
     const patternResult = {
       sources: [
         {
           source: "pattern-db",
-          matches: [
-            {
-              pattern: "reentrancy",
-              severity: "High",
-              file: "src/Vault.sol",
-              lines: [15, 25],
-              description: "Potential reentrancy: ETH transfer via low-level call",
-            },
-          ],
+          matches: Array.from({ length: 25 }, (_, i) => ({
+            pattern: "reentrancy",
+            severity: "High",
+            file: "src/Vault.sol",
+            lines: [15 + i, 25 + i],
+            description: "Potential reentrancy: ETH transfer via low-level call",
+          })),
         },
       ],
       patternsChecked: 5,
+      patternVersion: "1.0.0",
       executionTime: 100,
     }
 
@@ -216,13 +217,55 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
+    expect(auditState.findings).toHaveLength(0)
+    expect(auditState.patternVersion).toBe("1.0.0")
+    const exec = auditState.toolsExecuted.find((t) => t.tool === "argus_check_patterns")
+    expect(exec?.findingsCount).toBe(0)
+
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-pattern-promotion",
+      getAgentName: () => "sentinel",
+    })
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {
+        finding: JSON.stringify({
+          check: "reentrancy",
+          severity: "High",
+          confidence: "High",
+          description: "Verified reentrancy candidate",
+          file: "src/Vault.sol",
+          lines: [15, 25],
+          source: "pattern",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      },
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "reentrancy",
+            severity: "High",
+            confidence: "High",
+            description: "Verified reentrancy candidate",
+            file: "src/Vault.sol",
+            lines: [15, 25],
+            source: "pattern",
+            rubric_verdict: "CONFIRMED",
+            confidence_score: 90,
+            reported_by_agent: "sentinel",
+          },
+        ],
+      }),
+    })
+
     expect(auditState.findings).toHaveLength(1)
-    expect(auditState.findings.at(0)?.check).toBe("reentrancy")
-    expect(auditState.findings.at(0)?.severity).toBe("High")
     expect(auditState.findings.at(0)?.source).toBe("pattern")
-    expect(auditState.findings.at(0)?.confidence).toBe("Medium")
-    expect(auditState.findings.at(0)?.file).toBe("src/Vault.sol")
-    expect(auditState.findings.at(0)?.lines).toEqual([15, 25])
+    expect(sink.events.filter((event) => event.type === "finding.added")).toHaveLength(1)
   })
 
   test("argus_record_finding records manual findings", async () => {
@@ -466,7 +509,7 @@ describe("createToolTrackingHook", () => {
     )
   })
 
-  test("cross-tool observations with same check+file+lines are deduplicated", async () => {
+  test("a same-location pattern hit is not enrolled alongside a real finding", async () => {
     const slitherResult = {
       success: true,
       findingsCount: 1,
@@ -517,7 +560,6 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
-    // Same check+file+lines from different tools are deduplicated by finding-store
     expect(auditState.findings).toHaveLength(1)
     expect(auditState.findings.at(0)?.source).toBe("slither")
   })
@@ -585,7 +627,7 @@ describe("createToolTrackingHook", () => {
     expect(auditState.toolsExecuted.at(1)?.success).toBe(false)
   })
 
-  test("does not persist pattern correlations without a target file", async () => {
+  test("pattern correlations are surfaced as hints, not enrolled findings", async () => {
     await hook({
       tool: "argus_check_patterns",
       args: { target: "." },
@@ -1817,7 +1859,6 @@ Content...`
         result: JSON.stringify(patternResult),
       })
 
-      // Same check+file+lines deduped — no new finding.added event
       const findingsAfter = sink.events.filter((e) => e.type === "finding.added").length
       expect(findingsAfter).toBe(1)
     })
@@ -1998,7 +2039,7 @@ Content...`
       expect(auditState.findings).toHaveLength(1)
     })
 
-    test("missing required field emits MISSING_REQUIRED_FIELD diagnostic for patterns", async () => {
+    test("malformed pattern matches produce no findings and no field diagnostics", async () => {
       const hookWithDiag = createToolTrackingHook(() => auditState)
 
       const patternResult = {
@@ -2016,10 +2057,8 @@ Content...`
         result: JSON.stringify(patternResult),
       })
 
-      const diags = hookWithDiag.getLastDiagnostics()
-      expect(diags).toHaveLength(1)
-      expect(diags[0]?.reason.code).toBe("MISSING_REQUIRED_FIELD")
-      expect(diags[0]?.reason.message).toContain("Pattern finding skipped")
+      expect(hookWithDiag.getLastDiagnostics()).toHaveLength(0)
+      expect(auditState.findings).toHaveLength(0)
     })
 
     test("strict-fail mode throws on MALFORMED_JSON", async () => {

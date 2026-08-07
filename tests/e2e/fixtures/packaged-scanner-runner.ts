@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import ArgusPlugin from "solidity-argus"
 import { z } from "zod"
@@ -12,18 +10,6 @@ const PatternResultSchema = z.object({
   summary: z.object({ total: z.number() }),
   patternsChecked: z.number().int().nonnegative(),
 })
-const FindingSchema = z.object({
-  check: z.string(),
-  file: z.string(),
-  severity: z.string(),
-  source: z.string(),
-})
-const ReportInputSchema = z.object({ findings: z.array(FindingSchema) })
-const ReadFindingsSchema = z.discriminatedUnion("truncated", [
-  z.object({ truncated: z.literal(false), reportInput: ReportInputSchema }),
-  z.object({ truncated: z.literal(true), compactReportInputFile: z.string() }),
-])
-const SessionStateSchema = z.object({ sessionId: z.string() })
 
 type PluginInstance = Awaited<ReturnType<typeof ArgusPlugin>>
 type EventInput = Parameters<NonNullable<PluginInstance["event"]>>[0]
@@ -57,11 +43,6 @@ async function fireSessionEvent(
   const input = {
     event: { type, properties: { info: { id: sessionID } } },
   } as EventInput
-  await plugin.event?.(input)
-}
-
-async function fireIdle(plugin: PluginInstance): Promise<void> {
-  const input = { event: { type: "session.idle", properties: { sessionID } } } as EventInput
   await plugin.event?.(input)
 }
 
@@ -103,23 +84,6 @@ const vulnerable = await scan(
 )
 const safe = await scan(plugin, "controls/safe", ["access-control"], "call-safe")
 const bulk = await scan(plugin, "controls/bulk", ["oracle-manipulation"], "call-bulk")
-await fireIdle(plugin)
-
-const statePath = join(projectDir, ".argus", "sessions", `state-${sessionID}.json`)
-const { sessionId: runId } = SessionStateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")))
-const readFindingsTool = plugin.tool?.argus_read_findings
-if (!readFindingsTool) throw new Error("argus_read_findings tool is unavailable")
-const readOutput = ReadFindingsSchema.parse(
-  JSON.parse(await readFindingsTool.execute({ run_id: runId }, createContext())),
-)
-const reportInput = readOutput.truncated
-  ? ReportInputSchema.parse(JSON.parse(readFileSync(readOutput.compactReportInputFile, "utf8")))
-  : readOutput.reportInput
-const persistedRetainedFinding = reportInput.findings.find(
-  (finding) =>
-    finding.check === "pyth-oracle-validation-rule-1" && finding.file.endsWith("PythUnsafe.sol"),
-)
-if (!persistedRetainedFinding) throw new Error("retained Pyth finding was not persisted")
 await fireSessionEvent(plugin, "session.deleted")
 
 console.log(
@@ -128,13 +92,5 @@ console.log(
     safeMatches: safe.summary.total,
     bulkDisplayedMatches: bulk.matches.length,
     bulkTotalMatches: bulk.summary.total,
-    persistedPatternFindings: reportInput.findings.filter(
-      (finding) => finding.check === "pyth-oracle-validation-rule-1",
-    ).length,
-    persistedRetainedFinding: {
-      check: persistedRetainedFinding.check,
-      severity: persistedRetainedFinding.severity,
-      source: persistedRetainedFinding.source,
-    },
   }),
 )

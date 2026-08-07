@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -280,6 +288,167 @@ test("executePersistDeduped is idempotent for semantically identical key order c
 
     expect(first.success).toBe(true)
     expect(second).toMatchObject({ success: true, idempotent: true })
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped accepts a deduped_findings_path inside the run directory", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-path-"))
+  try {
+    const inlineRunId = "run-inline"
+    const fileRunId = "run-path"
+    const raw = finding({ id: "raw-a", observation_id: "obs-a" })
+    writeRawFindings(tempDir, inlineRunId, [raw])
+    writeRawFindings(tempDir, fileRunId, [raw])
+    const deduped = [finding({ id: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 })]
+
+    const inline = JSON.parse(
+      await executePersistDeduped(
+        { run_id: inlineRunId, deduped_findings: JSON.stringify(deduped) },
+        context(tempDir),
+      ),
+    )
+
+    const filePaths = createAuditArtifactResolver(fileRunId, tempDir).paths()
+    const runDir = filePaths.runDir
+    const inputPath = path.join(runDir, "scribe-deduped-input.json")
+    writeFileSync(inputPath, JSON.stringify(deduped))
+    const viaFile = JSON.parse(
+      await executePersistDeduped(
+        { run_id: fileRunId, deduped_findings_path: inputPath },
+        context(tempDir),
+      ),
+    )
+
+    expect(inline.success).toBe(true)
+    expect(viaFile.success).toBe(true)
+    expect(viaFile.idempotent).toBeUndefined()
+    expect(viaFile.content_hash).toBe(inline.content_hash)
+    expect(JSON.parse(readFileSync(filePaths.dedupedFindingsFile, "utf8")).findings).toEqual(
+      deduped,
+    )
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped rejects when both inline and path inputs are provided", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-both-"))
+  try {
+    const runId = "run-both"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const runDir = createAuditArtifactResolver(runId, tempDir).paths().runDir
+    const inputPath = path.join(runDir, "in.json")
+    writeFileSync(inputPath, "[]")
+
+    const result = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: "[]", deduped_findings_path: inputPath },
+        context(tempDir),
+      ),
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("exactly one")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped rejects when neither inline nor path input is provided", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-neither-"))
+  try {
+    const result = JSON.parse(
+      await executePersistDeduped({ run_id: "run-neither" }, context(tempDir)),
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("exactly one")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped rejects a deduped_findings_path outside the run directory", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-outside-"))
+  try {
+    const runId = "run-outside"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const outsidePath = path.join(tempDir, "outside.json")
+    writeFileSync(outsidePath, "[]")
+
+    const result = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings_path: outsidePath },
+        context(tempDir),
+      ),
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("run directory")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped rejects a run-dir symlink escaping to an outside file", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-symlink-"))
+  const outsideDir = mkdtempSync(path.join(tmpdir(), "argus-persist-secret-"))
+  try {
+    const runId = "run-symlink"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const runDir = createAuditArtifactResolver(runId, tempDir).paths().runDir
+    const secret = path.join(outsideDir, "secret.json")
+    writeFileSync(secret, "[]")
+    const link = path.join(runDir, "link.json")
+    symlinkSync(secret, link)
+
+    const result = JSON.parse(
+      await executePersistDeduped({ run_id: runId, deduped_findings_path: link }, context(tempDir)),
+    )
+    expect(result.success).toBe(false)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped rejects a deduped_findings_path larger than the cap", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-toobig-"))
+  try {
+    const runId = "run-toobig"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const runDir = createAuditArtifactResolver(runId, tempDir).paths().runDir
+    const bigPath = path.join(runDir, "big.json")
+    writeFileSync(bigPath, `[${" ".repeat(8 * 1024 * 1024 + 1)}]`)
+
+    const result = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings_path: bigPath },
+        context(tempDir),
+      ),
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toBe("DedupedFindingsTooLargeError")
+    expect(result.max_bytes).toBe(8 * 1024 * 1024)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executePersistDeduped rejects a non-Scribe caller", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-persist-forbidden-"))
+  try {
+    const runId = "run-forbidden"
+    writeRawFindings(tempDir, runId, [finding({ id: "raw-a", observation_id: "obs-a" })])
+    const deduped = [finding({ id: "dedup-a", observation_ids: ["obs-a"], observation_count: 1 })]
+
+    const result = JSON.parse(
+      await executePersistDeduped(
+        { run_id: runId, deduped_findings: JSON.stringify(deduped) },
+        { ...context(tempDir), agent: "sentinel" },
+      ),
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toBe("PersistDedupedForbidden")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
