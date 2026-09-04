@@ -4,6 +4,7 @@ import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
+import { sanitizeTerminalText } from "../shared/terminal-safety"
 import { parseFrontmatter, type SkillFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
 export type ResolvedSkill = {
@@ -41,20 +42,6 @@ function inferSkillNameFromPath(filePath: string): string {
     return basename(resolve(filePath, ".."))
   }
   return basename(filePath, extname(filePath))
-}
-
-function parseSkillNameFromFrontmatter(content: string): string | null {
-  const match = content.match(/^name:\s*(.+)$/m)
-  if (!match) return null
-  return match[1]?.trim().replace(/^"|"$/g, "") ?? null
-}
-
-function parseSkillDescriptionFromFrontmatter(content: string): string {
-  const match = content.match(/^description:\s*(.+)$/m)
-  if (!match) return ""
-  const raw = match[1]?.trim() ?? ""
-  if (raw === ">" || raw === ">-") return ""
-  return raw.replace(/^"|"$/g, "")
 }
 
 /** Filenames that are never skills — exclude from resolution and health checks. */
@@ -107,7 +94,7 @@ function getTrailOfBitsRoots(): string[] {
   }
 
   const roots: string[] = []
-  for (const entry of entries) {
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue
     const skillsDir = join(pluginsDir, entry.name, "skills")
     if (existsSync(skillsDir)) roots.push(skillsDir)
@@ -180,16 +167,16 @@ export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig)
   })
 }
 
-export function resolveArgusSkills(
+export function discoverArgusSkills(
   projectDir: string,
   argusConfig?: ArgusConfig,
-): Map<string, ResolvedSkill> {
-  const resolved = new Map<string, ResolvedSkill>()
+): ResolvedSkill[] {
+  const discovered: ResolvedSkill[] = []
   const roots = resolveSkillRoots(projectDir, argusConfig)
   const logger = createLogger()
 
   for (const root of roots) {
-    const markdownFiles = collectMarkdownFiles(root.path)
+    const markdownFiles = collectMarkdownFiles(root.path).sort((a, b) => a.localeCompare(b))
     for (const markdownFile of markdownFiles) {
       let content: string
       try {
@@ -199,27 +186,27 @@ export function resolveArgusSkills(
       }
 
       const frontmatter = parseFrontmatter(content)
+      if (!frontmatter && basename(markdownFile) !== "SKILL.md") continue
+
       let validatedFrontmatter: SkillFrontmatter | null = null
       if (frontmatter) {
         const validation = validateSkillFrontmatter(frontmatter)
         if (!validation.success) {
-          logger.warn(
-            `Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`,
-          )
+          const safePath = sanitizeTerminalText(markdownFile)
+          const safeErrors = sanitizeTerminalText(validation.errors.join(", "))
+          logger.warn(`Skipping skill with invalid frontmatter: ${safePath} — ${safeErrors}`)
           continue
         }
         validatedFrontmatter = validation.data
       }
 
-      const parsedName = parseSkillNameFromFrontmatter(content)
-      const rawName = parsedName || inferSkillNameFromPath(markdownFile)
+      const rawName = validatedFrontmatter?.name ?? inferSkillNameFromPath(markdownFile)
       const normalizedName = normalizeSkillName(rawName)
       if (!normalizedName) continue
-      if (resolved.has(normalizedName)) continue
 
       const skill: ResolvedSkill = {
         name: normalizedName,
-        description: parseSkillDescriptionFromFrontmatter(content),
+        description: validatedFrontmatter?.description ?? "",
         filePath: markdownFile,
         source: root.source,
         content,
@@ -242,10 +229,21 @@ export function resolveArgusSkills(
         if (validatedFrontmatter?.source_hash) skill.source_hash = validatedFrontmatter.source_hash
       }
 
-      resolved.set(normalizedName, skill)
+      discovered.push(skill)
     }
   }
 
+  return discovered
+}
+
+export function resolveArgusSkills(
+  projectDir: string,
+  argusConfig?: ArgusConfig,
+): Map<string, ResolvedSkill> {
+  const resolved = new Map<string, ResolvedSkill>()
+  for (const skill of discoverArgusSkills(projectDir, argusConfig)) {
+    if (!resolved.has(skill.name)) resolved.set(skill.name, skill)
+  }
   return resolved
 }
 

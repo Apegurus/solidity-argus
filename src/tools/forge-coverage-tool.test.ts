@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test"
+import { realpathSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { executeForgeCoverage, forgeCoverageTool } from "./forge-coverage-tool"
+
+const projectPath = join(realpathSync(tmpdir()), "project")
 
 function createContext(overrides?: {
   directory?: string
@@ -14,8 +19,8 @@ function createContext(overrides?: {
     sessionID: "session-1",
     messageID: "message-1",
     agent: "argus",
-    directory: overrides?.directory ?? "/tmp/project",
-    worktree: overrides?.worktree ?? "/tmp/project",
+    directory: overrides?.directory ?? projectPath,
+    worktree: overrides?.worktree ?? projectPath,
     abort: overrides?.abort ?? abortController.signal,
     metadata(input) {
       metadataCalls.push({ title: input.title })
@@ -50,7 +55,7 @@ test("executeForgeCoverage parses forge coverage table output", async () => {
     async (command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
       expect(command).toEqual(["forge", "coverage", "--report", "summary"])
       expect(options.signal).toBe(context.abort)
-      expect(options.cwd).toBe("/tmp/project")
+      expect(options.cwd).toBe(projectPath)
       return { stdout, stderr: "", exitCode: 0 }
     },
   )
@@ -100,7 +105,7 @@ test("executeForgeCoverage forwards match_path and ir_minimum flags", async () =
         "test/WAlpha.t.sol",
         "--ir-minimum",
       ])
-      expect(options.cwd).toBe("/tmp/project")
+      expect(options.cwd).toBe(projectPath)
       return { stdout, stderr: "", exitCode: 0 }
     },
   )
@@ -214,14 +219,14 @@ test("executeForgeCoverage returns hint for optimizerSteps coverage failure", as
     "Error: failed to parse foundry.toml: optimizerSteps is not supported during coverage instrumentation"
 
   const result = await executeForgeCoverage(
-    { target: "/tmp/project", match_path: "test/Vault.t.sol" },
+    { target: projectPath, match_path: "test/Vault.t.sol" },
     context,
     async () => ({ stdout: "", stderr, exitCode: 1 }),
   )
 
   expect(result.success).toBe(false)
   expect(result.error).toBe(stderr)
-  expect(result.hint).toContain("Forge coverage failed for /tmp/project")
+  expect(result.hint).toContain(`Forge coverage failed for ${projectPath}`)
   expect(result.hint).toContain("optimizerSteps")
   expect(result.suggested_command).toBe(
     "forge coverage --report summary --match-path test/Vault.t.sol --ir-minimum",
@@ -233,14 +238,10 @@ test("executeForgeCoverage classifies unknown foundry config keys without mutati
   const stderr = "Error: failed to parse foundry.toml: unknown key `optimizer_steps`"
   const commands: string[][] = []
 
-  const result = await executeForgeCoverage(
-    { target: "/tmp/project" },
-    context,
-    async (command) => {
-      commands.push(command)
-      return { stdout: "", stderr, exitCode: 1 }
-    },
-  )
+  const result = await executeForgeCoverage({ target: projectPath }, context, async (command) => {
+    commands.push(command)
+    return { stdout: "", stderr, exitCode: 1 }
+  })
 
   expect(result.success).toBe(false)
   expect(result.error).toBe(stderr)
@@ -255,14 +256,10 @@ test("executeForgeCoverage classifies bare unknown foundry config keys", async (
   const stderr = "Error: unknown key `optimizer_steps`"
   const commands: string[][] = []
 
-  const result = await executeForgeCoverage(
-    { target: "/tmp/project" },
-    context,
-    async (command) => {
-      commands.push(command)
-      return { stdout: "", stderr, exitCode: 1 }
-    },
-  )
+  const result = await executeForgeCoverage({ target: projectPath }, context, async (command) => {
+    commands.push(command)
+    return { stdout: "", stderr, exitCode: 1 }
+  })
 
   expect(result.success).toBe(false)
   expect(result.error).toBe(stderr)
@@ -275,7 +272,7 @@ test("executeForgeCoverage preserves generic forge stderr without hint", async (
   const { context } = createContext()
   const stderr = "forge coverage aborted"
 
-  const result = await executeForgeCoverage({ target: "/tmp/project" }, context, async () => ({
+  const result = await executeForgeCoverage({ target: projectPath }, context, async () => ({
     stdout: "",
     stderr,
     exitCode: 1,
@@ -288,16 +285,17 @@ test("executeForgeCoverage preserves generic forge stderr without hint", async (
 })
 
 test("executeForgeCoverage resolves cwd from context when target is omitted", async () => {
+  const directory = join(projectPath, "from-directory")
   const { context } = createContext({
-    directory: "/tmp/from-directory",
-    worktree: "/tmp/from-worktree",
+    directory,
+    worktree: join(projectPath, "from-worktree"),
   })
 
-  await executeForgeCoverage(
+  const result = await executeForgeCoverage(
     {},
     context,
     async (_command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
-      expect(options.cwd).toBe("/tmp/from-directory")
+      expect(options.cwd).toBe(directory)
       return {
         stdout:
           "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 10.00% (1/10) | 20.00% (2/10) | 30.00% (3/10) | 40.00% (4/10) |",
@@ -306,10 +304,12 @@ test("executeForgeCoverage resolves cwd from context when target is omitted", as
       }
     },
   )
+
+  expect(result.success).toBe(true)
 })
 
 test("executeForgeCoverage rejects an out-of-tree target without running forge", async () => {
-  const { context } = createContext({ directory: "/tmp/project" })
+  const { context } = createContext({ directory: projectPath })
 
   const result = await executeForgeCoverage({ target: "/etc" }, context, async () => {
     throw new Error("runCommand must not be reached for an out-of-tree target")
@@ -320,7 +320,7 @@ test("executeForgeCoverage rejects an out-of-tree target without running forge",
 })
 
 test("executeForgeCoverage rejects a match_path that escapes the project root", async () => {
-  const { context } = createContext({ directory: "/tmp/project" })
+  const { context } = createContext({ directory: projectPath })
 
   const result = await executeForgeCoverage(
     { target: ".", match_path: "../outside.t.sol" },
@@ -335,7 +335,7 @@ test("executeForgeCoverage rejects a match_path that escapes the project root", 
 })
 
 test("executeForgeCoverage rejects a flag-shaped match_path (option injection)", async () => {
-  const { context } = createContext({ directory: "/tmp/project" })
+  const { context } = createContext({ directory: projectPath })
 
   const result = await executeForgeCoverage(
     { match_path: "--fork-url=http://169.254.169.254" },

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Finding } from "../state/types"
@@ -20,7 +20,7 @@ describe("validateSlitherTarget", () => {
   })
 
   function project(): { root: string; target: string } {
-    const root = mkdtempSync(join(tmpdir(), "argus-slither-target-"))
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "argus-slither-target-")))
     tempDirs.push(root)
     const sourceDir = join(root, "src")
     const target = join(sourceDir, "Vault.sol")

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -523,7 +523,8 @@ test("flattenFallback fails when child Slither exits nonzero", async () => {
 
 test("flattenFallback processes flattened files and returns findings", async () => {
   const { context } = createContext()
-  const tmpFile = join(tmpdir(), `argus-test-${Date.now()}.sol`)
+  const canonicalTmpDir = realpathSync(tmpdir())
+  const tmpFile = join(canonicalTmpDir, `argus-test-${Date.now()}.sol`)
   writeFileSync(
     tmpFile,
     "pragma solidity ^0.8.20;\ncontract Vault { function withdraw() external {} }",
@@ -552,7 +553,7 @@ test("flattenFallback processes flattened files and returns findings", async () 
   })
 
   const deps = createFlattenDeps({
-    projectDir: tmpdir(),
+    projectDir: canonicalTmpDir,
     runCommand: async (_command, _signal, _cwd) => ({
       stdout: slitherJSON,
       stderr: "",
@@ -587,7 +588,7 @@ test("flattenFallback processes flattened files and returns findings", async () 
 
 test("flattenFallback scans a requested source directory from the Foundry root", async () => {
   const { context } = createContext()
-  const projectDir = mkdtempSync(join(tmpdir(), "argus-flatten-source-"))
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "argus-flatten-source-")))
   const sourceDir = join(projectDir, "src")
   const sourceFile = join(sourceDir, "Vault.sol")
   mkdirSync(sourceDir, { recursive: true })
@@ -701,7 +702,7 @@ test("flattenFallback retains file-level findings without a contract name", asyn
 
 test("flattenFallback scans the exact requested root instead of narrowing to src", async () => {
   const { context } = createContext()
-  const projectDir = mkdtempSync(join(tmpdir(), "argus-flatten-root-"))
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "argus-flatten-root-")))
   const sourceDir = join(projectDir, "src")
   mkdirSync(sourceDir)
   writeFileSync(join(sourceDir, "Vault.sol"), "contract Vault {}")
@@ -752,7 +753,7 @@ test("flattenFallback forwards detector selection and exclusions", async () => {
 
 test("flattenFallback discovers contracts nested deeper than three directories", async () => {
   const { context } = createContext()
-  const projectDir = mkdtempSync(join(tmpdir(), "argus-fallback-deep-"))
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "argus-fallback-deep-")))
   const deepDir = join(projectDir, "src", "one", "two", "three", "four")
   const sourceFile = join(deepDir, "Vault.sol")
   mkdirSync(deepDir, { recursive: true })
