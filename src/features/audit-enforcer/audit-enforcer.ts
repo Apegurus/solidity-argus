@@ -1,5 +1,5 @@
 import { PHASE_ORDER } from "../../shared/audit-phases"
-import { computeMissingKeyTools } from "../../shared/key-tools"
+import { computeFailedKeyTools, computeMissingKeyTools } from "../../shared/key-tools"
 import type { AuditPhase, AuditState } from "../../state/types"
 
 const REPORTING_PHASES: AuditPhase[] = ["reporting", "complete"]
@@ -26,9 +26,15 @@ export function createAuditEnforcer() {
 
     if (REPORTING_PHASES.includes(auditState.currentPhase)) {
       const missing = computeMissingKeyTools(auditState.toolsExecuted, auditState.unavailableTools)
+      const failed = computeFailedKeyTools(auditState.toolsExecuted, auditState.unavailableTools)
       if (missing.length > 0) {
         parts.push(
           `\u26a0\ufe0f Tool coverage incomplete: ${missing.join(", ")} have not been executed. Do not proceed to report generation until required tools are complete.`,
+        )
+      }
+      if (failed.length > 0) {
+        parts.push(
+          `\u26a0\ufe0f Key audit tool attempts failed: ${failed.join(", ")}. Disclose these as report completeness limitations if proceeding.`,
         )
       }
     }

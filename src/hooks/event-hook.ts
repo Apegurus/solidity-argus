@@ -55,6 +55,17 @@ export function extractSessionId(event: {
   return undefined
 }
 
+export function extractParentSessionId(event: {
+  type: string
+  properties?: Record<string, unknown>
+}): string | undefined {
+  const info = event.properties?.info
+  if (!info || typeof info !== "object") return undefined
+
+  const parentID = (info as Record<string, unknown>).parentID
+  return typeof parentID === "string" && parentID.length > 0 ? parentID : undefined
+}
+
 export type EventSubHandler = (event: {
   type: string
   sessionId?: string
@@ -213,14 +224,19 @@ export function createEventHook(
 
       case "session.error": {
         if (stateForSession) {
-          logger.error(
-            `Session error — state snapshot: ${JSON.stringify({
-              sessionId: stateForSession.sessionId,
-              phase: stateForSession.currentPhase,
-              findingsCount: stateForSession.findings.length,
-              contractsReviewed: stateForSession.contractsReviewed,
-            })}`,
-          )
+          const hasAuditWork =
+            stateForSession.findings.length > 0 || stateForSession.contractsReviewed.length > 0
+          const snapshot = `Session error — state snapshot: ${JSON.stringify({
+            sessionId: stateForSession.sessionId,
+            phase: stateForSession.currentPhase,
+            findingsCount: stateForSession.findings.length,
+            contractsReviewed: stateForSession.contractsReviewed,
+          })}`
+          if (hasAuditWork) {
+            logger.error(snapshot)
+          } else {
+            logger.warn(snapshot)
+          }
         }
         break
       }

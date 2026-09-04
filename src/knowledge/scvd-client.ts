@@ -15,9 +15,18 @@ export interface ScvdStats {
   last_updated: string
 }
 
+export interface ScvdFindingsPage {
+  findings: ScvdFinding[]
+  nextCursor?: string
+}
+
+import { assertAllowedHost } from "../shared/process-runner"
 import { isRecord } from "../shared/type-guards"
 
 const DEFAULT_PAGE_SIZE = 100
+const MAX_SCVD_RESPONSE_BYTES = 16 * 1024 * 1024
+const MAX_SCVD_PAGES = 100
+const MAX_SCVD_FINDINGS = 10_000
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -69,7 +78,14 @@ function parseFinding(raw: unknown): ScvdFinding | null {
   const scvdId = raw.scvd_id
   const docId = raw.doc_id
   const title = raw.title
-  const description = raw.description_md
+  // SCVD schema 0.1 leaves description_md null on ~half the corpus but always carries the
+  // finding body under full_markdown; fall back so those findings are still indexed.
+  const description =
+    typeof raw.description_md === "string" && raw.description_md.length > 0
+      ? raw.description_md
+      : typeof raw.full_markdown === "string"
+        ? raw.full_markdown
+        : undefined
   const severity = raw.severity
   const repoUrl = repoRaw.url
 
@@ -119,14 +135,45 @@ function parseFinding(raw: unknown): ScvdFinding | null {
 }
 
 function parseFindings(raw: unknown): ScvdFinding[] {
-  if (!Array.isArray(raw)) {
-    if (isRecord(raw) && Array.isArray(raw.data)) {
-      return raw.data.map(parseFinding).filter((value): value is ScvdFinding => value !== null)
-    }
-    return []
+  if (Array.isArray(raw)) {
+    return raw.map(parseFinding).filter((value): value is ScvdFinding => value !== null)
   }
 
-  return raw.map(parseFinding).filter((value): value is ScvdFinding => value !== null)
+  if (isRecord(raw)) {
+    // SCVD schema 0.1 wraps the page in { items: [...] }; the legacy API used { data: [...] }.
+    const container = Array.isArray(raw.items)
+      ? raw.items
+      : Array.isArray(raw.data)
+        ? raw.data
+        : null
+    if (container) {
+      return container.map(parseFinding).filter((value): value is ScvdFinding => value !== null)
+    }
+  }
+
+  return []
+}
+
+function parseNextCursor(raw: unknown): string | undefined {
+  if (isRecord(raw) && typeof raw.next_cursor === "string" && raw.next_cursor.length > 0) {
+    return raw.next_cursor
+  }
+  return undefined
+}
+
+function parseBySeverity(value: unknown): Record<string, number> {
+  // SCVD schema 0.1 returns [{ level, count }]; the legacy API returned { level: count }.
+  if (Array.isArray(value)) {
+    const output: Record<string, number> = {}
+    for (const entry of value) {
+      if (isRecord(entry) && typeof entry.level === "string" && typeof entry.count === "number") {
+        output[entry.level] = entry.count
+      }
+    }
+    return output
+  }
+
+  return toNumberRecord(value)
 }
 
 function parseStats(raw: unknown): ScvdStats {
@@ -134,17 +181,24 @@ function parseStats(raw: unknown): ScvdStats {
     throw new Error("Invalid SCVD stats response payload")
   }
 
-  const total = raw.total
-  const lastUpdated = raw.last_updated
+  // SCVD schema 0.1: { totals: { findings }, by_severity: [{ level, count }] } and drops
+  // last_updated. The legacy API used { total, last_updated, by_severity: { level: count } }.
+  const totals = isRecord(raw.totals) ? raw.totals : null
+  const total =
+    typeof raw.total === "number"
+      ? raw.total
+      : typeof totals?.findings === "number"
+        ? totals.findings
+        : null
 
-  if (typeof total !== "number" || typeof lastUpdated !== "string") {
+  if (total === null) {
     throw new Error("Invalid SCVD stats fields in response")
   }
 
   return {
     total,
-    by_severity: toNumberRecord(raw.by_severity),
-    last_updated: lastUpdated,
+    by_severity: parseBySeverity(raw.by_severity),
+    last_updated: typeof raw.last_updated === "string" ? raw.last_updated : "",
   }
 }
 
@@ -160,6 +214,38 @@ export class ScvdApiError extends Error {
     super(message ?? `SCVD API error: HTTP ${httpStatus}`)
     this.httpStatus = httpStatus
   }
+}
+
+export function assertScvdApiUrlAllowed(apiUrl: string): void {
+  assertAllowedHost(apiUrl)
+}
+
+// Read + JSON-parse a response body bounded to `maxBytes`, cancelling the download and rejecting
+// once the cap is crossed — a remote (allowlisted but untrusted) mirror cannot exhaust memory with
+// an unbounded body. JSON cannot be partially parsed, so this rejects rather than truncates.
+export async function readJsonBodyCapped(
+  response: Response,
+  url: string,
+  maxBytes: number = MAX_SCVD_RESPONSE_BYTES,
+): Promise<unknown> {
+  const stream = response.body
+  if (!stream) {
+    throw new ScvdNetworkError(`SCVD response from ${url} has no readable body to bound`)
+  }
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    received += value.byteLength
+    if (received > maxBytes) {
+      await reader.cancel()
+      throw new ScvdNetworkError(`SCVD response from ${url} exceeded the ${maxBytes}-byte cap`)
+    }
+    chunks.push(value)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
 }
 
 export class ScvdClient {
@@ -189,15 +275,15 @@ export class ScvdClient {
       )
     }
 
-    const body = (await response.json()) as unknown
+    const body = await readJsonBodyCapped(response, url)
     return parseStats(body)
   }
 
   async fetchFindings(params: {
     severity?: string
     limit?: number
-    offset?: number
-  }): Promise<ScvdFinding[]> {
+    cursor?: string
+  }): Promise<ScvdFindingsPage> {
     const searchParams = new URLSearchParams()
 
     if (params.severity) {
@@ -206,8 +292,8 @@ export class ScvdClient {
     if (typeof params.limit === "number") {
       searchParams.set("limit", String(params.limit))
     }
-    if (typeof params.offset === "number") {
-      searchParams.set("offset", String(params.offset))
+    if (params.cursor) {
+      searchParams.set("cursor", params.cursor)
     }
 
     const query = searchParams.toString()
@@ -225,34 +311,39 @@ export class ScvdClient {
       throw new ScvdApiError(response.status, `SCVD API error: HTTP ${response.status} for ${url}`)
     }
 
-    const body = (await response.json()) as unknown
-    return parseFindings(body)
+    const body = await readJsonBodyCapped(response, url)
+    return { findings: parseFindings(body), nextCursor: parseNextCursor(body) }
   }
 
   async fetchAllFindings(onProgress?: (count: number) => void): Promise<ScvdFinding[]> {
     const results: ScvdFinding[] = []
-    let offset = 0
+    let cursor: string | undefined
+    let pagesFetched = 0
+    const seenCursors = new Set<string>()
 
-    while (true) {
-      const page = await this.fetchFindings({
-        limit: DEFAULT_PAGE_SIZE,
-        offset,
-      })
+    // SCVD schema 0.1 uses opaque cursor pagination (next_cursor); offset is ignored. Stop on an
+    // empty page, a missing/repeated cursor, or finite page/result caps.
+    while (pagesFetched < MAX_SCVD_PAGES && results.length < MAX_SCVD_FINDINGS) {
+      const page = await this.fetchFindings({ limit: DEFAULT_PAGE_SIZE, cursor })
+      pagesFetched += 1
 
-      if (page.length === 0) {
+      if (page.findings.length === 0) {
         break
       }
 
-      results.push(...page)
-      offset += page.length
+      const remaining = MAX_SCVD_FINDINGS - results.length
+      results.push(...page.findings.slice(0, remaining))
+      onProgress?.(results.length)
 
-      if (onProgress) {
-        onProgress(results.length)
-      }
-
-      if (page.length < DEFAULT_PAGE_SIZE) {
+      if (
+        results.length === MAX_SCVD_FINDINGS ||
+        !page.nextCursor ||
+        seenCursors.has(page.nextCursor)
+      ) {
         break
       }
+      seenCursors.add(page.nextCursor)
+      cursor = page.nextCursor
     }
 
     return results

@@ -2,7 +2,12 @@ import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
 import { resolveProjectDir } from "../shared/project-utils"
-import { normalizeSkillName, resolveArgusSkills } from "../skills/argus-skill-resolver"
+import { escapeMarkdown, fenceUntrusted, type TrustTier } from "../shared/untrusted-content"
+import {
+  normalizeSkillName,
+  type ResolvedSkill,
+  resolveArgusSkills,
+} from "../skills/argus-skill-resolver"
 
 type ArgusSkillLoadArgs = {
   name: string
@@ -11,6 +16,12 @@ type ArgusSkillLoadArgs = {
 type ArgusSkillLoadDependencies = {
   loadConfig?: typeof loadArgusConfig
   resolveSkills?: typeof resolveArgusSkills
+}
+
+function skillTrustTier(source: ResolvedSkill["source"]): TrustTier {
+  if (source === "bundled") return "bundled"
+  if (source === "trailofbits") return "companion"
+  return "custom"
 }
 
 export async function executeArgusSkillLoad(
@@ -48,15 +59,27 @@ export async function executeArgusSkillLoad(
   const provenanceLine =
     provenanceParts.length > 0 ? `[Provenance: ${provenanceParts.join(" | ")}]` : ""
 
+  const trustTier = skillTrustTier(skill.source)
+  const body =
+    trustTier === "bundled"
+      ? skill.content
+      : fenceUntrusted(skill.content, {
+          source: `argus-skill:${skill.source}:${skill.name}`,
+          trustTier,
+        })
+  const descriptionLine = skill.description
+    ? `**Description**: ${trustTier === "bundled" ? skill.description : escapeMarkdown(skill.description)}`
+    : ""
+
   return [
     `## Argus Skill: ${skill.name} [Source: ${skill.source}]`,
     "",
     `**Source**: ${skill.source}`,
     `**Path**: ${skill.filePath}`,
-    skill.description ? `**Description**: ${skill.description}` : "",
+    descriptionLine,
     provenanceLine,
     "",
-    skill.content,
+    body,
   ]
     .filter(Boolean)
     .join("\n")

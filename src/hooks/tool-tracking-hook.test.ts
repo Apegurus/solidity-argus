@@ -10,14 +10,29 @@ function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] 
   const events: AuditEvent[] = []
   let seq = 0
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     events,
     async append(event: AuditEvent): Promise<void> {
       seq++
@@ -31,19 +46,74 @@ function createMockSink(runId = "test-run"): EventSink & { events: AuditEvent[] 
 
 function createFailingSink(runId = "test-run"): EventSink {
   const state = { finalized: false }
+  const owners = new Set<string>()
   return {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     async append(): Promise<void> {
       throw new Error("Sink write failure")
     },
     async readAll(): Promise<AuditEvent[]> {
       return []
+    },
+  }
+}
+
+function createFindingAppendFailingSink(runId = "test-run"): EventSink {
+  const events: AuditEvent[] = []
+  let seq = 0
+  const owners = new Set<string>()
+  const state = { finalized: false }
+  return {
+    runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
+    get isFinalized() {
+      return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
+    },
+    markFinalized() {
+      state.finalized = true
+    },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
+    async append(event: AuditEvent): Promise<void> {
+      if (event.type === "finding.added") {
+        throw new Error("Sink write failure")
+      }
+      seq++
+      events.push({ ...event, seq })
+    },
+    async readAll(): Promise<AuditEvent[]> {
+      return [...events]
     },
   }
 }
@@ -85,6 +155,7 @@ describe("createToolTrackingHook", () => {
           file: "src/Vault.sol",
           lines: [10, 20],
           source: "slither",
+          source_location_id: "flattened:10-20",
         },
         {
           id: "def456",
@@ -114,27 +185,29 @@ describe("createToolTrackingHook", () => {
     expect(auditState.findings.at(0)?.source).toBe("slither")
     expect(auditState.findings.at(0)?.file).toBe("src/Vault.sol")
     expect(auditState.findings.at(0)?.lines).toEqual([10, 20])
+    expect(auditState.findings.at(0)?.source_location_id).toBe("flattened:10-20")
     expect(auditState.findings.at(1)?.check).toBe("unchecked-transfer")
     expect(auditState.findings.at(1)?.severity).toBe("Medium")
   })
 
-  test("pattern checker findings extracted", async () => {
+  test("pattern scanner hints require explicit verified promotion into finding lineage", async () => {
+    // Contract: argus_check_patterns matches are hints, not canonical
+    // observations; enrolling them floods the report and breaks lineage parity.
     const patternResult = {
       sources: [
         {
           source: "pattern-db",
-          matches: [
-            {
-              pattern: "reentrancy",
-              severity: "High",
-              file: "src/Vault.sol",
-              lines: [15, 25],
-              description: "Potential reentrancy: ETH transfer via low-level call",
-            },
-          ],
+          matches: Array.from({ length: 25 }, (_, i) => ({
+            pattern: "reentrancy",
+            severity: "High",
+            file: "src/Vault.sol",
+            lines: [15 + i, 25 + i],
+            description: "Potential reentrancy: ETH transfer via low-level call",
+          })),
         },
       ],
       patternsChecked: 5,
+      patternVersion: "1.0.0",
       executionTime: 100,
     }
 
@@ -144,13 +217,55 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
+    expect(auditState.findings).toHaveLength(0)
+    expect(auditState.patternVersion).toBe("1.0.0")
+    const exec = auditState.toolsExecuted.find((t) => t.tool === "argus_check_patterns")
+    expect(exec?.findingsCount).toBe(0)
+
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-pattern-promotion",
+      getAgentName: () => "sentinel",
+    })
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {
+        finding: JSON.stringify({
+          check: "reentrancy",
+          severity: "High",
+          confidence: "High",
+          description: "Verified reentrancy candidate",
+          file: "src/Vault.sol",
+          lines: [15, 25],
+          source: "pattern",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      },
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "reentrancy",
+            severity: "High",
+            confidence: "High",
+            description: "Verified reentrancy candidate",
+            file: "src/Vault.sol",
+            lines: [15, 25],
+            source: "pattern",
+            rubric_verdict: "CONFIRMED",
+            confidence_score: 90,
+            reported_by_agent: "sentinel",
+          },
+        ],
+      }),
+    })
+
     expect(auditState.findings).toHaveLength(1)
-    expect(auditState.findings.at(0)?.check).toBe("reentrancy")
-    expect(auditState.findings.at(0)?.severity).toBe("High")
     expect(auditState.findings.at(0)?.source).toBe("pattern")
-    expect(auditState.findings.at(0)?.confidence).toBe("Medium")
-    expect(auditState.findings.at(0)?.file).toBe("src/Vault.sol")
-    expect(auditState.findings.at(0)?.lines).toEqual([15, 25])
+    expect(sink.events.filter((event) => event.type === "finding.added")).toHaveLength(1)
   })
 
   test("argus_record_finding records manual findings", async () => {
@@ -200,7 +315,92 @@ describe("createToolTrackingHook", () => {
     expect(sink.events.some((event) => event.type === "finding.added")).toBe(true)
   })
 
-  test("argus_record_finding preserves impact/recommendation/proofOfConcept through to event payload (Task 1 / Bug #3)", async () => {
+  test("argus_record_finding rejects before mutating when no durable sink exists (WS-3 I6)", async () => {
+    const before = auditState.findings.length
+    const findingItem = {
+      check: "manual-no-sink",
+      severity: "High",
+      confidence: "High",
+      description: "should not be recorded without a durable sink",
+      file: "src/Auth.sol",
+      lines: [1, 2],
+      source: "manual",
+      reported_by_agent: "argus",
+    }
+
+    await expect(
+      hook({
+        tool: "argus_record_finding",
+        args: { findings: JSON.stringify([findingItem]) },
+        result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
+      }),
+    ).rejects.toThrow(/no durable event sink|findings would be lost/i)
+
+    expect(auditState.findings).toHaveLength(before)
+  })
+
+  test("argus_record_finding rolls back live state when the durable append fails (WS-3 I6 / adj_9)", async () => {
+    const before = auditState.findings.length
+    const sink = createFindingAppendFailingSink()
+    const hookWithFailingSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+    const findingItem = {
+      check: "manual-append-fails",
+      severity: "High",
+      confidence: "High",
+      description: "should be rolled back when the journal append fails",
+      file: "src/Auth.sol",
+      lines: [1, 2],
+      source: "manual",
+      reported_by_agent: "argus",
+    }
+
+    await expect(
+      hookWithFailingSink({
+        tool: "argus_record_finding",
+        args: { findings: JSON.stringify([findingItem]) },
+        result: JSON.stringify({ success: true, count: 1, findings: [findingItem] }),
+      }),
+    ).rejects.toThrow(/Sink write failure|Failed to emit/i)
+
+    expect(auditState.findings).toHaveLength(before)
+    const completed = (await sink.readAll()).find((event) => event.type === "tool.completed")
+    expect((completed?.payload as Record<string, unknown> | undefined)?.success).toBe(false)
+    expect((completed?.payload as Record<string, unknown> | undefined)?.findingsCount).toBe(0)
+  })
+
+  test("argus_generate_report completed event carries report quality-gate + file metadata (WS-3 I9)", async () => {
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-1",
+      getAgentName: () => "argus",
+    })
+
+    await hookWithSink({
+      tool: "argus_generate_report",
+      args: {},
+      result: JSON.stringify({
+        success: true,
+        filePath: "/tmp/report.md",
+        filename: "report.md",
+        qualityGates: { passed: false, violations: ["conservation gate failed"] },
+      }),
+    })
+
+    const completed = sink.events.find((event) => event.type === "tool.completed")
+    const payload = completed?.payload as Record<string, unknown>
+    expect(payload?.qualityGates).toEqual({
+      passed: false,
+      violations: ["conservation gate failed"],
+    })
+    expect(payload?.filePath).toBe("/tmp/report.md")
+  })
+
+  test("argus_record_finding preserves enrichment and conservation fields through to event payload", async () => {
     const sink = createMockSink()
     const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
       getEventSink: () => sink,
@@ -220,6 +420,8 @@ describe("createToolTrackingHook", () => {
             file: "src/Vault.sol",
             lines: [42, 58],
             source: "slither",
+            claims_value_extraction: true,
+            net_gain_proof_ref: "ReentrancyPoCTest:testReentrancyDrain",
             impact: "Complete vault drain via cross-function reentrancy",
             recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
             proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
@@ -239,6 +441,8 @@ describe("createToolTrackingHook", () => {
             lines: [42, 58],
             source: "slither",
             reported_by_agent: "sentinel",
+            claims_value_extraction: true,
+            net_gain_proof_ref: "ReentrancyPoCTest:testReentrancyDrain",
             impact: "Complete vault drain via cross-function reentrancy",
             recommendation: "Add OpenZeppelin nonReentrant modifier on withdraw()",
             proofOfConcept: "forge test --match-test testReentrancyDrain -vvvv",
@@ -249,6 +453,8 @@ describe("createToolTrackingHook", () => {
 
     expect(auditState.findings).toHaveLength(1)
     const stored = auditState.findings.at(0)
+    expect(stored?.claims_value_extraction).toBe(true)
+    expect(stored?.net_gain_proof_ref).toBe("ReentrancyPoCTest:testReentrancyDrain")
     expect(stored?.impact).toBe("Complete vault drain via cross-function reentrancy")
     expect(stored?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
     expect(stored?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
@@ -256,12 +462,54 @@ describe("createToolTrackingHook", () => {
     const findingEvent = sink.events.find((e) => e.type === "finding.added")
     expect(findingEvent).toBeDefined()
     const payload = findingEvent?.payload as Record<string, unknown> | undefined
+    expect(payload?.claims_value_extraction).toBe(true)
+    expect(payload?.net_gain_proof_ref).toBe("ReentrancyPoCTest:testReentrancyDrain")
     expect(payload?.impact).toBe("Complete vault drain via cross-function reentrancy")
     expect(payload?.recommendation).toBe("Add OpenZeppelin nonReentrant modifier on withdraw()")
     expect(payload?.proofOfConcept).toBe("forge test --match-test testReentrancyDrain -vvvv")
   })
 
-  test("cross-tool observations with same check+file+lines are deduplicated", async () => {
+  test("argus_record_finding warns but records when finding is outside declared scope", async () => {
+    auditState.scope = ["src/Vault.sol"]
+    const sink = createMockSink()
+    const hookWithSink = createToolTrackingHook(() => auditState, undefined, {
+      getEventSink: () => sink,
+      getSessionId: () => "oc-session-scope-warning",
+      getAgentName: () => "sentinel",
+    })
+
+    await hookWithSink({
+      tool: "argus_record_finding",
+      args: {},
+      result: JSON.stringify({
+        success: true,
+        count: 1,
+        findings: [
+          {
+            check: "outside-scope-note",
+            severity: "Low",
+            confidence: "High",
+            description: "Finding was collected outside requested scope",
+            file: "src/Token.sol",
+            lines: [1, 2],
+            source: "manual",
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(1)
+    expect(auditState.findings[0]?.file).toBe("src/Token.sol")
+    expect(hookWithSink.getLastDiagnostics()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: expect.objectContaining({ code: "OUT_OF_SCOPE_FINDING", policy: "warn" }),
+        }),
+      ]),
+    )
+  })
+
+  test("a same-location pattern hit is not enrolled alongside a real finding", async () => {
     const slitherResult = {
       success: true,
       findingsCount: 1,
@@ -312,7 +560,6 @@ describe("createToolTrackingHook", () => {
       result: JSON.stringify(patternResult),
     })
 
-    // Same check+file+lines from different tools are deduplicated by finding-store
     expect(auditState.findings).toHaveLength(1)
     expect(auditState.findings.at(0)?.source).toBe("slither")
   })
@@ -357,6 +604,53 @@ describe("createToolTrackingHook", () => {
     expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_forge_test")
     expect(auditState.toolsExecuted.at(0)?.success).toBe(true)
     expect(auditState.toolsExecuted.at(0)?.findingsCount).toBe(0)
+  })
+
+  test("records missing and malformed tool success as failed", async () => {
+    await hook({
+      tool: "argus_forge_test",
+      args: { target: "." },
+      result: JSON.stringify({ summary: { passed: 1, failed: 0, skipped: 0, total: 1 } }),
+    })
+
+    expect(auditState.toolsExecuted.at(0)?.success).toBe(false)
+
+    await hook({
+      tool: "argus_forge_test",
+      args: { target: "." },
+      result: JSON.stringify({
+        success: "true",
+        summary: { passed: 1, failed: 0, skipped: 0, total: 1 },
+      }),
+    })
+
+    expect(auditState.toolsExecuted.at(1)?.success).toBe(false)
+  })
+
+  test("pattern correlations are surfaced as hints, not enrolled findings", async () => {
+    await hook({
+      tool: "argus_check_patterns",
+      args: { target: "." },
+      result: JSON.stringify({
+        success: true,
+        sources: [
+          {
+            source: "scvd",
+            matches: [
+              {
+                pattern: "SCVD-107-1",
+                description: "Corpus correlation",
+                file: "",
+                lines: [1, 1],
+                severity: "Informational",
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    expect(auditState.findings).toHaveLength(0)
   })
 
   test("forge test failed count is tracked from summary.failed", async () => {
@@ -552,6 +846,7 @@ describe("createToolTrackingHook", () => {
       auditState.currentPhase = "scanning"
 
       const soloditResult = {
+        success: true,
         results: [],
         totalFound: 0,
         query: "test",
@@ -588,6 +883,7 @@ describe("createToolTrackingHook", () => {
       auditState.currentPhase = "testing"
 
       const reportResult = {
+        success: true,
         report: "# Report",
         format: "markdown",
         findingsCount: 0,
@@ -1089,6 +1385,7 @@ Content...`
   describe("report generation tracking", () => {
     test("report generation sets reportGenerated to true", async () => {
       const reportResult = {
+        success: true,
         report: "# Audit Report\n...",
         format: "markdown",
         findingsCount: 5,
@@ -1105,6 +1402,21 @@ Content...`
       expect(auditState.reportGenerated).toBe(true)
       expect(auditState.toolsExecuted).toHaveLength(1)
       expect(auditState.toolsExecuted.at(0)?.tool).toBe("argus_generate_report")
+    })
+
+    test("failed report generation does not set reportGenerated", async () => {
+      await hook({
+        tool: "argus_generate_report",
+        args: { project_name: "Vault" },
+        result: JSON.stringify({
+          success: false,
+          run_id: "run-test",
+          filePath: ".argus/reports/failed.md",
+        }),
+      })
+
+      expect(auditState.reportGenerated).not.toBe(true)
+      expect(auditState.toolsExecuted.at(0)?.success).toBe(false)
     })
   })
 
@@ -1547,7 +1859,6 @@ Content...`
         result: JSON.stringify(patternResult),
       })
 
-      // Same check+file+lines deduped — no new finding.added event
       const findingsAfter = sink.events.filter((e) => e.type === "finding.added").length
       expect(findingsAfter).toBe(1)
     })
@@ -1728,7 +2039,7 @@ Content...`
       expect(auditState.findings).toHaveLength(1)
     })
 
-    test("missing required field emits MISSING_REQUIRED_FIELD diagnostic for patterns", async () => {
+    test("malformed pattern matches produce no findings and no field diagnostics", async () => {
       const hookWithDiag = createToolTrackingHook(() => auditState)
 
       const patternResult = {
@@ -1746,10 +2057,8 @@ Content...`
         result: JSON.stringify(patternResult),
       })
 
-      const diags = hookWithDiag.getLastDiagnostics()
-      expect(diags).toHaveLength(1)
-      expect(diags[0]?.reason.code).toBe("MISSING_REQUIRED_FIELD")
-      expect(diags[0]?.reason.message).toContain("Pattern finding skipped")
+      expect(hookWithDiag.getLastDiagnostics()).toHaveLength(0)
+      expect(auditState.findings).toHaveLength(0)
     })
 
     test("strict-fail mode throws on MALFORMED_JSON", async () => {
@@ -1868,6 +2177,7 @@ Content...`
         tool: "argus_solodit_search",
         args: { query: "reentrancy" },
         result: JSON.stringify({
+          success: true,
           results: [
             {
               title: "Reentrancy in withdraw",
@@ -1901,6 +2211,7 @@ Content...`
         tool: "argus_forge_fuzz",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           counterexamples: [{ testName: "testFuzz_withdraw(uint256)", inputs: ["999"] }],
           totalRuns: 128,
         }),
@@ -1925,6 +2236,7 @@ Content...`
         tool: "argus_forge_coverage",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           report: {
             files: [
               {
@@ -1957,6 +2269,7 @@ Content...`
         tool: "argus_gas_analysis",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           hotspots: [{ contract: "Vault", function: "withdraw", avgGas: 150000 }],
           threshold: 50000,
           totalContracts: 1,
@@ -1982,6 +2295,7 @@ Content...`
         tool: "argus_proxy_detection",
         args: { file_path: "src/VaultProxy.sol" },
         result: JSON.stringify({
+          success: true,
           isProxy: true,
           file: "src/VaultProxy.sol",
           proxyType: "UUPS",
@@ -2029,6 +2343,7 @@ Content...`
         tool: "argus_check_patterns",
         args: { target: "." },
         result: JSON.stringify({
+          success: true,
           sources: [],
           patternsChecked: 5,
           patternVersion: "1.0.0",
@@ -2059,5 +2374,58 @@ Content...`
       expect(payload.success).toBe(false)
       expect(payload.soloditResults).toBeUndefined()
     })
+  })
+})
+
+describe("createToolTrackingHook orphan buffer bounds (WS-3 I7)", () => {
+  const CLEAN_RESULT = JSON.stringify({ success: true, findingsCount: 0, findings: [] })
+
+  function bufferingHook(orphanBufferBounds: {
+    maxSessions?: number
+    maxEventsPerSession?: number
+    ttlMs?: number
+  }): ReturnType<typeof createToolTrackingHook> {
+    const state = createAuditState("/test/project").state
+    state.sessionId = "orphan-run"
+    return createToolTrackingHook(() => state, undefined, { orphanBufferBounds })
+  }
+
+  function bufferSession(
+    hook: ReturnType<typeof createToolTrackingHook>,
+    sessionID: string,
+  ): Promise<void> {
+    return hook({ tool: "argus_check_patterns", args: {}, result: CLEAN_RESULT, sessionID })
+  }
+
+  test("evicts the stalest session when the global session cap is exceeded", async () => {
+    const hook = bufferingHook({ maxSessions: 2 })
+    await bufferSession(hook, "sess-A")
+    await bufferSession(hook, "sess-B")
+    await bufferSession(hook, "sess-C")
+
+    expect(await hook.flushOrphanEvents("sess-A", createMockSink("orphan-run"))).toBe(0)
+    expect(await hook.flushOrphanEvents("sess-B", createMockSink("orphan-run"))).toBeGreaterThan(0)
+    expect(await hook.flushOrphanEvents("sess-C", createMockSink("orphan-run"))).toBeGreaterThan(0)
+  })
+
+  test("proactively reclaims TTL-expired sessions when a new session buffers", async () => {
+    const hook = bufferingHook({ ttlMs: 50 })
+    await bufferSession(hook, "sess-old")
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await bufferSession(hook, "sess-new")
+
+    expect(await hook.flushOrphanEvents("sess-old", createMockSink("orphan-run"))).toBe(0)
+    expect(await hook.flushOrphanEvents("sess-new", createMockSink("orphan-run"))).toBeGreaterThan(
+      0,
+    )
+  })
+
+  test("clearOrphanEvents drops a session's buffer on session.deleted cleanup", async () => {
+    const hook = bufferingHook({})
+    await bufferSession(hook, "sess-x")
+
+    hook.clearOrphanEvents("sess-x")
+
+    expect(await hook.flushOrphanEvents("sess-x", createMockSink("orphan-run"))).toBe(0)
   })
 })

@@ -14,6 +14,7 @@ export interface GroundTruthFinding {
     finding_number?: string | number
   }
   category?: string
+  expected_verdict?: "CONFIRMED" | "DEMOTED" | "REJECTED_DEMOTED"
   acceptance_criteria: string[]
 }
 
@@ -40,6 +41,8 @@ export interface PredictedFinding {
   severity: FindingSeverity
   confidence: "High" | "Medium" | "Low"
   confidence_score?: number
+  rubric_verdict?: "CONFIRMED" | "DEMOTED" | "REJECTED_DEMOTED"
+  tier?: "finding" | "lead"
   file: string
   lines: [number, number]
   source: Finding["source"]
@@ -75,6 +78,7 @@ export interface RunMetrics {
   matches: MatchedPair[]
   unmatched_predicted: PredictedFinding[]
   unmatched_ground_truth: GroundTruthFinding[]
+  verdict_mismatches: MatchedPair[]
 }
 
 export interface RunOptions {

@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/bzx-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'KyberNetworkProxy|UniswapV2Router'
-    severity: "Medium"
-    description: "Detects usage of DEX routers which might be used as price oracles."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

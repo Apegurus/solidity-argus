@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { resolveRunIdFromOpencodeSession } from "../features/persistent-state/global-run-index"
 import { isNonEmptyString } from "../shared/type-guards"
-import { normalizeToCanonicalFinding } from "../state/adapters"
+import { type Diagnostic, normalizeToCanonicalFinding } from "../state/adapters"
 import { type CanonicalFinding, SCHEMA_VERSION } from "../state/schemas"
 import type { ArgusAgentName } from "../state/types"
 
@@ -16,6 +17,14 @@ type RecordFindingResponse = {
   findings: CanonicalFinding[]
   schema_version: string
   note: string
+  run_id: string
+  canonical_run_id: string | null
+  run_id_reconciliation: {
+    returned_run_id: string
+    canonical_run_id: string | null
+    status: "resolved" | "pending_journal_reconciliation"
+  }
+  normalization_diagnostics: Array<Diagnostic & { index: number }>
   enrichment_warnings?: string[]
   enrichment_hint?: string
 }
@@ -116,11 +125,12 @@ export async function executeRecordFinding(
         f.file = loc.substring(0, colonIdx)
         if (!f.lines) {
           const match = loc.substring(colonIdx + 1).match(/^(\d+)(?:-(\d+))?$/)
-          if (match)
+          if (match) {
             f.lines = [
               Number.parseInt(match[1] ?? "0", 10),
               Number.parseInt(match[2] ?? match[1] ?? "0", 10),
             ]
+          }
         }
       } else {
         f.file = loc
@@ -130,11 +140,14 @@ export async function executeRecordFinding(
 
   const reportedByAgent = normalizeAgent(context.agent)
   const reportedBySessionId = context.sessionID
-  const runId = "tool-local"
   const callToken = randomUUID()
   const projectDir = context.directory ?? process.cwd()
+  // Labels the agent-facing response only; durable persistence is the event-journal hook's job.
+  const canonicalRunId = resolveRunIdFromOpencodeSession(reportedBySessionId, projectDir)
+  const runId = canonicalRunId ?? "tool-local"
 
   const findings: ReturnType<typeof normalizeToCanonicalFinding>["data"][] = []
+  const normalizationDiagnostics: Array<Diagnostic & { index: number }> = []
   const errors: string[] = []
 
   for (const [index, rawFinding] of rawFindings.entries()) {
@@ -151,6 +164,7 @@ export async function executeRecordFinding(
     )
 
     const diagnosticsErrors = normalized.diagnostics.filter((diag) => diag.level === "error")
+    normalizationDiagnostics.push(...normalized.diagnostics.map((diag) => ({ ...diag, index })))
     if (diagnosticsErrors.length > 0) {
       errors.push(
         ...diagnosticsErrors.map(
@@ -193,7 +207,17 @@ export async function executeRecordFinding(
     count: findings.length,
     findings,
     schema_version: SCHEMA_VERSION,
-    note: "Findings recorded to event journal. Each finding's run_id is a transient placeholder (tool-local) that the journal reconciles to the canonical run_id on persistence. Use the run_id from <argus-context> for Scribe dispatch.",
+    run_id: runId,
+    canonical_run_id: canonicalRunId,
+    run_id_reconciliation: {
+      returned_run_id: runId,
+      canonical_run_id: canonicalRunId,
+      status: canonicalRunId ? "resolved" : "pending_journal_reconciliation",
+    },
+    normalization_diagnostics: normalizationDiagnostics,
+    note: canonicalRunId
+      ? "Findings recorded to the event journal under the canonical run_id."
+      : "Findings recorded to event journal. Each finding's run_id is a transient placeholder (tool-local) that the journal reconciles to the canonical run_id on persistence. Use the run_id from <argus-context> for Scribe dispatch.",
     ...(enrichmentWarnings.length > 0
       ? {
           enrichment_warnings: enrichmentWarnings,
@@ -214,13 +238,13 @@ export const recordFindingTool = tool({
       .string()
       .optional()
       .describe(
-        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: confidence_score (integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold, default 80, render in Findings; lower scores render in Leads), rubric_verdict ("CONFIRMED"|"DEMOTED"|"REJECTED_DEMOTED" — the structured 4-gate verdict from refutation-rubric; agents applying the rubric MUST set this alongside confidence_score so the reporter can group findings deterministically), impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
+        'Serialized JSON object for a single finding. Required fields: check (string, e.g. "reentrancy-eth"), severity (Critical|High|Medium|Low|Informational), confidence (High|Medium|Low), description (string), file (relative path, e.g. "src/Vault.sol"), lines ([startLine, endLine] tuple), source ("manual"|"slither"|"pattern"|"scvd"|"solodit"|"fuzz"). Optional: confidence_score (integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold, default 80, render in Findings; lower scores render in Leads), rubric_verdict ("CONFIRMED"|"DEMOTED"|"REJECTED_DEMOTED" — the structured 4-gate verdict from refutation-rubric; agents applying the rubric MUST set this alongside confidence_score so the reporter can group findings deterministically), claims_value_extraction (boolean), net_gain_proof_ref (exact contract-qualified assertion-bearing Forge test identifier, e.g. "ExploitTest:testDrain()"), impact, recommendation, proofOfConcept (mandatory for Critical/High final report findings; strongly recommended for Slither-source findings before Scribe persistence).',
       ),
     findings: tool.schema
       .string()
       .optional()
       .describe(
-        'Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Optional confidence_score is an integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold (default 80) render in Findings, lower scores render in Leads. Optional rubric_verdict ("CONFIRMED"|"DEMOTED"|"REJECTED_DEMOTED") is the structured 4-gate verdict — agents applying the rubric MUST set this alongside confidence_score so the reporter can group findings deterministically. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.',
+        'Serialized JSON array of finding objects. Each object requires the same fields as the finding parameter: check, severity, confidence, description, file, lines, source. Optional confidence_score is an integer 0-100 from refutation-rubric; findings with score >= reporting.confidenceThreshold (default 80) render in Findings, lower scores render in Leads. Optional rubric_verdict ("CONFIRMED"|"DEMOTED"|"REJECTED_DEMOTED") is the structured 4-gate verdict — agents applying the rubric MUST set this alongside confidence_score so the reporter can group findings deterministically. claims_value_extraction (boolean) and net_gain_proof_ref (exact contract-qualified assertion-bearing Forge test identifier, e.g. "ExploitTest:testDrain()") supply the machine-enforced value-extraction gate. impact, recommendation, and proofOfConcept are mandatory for Critical/High final report findings and strongly recommended for Slither-source findings before Scribe persistence. Aliases title/name → check and location → file are accepted but canonical names are preferred.',
       ),
   },
   async execute(args, context) {

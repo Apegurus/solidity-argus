@@ -71,25 +71,18 @@ describe("createToolErrorRecoveryHandler", () => {
     expect(result).toBeNull()
   })
 
-  it("returns via_ir hint when slither output mentions via_ir", () => {
+  it("returns manual-analysis fallback for structured via_ir capability loss", () => {
     const handler = createToolErrorRecoveryHandler()
     const result = handler({
       tool: "argus_slither_analyze",
-      result: "via_ir enabled — flatten fallback failed. Ensure forge and solc are available.",
+      result: "SLITHER_VIA_IR_ANALYSIS_FAILED: YulException",
     })
 
-    expect(result).toContain("via_ir")
-    expect(result).toContain("forge-flatten fallback")
-  })
-
-  it("returns via_ir hint when slither output mentions flatten fallback", () => {
-    const handler = createToolErrorRecoveryHandler()
-    const result = handler({
-      tool: "argus_slither_analyze",
-      result: "[flatten-fallback] Analysis completed via forge flatten",
-    })
-
-    expect(result).toContain("via_ir")
+    expect(result).toContain("argus_analyze_contract")
+    expect(result).toContain("argus_check_patterns")
+    expect(result).toContain("could not analyze this via_ir target")
+    expect(result).not.toContain("unavailable")
+    expect(result).not.toContain("flatten")
   })
 
   it("records tool as unavailable in audit state on ENOENT", () => {
@@ -152,7 +145,7 @@ describe("createToolErrorRecoveryHandler", () => {
     })
 
     expect(result).toContain("[Argus Recovery Hint]")
-    expect(result).toContain("pip install slither-analyzer")
+    expect(result).toContain("pipx install --python python3.13 slither-analyzer")
     expect(result).toContain("argus_analyze_contract")
   })
 })

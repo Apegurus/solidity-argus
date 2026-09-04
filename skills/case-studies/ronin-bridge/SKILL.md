@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/ronin-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'onlyValidator'
-    severity: "Low"
-    description: "Detects validator-only functions. While not a bug, it highlights the critical trust points in the system."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

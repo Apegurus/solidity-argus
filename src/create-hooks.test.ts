@@ -3,11 +3,15 @@ import { mkdir, mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { ArgusConfigSchema } from "./config/schema"
-import { createHooks, selectToolResultForParsing } from "./create-hooks"
+import {
+  createHooks,
+  selectToolResultForParsing,
+  trimDeletedSessionTombstones,
+} from "./create-hooks"
 import { createAuditStateManager } from "./features/persistent-state/audit-state-manager"
 import { resolveRunIdFromOpencodeSession } from "./features/persistent-state/global-run-index"
 import type { HookName } from "./hooks/types"
-import type { Managers } from "./managers/types"
+import type { AuditStateManager } from "./managers/types"
 import { createAuditArtifactResolver } from "./shared/audit-artifact-resolver"
 import { ARGUS_PLUGIN_BUILD } from "./shared/plugin-metadata"
 import { createToolResultCache } from "./shared/tool-result-cache"
@@ -57,26 +61,16 @@ function makeAuditState(overrides?: Partial<AuditState>): AuditState {
   }
 }
 
-function makeManagers(): Managers {
+function makeAuditStateManager(): AuditStateManager {
   return {
-    backgroundManager: {
-      dispatch: () => "task-1",
-      cancel: () => {},
-      getResult: async () => null,
-      getTaskStatus: async () => undefined,
-      onComplete: () => {},
-      getActiveCount: () => 0,
-    },
-    auditStateManager: {
-      bindSession: () => {},
-      load: async () => null,
-      save: async () => {},
-      get: () => null,
-      update: async () => {},
-      reset: async () => {},
-      archive: async () => {},
-      dispose: async () => {},
-    },
+    bindSession: () => {},
+    load: async () => null,
+    save: async () => {},
+    get: () => null,
+    update: async () => {},
+    reset: async () => {},
+    archive: async () => {},
+    dispose: async () => {},
   }
 }
 
@@ -91,7 +85,7 @@ describe("createHooks", () => {
 
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
@@ -104,11 +98,11 @@ describe("createHooks", () => {
     expect(hooks["tool.execute.after"]).toBeDefined()
   })
 
-  it("blocks repeated audit-specialist text after completion", async () => {
+  it("recovers repeated audit-specialist text after completion", async () => {
     const config = ArgusConfigSchema.parse({})
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
@@ -128,24 +122,165 @@ describe("createHooks", () => {
     ) => Promise<void>
     const paragraph = "Repeated stagnant analysis paragraph with no new evidence."
 
-    let error: unknown
-    try {
-      await textComplete(
-        { sessionID: "specialist-session", messageID: "msg-1", partID: "part-1" },
-        { text: [paragraph, paragraph, paragraph].join("\n\n") },
+    const output = { text: [paragraph, paragraph, paragraph].join("\n\n") }
+
+    await textComplete(
+      { sessionID: "specialist-session", messageID: "msg-1", partID: "part-1" },
+      output,
+    )
+
+    expect(output.text.match(/Repeated stagnant analysis/g)?.length).toBe(1)
+    expect(output.text).toContain("HANDOFF_JSON")
+  })
+
+  it("applies the audit-specialist configuration override", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({
+        agents: { auditSpecialist: { temperature: 1.25 } },
+      }),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      {
+        sessionID: "specialist-temperature",
+        agent: "audit-specialist",
+        model: { capabilities: { temperature: true } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(1.25)
+  })
+
+  it("leaves temperature untouched when the model does not support it", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({
+        agents: { scribe: { temperature: 1.25 } },
+      }),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0.7, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      {
+        sessionID: "scribe-temperature",
+        agent: "scribe",
+        model: { capabilities: { temperature: false } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(0.7)
+  })
+
+  it("leaves provider temperature untouched without an explicit override", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({}),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: process.cwd(),
+      isHookEnabled: () => true,
+    })
+    const output = { temperature: 0.7, topP: 1, topK: 0, options: {} }
+
+    await hooks["chat.params"]?.(
+      {
+        sessionID: "sentinel-default-temperature",
+        agent: "sentinel",
+        model: { capabilities: { temperature: true } },
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[0],
+      output as Parameters<NonNullable<ReturnType<typeof createHooks>["chat.params"]>>[1],
+    )
+
+    expect(output.temperature).toBe(0.7)
+  })
+
+  it("attributes audit-specialist tool findings to the specialist", async () => {
+    const parentSessionId = `specialist-parent-${Date.now()}`
+    const sessionId = `specialist-provenance-${Date.now()}`
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({}),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: parentSessionId } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, parentSessionId)
+    const runId = await waitForRunId(parentSessionId)
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "task",
+        sessionID: parentSessionId,
+        args: {},
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>>[0],
+      {
+        title: "task",
+        output: JSON.stringify({ session_id: sessionId }),
+        metadata: {},
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>>[1],
+    )
+    await hooks["chat.params"]?.(
+      { sessionID: sessionId, agent: "audit-specialist" } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[0],
+      { temperature: 0, topP: 1, topK: 0, options: {} } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[1],
+    )
+
+    await hooks["tool.execute.after"]?.(
+      {
+        tool: "argus_slither_analyze",
+        sessionID: sessionId,
+        args: {},
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>>[0],
+      {
+        title: "argus_slither_analyze",
+        output: JSON.stringify({
+          success: true,
+          findings: [
+            {
+              check: "reentrancy",
+              description: "External call before state update",
+              file: "src/VulnerableVault.sol",
+              lines: [10, 20],
+              severity: "High",
+            },
+          ],
+        }),
+        metadata: {},
+      } as Parameters<NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>>[1],
+    )
+
+    const journalPath = createAuditArtifactResolver(runId, FIXTURE_DIR).paths().journalFile
+    const findingEvent = (await Bun.file(journalPath).text())
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            type: string
+            payload?: { reported_by_agent?: string }
+          },
       )
-    } catch (err) {
-      error = err
-    }
-    expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toContain("audit-specialist output repetition watchdog")
+      .find((event) => event.type === "finding.added")
+
+    expect(findingEvent?.payload?.reported_by_agent).toBe("audit-specialist")
   })
 
   it("does not apply the text watchdog to non-specialist Argus agents", async () => {
     const config = ArgusConfigSchema.parse({})
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
@@ -176,7 +311,7 @@ describe("createHooks", () => {
 
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: (name: HookName) => name !== "compaction",
     })
@@ -193,7 +328,7 @@ describe("createHooks", () => {
 
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => false,
     })
@@ -210,7 +345,7 @@ describe("createHooks", () => {
 
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
@@ -224,7 +359,7 @@ describe("createHooks", () => {
 
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
@@ -239,7 +374,7 @@ describe("createHooks", () => {
 
     createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: (name: HookName) => {
         checkedHooks.push(name)
@@ -261,32 +396,22 @@ describe("createHooks", () => {
     const activeState = makeAuditState({ sessionId: "active" })
     const savedStates: AuditState[] = []
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async (state: AuditState) => {
+        savedStates.push(state)
       },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async (state) => {
-          savedStates.push(state)
-        },
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -305,12 +430,11 @@ describe("createHooks", () => {
     const sessionOne = "oc-isolation-1"
     const sessionTwo = "oc-isolation-2"
 
-    const managers = makeManagers()
-    managers.auditStateManager = createAuditStateManager(projectDir)
+    const auditStateManager = createAuditStateManager(projectDir)
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir,
       isHookEnabled: () => true,
     })
@@ -345,30 +469,20 @@ describe("createHooks", () => {
     const recoveredRunId = `run-fail-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -423,35 +537,50 @@ describe("createHooks", () => {
     expect(finalizationEvent?.payload?.plugin_version).toBe(ARGUS_PLUGIN_BUILD)
   })
 
+  it("does not archive shared audit state when a never-activated session is deleted (WS-3 I8)", async () => {
+    const config = ArgusConfigSchema.parse({})
+    let archiveCalls = 0
+    const auditStateManager = makeAuditStateManager()
+    auditStateManager.archive = async () => {
+      archiveCalls++
+    }
+
+    const hooks = createHooks({
+      config,
+      auditStateManager,
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: "oc-never-activated" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await hooks.event?.({
+      event: { type: "session.deleted", properties: { info: { id: "oc-never-activated" } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+
+    expect(archiveCalls).toBe(0)
+  })
+
   it("materializes findings artifact after successful session finalization", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-materialize-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -477,35 +606,25 @@ describe("createHooks", () => {
     expect(findingsArtifact.event_count).toBe(3)
   })
 
-  it("captures findings from the cache when output.output is truncated", async () => {
+  it("recovers a truncated pattern result from cache without enrolling findings", async () => {
     const config = ArgusConfigSchema.parse({})
     const activeState = makeAuditState({ sessionId: `run-trunc-${Date.now()}` })
     const toolResultCache = createToolResultCache()
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
       toolResultCache,
@@ -522,10 +641,11 @@ describe("createHooks", () => {
       patternVersion: "1.0.0",
       sources: [
         {
+          source: "pattern-db",
           matches: [
             {
               pattern: "reentrancy",
-              description: "Reentrancy in withdraw",
+              description: `Reentrancy in withdraw ${"x".repeat(3 * 1024 * 1024)}`,
               file: "src/VulnerableVault.sol",
               lines: [10, 20],
               severity: "High",
@@ -534,9 +654,11 @@ describe("createHooks", () => {
         },
       ],
     })
+    expect(fullResult.length).toBeGreaterThanOrEqual(3 * 1024 * 1024)
     toolResultCache.set("oc-trunc", "argus_check_patterns", fullResult)
 
-    const truncatedStub = fullResult.slice(0, 45)
+    const truncatedStub =
+      "... output was truncated ... 3145728 bytes truncated ... tool call succeeded"
     type AfterHook = NonNullable<ReturnType<typeof createHooks>["tool.execute.after"]>
     await (hooks["tool.execute.after"] as AfterHook)(
       {
@@ -557,8 +679,21 @@ describe("createHooks", () => {
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
     const findingsArtifact = JSON.parse(await Bun.file(findingsPath).text()) as {
       event_count: number
+      findings: unknown[]
+      toolsExecuted: Array<{ tool: string; success: boolean; error?: string }>
     }
     expect(findingsArtifact.event_count).toBeGreaterThanOrEqual(3)
+    expect(findingsArtifact.findings).toHaveLength(0)
+
+    const completed = findingsArtifact.toolsExecuted.find(
+      (tool) => tool.tool === "argus_check_patterns",
+    )
+    expect(completed?.success).toBe(true)
+    expect(completed?.error).toBeUndefined()
+
+    const eventsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().journalFile
+    const eventLog = await Bun.file(eventsPath).text()
+    expect(eventLog).not.toContain("TRUNCATED_OUTPUT")
   })
 
   it("materializes findings artifact when report generation completes before session deletion", async () => {
@@ -566,30 +701,20 @@ describe("createHooks", () => {
     const recoveredRunId = `run-live-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -609,6 +734,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/live.md",
           report: "ok",
@@ -673,13 +799,13 @@ describe("createHooks", () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-cross-session-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
-    const managers = makeManagers()
-    managers.auditStateManager.load = async () => activeState
-    managers.auditStateManager.get = () => activeState
+    const auditStateManager = makeAuditStateManager()
+    auditStateManager.load = async () => activeState
+    auditStateManager.get = () => activeState
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -700,6 +826,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/cross.md",
           report: "ok",
@@ -755,13 +882,13 @@ describe("createHooks", () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-reuse-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
-    const managers = makeManagers()
-    managers.auditStateManager.load = async () => activeState
-    managers.auditStateManager.get = () => activeState
+    const auditStateManager = makeAuditStateManager()
+    auditStateManager.load = async () => activeState
+    auditStateManager.get = () => activeState
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -781,6 +908,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: firstRunId,
           filePath: ".argus/reports/reuse.md",
           report: "ok",
@@ -829,30 +957,20 @@ describe("createHooks", () => {
     const recoveredRunId = `run-idle-finalize-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -872,6 +990,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/idle-finalize.md",
           report: "ok",
@@ -926,43 +1045,34 @@ describe("createHooks", () => {
 
   it("does not finalize on session.idle until Themis disposition is recorded", async () => {
     const config = ArgusConfigSchema.parse({})
+    const sessionId = `oc-idle-waits-themis-${Date.now()}`
     const recoveredRunId = `run-idle-waits-themis-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
 
     await hooks.event?.({
-      event: { type: "session.created", properties: { info: { id: "oc-idle-waits-themis" } } },
+      event: { type: "session.created", properties: { info: { id: sessionId } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-    await activateArgusSession(hooks, "oc-idle-waits-themis")
+    await activateArgusSession(hooks, sessionId)
 
-    const freshRunId = await waitForRunId("oc-idle-waits-themis")
+    const freshRunId = await waitForRunId(sessionId)
 
     await hooks["tool.execute.after"]?.(
       {
@@ -972,6 +1082,7 @@ describe("createHooks", () => {
       {
         title: "argus_generate_report",
         output: JSON.stringify({
+          success: true,
           run_id: freshRunId,
           filePath: ".argus/reports/idle-waits-themis.md",
           report: "ok",
@@ -1035,47 +1146,39 @@ describe("createHooks", () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-sink-fallback-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
+    const sessionId = `oc-parent-sink-${Date.now()}`
+    const childSessionId = `oc-child-sink-${Date.now()}`
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
 
     await hooks.event?.({
-      event: { type: "session.created", properties: { info: { id: "oc-parent-sink" } } },
+      event: { type: "session.created", properties: { info: { id: sessionId } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-    await activateArgusSession(hooks, "oc-parent-sink")
+    await activateArgusSession(hooks, sessionId)
 
-    const freshRunId = await waitForRunId("oc-parent-sink")
+    const freshRunId = await waitForRunId(sessionId)
 
     await hooks["tool.execute.after"]?.(
       {
         tool: "argus_forge_test",
         args: { target: FIXTURE_DIR },
-        sessionID: "oc-child-sink",
+        sessionID: childSessionId,
       } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
       {
         title: "argus_forge_test",
@@ -1113,50 +1216,104 @@ describe("createHooks", () => {
     expect(started).toHaveLength(1)
     expect(completed).toHaveLength(1)
     expect(started[0]?.run_id).toBe(freshRunId)
-    expect(started[0]?.session_id).toBe("oc-child-sink")
+    expect(started[0]?.session_id).toBe(childSessionId)
     expect(completed[0]?.run_id).toBe(freshRunId)
-    expect(completed[0]?.session_id).toBe("oc-child-sink")
+    expect(completed[0]?.session_id).toBe(childSessionId)
+  })
+
+  it("does not bind an unrelated session to the newest active run", async () => {
+    const config = ArgusConfigSchema.parse({})
+    const hooks = createHooks({
+      config,
+      auditStateManager: makeAuditStateManager(),
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+    const suffix = Date.now()
+    const primarySession = `oc-primary-${suffix}`
+    const unrelatedSession = `oc-unrelated-${suffix}`
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: primarySession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, primarySession)
+    const primaryRunId = await waitForRunId(primarySession)
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: unrelatedSession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, unrelatedSession)
+    const unrelatedRunId = await waitForRunId(unrelatedSession)
+
+    expect(unrelatedRunId).not.toBe(primaryRunId)
+  })
+
+  it("binds a child created with parent lineage before activation to the canonical run", async () => {
+    const hooks = createHooks({
+      config: ArgusConfigSchema.parse({}),
+      auditStateManager: makeAuditStateManager(),
+      projectDir: FIXTURE_DIR,
+      isHookEnabled: () => true,
+    })
+    const suffix = Date.now()
+    const parentSession = `oc-lineage-parent-${suffix}`
+    const childSession = `oc-lineage-child-${suffix}`
+
+    await hooks.event?.({
+      event: { type: "session.created", properties: { info: { id: parentSession } } },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await activateArgusSession(hooks, parentSession)
+    const parentRunId = await waitForRunId(parentSession)
+
+    await hooks.event?.({
+      event: {
+        type: "session.created",
+        properties: { info: { id: childSession, parentID: parentSession } },
+      },
+    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
+    await hooks["chat.params"]?.(
+      { sessionID: childSession, agent: "sentinel" } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[0],
+      { temperature: 0, topP: 1, topK: 0, options: {} } as Parameters<
+        NonNullable<ReturnType<typeof createHooks>["chat.params"]>
+      >[1],
+    )
+
+    expect(await waitForRunId(childSession)).toBe(parentRunId)
   })
 
   it("tool tracking continues after session.idle without losing sink", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-persist-sink-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
+    const sessionId = `oc-persist-sink-${Date.now()}`
+    const childSessionId = `oc-child-after-idle-${Date.now()}`
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
 
     await hooks.event?.({
-      event: { type: "session.created", properties: { info: { id: "oc-persist-sink" } } },
+      event: { type: "session.created", properties: { info: { id: sessionId } } },
     } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-    await activateArgusSession(hooks, "oc-persist-sink")
+    await activateArgusSession(hooks, sessionId)
 
-    const freshRunId = await waitForRunId("oc-persist-sink")
+    const freshRunId = await waitForRunId(sessionId)
 
     await hooks.event?.({
       event: { type: "session.idle", properties: { sessionID: "oc-persist-sink" } },
@@ -1166,7 +1323,7 @@ describe("createHooks", () => {
       {
         tool: "argus_slither_analyze",
         args: { target: FIXTURE_DIR },
-        sessionID: "oc-child-after-idle",
+        sessionID: childSessionId,
       } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
       {
         title: "argus_slither_analyze",
@@ -1205,40 +1362,30 @@ describe("createHooks", () => {
     expect(started).toHaveLength(1)
     expect(completed).toHaveLength(1)
     expect(started[0]?.run_id).toBe(freshRunId)
-    expect(started[0]?.session_id).toBe("oc-child-after-idle")
+    expect(started[0]?.session_id).toBe(childSessionId)
     expect(completed[0]?.run_id).toBe(freshRunId)
-    expect(completed[0]?.session_id).toBe("oc-child-after-idle")
+    expect(completed[0]?.session_id).toBe(childSessionId)
   })
 
-  it("warns but proceeds when tool output run_id mismatches state run_id", async () => {
+  it("rejects report output whose run_id mismatches the active run", async () => {
     const config = ArgusConfigSchema.parse({})
     const recoveredRunId = `run-canonical-${Date.now()}`
     const activeState = makeAuditState({ sessionId: recoveredRunId })
 
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
+    const auditStateManager = {
+      bindSession: () => {},
+      load: async () => activeState,
+      save: async () => {},
+      get: () => activeState,
+      update: async () => {},
+      reset: async () => {},
+      archive: async () => {},
+      dispose: async () => {},
     }
 
     const hooks = createHooks({
       config,
-      managers,
+      auditStateManager,
       projectDir: FIXTURE_DIR,
       isHookEnabled: () => true,
     })
@@ -1250,87 +1397,30 @@ describe("createHooks", () => {
 
     const freshRunId = await waitForRunId("oc-canonical")
 
-    await hooks["tool.execute.after"]?.(
-      {
-        tool: "argus_generate_report",
-        args: { target: FIXTURE_DIR },
-      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[0],
-      {
-        title: "argus_generate_report",
-        output: JSON.stringify({
-          run_id: "ses_should_not_be_used",
-          filePath: ".argus/reports/mismatch.md",
-          report: "ok",
-        }),
-        metadata: {},
-      } as unknown as Parameters<NonNullable<(typeof hooks)["tool.execute.after"]>>[1],
-    )
+    const toolExecuteAfter = hooks["tool.execute.after"]
+    if (!toolExecuteAfter) throw new Error("tool.execute.after hook unavailable")
+    await expect(
+      toolExecuteAfter(
+        {
+          tool: "argus_generate_report",
+          args: { target: FIXTURE_DIR },
+          sessionID: "oc-canonical",
+        } as unknown as Parameters<typeof toolExecuteAfter>[0],
+        {
+          title: "argus_generate_report",
+          output: JSON.stringify({
+            success: true,
+            run_id: "ses_should_not_be_used",
+            filePath: ".argus/reports/mismatch.md",
+            report: "ok",
+          }),
+          metadata: {},
+        } as unknown as Parameters<typeof toolExecuteAfter>[1],
+      ),
+    ).rejects.toThrow("does not match active run")
 
     const findingsPath = createAuditArtifactResolver(freshRunId, FIXTURE_DIR).paths().findingsFile
-    expect(await Bun.file(findingsPath).exists()).toBe(true)
-  })
-
-  it("returns success when report.md is written even if materialization has no events (Task 2 / Bug #2)", async () => {
-    const config = ArgusConfigSchema.parse({})
-    const initialRunId = `run-orphan-init-${Date.now()}`
-    const activeState = makeAuditState({ sessionId: initialRunId, reportGenerated: false })
-
-    const managers: Managers = {
-      backgroundManager: {
-        dispatch: () => "task-1",
-        cancel: () => {},
-        getResult: async () => null,
-        getTaskStatus: async () => undefined,
-        onComplete: () => {},
-        getActiveCount: () => 0,
-      },
-      auditStateManager: {
-        bindSession: () => {},
-        load: async () => activeState,
-        save: async () => {},
-        get: () => activeState,
-        update: async () => {},
-        reset: async () => {},
-        archive: async () => {},
-        dispose: async () => {},
-      },
-    }
-
-    const hooks = createHooks({
-      config,
-      managers,
-      projectDir: FIXTURE_DIR,
-      isHookEnabled: () => true,
-    })
-
-    await hooks.event?.({
-      event: { type: "session.created", properties: { info: { id: "oc-orphan" } } },
-    } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
-    await activateArgusSession(hooks, "oc-orphan")
-
-    const orphanRunId = `run-no-events-DOES-NOT-EXIST-${Date.now()}`
-    activeState.sessionId = orphanRunId
-
-    const toolExecuteAfter = hooks["tool.execute.after"]
-    expect(toolExecuteAfter).toBeDefined()
-    if (!toolExecuteAfter) return
-
-    await toolExecuteAfter(
-      {
-        tool: "argus_generate_report",
-        args: { target: FIXTURE_DIR },
-        sessionID: "oc-orphan",
-      } as unknown as Parameters<typeof toolExecuteAfter>[0],
-      {
-        title: "argus_generate_report",
-        output: JSON.stringify({
-          run_id: orphanRunId,
-          filePath: ".argus/reports/orphan.md",
-          report: "ok",
-        }),
-        metadata: {},
-      } as unknown as Parameters<typeof toolExecuteAfter>[1],
-    )
+    expect(await Bun.file(findingsPath).exists()).toBe(false)
   })
 
   it("dispose removes process exit handler", () => {
@@ -1339,7 +1429,7 @@ describe("createHooks", () => {
 
     const hooks = createHooks({
       config,
-      managers: makeManagers(),
+      auditStateManager: makeAuditStateManager(),
       projectDir: process.cwd(),
       isHookEnabled: () => true,
     })
@@ -1354,6 +1444,16 @@ describe("createHooks", () => {
 })
 
 describe("selectToolResultForParsing", () => {
+  it("selects a full tracking payload without exposing it in output.output", () => {
+    const cache = createToolResultCache()
+    const compact = '{"success":true,"matches":["first"]}'
+    const full = '{"success":true,"sources":[{"matches":["first","second"]}]}'
+    cache.setTracking("ses_1", "argus_check_patterns", compact, full)
+
+    expect(selectToolResultForParsing(compact, "ses_1", "argus_check_patterns", cache)).toBe(full)
+    expect(cache.size()).toBe(0)
+  })
+
   it("prefers the captured full result over a truncated output.output", () => {
     const cache = createToolResultCache()
     const full = '{"success":true,"sources":[{"matches":[{"pattern":"reentrancy"}]}]}'
@@ -1404,6 +1504,32 @@ describe("selectToolResultForParsing", () => {
     expect(cache.size()).toBe(0)
   })
 
+  it("recovers replacement truncation stubs in same-tool completion order", () => {
+    const cache = createToolResultCache()
+    const first = JSON.stringify({ call: "first", success: true, payload: "x".repeat(100) })
+    const second = JSON.stringify({ call: "second", success: true, payload: "y".repeat(100) })
+    cache.set("ses_1", "argus_check_patterns", first)
+    cache.set("ses_1", "argus_check_patterns", second)
+
+    expect(
+      selectToolResultForParsing(
+        "... output was truncated ... 1024 bytes truncated ...",
+        "ses_1",
+        "argus_check_patterns",
+        cache,
+      ),
+    ).toBe(first)
+    expect(
+      selectToolResultForParsing(
+        "... output was truncated ... 2048 bytes truncated ...",
+        "ses_1",
+        "argus_check_patterns",
+        cache,
+      ),
+    ).toBe(second)
+    expect(cache.size()).toBe(0)
+  })
+
   it("falls back to output.output when the cache has no entry", () => {
     const cache = createToolResultCache()
     const raw = '{"success":true}'
@@ -1417,5 +1543,21 @@ describe("selectToolResultForParsing", () => {
 
     expect(selectToolResultForParsing("raw", undefined, "argus_check_patterns", cache)).toBe("raw")
     expect(cache.size()).toBe(1)
+  })
+})
+
+describe("trimDeletedSessionTombstones", () => {
+  it("retains tombstones while activation work is in flight", () => {
+    const deletedSessions = new Set(Array.from({ length: 501 }, (_, index) => `session-${index}`))
+    const pendingActivations = new Set(["session-0"])
+
+    trimDeletedSessionTombstones(deletedSessions, pendingActivations, 500)
+    expect(deletedSessions.has("session-0")).toBe(true)
+    expect(deletedSessions.has("session-1")).toBe(false)
+    expect(deletedSessions.size).toBe(500)
+
+    pendingActivations.clear()
+    trimDeletedSessionTombstones(deletedSessions, pendingActivations, 500)
+    expect(deletedSessions.size).toBe(500)
   })
 })

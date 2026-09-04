@@ -5,16 +5,13 @@ describe("ArgusConfigSchema", () => {
   it("validates a complete valid config", () => {
     const config = {
       agents: {
-        argus: { model: "anthropic/claude-opus-4-7" },
+        argus: { model: "anthropic/claude-opus-4-7", variant: "custom-reasoning-profile" },
         sentinel: { model: "anthropic/claude-sonnet-4-6" },
         pythia: { model: "anthropic/claude-sonnet-4-6" },
         auditSpecialist: { model: "anthropic/claude-sonnet-4-6" },
         scribe: { model: "anthropic/claude-sonnet-4-6" },
       },
-      tools: {
-        slitherPath: "/usr/local/bin/slither",
-        forgePath: "/usr/local/bin/forge",
-      },
+      tools: {},
       knowledge: {
         scvd: {
           enabled: true,
@@ -24,24 +21,19 @@ describe("ArgusConfigSchema", () => {
         customSkillsDir: "./my-skills",
       },
       reporting: {
-        format: "markdown" as const,
         severityThreshold: "low" as const,
-        gasAnalysis: true,
       },
       solodit: {
         enabled: true,
-        port: 54173,
       },
       disabled_hooks: ["hook1", "hook2"],
-      hooks: { custom: { enabled: true } },
-      cli: { verbose: true },
-      background: { max_concurrent: 5 },
     }
 
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.agents.argus.model).toBe("anthropic/claude-opus-4-7")
+      expect(result.data.agents.argus.variant).toBe("custom-reasoning-profile")
       expect(result.data.solodit.enabled).toBe(true)
     }
   })
@@ -63,7 +55,6 @@ describe("ArgusConfigSchema", () => {
       expect(result.data.tools).toEqual({})
       expect(result.data.disabled_hooks).toEqual([])
       expect(result.data.solodit.enabled).toBe(true)
-      expect(result.data.background.max_concurrent).toBe(3)
     }
   })
 
@@ -99,41 +90,38 @@ describe("ArgusConfigSchema", () => {
     expect(result.success).toBe(false)
   })
 
-  it("rejects invalid format", () => {
-    const config = {
-      reporting: {
-        format: "json" as unknown as string,
-      },
-    }
-
-    const result = ArgusConfigSchema.safeParse(config)
-    expect(result.success).toBe(false)
-  })
-
-  it("validates agent permission and tools fields", () => {
+  it("ignores removed nested configuration fields", () => {
     const config = {
       agents: {
         argus: {
-          model: "custom",
-          permission: {
-            task: {
-              sentinel: "allow",
-              pythia: "allow",
-            },
-          },
-          tools: {
-            "argus_*": false,
-            "solodit-mcp_*": false,
-          },
+          permission: { task: { sentinel: "allow" } },
+          tools: { "argus_*": false },
         },
+      },
+      tools: {
+        slitherPath: "/usr/local/bin/slither",
+      },
+      reporting: {
+        format: "json",
+        gasAnalysis: true,
+      },
+      solodit: {
+        enabled: true,
+        port: 54173,
       },
     }
 
     const result = ArgusConfigSchema.safeParse(config)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.agents.argus.permission).toBeDefined()
-      expect(result.data.agents.argus.tools).toBeDefined()
+      expect(result.data.agents.argus).toEqual({})
+      expect(result.data.tools).toEqual({})
+      expect(result.data.reporting).toEqual({
+        confidenceThreshold: 80,
+        severityThreshold: "low",
+        output_dir: ".argus/reports/",
+      })
+      expect(result.data.solodit).toEqual({ enabled: true })
     }
   })
 
@@ -149,63 +137,11 @@ describe("ArgusConfigSchema", () => {
     }
   })
 
-  it("validates hooks object with arbitrary values", () => {
-    const config = {
-      hooks: {
-        "custom-hook": {
-          enabled: true,
-          timeout: 5000,
-          retries: 3,
-        },
-      },
+  it("rejects removed top-level configuration fields", () => {
+    for (const field of ["hooks", "cli", "background"] as const) {
+      const result = ArgusConfigSchema.safeParse({ [field]: {} })
+      expect(result.success).toBe(false)
     }
-
-    const result = ArgusConfigSchema.safeParse(config)
-    expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.hooks["custom-hook"]).toBeDefined()
-    }
-  })
-
-  it("validates cli object with arbitrary values", () => {
-    const config = {
-      cli: {
-        verbose: true,
-        outputFormat: "json",
-        colors: false,
-      },
-    }
-
-    const result = ArgusConfigSchema.safeParse(config)
-    expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.cli.verbose).toBe(true)
-    }
-  })
-
-  it("validates background concurrency config", () => {
-    const config = {
-      background: {
-        max_concurrent: 10,
-      },
-    }
-
-    const result = ArgusConfigSchema.safeParse(config)
-    expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.background.max_concurrent).toBe(10)
-    }
-  })
-
-  it("rejects invalid background max_concurrent (negative)", () => {
-    const config = {
-      background: {
-        max_concurrent: -1,
-      },
-    }
-
-    const result = ArgusConfigSchema.safeParse(config)
-    expect(result.success).toBe(false)
   })
 
   it("validates knowledge autoSync and customSkillsDir", () => {

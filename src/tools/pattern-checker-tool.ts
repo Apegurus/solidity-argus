@@ -1,6 +1,8 @@
-import { readdirSync, readFileSync, statSync } from "node:fs"
-import { dirname, extname, isAbsolute, join, resolve } from "node:path"
+import { readdirSync, statSync } from "node:fs"
+import { dirname, extname, isAbsolute, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
+import { loadArgusConfig } from "../config/loader"
+import type { ArgusConfig } from "../config/types"
 import {
   loadIndex,
   type ScvdIndex,
@@ -8,13 +10,20 @@ import {
   searchIndex,
 } from "../knowledge/scvd-index"
 import { getScvdIndexPath } from "../shared/cache-paths"
+import { readTextCapped } from "../shared/file-utils"
 import { createLogger } from "../shared/logger"
+import { isContained } from "../shared/path-safety"
 import { normalizeFilePath } from "../shared/path-utils"
 import { resolveProjectDir } from "../shared/project-utils"
-import { extractDetectionRulesFromSkills } from "./pattern-loader"
+import { getToolResultCache } from "../shared/tool-result-cache"
+import { resolveArgusSkills } from "../skills/argus-skill-resolver"
+import { extractDetectionRulesFromResolvedSkills } from "./pattern-loader"
 import type { PatternDefinition } from "./pattern-schema"
 
 const logger = createLogger()
+const DEFAULT_MAX_MATCHES = 100
+const DEFAULT_MAX_MATCHES_PER_SOURCE = 50
+const DEFAULT_MAX_TEXT_LENGTH = 500
 
 export type PatternSource = "skill"
 
@@ -48,20 +57,41 @@ export interface PatternCheckResult {
   executionTime: number
   target: string
   patternVersion?: string
+  compact?: boolean
+  truncatedMatches?: number
+  matchCountsByPattern?: Record<string, number>
 }
 
 type PatternCheckArgs = {
   target: string
   patterns?: string[]
   include_scvd?: boolean
+  full_detail?: boolean
 }
 
 type PatternCheckDependencies = {
+  loadConfig?: typeof loadArgusConfig
+  resolveSkills?: typeof resolveArgusSkills
   loadIndexFn?: (filePath: string) => Promise<ScvdIndex | null>
   searchIndexFn?: (
     index: ScvdIndex,
     query: { swc?: string; severity?: string; keyword?: string; limit?: number },
   ) => ScvdIndexEntry[]
+}
+
+type ScvdPatternCheckDependencies = Required<
+  Pick<PatternCheckDependencies, "loadIndexFn" | "searchIndexFn">
+>
+
+function loadConfigSafely(
+  projectDir: string,
+  loadConfig: typeof loadArgusConfig,
+): ArgusConfig | undefined {
+  try {
+    return loadConfig(projectDir)
+  } catch {
+    return undefined
+  }
 }
 
 export type LoadedPattern = {
@@ -93,14 +123,6 @@ const CATEGORY_TO_SWC: Record<string, string[]> = {
   dos: ["SWC-128"],
 }
 
-function normalizeSeverity(value: string): Match["severity"] {
-  if (value === "Critical") return "Critical"
-  if (value === "High") return "High"
-  if (value === "Medium") return "Medium"
-  if (value === "Low") return "Low"
-  return "Informational"
-}
-
 function normalizePatternDefinitions(
   patterns: PatternDefinition[],
   source: PatternSource,
@@ -129,7 +151,7 @@ function uniqueScvdEntries(entries: ScvdIndexEntry[]): ScvdIndexEntry[] {
 
 async function collectScvdMatches(
   matches: Match[],
-  dependencies: Required<PatternCheckDependencies>,
+  dependencies: ScvdPatternCheckDependencies,
 ): Promise<Match[]> {
   const detectedCategories = new Set<string>()
   for (const match of matches) {
@@ -167,17 +189,29 @@ async function collectScvdMatches(
     entries.push(...dependencies.searchIndexFn(index, { swc: swcCode }))
   }
 
+  // SCVD entries are cross-protocol corpus correlations, not findings located in the
+  // target: empty file keeps them out of scope, Informational out of severity counts;
+  // source repo/severity survive in exploitReference/description.
   return uniqueScvdEntries(entries).map((entry) => ({
     pattern: entry.id,
-    severity: normalizeSeverity(entry.severity),
-    file: entry.repoUrl,
+    severity: "Informational",
+    file: "",
     lines: [1, 1],
-    description: entry.title,
+    description: `${entry.title} (SCVD corpus correlation; source severity: ${entry.severity})`,
     exploitReference: entry.repoUrl,
   }))
 }
 
-function collectSolidityFiles(target: string, maxDepth = 8): string[] {
+// Directories excluded from the default .sol discovery walk (scanning them pollutes findings
+// with third-party/generated code and is an unbounded-work vector). node_modules/.git are never
+// first-party and can nest, so they are excluded at ANY depth; the Foundry dependency/build dirs
+// live at the project root, so lib/out/cache are excluded ONLY as direct children of the scan
+// root — a nested dir named `lib` is first-party source and must still be scanned.
+const ALWAYS_EXCLUDED_SCAN_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git"])
+const ROOT_EXCLUDED_SCAN_DIRS: ReadonlySet<string> = new Set(["lib", "out", "cache"])
+const MAX_PATTERN_SCAN_FILE_BYTES = 5 * 1024 * 1024
+
+export function collectSolidityFiles(target: string, maxDepth = 8, maxFiles = 5000): string[] {
   const absoluteTarget = resolve(target)
   let stats: ReturnType<typeof statSync>
 
@@ -198,7 +232,7 @@ function collectSolidityFiles(target: string, maxDepth = 8): string[] {
   const discovered: string[] = []
   const stack: Array<{ path: string; depth: number }> = [{ path: absoluteTarget, depth: 0 }]
 
-  while (stack.length > 0) {
+  while (stack.length > 0 && discovered.length < maxFiles) {
     const current = stack.pop()
     if (!current || current.depth > maxDepth) {
       continue
@@ -208,12 +242,15 @@ function collectSolidityFiles(target: string, maxDepth = 8): string[] {
     for (const entry of entries) {
       const fullPath = resolve(current.path, entry.name)
       if (entry.isDirectory()) {
+        if (ALWAYS_EXCLUDED_SCAN_DIRS.has(entry.name)) continue
+        if (current.depth === 0 && ROOT_EXCLUDED_SCAN_DIRS.has(entry.name)) continue
         stack.push({ path: fullPath, depth: current.depth + 1 })
         continue
       }
 
       if (entry.isFile() && extname(entry.name) === ".sol") {
         discovered.push(fullPath)
+        if (discovered.length >= maxFiles) break
       }
     }
   }
@@ -243,8 +280,15 @@ function lineWindow(content: string, index: number): [number, number] {
   return [start, end]
 }
 
+function isExcludedMatch(content: string, index: number, pattern: LoadedPattern): boolean {
+  if (!pattern.exclude_if || pattern.exclude_if.length === 0) return false
+
+  const window = content.slice(Math.max(0, index - 400), index + 400)
+  return pattern.exclude_if.some((exclude) => new RegExp(exclude).test(window))
+}
+
 export function findMatches(file: string, patterns: LoadedPattern[], projectDir?: string): Match[] {
-  const content = readFileSync(file, "utf8")
+  const { text: content } = readTextCapped(file, MAX_PATTERN_SCAN_FILE_BYTES)
   const normalizedFile = projectDir ? normalizeFilePath(file, projectDir) : file
   const matches: Match[] = []
 
@@ -269,6 +313,7 @@ export function findMatches(file: string, patterns: LoadedPattern[], projectDir?
     )
     for (const found of stripped.matchAll(regex)) {
       const index = found.index ?? 0
+      if (isExcludedMatch(stripped, index, pattern)) continue
       matches.push({
         pattern: pattern.name,
         severity: pattern.severity,
@@ -297,23 +342,73 @@ function selectPatterns(
   return availablePatterns.filter((pattern) => set.has(pattern.category))
 }
 
+function truncateText(value: string | undefined, maxLength: number): string | undefined {
+  if (value === undefined || value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}…`
+}
+
+function compactMatch(match: Match): Match {
+  return {
+    ...match,
+    description: truncateText(match.description, DEFAULT_MAX_TEXT_LENGTH) ?? "",
+    ...(match.exploitReference
+      ? { exploitReference: truncateText(match.exploitReference, DEFAULT_MAX_TEXT_LENGTH) }
+      : {}),
+  }
+}
+
+function countByPattern(matches: Match[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const match of matches) {
+    counts[match.pattern] = (counts[match.pattern] ?? 0) + 1
+  }
+  return counts
+}
+
+function compactSources(sources: MatchSource[]): {
+  matches: Match[]
+  sources: MatchSource[]
+  truncatedMatches: number
+} {
+  let remaining = DEFAULT_MAX_MATCHES
+  let truncatedMatches = 0
+  const matches: Match[] = []
+  const compactedSources: MatchSource[] = []
+
+  for (const source of sources) {
+    const sourceLimit = Math.min(DEFAULT_MAX_MATCHES_PER_SOURCE, Math.max(0, remaining))
+    const kept = source.matches.slice(0, sourceLimit).map(compactMatch)
+    truncatedMatches += Math.max(0, source.matches.length - kept.length)
+    remaining -= kept.length
+    matches.push(...kept)
+    compactedSources.push({ source: source.source, matches: kept })
+  }
+
+  return { matches, sources: compactedSources, truncatedMatches }
+}
+
 export async function executePatternCheck(
   args: PatternCheckArgs,
   context: ToolContext,
   deps: PatternCheckDependencies = {},
 ): Promise<PatternCheckResult> {
-  const dependencies: Required<PatternCheckDependencies> = {
+  const scvdDependencies: ScvdPatternCheckDependencies = {
     loadIndexFn: loadIndex,
     searchIndexFn: searchIndex,
-    ...deps,
+    ...(deps.loadIndexFn ? { loadIndexFn: deps.loadIndexFn } : {}),
+    ...(deps.searchIndexFn ? { searchIndexFn: deps.searchIndexFn } : {}),
   }
 
   const startedAt = Date.now()
   context.metadata({ title: `Pattern check: ${args.target}` })
 
-  const skillsDir = join(dirname(dirname(__dirname)), "skills")
+  const baseProjectDir = resolveProjectDir(context)
+  const loadConfig = deps.loadConfig ?? loadArgusConfig
+  const resolveSkills = deps.resolveSkills ?? resolveArgusSkills
+  const config = loadConfigSafely(baseProjectDir, loadConfig)
+  const skills = resolveSkills(baseProjectDir, config)
   const { patterns: skillDetectionRules, errors: loaderErrors } =
-    extractDetectionRulesFromSkills(skillsDir)
+    extractDetectionRulesFromResolvedSkills(skills.values())
   if (loaderErrors.length > 0) {
     for (const err of loaderErrors) {
       logger.warn(`Pattern loader: ${err}`)
@@ -325,10 +420,22 @@ export async function executePatternCheck(
   ]
 
   const selectedPatterns = selectPatterns(allPatterns, args.patterns)
-  const baseProjectDir = resolveProjectDir(context)
   const resolvedTarget = isAbsolute(args.target)
     ? args.target
     : resolve(baseProjectDir, args.target)
+  if (!isContained(resolvedTarget, baseProjectDir)) {
+    return {
+      success: false,
+      error: `Target escapes the project directory: ${args.target}`,
+      matches: [],
+      summary: { total: 0, bySeverity: {}, byCategory: {} },
+      sources: [],
+      patternsChecked: selectedPatterns.length,
+      executionTime: Date.now() - startedAt,
+      target: args.target,
+      patternVersion: PATTERN_PACK_VERSION,
+    }
+  }
   const solidityFiles = collectSolidityFiles(resolvedTarget)
   if (solidityFiles.length === 0) {
     return {
@@ -367,7 +474,7 @@ export async function executePatternCheck(
 
   if (args.include_scvd === true) {
     try {
-      const scvdMatches = await collectScvdMatches(sourceMatches, dependencies)
+      const scvdMatches = await collectScvdMatches(sourceMatches, scvdDependencies)
       if (scvdMatches.length > 0) {
         sources.push({
           source: "scvd",
@@ -380,6 +487,7 @@ export async function executePatternCheck(
   }
 
   const allMatches = sources.flatMap((s) => s.matches)
+  const matchCountsByPattern = countByPattern(allMatches)
   const bySeverity: Record<string, number> = {}
   const byCategory: Record<string, number> = {}
   for (const m of allMatches) {
@@ -389,15 +497,20 @@ export async function executePatternCheck(
     }
   }
 
+  const compacted = args.full_detail === true ? null : compactSources(sources)
+
   return {
     success: true,
-    matches: allMatches,
+    matches: compacted?.matches ?? allMatches,
     summary: { total: allMatches.length, bySeverity, byCategory },
     sources,
     patternsChecked: selectedPatterns.length,
     executionTime: Date.now() - startedAt,
     target: args.target,
     patternVersion: PATTERN_PACK_VERSION,
+    compact: args.full_detail !== true,
+    truncatedMatches: compacted?.truncatedMatches ?? 0,
+    matchCountsByPattern,
   }
 }
 
@@ -407,9 +520,21 @@ export const patternCheckerTool = tool({
     target: tool.schema.string(),
     patterns: tool.schema.array(tool.schema.string()).optional(),
     include_scvd: tool.schema.boolean().default(true),
+    full_detail: tool.schema.boolean().default(false),
   },
   async execute(args, context) {
     const result = await executePatternCheck(args, context)
-    return JSON.stringify(result)
+    const trackingResult = JSON.stringify(result)
+    if (!result.compact) return trackingResult
+
+    const compacted = compactSources(result.sources)
+    const displayedResult = JSON.stringify({ ...result, sources: compacted.sources })
+    getToolResultCache().setTracking(
+      context.sessionID,
+      "argus_check_patterns",
+      displayedResult,
+      trackingResult,
+    )
+    return displayedResult
   },
 })

@@ -23,18 +23,48 @@ describe("_mergeConfigs partial field validation", () => {
     const config = _mergeConfigs(
       {
         disabled_hooks: "not-an-array",
-        reporting: { severityThreshold: "high", gasAnalysis: true },
+        reporting: { severityThreshold: "high" },
       },
       null,
     )
 
     expect(config.reporting.severityThreshold).toBe("high")
-    expect(config.reporting.gasAnalysis).toBe(true)
     expect(config.disabled_hooks).toEqual([])
 
     const newLogs = getLogContent().slice(logBefore.length)
     expect(newLogs).toContain("[ERROR]")
     expect(newLogs).toContain("disabled_hooks")
+  })
+
+  test("preserves valid nested siblings when an adjacent value is invalid", () => {
+    const config = _mergeConfigs(
+      {
+        agents: {
+          argus: { temperature: 0.4, steps: "not-a-number" },
+        },
+      },
+      null,
+    )
+
+    expect(config.agents.argus.temperature).toBe(0.4)
+    expect(config.agents.argus.steps).toBeUndefined()
+
+    const newLogs = getLogContent().slice(logBefore.length)
+    expect(newLogs).toContain("agents.argus.steps")
+  })
+
+  test("warns when ignoring known removed configuration fields", () => {
+    const config = _mergeConfigs(
+      {
+        reporting: { format: "json", severityThreshold: "high" },
+      },
+      null,
+    )
+
+    expect(config.reporting.severityThreshold).toBe("high")
+
+    const newLogs = getLogContent().slice(logBefore.length)
+    expect(newLogs).toContain("Removed config field 'reporting.format'")
   })
 
   test("returns defaults with ERROR log when all fields are invalid", () => {
@@ -48,7 +78,6 @@ describe("_mergeConfigs partial field validation", () => {
     )
 
     expect(config.disabled_hooks).toEqual([])
-    expect(config.reporting.format).toBe("markdown")
     expect(config.reporting.severityThreshold).toBe("low")
     expect(config.solodit.enabled).toBe(true)
 
@@ -60,17 +89,15 @@ describe("_mergeConfigs partial field validation", () => {
     const config = _mergeConfigs(
       {
         disabled_hooks: ["hook-a", "hook-b"],
-        reporting: { severityThreshold: "high", gasAnalysis: true },
-        solodit: { enabled: false, port: 9999 },
+        reporting: { severityThreshold: "high" },
+        solodit: { enabled: false },
       },
       null,
     )
 
     expect(config.disabled_hooks).toEqual(["hook-a", "hook-b"])
     expect(config.reporting.severityThreshold).toBe("high")
-    expect(config.reporting.gasAnalysis).toBe(true)
     expect(config.solodit.enabled).toBe(false)
-    expect(config.solodit.port).toBe(9999)
 
     const newLogs = getLogContent().slice(logBefore.length)
     expect(newLogs).not.toContain("[ERROR]")

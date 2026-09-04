@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
 import { ARGUS_PROMPT } from "../agents/argus-prompt"
 import { AUDIT_SPECIALIST_PROMPT } from "../agents/audit-specialist-prompt"
@@ -8,9 +8,10 @@ import { SCRIBE_PROMPT } from "../agents/scribe-prompt"
 import { SENTINEL_PROMPT } from "../agents/sentinel-prompt"
 import { THEMIS_PROMPT } from "../agents/themis-prompt"
 import type { ArgusConfig } from "../config/types"
-import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
+import { DEFAULT_MODELS, DEFAULT_STEPS, DEFAULT_VARIANTS } from "../constants/defaults"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
+import { buildSafeEnv } from "../shared/process-runner"
 import { createKnowledgeSyncHook } from "./knowledge-sync-hook"
 
 const TOB_REPO_URL = "https://github.com/trailofbits/skills.git"
@@ -70,6 +71,7 @@ function ensureTrailOfBitsSkills(): string[] {
           stdout: "ignore",
           stderr: "ignore",
           signal: AbortSignal.timeout(60_000),
+          env: buildSafeEnv(),
         },
       )
     } catch (spawnErr) {
@@ -105,11 +107,17 @@ function ensureTrailOfBitsSkills(): string[] {
   return []
 }
 
+export type ConfigHandlerDependencies = {
+  ensureCompanionSkills: () => void
+  syncKnowledge: () => void
+}
+
 export function createConfigHandler(
   argusConfig: ArgusConfig,
-  projectDir: string = process.cwd(),
+  deps: Partial<ConfigHandlerDependencies> = {},
 ): (config: Config) => Promise<void> {
-  const triggerKnowledgeSync = createKnowledgeSyncHook(argusConfig)
+  const ensureCompanionSkills = deps.ensureCompanionSkills ?? ensureTrailOfBitsSkills
+  const syncKnowledge = deps.syncKnowledge ?? createKnowledgeSyncHook(argusConfig)
 
   return async (config: Config): Promise<void> => {
     config.agent ??= {}
@@ -117,14 +125,23 @@ export function createConfigHandler(
       argus: {
         mode: "primary",
         model: argusConfig.agents?.argus?.model ?? DEFAULT_MODELS.argus,
+        variant: argusConfig.agents?.argus?.variant ?? DEFAULT_VARIANTS.argus,
         steps: argusConfig.agents?.argus?.steps ?? DEFAULT_STEPS,
         description: "Solidity security auditor — the All-Seeing Guardian",
         prompt: ARGUS_PROMPT,
         tools: {
           "argus_*": false,
-          "solodit-mcp_*": false,
+          argus_generate_report: true,
+          argus_list_skills: true,
+          argus_recommend_skills: true,
+          argus_themis_disposition: true,
+          task: true,
         },
         permission: {
+          argus_generate_report: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
+          argus_themis_disposition: "allow",
           task: {
             sentinel: "allow",
             pythia: "allow",
@@ -138,6 +155,7 @@ export function createConfigHandler(
       sentinel: {
         mode: "subagent",
         model: argusConfig.agents?.sentinel?.model ?? DEFAULT_MODELS.sentinel,
+        variant: argusConfig.agents?.sentinel?.variant ?? DEFAULT_VARIANTS.sentinel,
         steps: argusConfig.agents?.sentinel?.steps ?? DEFAULT_STEPS,
         description: "Static analysis and testing specialist",
         prompt: SENTINEL_PROMPT,
@@ -151,6 +169,8 @@ export function createConfigHandler(
           argus_proxy_detection: "allow",
           argus_forge_coverage: "allow",
           argus_record_finding: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -158,6 +178,7 @@ export function createConfigHandler(
       pythia: {
         mode: "subagent",
         model: argusConfig.agents?.pythia?.model ?? DEFAULT_MODELS.pythia,
+        variant: argusConfig.agents?.pythia?.variant ?? DEFAULT_VARIANTS.pythia,
         steps: argusConfig.agents?.pythia?.steps ?? DEFAULT_STEPS,
         description: "Vulnerability researcher",
         prompt: PYTHIA_PROMPT,
@@ -165,6 +186,8 @@ export function createConfigHandler(
           argus_solodit_search: "allow",
           argus_check_patterns: "allow",
           argus_record_finding: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
@@ -172,6 +195,7 @@ export function createConfigHandler(
       "audit-specialist": {
         mode: "subagent",
         model: argusConfig.agents?.auditSpecialist?.model ?? DEFAULT_MODELS.auditSpecialist,
+        variant: argusConfig.agents?.auditSpecialist?.variant ?? DEFAULT_VARIANTS.auditSpecialist,
         steps: argusConfig.agents?.auditSpecialist?.steps ?? DEFAULT_STEPS,
         description: "Profile-driven adversarial specialist auditor",
         prompt: AUDIT_SPECIALIST_PROMPT,
@@ -187,12 +211,15 @@ export function createConfigHandler(
           argus_forge_coverage: "allow",
           argus_gas_analysis: "allow",
           argus_record_finding: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           skill: "allow",
         },
       },
       scribe: {
         mode: "subagent",
         model: argusConfig.agents?.scribe?.model ?? DEFAULT_MODELS.scribe,
+        variant: argusConfig.agents?.scribe?.variant ?? DEFAULT_VARIANTS.scribe,
         steps: argusConfig.agents?.scribe?.steps ?? DEFAULT_STEPS,
         description: "Audit report writer",
         prompt: SCRIBE_PROMPT,
@@ -200,57 +227,37 @@ export function createConfigHandler(
           argus_read_findings: "allow",
           argus_generate_report: "allow",
           argus_persist_deduped: "allow",
-          argus_skill_load: "allow",
           skill: "allow",
         },
       },
       themis: {
         mode: "subagent",
         model: argusConfig.agents?.themis?.model ?? DEFAULT_MODELS.themis,
+        variant: argusConfig.agents?.themis?.variant ?? DEFAULT_VARIANTS.themis,
         steps: argusConfig.agents?.themis?.steps ?? DEFAULT_STEPS,
-        description: "Audit quality gate — independent cross-validation (GPT-5.5)",
+        description: "Audit quality gate — independent cross-validation",
         prompt: THEMIS_PROMPT,
         permission: {
           argus_read_findings: "allow",
           argus_solodit_search: "allow",
           argus_check_patterns: "allow",
+          argus_list_skills: "allow",
+          argus_recommend_skills: "allow",
           argus_skill_load: "allow",
           skill: "allow",
         },
       },
     })
 
-    if (argusConfig.solodit?.enabled !== false) {
-      const port = argusConfig.solodit?.port ?? 54173
-      config.mcp ??= {}
-      config.mcp["solodit-mcp"] = {
-        type: "remote",
-        url: `http://localhost:${port}/mcp`,
-        enabled: true,
-      }
-    }
-
-    const skillsPaths = [...(config.skills?.paths ?? [])]
-    skillsPaths.push(resolve(import.meta.dir, "../../skills"))
-
-    const customSkillsDir = argusConfig.knowledge?.customSkillsDir
-    if (customSkillsDir) {
-      const resolvedCustomSkillsDir = customSkillsDir.startsWith("/")
-        ? customSkillsDir
-        : resolve(projectDir, customSkillsDir)
-      if (existsSync(resolvedCustomSkillsDir)) {
-        skillsPaths.push(resolvedCustomSkillsDir)
-      }
-    }
-
-    const tobSkillDirs = ensureTrailOfBitsSkills()
-    if (tobSkillDirs.length > 0) skillsPaths.push(...tobSkillDirs)
-
-    config.skills ??= {}
-    config.skills.paths = skillsPaths
+    // Argus skills load on demand via `argus_skill_load` (scoped to the Argus agents);
+    // we deliberately do NOT register them in OpenCode's global `config.skills.paths`,
+    // which would leak all bundled skill descriptions into every skill-enabled agent's
+    // context. The companion-clone/sync side effects are injectable so registration can
+    // run without network I/O (tests pass no-ops; production uses the real defaults).
+    ensureCompanionSkills()
 
     if (argusConfig.knowledge?.autoSync !== false) {
-      triggerKnowledgeSync()
+      syncKnowledge()
     }
   }
 }

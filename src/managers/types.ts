@@ -1,66 +1,5 @@
 import type { AuditState } from "../state/types"
 
-export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
-
-export type BackgroundFailureDiagnostic = {
-  category: "model_error" | "tool_error" | "timeout" | "cancelled" | "unknown"
-  retry_recommendation: "safe_to_retry" | "retry_with_changes" | "do_not_retry"
-  summary: string
-}
-
-export type BackgroundTaskDiagnostic = {
-  status: BackgroundTaskStatus
-  result?: unknown
-  error?: unknown
-  diagnostic?: BackgroundFailureDiagnostic
-}
-
-/**
- * BackgroundManager interface
- * Handles dispatching and managing background agent tasks
- */
-export interface BackgroundManager {
-  /**
-   * Dispatch an agent task to run in the background
-   * @param agentName - Name of the agent to dispatch (e.g., "sentinel", "pythia")
-   * @param prompt - The prompt/instruction for the agent
-   * @param options - Optional configuration (priority, timeout, etc.)
-   * @returns taskId - Unique identifier for tracking this task
-   */
-  dispatch(agentName: string, prompt: string, options?: { priority?: number }): string
-
-  /**
-   * Cancel a running background task
-   * @param taskId - The task ID to cancel
-   */
-  cancel(taskId: string): void
-
-  /**
-   * Get the result of a completed background task
-   * @param taskId - The task ID to retrieve results for
-   * @returns Promise resolving to the task result
-   */
-  getResult(taskId: string): Promise<unknown>
-
-  /**
-   * Get task status and structured diagnostics for completed, failed, queued, and cancelled tasks.
-   * Unknown task IDs resolve to undefined.
-   */
-  getTaskStatus(taskId: string): Promise<BackgroundTaskDiagnostic | undefined>
-
-  /**
-   * Register a callback to be invoked when a task completes
-   * @param callback - Function called with (taskId, result) when task finishes
-   */
-  onComplete(callback: (taskId: string, result: unknown) => void): void
-
-  /**
-   * Get the number of currently active/running tasks
-   * @returns Number of active tasks
-   */
-  getActiveCount(): number
-}
-
 /**
  * AuditStateManager interface
  * Handles persistence and retrieval of audit state
@@ -117,13 +56,4 @@ export interface AuditStateManager {
    * Safe to call multiple times; subsequent calls are no-ops.
    */
   dispose(): Promise<void>
-}
-
-/**
- * Managers type
- * Container for all manager instances
- */
-export type Managers = {
-  backgroundManager: BackgroundManager
-  auditStateManager: AuditStateManager
 }

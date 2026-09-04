@@ -21,6 +21,8 @@ function finding(overrides: Partial<CanonicalFinding> = {}): CanonicalFinding {
     observation_fingerprint: overrides.observation_fingerprint ?? `obsfp-${id}`,
     reported_by_agent: overrides.reported_by_agent ?? "sentinel",
     observation_ids: overrides.observation_ids,
+    supersedes_observation_id: overrides.supersedes_observation_id,
+    supersedes_observation_ids: overrides.supersedes_observation_ids,
     observation_count: overrides.observation_count,
   }
 }
@@ -124,6 +126,83 @@ test("validateFindingLineage treats explicitly dropped observations as complete"
   })
 })
 
+test("validateFindingLineage treats supersession as metadata, not lineage coverage", () => {
+  const raw = [
+    finding({ id: "raw-old", observation_id: "obs-old" }),
+    finding({ id: "raw-new", observation_id: "obs-new" }),
+  ]
+  const deduped = [
+    finding({
+      id: "dedup-new",
+      check: "revised-finding",
+      observation_ids: ["obs-new"],
+      observation_count: 1,
+      supersedes_observation_ids: ["obs-old"],
+    } as Partial<CanonicalFinding>),
+  ]
+
+  const result = validateFindingLineage(raw, deduped)
+
+  expect(result.valid).toBe(false)
+  expect(result.missing_observation_ids).toEqual(["obs-old"])
+})
+
+test("validateFindingLineage accepts singular supersession metadata when lineage is otherwise covered", () => {
+  const raw = [
+    finding({ id: "raw-old", observation_id: "obs-old" }),
+    finding({ id: "raw-new", observation_id: "obs-new" }),
+  ]
+  const deduped = [
+    {
+      ...finding({ id: "dedup-new", observation_ids: ["obs-new"], observation_count: 1 }),
+      supersedes_observation_id: "obs-old",
+    },
+  ]
+
+  expect(
+    validateFindingLineage(raw, deduped, [{ observation_id: "obs-old", reason: "merged-into" }])
+      .valid,
+  ).toBe(true)
+})
+
+test("validateFindingLineage accepts supersession metadata when superseded ids are mapped", () => {
+  const raw = [
+    finding({ id: "raw-old", observation_id: "obs-old" }),
+    finding({ id: "raw-new", observation_id: "obs-new" }),
+  ]
+  const deduped = [
+    finding({
+      id: "dedup-new",
+      check: "revised-finding",
+      observation_ids: ["obs-new", "obs-old"],
+      observation_count: 2,
+      supersedes_observation_ids: ["obs-old"],
+    } as Partial<CanonicalFinding>),
+  ]
+
+  const result = validateFindingLineage(raw, deduped)
+
+  expect(result.valid).toBe(true)
+  expect(result.missing_observation_ids).toEqual([])
+})
+
+test("validateFindingLineage does not accept phantom supersession ids", () => {
+  const raw = [finding({ id: "raw-new", observation_id: "obs-new" })]
+  const deduped = [
+    finding({
+      id: "dedup-new",
+      observation_ids: ["obs-new"],
+      observation_count: 1,
+      supersedes_observation_ids: ["obs-phantom"],
+    } as Partial<CanonicalFinding>),
+  ]
+
+  const result = validateFindingLineage(raw, deduped)
+
+  expect(result.valid).toBe(false)
+  expect(result.phantom_observation_ids).toEqual(["obs-phantom"])
+})
+
 test("validateFindingLineage reports observations that are both mapped and dropped", () => {
   const raw = [finding({ id: "raw-a", observation_id: "obs-a" })]
   const deduped = [
@@ -156,11 +235,7 @@ test("validateFindingLineage rejects invalid dropped observation reasons and dup
   ])
 })
 
-// Documents the P0-1 deduped-universe contract: report parity and persist-deduped both
-// validate against the deduped findings.json, whose singular observation_id is the
-// representative survivor. An observation collapsed into observation_ids[] is NOT part of
-// the raw universe, so the deduped set may neither reference nor drop a collapsed id.
-test("validateFindingLineage rejects dropping a collapsed (non-representative) observation", () => {
+test("validateFindingLineage treats nested raw observation_ids as the raw universe", () => {
   const raw = [
     finding({
       id: "rep",
@@ -173,18 +248,37 @@ test("validateFindingLineage rejects dropping a collapsed (non-representative) o
     finding({
       id: "rep",
       observation_id: "obs-rep",
-      observation_ids: ["obs-rep"],
-      observation_count: 1,
+      observation_ids: ["obs-rep", "obs-collapsed"],
+      observation_count: 2,
     }),
   ]
 
   expect(validateFindingLineage(raw, deduped).valid).toBe(true)
 
-  const droppingCollapsed = validateFindingLineage(raw, deduped, [
-    { observation_id: "obs-collapsed", reason: "merged-into" },
+  const missingCollapsed = validateFindingLineage(raw, [
+    finding({
+      id: "rep",
+      observation_id: "obs-rep",
+      observation_ids: ["obs-rep"],
+      observation_count: 1,
+    }),
   ])
-  expect(droppingCollapsed.valid).toBe(false)
-  expect(droppingCollapsed.phantom_dropped_observation_ids).toEqual(["obs-collapsed"])
+  expect(missingCollapsed.valid).toBe(false)
+  expect(missingCollapsed.missing_observation_ids).toEqual(["obs-collapsed"])
+
+  const droppingCollapsed = validateFindingLineage(
+    raw,
+    [
+      finding({
+        id: "rep",
+        observation_id: "obs-rep",
+        observation_ids: ["obs-rep"],
+        observation_count: 1,
+      }),
+    ],
+    [{ observation_id: "obs-collapsed", reason: "merged-into" }],
+  )
+  expect(droppingCollapsed.valid).toBe(true)
 })
 
 test("validateFindingLineage rejects a deduped finding that merges observations across files", () => {

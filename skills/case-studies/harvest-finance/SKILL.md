@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/harvest-finance-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'getPricePerFullShare'
-    severity: "Medium"
-    description: "Detects usage of share price functions which can be manipulated by large trades in underlying pools."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

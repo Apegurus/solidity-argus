@@ -124,6 +124,11 @@ export function computeRunMetrics(
   const precision = tp + fp === 0 ? 0 : tp / (tp + fp)
   const recall = tp + fn === 0 ? 0 : tp / (tp + fn)
   const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall)
+  const verdict_mismatches = matches.filter(
+    (match) =>
+      match.groundTruth.expected_verdict !== undefined &&
+      match.predicted.rubric_verdict !== match.groundTruth.expected_verdict,
+  )
 
   return {
     fixture_slug: fixture.slug,
@@ -139,6 +144,7 @@ export function computeRunMetrics(
     matches,
     unmatched_predicted,
     unmatched_ground_truth,
+    verdict_mismatches,
   }
 }
 

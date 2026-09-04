@@ -1,4 +1,10 @@
 import * as parser from "@solidity-parser/parser"
+import { buildSafeEnv } from "../shared/process-runner"
+import {
+  MAX_SUBPROCESS_STDERR_BYTES,
+  MAX_SUBPROCESS_STDOUT_BYTES,
+  readStreamCapped,
+} from "../shared/subprocess-io"
 import type { ContractProfile } from "../state/types"
 
 const EXTERNAL_CALL_METHODS = new Set(["call", "transfer", "send", "delegatecall", "staticcall"])
@@ -68,7 +74,7 @@ export function extractJson(raw: string, opener: "[" | "{"): string {
     }
   }
 
-  return raw
+  return ""
 }
 
 function toRecord(value: unknown): Record<string, unknown> | undefined {
@@ -149,6 +155,7 @@ async function spawnForgeInspect(
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    env: buildSafeEnv(),
   })
 
   const timeout = 15_000
@@ -161,10 +168,12 @@ async function spawnForgeInspect(
   })
 
   try {
-    const exitCode = await Promise.race([proc.exited, timer])
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    return { success: exitCode === 0, stdout, stderr }
+    const [exitCode, stdout, stderr] = await Promise.all([
+      Promise.race([proc.exited, timer]),
+      readStreamCapped(proc.stdout, MAX_SUBPROCESS_STDOUT_BYTES),
+      readStreamCapped(proc.stderr, MAX_SUBPROCESS_STDERR_BYTES),
+    ])
+    return { success: exitCode === 0, stdout: stdout.text, stderr: stderr.text }
   } finally {
     if (timerId !== undefined) clearTimeout(timerId)
   }
@@ -232,9 +241,10 @@ export async function extractContractInfo(
 
     // Extract functions from ABI
     const functions = abi.filter((item) => item.type === "function")
+    // ABI functions are all externally reachable; mutability is a separate axis (below).
     result.functions = functions.map((func) => ({
       name: func.name || "",
-      visibility: mapStateMutabilityToVisibility(func.stateMutability || "nonpayable"),
+      visibility: "external",
       mutability: func.stateMutability || "nonpayable",
       modifiers: [],
     }))
@@ -258,23 +268,6 @@ export async function extractContractInfo(
   } catch (e) {
     result.error = `Unexpected error: ${e instanceof Error ? e.message : "Unknown error"}`
     return result
-  }
-}
-
-/**
- * Map Solidity stateMutability to visibility
- * ABI doesn't directly specify visibility, so we infer from mutability
- */
-function mapStateMutabilityToVisibility(stateMutability: string): string {
-  switch (stateMutability) {
-    case "pure":
-    case "view":
-      return "view"
-    case "payable":
-    case "nonpayable":
-      return "external"
-    default:
-      return "external"
   }
 }
 

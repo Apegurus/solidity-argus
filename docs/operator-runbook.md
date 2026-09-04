@@ -1,19 +1,18 @@
-# Argus Production-Grade Hardening — Operator Runbook
+# Argus Production Operations Runbook
 
 > **Audience**: Release managers, platform engineers, and on-call operators responsible for deploying and maintaining `solidity-argus` in production.
-> **Scope**: Migration mode transitions, cutover procedures, rollback steps, and troubleshooting for the canonical state, report pipeline, and Solodit integration.
+> **Scope**: Deployment checks, rollback steps, and troubleshooting for canonical state, report generation, configuration, and Solodit search.
 
 ---
 
 ## 1. Overview
 
-This runbook covers the operational procedures for the **Argus Production-Grade State and Reporting Hardening** release. The hardening introduces:
+This runbook covers the supported production operation of `solidity-argus`:
 
 - **Event-sourced canonical audit state** — all findings and lifecycle events are appended to a per-run journal (`events.jsonl`) and projected deterministically.
 - **Single report writer pipeline** — only `argus_generate_report` writes final report files; Scribe no longer writes directly.
-- **Migration modes** — a three-stage compatibility system (`legacy` → `dual` → `strict`) for safe rollout.
-- **Parity telemetry** — dual mode compares legacy and canonical outputs to validate equivalence before cutover.
 - **Quality gates** — Critical/High findings require non-empty impact, recommendation, and PoC evidence.
+- **Direct Solodit search** — `argus_solodit_search` queries Solodit over HTTPS without a local MCP process.
 
 **Schema versions in this release:**
 - `SCHEMA_VERSION = "1.0.0"` (canonical event/finding schema)
@@ -50,7 +49,7 @@ Audit Session
 **Root precedence contract:**
 - Write root: `.argus` only.
 - Read roots: `[.argus, .opencode]` in that order.
-- Migration posture: `.opencode` remains supported as a read fallback during transition.
+- Compatibility posture: `.opencode` remains supported as a read fallback.
 
 ### Report Pipeline
 
@@ -58,7 +57,7 @@ Audit Session
 Argus (orchestrator)
   → collects findings via hooks (tool-tracking-hook.ts)
   → dispatches Scribe with structured ReportInput payload
-  → Scribe calls argus_generate_report (ONLY writer)
+  → Scribe calls argus_generate_report (Argus may invoke it only for render recovery)
   → report written to canonical path
   → contentHash embedded in report metadata comment
 ```
@@ -74,39 +73,34 @@ const hash     = stableHash(findings)              // SHA-256 of sorted JSON
 
 ---
 
-## 3. Migration Modes
+## 3. Supported Configuration
 
-Configure in `.argus/solidity-argus.jsonc`:
+Create `.argus/solidity-argus.jsonc`. The project-level `.opencode/solidity-argus.jsonc` path remains a compatibility fallback.
 
 ```jsonc
 {
-  "migration": {
-    "mode": "legacy"   // "legacy" | "dual" | "strict"
-  }
+  "reporting": {
+    "confidenceThreshold": 80,
+    "severityThreshold": "low",
+    "output_dir": ".argus/reports/"
+  },
+  "solodit": {
+    "enabled": true
+  },
+  "disabled_hooks": []
 }
 ```
 
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `"legacy"` | Uses only the legacy `AuditState` path. Backward compatible. | Default. Safe for all existing deployments. |
-| `"dual"` | Runs both legacy and canonical paths. Emits parity metrics comparing outputs. | Validation phase before strict cutover. |
-| `"strict"` | Uses only the canonical path. Rejects legacy-only payloads missing canonical fields. | Post-validation production mode. |
-
-**Default**: `"legacy"` — no behavior change from pre-hardening releases.
-
-### Parity Metrics (dual mode)
-
-In `dual` mode, `computeParityMetrics()` emits:
-- `findingCountDiff` — difference in finding count between legacy and canonical projections
-- `severityDistributionDiff` — per-severity count differences
-- `contentHashMatch` — whether the projected finding hashes match
-- `onlyInLegacy` / `onlyInCanonical` — findings present in one path but not the other
+Forge and Slither executables are resolved from the host `PATH`; audited projects cannot override
+them. The schema rejects unsupported fields and falls back to defaults after logging a warning.
+Review the Argus log after configuration changes, and use the generated starter from `argus init`
+when creating a new configuration.
 
 ---
 
-## 4. Pre-Cutover Checklist
+## 4. Pre-Deployment Checklist
 
-Run these checks **before** switching from `legacy` to `dual` or from `dual` to `strict`.
+Run these checks before releasing a new plugin version or changing production configuration.
 
 ### 4.1 Health Check
 
@@ -117,15 +111,18 @@ argus doctor
 
 Expected output:
 ```
-✓ Slither: installed
-✓ Forge: installed
+✓ Slither: installed (<version>, Python <version>)
+✓ Forge: installed (<version>)
+✓ solc-select: installed (<version>)
 ✓ Config: valid
 ✓ Skills: required audit skills resolvable
 ✓ SCVD API: reachable
-✓ Solodit MCP: reachable on port 54173
+✓ Solodit: enabled (direct tRPC search)
 ```
 
-If any check fails, resolve before proceeding.
+The Solodit line confirms configuration only; it does not probe the upstream service. A missing
+`solc-select` is advisory unless the guarded Slither flatten fallback is needed. If any required
+check fails, resolve it before proceeding.
 
 ### 4.2 Full Test Suite
 
@@ -159,65 +156,30 @@ Expected: Exit 0, no errors.
 ### 4.5 Archive Current State (rollback checkpoint)
 
 ```bash
-# Create a timestamped backup of the legacy shared state if it exists
-if [ -f .argus/argus-state.json ]; then
-  cp .argus/argus-state.json .argus/argus-state.pre-cutover-$(date +%Y%m%d-%H%M%S).json
+# Preserve current session, run, and report artifacts when they exist
+if [ -d .argus ]; then
+  cp -R .argus ".argus.pre-deploy-$(date +%Y%m%d-%H%M%S)"
 fi
 ```
 
 ---
 
-## 5. Cutover Execution
+## 5. Deployment Execution
 
-### 5.1 Switch to Dual Mode (validation phase)
-
-1. Edit `.argus/solidity-argus.jsonc`:
-   ```jsonc
-   {
-     "migration": {
-       "mode": "dual"
-     }
-   }
-   ```
-
-2. Run a test audit to generate parity metrics:
+1. Install or update the intended `solidity-argus` package version.
+2. Validate configuration before opening an audit session:
    ```bash
-   # Run a full audit on a known contract
-   # Parity metrics will be logged to the run journal
+   argus doctor
    ```
-
-3. Check parity metrics in the run journal:
-   ```bash
-    cat .argus/runs/$(ls -t .argus/runs/ | head -1)/events.jsonl | grep "parity"
-   ```
-
-4. Verify `findingCountDiff = 0` and `contentHashMatch = true` before proceeding to strict mode.
-
-### 5.2 Switch to Strict Mode (production cutover)
-
-Only proceed if dual-mode parity validation passed (Step 5.1).
-
-1. Edit `.argus/solidity-argus.jsonc`:
-   ```jsonc
-   {
-     "migration": {
-       "mode": "strict"
-     }
-   }
-   ```
-
-2. Run the config and plugin migration checks to confirm compatibility behavior works:
-    ```bash
-    bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
-    ```
-
-3. Run a full audit to confirm end-to-end behavior.
+3. Start OpenCode in a known Solidity project and confirm the Argus load banner names the expected version and project directory.
+4. Run a smoke audit that exercises at least one static-analysis tool and one finding write.
+5. Confirm the run journal and report artifacts appear under `.argus/`.
 
 ---
 
-## 6. Post-Cutover Validation
+## 6. Post-Deployment Validation
 
-After switching modes, verify the system is operating correctly.
+After deployment, verify the system is operating correctly.
 
 ### 6.1 Verify Event Journal is Being Written
 
@@ -265,54 +227,24 @@ Expected: All pass. Critical/High findings require non-empty impact and recommen
 
 ## 7. Rollback Procedure
 
-### 7.1 Rollback from Strict to Dual
+### 7.1 Package or Configuration Rollback
 
-1. Edit `.argus/solidity-argus.jsonc`:
-   ```jsonc
-   {
-     "migration": {
-       "mode": "dual"
-     }
-   }
-   ```
-
-2. Verify the system is healthy:
+1. Stop creating new audit sessions.
+2. Restore the previously deployed plugin version and the last known-good `solidity-argus.jsonc`.
+3. Do not overwrite `.argus/runs`, `.argus/sessions`, or `.argus/reports`; they may contain evidence needed to diagnose the failed release.
+4. Verify the rollback:
    ```bash
    argus doctor
-    bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts
    ```
+5. Run a smoke audit and confirm the load banner reports the expected rollback version.
 
-### 7.2 Rollback from Dual to Legacy
+### 7.2 Emergency Rollback (data corruption suspected)
 
-1. Edit `.argus/solidity-argus.jsonc`:
-   ```jsonc
-   {
-     "migration": {
-       "mode": "legacy"
-     }
-   }
-   ```
-   Or remove the `migration` section entirely (defaults to `"legacy"`).
-
-2. Restore pre-cutover state if needed:
-   ```bash
-   # Restore from the backup created in Pre-Cutover step 4.5, if you captured one
-   cp .argus/argus-state.pre-cutover-YYYYMMDD-HHMMSS.json .argus/argus-state.json
-   ```
-
-3. Verify:
-   ```bash
-   argus doctor
-   bun test
-   ```
-
-### 7.3 Emergency Rollback (data corruption suspected)
-
-1. Immediately switch to `legacy` mode (see 7.2).
-2. Do NOT delete any `.argus/runs/*/events.jsonl` files — they are forensic evidence.
+1. Stop new audit sessions and preserve the affected project directory.
+2. Do NOT delete any `.argus/runs/*/events.jsonl` files; they are forensic evidence.
 3. Archive the corrupted run:
    ```bash
-    mv .argus/runs/{runId} .argus/runs/{runId}.corrupted-$(date +%Y%m%d-%H%M%S)
+   mv .argus/runs/{runId} .argus/runs/{runId}.corrupted-$(date +%Y%m%d-%H%M%S)
    ```
 4. File an incident report with the archived run directory for post-mortem analysis.
 
@@ -372,7 +304,7 @@ ls -la .argus/reports/
 
 ---
 
-**Symptom**: Quality gate failures blocking report generation in strict mode.
+**Symptom**: Quality gate failures blocking report generation.
 
 **Diagnosis**:
 ```bash
@@ -381,70 +313,24 @@ bun test tests/integration/report-quality-gates.test.ts --verbose
 
 **Remediation**:
 - Quality gates require Critical/High findings to have non-empty `impact`, `recommendation`, and `exploitReference` or `proofOfConcept`.
-- Switch to `warn` policy temporarily: pass `dropPolicy: "warn"` to `argus_generate_report`.
-- Fix the finding data to include required fields before switching back to strict.
+- Switch to warning-only quality gates temporarily: pass `quality_gate_policy: "warn"` to `argus_generate_report`.
+- Fix the finding data to include required fields before regenerating the report.
 
 ---
 
-### 8.3 Solodit Integration Issues
+### 8.3 Solodit Search Issues
 
 **Symptom**: Solodit search returning empty results or errors.
 
 **Diagnosis**:
 ```bash
 argus doctor
-# Check: ✓ Solodit MCP: reachable on port 54173
 ```
 
 **Remediation**:
-- If Solodit MCP is unreachable, the HTTP fallback will be used automatically.
-- Check if Solodit MCP server is running: `lsof -i :54173`
-- If port conflict (EADDRINUSE): kill the conflicting process or change the Solodit port in config.
-- The search tool always attempts HTTP fallback — no manual intervention needed for degraded mode.
-
----
-
-**Symptom**: Solodit health check failing with protocol errors.
-
-**Diagnosis**:
-```bash
-bun test src/utils/solodit-health.test.ts --verbose
-```
-
-**Remediation**:
-- Health probe uses JSON-RPC POST with `initialize` handshake.
-- If the MCP server version changed, check `src/utils/solodit-health.ts` for protocol compatibility.
-
----
-
-### 8.4 Migration Mode Issues
-
-**Symptom**: Strict mode rejecting valid payloads.
-
-**Diagnosis**:
-```bash
-bun test src/config/loader.test.ts src/config/loader-partial-validation.test.ts tests/e2e/plugin-e2e.test.ts --verbose
-```
-
-**Remediation**:
-- Strict mode requires canonical fields (`run_id`, `schema_version`, `findings` as `CanonicalFinding[]`).
-- Use `validateStrictCompatibility(payload)` from `src/features/migration/migration-adapter.ts` to diagnose missing fields.
-- Switch to `dual` mode to see parity metrics and identify what's missing.
-
----
-
-**Symptom**: Parity metrics show `findingCountDiff != 0` in dual mode.
-
-**Diagnosis**:
-```bash
-# Check parity events in the run journal
-cat .argus/runs/$(ls -t .argus/runs/ | head -1)/events.jsonl | grep "parity"
-```
-
-**Remediation**:
-- `onlyInLegacy` findings: canonical path is missing findings that legacy captures. Do NOT switch to strict mode.
-- `onlyInCanonical` findings: canonical path is capturing more findings than legacy. Investigate if these are valid new findings or false positives.
-- Do NOT switch to strict mode until `findingCountDiff = 0` and `contentHashMatch = true`.
+- Confirm `solodit.enabled` is still `true` in config.
+- The search tool uses direct Solodit tRPC requests; network or upstream API failures can surface as empty results.
+- If you need to disable Solodit temporarily, set `solodit.enabled: false`.
 
 ---
 
@@ -540,7 +426,7 @@ Use this checklist when a background retrieval incident occurs during an audit:
 |--------|---------|-----------------|
 | `quality` | `biome ci .` | Code formatting and lint rules |
 | `typecheck` | `bun run typecheck` | TypeScript type correctness |
-| `test` | `bun test` | All unit and integration tests (1138+ tests) |
+| `test` | `bun test` | All unit and integration tests |
 | `e2e` | `bun test` (with Slither + Foundry) | End-to-end audit pipeline with real tools |
 | `production-readiness` | 6 integration test files (see below) | Production invariants |
 
@@ -566,17 +452,14 @@ Evidence artifacts from CI runs are uploaded to the `production-readiness-eviden
 ```jsonc
 // .argus/solidity-argus.jsonc
 {
-  "migration": {
-    "mode": "legacy"   // "legacy" | "dual" | "strict" — default: "legacy"
-  },
   "reporting": {
-    "format": "markdown",
+    "confidenceThreshold": 80,
     "severityThreshold": "low"
   },
   "solodit": {
-    "enabled": true,
-    "port": 54173
-  }
+    "enabled": true
+  },
+  "disabled_hooks": []
 }
 ```
 
@@ -588,4 +471,4 @@ Evidence artifacts from CI runs are uploaded to the `production-readiness-eviden
 
 ---
 
-*Last updated: 2026-02-22 | Argus Production-Grade Hardening release*
+*Last updated: 2026-07-14*

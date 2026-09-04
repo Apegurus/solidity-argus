@@ -1,6 +1,7 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
+import { safeForgeMatchPath, safeForgeTarget } from "../shared/path-safety"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeCoverageArgs = {
@@ -57,9 +58,10 @@ const EMPTY_SUMMARY: ForgeCoverageSummary = {
 }
 
 function normalizeArgs(args: ForgeCoverageArgs, context: ToolContext): NormalizedForgeCoverageArgs {
+  const projectRoot = resolveProjectDir(context)
   return {
-    target: args.target ?? resolveProjectDir(context),
-    match_path: args.match_path,
+    target: safeForgeTarget(projectRoot, args.target),
+    match_path: safeForgeMatchPath(projectRoot, args.match_path),
     ir_minimum: args.ir_minimum ?? false,
   }
 }
@@ -218,8 +220,6 @@ export async function executeForgeCoverage(
   runCommand: ForgeCommandRunner = runForgeCommand,
 ): Promise<ForgeCoverageResult> {
   const startedAt = Date.now()
-  const normalizedArgs = normalizeArgs(args, context)
-  context.metadata({ title: `Run forge coverage: ${normalizedArgs.target}` })
 
   const fail = (
     error: string,
@@ -233,6 +233,10 @@ export async function executeForgeCoverage(
   })
 
   try {
+    const normalizedArgs = normalizeArgs(args, context)
+    context.metadata({ title: `Run forge coverage: ${normalizedArgs.target}` })
+
+    let usedIrMinimum = normalizedArgs.ir_minimum
     let runResult = await runCommand(buildCoverageCommand(normalizedArgs), {
       signal: context.abort,
       cwd: normalizedArgs.target,
@@ -243,6 +247,7 @@ export async function executeForgeCoverage(
       !normalizedArgs.ir_minimum &&
       shouldRetryWithIrMinimum(runResult.stderr)
     ) {
+      usedIrMinimum = true
       runResult = await runCommand(buildCoverageCommand(normalizedArgs, true), {
         signal: context.abort,
         cwd: normalizedArgs.target,
@@ -274,10 +279,22 @@ export async function executeForgeCoverage(
       }
     }
 
+    const irMinimumBranchQuirk =
+      usedIrMinimum &&
+      report.summary.totalBranchesPct === 0 &&
+      (report.summary.totalLinesPct > 0 ||
+        report.summary.totalStatementsPct > 0 ||
+        report.summary.totalFunctionsPct > 0)
+
     return {
       success: true,
       report,
       executionTime: Date.now() - startedAt,
+      ...(irMinimumBranchQuirk
+        ? {
+            hint: "branchesPct is 0% because --ir-minimum (used here to avoid stack-too-deep) does not emit branch-hit data in Foundry; treat branch coverage as unavailable, not as untested branches.",
+          }
+        : {}),
     }
   } catch (error) {
     const classified = classifyForgeError(error, context, "forge coverage")

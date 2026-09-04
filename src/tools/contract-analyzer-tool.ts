@@ -1,10 +1,15 @@
 import { existsSync } from "node:fs"
-import { basename } from "node:path"
+import { basename, isAbsolute, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { FOUNDRY_NOT_FOUND_MESSAGE } from "../shared/forge-errors"
-import { findFoundryProjectDir } from "../shared/project-utils"
+import { assertContained, PathSafetyError } from "../shared/path-safety"
+import { findFoundryProjectDir, resolveProjectDir } from "../shared/project-utils"
 import type { ContractProfile } from "../state/types"
 import { extractContractInfo, parseExternalCalls } from "../utils/solidity-parser"
+import {
+  validateFoundryCompilerConfig,
+  validateFoundrySourceClosure,
+} from "./slither-foundry-safety"
 
 type ContractAnalyzerArgs = {
   file_path: string
@@ -122,7 +127,7 @@ function isSuccessfulProfile(profile: ContractProfile): boolean {
   return typeof profile.error !== "string" || profile.error.length === 0
 }
 
-function withAbort<T>(signal: AbortSignal, operation: Promise<T>): Promise<T> {
+function withAbort<T>(signal: AbortSignal, operationFactory: () => Promise<T>): Promise<T> {
   if (signal.aborted) {
     return Promise.reject(new DOMException("Aborted", "AbortError"))
   }
@@ -133,6 +138,7 @@ function withAbort<T>(signal: AbortSignal, operation: Promise<T>): Promise<T> {
     }
 
     signal.addEventListener("abort", onAbort, { once: true })
+    const operation = operationFactory()
     operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort)
@@ -149,9 +155,23 @@ function withAbort<T>(signal: AbortSignal, operation: Promise<T>): Promise<T> {
 export async function executeContractAnalyzer(
   args: ContractAnalyzerArgs,
   context: ToolContext,
-  dependencies: ContractAnalyzerDependencies = DEFAULT_DEPENDENCIES,
+  dependencies: Partial<ContractAnalyzerDependencies> = {},
 ): Promise<ContractProfile> {
-  const filePath = args.file_path
+  const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies }
+  const activeProject = resolveProjectDir(context)
+  const requestedFile = isAbsolute(args.file_path)
+    ? resolve(args.file_path)
+    : resolve(activeProject, args.file_path)
+  let filePath: string
+  try {
+    filePath = assertContained(requestedFile, activeProject)
+  } catch (error) {
+    const message =
+      error instanceof PathSafetyError
+        ? "Contract file resolves outside the active project"
+        : "Contract file could not be verified"
+    return createFailureProfile(basename(args.file_path, ".sol"), args.file_path, message)
+  }
   const contractName = basename(filePath, ".sol")
 
   context.metadata({ title: `Analyze contract: ${contractName}` })
@@ -160,10 +180,38 @@ export async function executeContractAnalyzer(
     return createFailureProfile(contractName, filePath, `Contract file not found: ${filePath}`)
   }
 
-  const projectDir = args.project_dir ?? findFoundryProjectDir(filePath)
+  let projectDir: string
+  try {
+    const requestedProject = args.project_dir
+      ? isAbsolute(args.project_dir)
+        ? resolve(args.project_dir)
+        : resolve(activeProject, args.project_dir)
+      : findFoundryProjectDir(filePath, activeProject)
+    const boundedProject = assertContained(requestedProject, activeProject)
+    projectDir = assertContained(
+      findFoundryProjectDir(boundedProject, activeProject),
+      activeProject,
+    )
+    filePath = assertContained(filePath, projectDir)
+  } catch (error) {
+    const message =
+      error instanceof PathSafetyError
+        ? "Contract project resolves outside the active project"
+        : "Contract project could not be verified"
+    return createFailureProfile(contractName, filePath, message)
+  }
+
+  const compilerConfig = validateFoundryCompilerConfig(projectDir)
+  if (!compilerConfig.ok) {
+    return createFailureProfile(contractName, filePath, compilerConfig.message)
+  }
+  const sourceClosure = validateFoundrySourceClosure(projectDir, activeProject)
+  if (!sourceClosure.ok) {
+    return createFailureProfile(contractName, filePath, sourceClosure.message)
+  }
 
   try {
-    const sourceText = await withAbort(context.abort, Bun.file(filePath).text())
+    const sourceText = await withAbort(context.abort, () => Bun.file(filePath).text())
 
     const candidates = inspectCandidates(filePath, sourceText)
     const failures: string[] = []
@@ -171,10 +219,7 @@ export async function executeContractAnalyzer(
     let analyzedContractName = contractName
 
     for (const candidate of candidates) {
-      const profile = await withAbort(
-        context.abort,
-        dependencies.extractInfo(candidate, projectDir),
-      )
+      const profile = await withAbort(context.abort, () => deps.extractInfo(candidate, projectDir))
       if (isSuccessfulProfile(profile)) {
         contractProfile = profile
         analyzedContractName = profile.name || candidate.split(":").at(-1) || candidate

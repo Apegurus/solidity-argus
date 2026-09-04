@@ -22,7 +22,40 @@ import type {
   ToolExecution,
 } from "./types"
 
-export const SCHEMA_VERSION = "2.0.0"
+export const SCHEMA_VERSION = "2.1.0"
+
+// Prior schema versions that copy-on-read migration upgrades to SCHEMA_VERSION.
+const MIGRATABLE_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(["2.0.0"])
+
+export class MigrationError extends Error {
+  readonly fromVersion: string | undefined
+  constructor(message: string, fromVersion: string | undefined) {
+    super(message)
+    this.name = "MigrationError"
+    this.fromVersion = fromVersion
+  }
+}
+
+export function isMigratableSchemaVersion(version: unknown): boolean {
+  return (
+    version === SCHEMA_VERSION ||
+    (typeof version === "string" && MIGRATABLE_SCHEMA_VERSIONS.has(version))
+  )
+}
+
+// Copy-on-read: never mutates `raw`; an unrecognized/missing version throws MigrationError so the
+// on-disk journal is left intact rather than partially written.
+export function migrateToCurrentSchema<T extends Record<string, unknown>>(raw: T): T {
+  const version = raw.schema_version
+  if (version === SCHEMA_VERSION) return raw
+  if (typeof version === "string" && MIGRATABLE_SCHEMA_VERSIONS.has(version)) {
+    return { ...raw, schema_version: SCHEMA_VERSION }
+  }
+  throw new MigrationError(
+    `cannot migrate schema_version ${JSON.stringify(version)} to ${SCHEMA_VERSION}`,
+    typeof version === "string" ? version : undefined,
+  )
+}
 
 export type AuditEventType =
   | "session.created"
@@ -33,6 +66,7 @@ export type AuditEventType =
   | "finding.added"
   | "phase.changed"
   | "run.finalized"
+  | "run.finalization_failed"
 
 export interface ValidationError {
   field: string
@@ -338,11 +372,18 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     })
   } else {
     const [start, end] = raw.lines
-    if (typeof start !== "number" || typeof end !== "number") {
+    if (
+      typeof start !== "number" ||
+      typeof end !== "number" ||
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 1 ||
+      end < start
+    ) {
       errors.push({
         field: "lines",
         code: "invalid",
-        message: "lines must contain numbers",
+        message: "lines must contain positive integers with start less than or equal to end",
       })
     }
   }
@@ -393,6 +434,44 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     }
   }
 
+  if ("supersedes_observation_id" in (raw as Record<string, unknown>)) {
+    if (
+      raw.supersedes_observation_id != null &&
+      (typeof raw.supersedes_observation_id !== "string" ||
+        raw.supersedes_observation_id.trim().length === 0)
+    ) {
+      errors.push({
+        field: "supersedes_observation_id",
+        code: "invalid",
+        message: "supersedes_observation_id must be a non-empty string when provided",
+      })
+    }
+  }
+
+  if ("supersedes_observation_ids" in (raw as Record<string, unknown>)) {
+    if (
+      !Array.isArray(raw.supersedes_observation_ids) ||
+      raw.supersedes_observation_ids.some((id) => typeof id !== "string" || id.trim().length === 0)
+    ) {
+      errors.push({
+        field: "supersedes_observation_ids",
+        code: "invalid",
+        message: "supersedes_observation_ids must be an array of non-empty strings when provided",
+      })
+    }
+  }
+
+  if (
+    "source_location_id" in raw &&
+    (typeof raw.source_location_id !== "string" || raw.source_location_id.trim().length === 0)
+  ) {
+    errors.push({
+      field: "source_location_id",
+      code: "invalid",
+      message: "source_location_id must be a non-empty string when provided",
+    })
+  }
+
   if (
     typeof raw.source !== "string" ||
     !VALID_SOURCES.has(raw.source as CanonicalFinding["source"])
@@ -412,7 +491,7 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
       field: "reported_by_agent",
       code: "enum",
       message:
-        "reported_by_agent must be one of: argus, sentinel, pythia, audit-specialist, scribe, unknown",
+        "reported_by_agent must be one of: argus, sentinel, pythia, audit-specialist, scribe, themis, unknown",
     })
   }
 
@@ -428,11 +507,11 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     })
   }
 
-  if (raw.schema_version !== SCHEMA_VERSION) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
       code: "version_mismatch",
-      message: `schema_version must be ${SCHEMA_VERSION}`,
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -440,7 +519,7 @@ export function validateCanonicalFinding(raw: unknown): ValidationResult<Canonic
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as CanonicalFinding }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as CanonicalFinding }
 }
 
 export function validateCanonicalToolExecution(
@@ -515,11 +594,11 @@ export function validateCanonicalToolExecution(
     })
   }
 
-  if (typeof raw.schema_version !== "string" || raw.schema_version.trim().length === 0) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
-      code: "required",
-      message: "schema_version is required and must be a non-empty string",
+      code: "version_mismatch",
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -527,7 +606,7 @@ export function validateCanonicalToolExecution(
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as CanonicalToolExecution }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as CanonicalToolExecution }
 }
 export function validateReportInput(raw: unknown): ValidationResult<ReportInput> {
   if (!isRecord(raw)) {
@@ -553,11 +632,11 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
   pushRequiredRootStringError(errors, raw, "schema_version")
   pushRequiredRootStringError(errors, raw, "projectDir")
 
-  if (raw.schema_version !== SCHEMA_VERSION) {
+  if (!isMigratableSchemaVersion(raw.schema_version)) {
     errors.push({
       field: "schema_version",
       code: "version_mismatch",
-      message: `schema_version must be ${SCHEMA_VERSION}`,
+      message: `schema_version must be ${SCHEMA_VERSION} or a migratable prior version`,
     })
   }
 
@@ -637,5 +716,5 @@ export function validateReportInput(raw: unknown): ValidationResult<ReportInput>
     return { success: false, errors }
   }
 
-  return { success: true, data: raw as unknown as ReportInput }
+  return { success: true, data: migrateToCurrentSchema(raw) as unknown as ReportInput }
 }

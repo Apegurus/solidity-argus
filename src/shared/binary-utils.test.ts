@@ -51,6 +51,20 @@ describe("binary-utils", () => {
       rmSync(testDir, { recursive: true, force: true })
     })
 
+    it("should extract version from deeply nested Solidity sources", async () => {
+      const testDir = `/tmp/solc-test-${Date.now()}`
+      const { mkdirSync, writeFileSync, rmSync } = require("node:fs")
+      const deepDir = `${testDir}/src/one/two/three/four`
+
+      mkdirSync(deepDir, { recursive: true })
+      writeFileSync(`${deepDir}/Contract.sol`, "pragma solidity ^0.8.24;\ncontract Test {}")
+
+      const result = await parseSolcVersion(testDir)
+      expect(result).toBe("0.8.24")
+
+      rmSync(testDir, { recursive: true, force: true })
+    })
+
     it("should handle version with caret", async () => {
       const testDir = `/tmp/solc-test-${Date.now()}`
       const { mkdirSync, writeFileSync, rmSync } = require("node:fs")

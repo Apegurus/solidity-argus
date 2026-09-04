@@ -19,10 +19,17 @@ export interface TfidfCorpus {
   docFreq: Map<string, number>
 }
 
+// Composite similarity weights (sum to 1.0). Hand-tuned, not learned: body TF-IDF
+// cosine dominates, with shingle / name-desc / detection-rule signals as
+// tie-breakers. Retune against tests/eval/ duplicate-detection recall, not by feel.
 const BODY_TFIDF_WEIGHT = 0.45
 const BODY_SHINGLE_WEIGHT = 0.2
 const NAME_DESC_WEIGHT = 0.2
 const DETECTION_RULES_WEIGHT = 0.15
+
+// detectionRuleOverlap blends exact rule-set overlap with token-level overlap.
+const RULE_EXACT_MATCH_WEIGHT = 0.6
+const RULE_TOKEN_OVERLAP_WEIGHT = 0.4
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -175,7 +182,7 @@ export function detectionRuleOverlap(a: SkillDoc, b: SkillDoc): number {
   const exactMatch = maxRuleCount === 0 ? 0 : sharedExact / maxRuleCount
   const tokenOverlap = tokenJaccard(a.ruleTokens, b.ruleTokens)
 
-  return clamp01(exactMatch * 0.6 + tokenOverlap * 0.4)
+  return clamp01(exactMatch * RULE_EXACT_MATCH_WEIGHT + tokenOverlap * RULE_TOKEN_OVERLAP_WEIGHT)
 }
 
 export function computeSimilarity(a: SkillDoc, b: SkillDoc, corpus: TfidfCorpus): SimilarityScore {

@@ -1,18 +1,21 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ContractProfile } from "../state/types"
 import { contractAnalyzerTool, executeContractAnalyzer } from "./contract-analyzer-tool"
 
-function createContext(abortController = new AbortController()): ToolContext {
+function createContext(
+  abortController = new AbortController(),
+  overrides: Partial<ToolContext> = {},
+): ToolContext {
   return {
     sessionID: "session-1",
     messageID: "message-1",
     agent: "argus",
-    directory: "/tmp/project",
-    worktree: "/tmp/project",
+    directory: tmpdir(),
+    worktree: tmpdir(),
     abort: abortController.signal,
     metadata() {
       return
@@ -20,6 +23,7 @@ function createContext(abortController = new AbortController()): ToolContext {
     async ask() {
       return
     },
+    ...overrides,
   }
 }
 
@@ -52,7 +56,7 @@ test("contractAnalyzerTool uses tool() helper contract", () => {
 })
 
 test("executeContractAnalyzer calls extractContractInfo using basename contract name", async () => {
-  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "argus-contract-analyzer-")))
   tempDirs.push(root)
 
   const contractsDir = join(root, "src", "contracts")
@@ -72,6 +76,73 @@ test("executeContractAnalyzer calls extractContractInfo using basename contract 
 
   expect(calls).toEqual([{ contractName: "Vault", projectDir: root }])
   expect(result.error).toBeUndefined()
+})
+
+test("executeContractAnalyzer does not pass executable selection to inspect", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  tempDirs.push(root)
+  writeFileSync(join(root, "foundry.toml"), "[profile.default]\n")
+  const filePath = join(root, "Vault.sol")
+  writeFileSync(filePath, "contract Vault { function run() external {} }")
+
+  let argumentCount = 0
+  await executeContractAnalyzer({ file_path: filePath, project_dir: root }, createContext(), {
+    extractInfo: async (...args) => {
+      argumentCount = args.length
+      return createBaseProfile()
+    },
+  })
+
+  expect(argumentCount).toBe(2)
+})
+
+test("executeContractAnalyzer rejects unsafe Foundry compiler config before inspect", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-unsafe-"))
+  tempDirs.push(root)
+  const filePath = join(root, "src", "Vault.sol")
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), '[profile.default]\nsolc = "./tools/solc"\n')
+  writeFileSync(filePath, "contract Vault {}")
+  let inspected = false
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: root },
+    createContext(new AbortController(), { directory: root, worktree: root }),
+    {
+      extractInfo: async () => {
+        inspected = true
+        return createBaseProfile()
+      },
+    },
+  )
+
+  expect(inspected).toBe(false)
+  expect(result.error).toContain("version-pinned compiler")
+})
+
+test("executeContractAnalyzer validates the effective parent Foundry root", async () => {
+  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-parent-"))
+  tempDirs.push(root)
+  const sourceDir = join(root, "src")
+  const filePath = join(sourceDir, "Vault.sol")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(join(root, "foundry.toml"), '[profile.default]\nsolc = "./tools/solc"\n')
+  writeFileSync(filePath, "contract Vault {}")
+  let inspected = false
+
+  const result = await executeContractAnalyzer(
+    { file_path: filePath, project_dir: sourceDir },
+    createContext(new AbortController(), { directory: root, worktree: root }),
+    {
+      extractInfo: async () => {
+        inspected = true
+        return createBaseProfile()
+      },
+    },
+  )
+
+  expect(inspected).toBe(false)
+  expect(result.error).toContain("version-pinned compiler")
 })
 
 test("executeContractAnalyzer falls back to declared contract name when basename inspect fails", async () => {
@@ -190,9 +261,11 @@ test("executeContractAnalyzer populates externalCalls from Solidity AST", async 
 })
 
 test("executeContractAnalyzer returns structured error when file does not exist", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "argus-contract-analyzer-missing-")))
+  tempDirs.push(root)
   const result = await executeContractAnalyzer(
-    { file_path: "/tmp/does-not-exist/NotHere.sol" },
-    createContext(),
+    { file_path: join(root, "does-not-exist", "NotHere.sol") },
+    createContext(new AbortController(), { directory: root, worktree: root }),
     {
       extractInfo: async () => createBaseProfile(),
     },

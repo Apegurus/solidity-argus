@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-The codebase has been restructured from a monolithic plugin into a factory-based composition pattern modeled after oh-my-opencode. Since the last assessment, three additional improvements shipped: via_ir auto-detection for Slither fallback, skill index injection into system prompts, and migration of subagent configs from deprecated `tools` to the `permission` system.
+The codebase has been restructured from a monolithic plugin into a factory-based composition pattern modeled after oh-my-opencode. Since the last assessment, three additional improvements shipped: via_ir auto-detection for Foundry-backed Slither compilation, skill index injection into system prompts, and migration of subagent configs from deprecated `tools` to the `permission` system.
 
 The codebase is in strong shape overall: 409 tests pass across 50 files (1,232 assertions), TypeScript compiles cleanly, zero `as any` in production code, no TODO/FIXME/HACK comments. The architecture is modular, well-tested, and follows multi-plugin safety patterns.
 
@@ -155,7 +155,7 @@ Commit `55b24e7` migrated subagent configs from deprecated `tools` to `permissio
 
 | Agent | Permission Model | Notes |
 |-------|-----------------|-------|
-| Argus | `tools` (wildcard deny) + `permission` (task delegation, skill) | Keeps `tools: { "argus_*": false, "solodit-mcp_*": false }` — `permission` doesn't support globs |
+| Argus | `tools` (wildcard deny) + `permission` | Task delegation, skill discovery, Themis disposition, and fail-closed report render recovery |
 | Sentinel | `permission` only | `argus_slither_analyze`, `argus_forge_test`, `argus_forge_fuzz`, `argus_analyze_contract`, `argus_check_patterns`, `skill` |
 | Pythia | `permission` only | `argus_solodit_search`, `argus_check_patterns`, `skill` |
 | Scribe | `permission` only | `argus_generate_report`, `skill` |
@@ -192,9 +192,8 @@ Three components work together:
 Commit `1492bc8` added automatic detection of `via_ir = true` in `foundry.toml`:
 
 - `slither-tool.ts:476-486`: `detectViaIr()` reads foundry.toml, regex matches `via_ir = true` or `via-ir = true`
-- When detected, skips direct Slither analysis (which fails with via_ir) and goes straight to flatten fallback
-- Flatten fallback: `forge flatten` each .sol file → run Slither on flattened output → remap findings back to original files
-- FALLBACK_TRIGGERS expanded with via_ir-related strings
+- When detected, Slither compiles through Foundry with `--compile-force-framework foundry`, preserving project remappings and IR settings.
+- If direct Foundry analysis fails, Argus emits structured capability loss and continues with contract analysis and pattern scanning instead of invoking the incompatible flatten fallback.
 
 ---
 
@@ -234,14 +233,13 @@ Commit `1492bc8` added automatic detection of `via_ir = true` in `foundry.toml`:
 
 ### 4.5 `node:child_process` Usage
 
-Four files import from `node:child_process`:
+Three files import from `node:child_process`:
 
 | File | Usage | Should use Bun? |
 |------|-------|-----------------|
 | `src/index.ts:2` | `spawn` for Solodit MCP | Yes — `Bun.spawn` |
 | `src/hooks/config-handler.ts:4` | `execSync` for git clone | Yes — `Bun.spawnSync` or async |
 | `src/cli/commands/doctor.ts:1` | `execSync` for version checks | Acceptable — CLI context |
-| `src/tools/slither-tool.ts:5` | `execSync` for solc-select, find | Partial — main `runSlitherCommand` uses `Bun.spawn`, but helper functions use `execSync` |
 
 ---
 
@@ -251,12 +249,12 @@ Four files import from `node:child_process`:
 
 | Metric | Value |
 |--------|-------|
-| Total tests | 409 |
-| Total assertions | 1,232 |
-| Test files | 50 |
+| Total tests | 2,029 (2,026 pass, 3 skipped) |
+| Total assertions | 6,689 |
+| Test files | 154 |
 | Failures | 0 |
 | E2E tests | 30 (in dedicated suite) |
-| Duration | ~5.5s |
+| Duration | ~22s |
 
 ### 5.2 Coverage Highlights
 
@@ -392,9 +390,9 @@ System prompt hook now builds a live snapshot of available skills (count + sampl
 
 ### 9.3 via_ir Auto-Detection (commit `1492bc8`)
 
-Slither tool now reads `foundry.toml` and auto-detects `via_ir = true`. When detected, bypasses direct Slither (which fails on via_ir projects) and goes straight to flatten fallback.
+Slither reads `foundry.toml`, auto-detects `via_ir = true`, and analyzes the nearest Foundry project root through crytic-compile. The originally requested contract or source directory remains the reporting scope, so dependencies participate in compilation without polluting the returned findings.
 
-**Assessment**: Good defensive improvement. Prevents confusing Slither failures for users with via_ir projects. The regex-based TOML parsing (`/^\s*via[_-]ir\s*=\s*true/m`) is simple but sufficient — a full TOML parser would be overkill.
+**Assessment**: Foundry-backed compilation preserves remappings, inheritance, and IR settings without the incompatible flatten path. The regex-based TOML parsing (`/^\s*via[_-]ir\s*=\s*true/m`) is simple but sufficient — a full TOML parser would be overkill.
 
 ### 9.4 Agent Prompt Skill Sections
 

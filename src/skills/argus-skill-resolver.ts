@@ -4,7 +4,8 @@ import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
-import { parseFrontmatter, validateSkillFrontmatter } from "./skill-schema"
+import { sanitizeTerminalText } from "../shared/terminal-safety"
+import { parseFrontmatter, type SkillFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
 export type ResolvedSkill = {
   name: string
@@ -12,6 +13,9 @@ export type ResolvedSkill = {
   filePath: string
   source: "bundled" | "custom" | "trailofbits" | "opencode" | "claude"
   content: string
+  category?: SkillFrontmatter["category"]
+  pattern_category?: SkillFrontmatter["pattern_category"]
+  detection_rules?: SkillFrontmatter["detection_rules"]
   source_url?: string
   source_license?: string
   imported_at?: string
@@ -38,20 +42,6 @@ function inferSkillNameFromPath(filePath: string): string {
     return basename(resolve(filePath, ".."))
   }
   return basename(filePath, extname(filePath))
-}
-
-function parseSkillNameFromFrontmatter(content: string): string | null {
-  const match = content.match(/^name:\s*(.+)$/m)
-  if (!match) return null
-  return match[1]?.trim().replace(/^"|"$/g, "") ?? null
-}
-
-function parseSkillDescriptionFromFrontmatter(content: string): string {
-  const match = content.match(/^description:\s*(.+)$/m)
-  if (!match) return ""
-  const raw = match[1]?.trim() ?? ""
-  if (raw === ">" || raw === ">-") return ""
-  return raw.replace(/^"|"$/g, "")
 }
 
 /** Filenames that are never skills — exclude from resolution and health checks. */
@@ -104,7 +94,7 @@ function getTrailOfBitsRoots(): string[] {
   }
 
   const roots: string[] = []
-  for (const entry of entries) {
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue
     const skillsDir = join(pluginsDir, entry.name, "skills")
     if (existsSync(skillsDir)) roots.push(skillsDir)
@@ -177,16 +167,16 @@ export function resolveSkillRoots(projectDir: string, argusConfig?: ArgusConfig)
   })
 }
 
-export function resolveArgusSkills(
+export function discoverArgusSkills(
   projectDir: string,
   argusConfig?: ArgusConfig,
-): Map<string, ResolvedSkill> {
-  const resolved = new Map<string, ResolvedSkill>()
+): ResolvedSkill[] {
+  const discovered: ResolvedSkill[] = []
   const roots = resolveSkillRoots(projectDir, argusConfig)
   const logger = createLogger()
 
   for (const root of roots) {
-    const markdownFiles = collectMarkdownFiles(root.path)
+    const markdownFiles = collectMarkdownFiles(root.path).sort((a, b) => a.localeCompare(b))
     for (const markdownFile of markdownFiles) {
       let content: string
       try {
@@ -196,45 +186,70 @@ export function resolveArgusSkills(
       }
 
       const frontmatter = parseFrontmatter(content)
+      if (!frontmatter && basename(markdownFile) !== "SKILL.md") continue
+
+      let validatedFrontmatter: SkillFrontmatter | null = null
       if (frontmatter) {
         const validation = validateSkillFrontmatter(frontmatter)
         if (!validation.success) {
-          logger.warn(
-            `Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`,
-          )
+          const safePath = sanitizeTerminalText(markdownFile)
+          const safeErrors = sanitizeTerminalText(validation.errors.join(", "))
+          logger.warn(`Skipping skill with invalid frontmatter: ${safePath} — ${safeErrors}`)
           continue
         }
+        validatedFrontmatter = validation.data
       }
 
-      const parsedName = parseSkillNameFromFrontmatter(content)
-      const rawName = parsedName || inferSkillNameFromPath(markdownFile)
+      const rawName = validatedFrontmatter?.name ?? inferSkillNameFromPath(markdownFile)
       const normalizedName = normalizeSkillName(rawName)
       if (!normalizedName) continue
-      if (resolved.has(normalizedName)) continue
 
       const skill: ResolvedSkill = {
         name: normalizedName,
-        description: parseSkillDescriptionFromFrontmatter(content),
+        description: validatedFrontmatter?.description ?? "",
         filePath: markdownFile,
         source: root.source,
         content,
       }
 
       if (frontmatter) {
-        if (typeof frontmatter.source_url === "string") skill.source_url = frontmatter.source_url
-        if (typeof frontmatter.source_license === "string")
-          skill.source_license = frontmatter.source_license
-        if (typeof frontmatter.imported_at === "string") skill.imported_at = frontmatter.imported_at
-        if (typeof frontmatter.source_hash === "string") skill.source_hash = frontmatter.source_hash
+        if (validatedFrontmatter?.category) skill.category = validatedFrontmatter.category
+        if (validatedFrontmatter?.pattern_category)
+          skill.pattern_category = validatedFrontmatter.pattern_category
+        if (
+          validatedFrontmatter?.detection_rules &&
+          validatedFrontmatter.detection_rules.length > 0
+        ) {
+          skill.detection_rules = validatedFrontmatter.detection_rules
+        }
+        if (validatedFrontmatter?.source_url) skill.source_url = validatedFrontmatter.source_url
+        if (validatedFrontmatter?.source_license)
+          skill.source_license = validatedFrontmatter.source_license
+        if (validatedFrontmatter?.imported_at) skill.imported_at = validatedFrontmatter.imported_at
+        if (validatedFrontmatter?.source_hash) skill.source_hash = validatedFrontmatter.source_hash
       }
 
-      resolved.set(normalizedName, skill)
+      discovered.push(skill)
     }
   }
 
+  return discovered
+}
+
+export function resolveArgusSkills(
+  projectDir: string,
+  argusConfig?: ArgusConfig,
+): Map<string, ResolvedSkill> {
+  const resolved = new Map<string, ResolvedSkill>()
+  for (const skill of discoverArgusSkills(projectDir, argusConfig)) {
+    if (!resolved.has(skill.name)) resolved.set(skill.name, skill)
+  }
   return resolved
 }
 
 export function getRequiredAuditSkills(): string[] {
-  return ["reentrancy", "oracle-manipulation", "amm-dex"]
+  // Intentionally universal-only: protocol-specific skills (amm-dex,
+  // oracle-manipulation, …) are surfaced per-target by argus_recommend_skills,
+  // not forced here, so the baseline never skews every audit toward an AMM/DeFi shape.
+  return ["reentrancy", "access-control"]
 }

@@ -25,7 +25,9 @@ import type {
   FindingSeverity,
   FuzzCounterexample,
   SoloditResult,
+  ToolExecution,
 } from "../state/types"
+import { isFindingInScope } from "../tools/report-generator-tool"
 
 const logger = createLogger()
 
@@ -54,6 +56,11 @@ export type ToolTrackingOptions = {
   dropPolicy?: DropPolicy
   onChildSessionDetected?: (parentSessionId: string, childSessionId: string) => void
   projectDir?: string
+  orphanBufferBounds?: {
+    maxSessions?: number
+    maxEventsPerSession?: number
+    ttlMs?: number
+  }
 }
 
 const VALID_SEVERITIES: ReadonlySet<string> = new Set([
@@ -65,6 +72,39 @@ const VALID_SEVERITIES: ReadonlySet<string> = new Set([
 ])
 
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["High", "Medium", "Low"])
+
+function hasUnclosedJsonValue(value: string): boolean {
+  const openerIndex = Math.min(
+    ...[value.indexOf("{"), value.indexOf("[")].filter((index) => index >= 0),
+  )
+  if (!Number.isFinite(openerIndex)) return false
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = openerIndex; i < value.length; i++) {
+    const ch = value.charAt(i)
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === "\\") {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === "{" || ch === "[") {
+      depth++
+    } else if (ch === "}" || ch === "]") {
+      depth--
+      if (depth === 0) return false
+    }
+  }
+  return depth > 0
+}
 
 function toSeverity(value: unknown): FindingSeverity {
   if (typeof value === "string" && VALID_SEVERITIES.has(value)) {
@@ -85,7 +125,11 @@ function toLines(value: unknown): [number, number] | undefined {
     Array.isArray(value) &&
     value.length >= 2 &&
     typeof value[0] === "number" &&
-    typeof value[1] === "number"
+    typeof value[1] === "number" &&
+    Number.isInteger(value[0]) &&
+    Number.isInteger(value[1]) &&
+    value[0] >= 1 &&
+    value[1] >= value[0]
   ) {
     return [value[0], value[1]]
   }
@@ -112,6 +156,29 @@ function toFindingSource(value: unknown): Finding["source"] {
   }
 
   return "manual"
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  )
+  return strings.length > 0
+    ? Array.from(new Set(strings)).sort((a, b) => a.localeCompare(b))
+    : undefined
+}
+
+function normalizeSupersedesObservationIds(item: Record<string, unknown>): string[] | undefined {
+  return (
+    normalizeStringArray(item.supersedes_observation_ids) ??
+    normalizeStringArray(item.supersedesObservationIds) ??
+    (typeof item.supersedes_observation_id === "string" && item.supersedes_observation_id.length > 0
+      ? [item.supersedes_observation_id]
+      : undefined) ??
+    (typeof item.supersedesObservationId === "string" && item.supersedesObservationId.length > 0
+      ? [item.supersedesObservationId]
+      : undefined)
+  )
 }
 
 const emitToSink = safeEmitToSink
@@ -197,7 +264,7 @@ function identifyMissingFields(
   for (const field of requiredFields) {
     if (field === "lines") {
       if (!toLines(finding.lines)) missing.push(field)
-    } else if (typeof finding[field] !== "string") {
+    } else if (typeof finding[field] !== "string" || finding[field].length === 0) {
       missing.push(field)
     }
   }
@@ -205,7 +272,6 @@ function identifyMissingFields(
 }
 
 const SLITHER_REQUIRED = ["check", "description", "file", "lines"] as const
-const PATTERN_REQUIRED = ["pattern", "description", "file", "lines"] as const
 const MANUAL_REQUIRED = ["check", "description", "file", "lines"] as const
 
 type ProcessorConfig = {
@@ -232,19 +298,6 @@ const SLITHER_CONFIG: ProcessorConfig = {
   allowReportedByOverride: false,
 }
 
-const PATTERN_CONFIG: ProcessorConfig = {
-  toolLabel: "Pattern",
-  arrayKey: "sources",
-  nestedArrayKey: "matches",
-  primaryIdField: "pattern",
-  requiredFields: PATTERN_REQUIRED,
-  sourceLabel: "pattern",
-  confidenceMode: "fixed",
-  confidenceDefault: "Medium",
-  extractOptionalFields: false,
-  allowReportedByOverride: false,
-}
-
 const RECORDED_CONFIG: ProcessorConfig = {
   toolLabel: "Recorded",
   arrayKey: "findings",
@@ -263,6 +316,7 @@ function processToolResult(
   metadata: { reportedByAgent: ArgusAgentName; reportedBySessionId: string },
   config: ProcessorConfig,
   projectDir?: string,
+  scope: string[] = [],
 ): number {
   const topLevel = parsed[config.arrayKey]
   if (!Array.isArray(topLevel)) {
@@ -307,6 +361,7 @@ function processToolResult(
       typeof check !== "string" ||
       typeof description !== "string" ||
       typeof file !== "string" ||
+      file.length === 0 ||
       !lines
     ) {
       const missing = identifyMissingFields(item, config.requiredFields)
@@ -349,6 +404,10 @@ function processToolResult(
           : metadata.reportedBySessionId,
     }
 
+    if (config.toolLabel === "Slither" && typeof item.source_location_id === "string") {
+      findingPayload.source_location_id = item.source_location_id
+    }
+
     if (config.extractOptionalFields) {
       findingPayload.confidence_score = isValidConfidenceScore(item.confidence_score)
         ? item.confidence_score
@@ -356,6 +415,12 @@ function processToolResult(
       findingPayload.rubric_verdict = isValidRubricVerdict(item.rubric_verdict)
         ? item.rubric_verdict
         : undefined
+      findingPayload.claims_value_extraction =
+        typeof item.claims_value_extraction === "boolean" ? item.claims_value_extraction : undefined
+      findingPayload.net_gain_proof_ref =
+        typeof item.net_gain_proof_ref === "string" && item.net_gain_proof_ref.length > 0
+          ? item.net_gain_proof_ref
+          : undefined
       findingPayload.impact = typeof item.impact === "string" ? item.impact : undefined
       findingPayload.recommendation =
         typeof item.recommendation === "string" ? item.recommendation : undefined
@@ -371,6 +436,20 @@ function processToolResult(
         typeof item.observation_fingerprint === "string" ? item.observation_fingerprint : undefined
       findingPayload.observation_id =
         typeof item.observation_id === "string" ? item.observation_id : undefined
+      findingPayload.observation_ids = normalizeStringArray(item.observation_ids)
+      findingPayload.supersedes_observation_ids = normalizeSupersedesObservationIds(item)
+    }
+
+    if (
+      config.toolLabel === "Recorded" &&
+      scope.length > 0 &&
+      !isFindingInScope(findingPayload as Finding, scope)
+    ) {
+      diag.warn(
+        "OUT_OF_SCOPE_FINDING",
+        `argus_record_finding recorded ${file} outside declared scope: ${scope.join(", ")}`,
+        "file",
+      )
     }
 
     store.addFinding(findingPayload)
@@ -490,12 +569,32 @@ function readErrorReason(record: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+function extractPassedForgeTests(record: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(record.tests)) return undefined
+
+  const tests = new Set<string>()
+  for (const rawTest of record.tests) {
+    const test = toRecord(rawTest)
+    if (!test || test.status !== "pass" || typeof test.name !== "string") continue
+    tests.add(test.name)
+    if (typeof test.contract === "string" && test.contract.length > 0) {
+      tests.add(`${test.contract}:${test.name}`)
+    }
+  }
+
+  return tests.size > 0 ? Array.from(tests).sort((a, b) => a.localeCompare(b)) : undefined
+}
+
+type ToolEvidence = Pick<ToolExecution, "passed_tests">
+
 function recordToolExecution(
   state: AuditState,
   toolName: string,
   findingsCount: number,
   success: boolean,
   findingCounts?: FindingCounts,
+  subagentType?: string,
+  evidence?: ToolEvidence,
 ): void {
   const now = Date.now()
   state.toolsExecuted.push({
@@ -505,6 +604,8 @@ function recordToolExecution(
     success,
     findingsCount,
     findingCounts,
+    ...(evidence?.passed_tests ? { passed_tests: evidence.passed_tests } : {}),
+    ...(subagentType ? { subagent_type: subagentType } : {}),
   })
 }
 
@@ -514,6 +615,8 @@ const TOOL_PHASE_MAP: Record<string, AuditState["currentPhase"]> = {
   argus_analyze_contract: "scanning",
   argus_proxy_detection: "scanning",
   argus_solodit_search: "research",
+  argus_list_skills: "research",
+  argus_recommend_skills: "research",
   argus_forge_test: "testing",
   argus_forge_fuzz: "testing",
   argus_forge_coverage: "testing",
@@ -541,13 +644,15 @@ type OrphanEvent = {
   bufferedAt: number
 }
 
-const ORPHAN_BUFFER_TTL_MS = 60_000
-const MAX_ORPHAN_EVENTS_PER_SESSION = 50
+const DEFAULT_ORPHAN_BUFFER_TTL_MS = 60_000
+const DEFAULT_MAX_ORPHAN_EVENTS_PER_SESSION = 50
+const DEFAULT_MAX_ORPHAN_SESSIONS = 200
 
 export type ToolTrackingHook = {
   (input: ToolHookInput): Promise<void>
   getLastDiagnostics(): DropDiagnostic[]
   flushOrphanEvents(sessionId: string, sink: EventSink): Promise<number>
+  clearOrphanEvents(sessionId: string): void
 }
 
 export function createToolTrackingHook(
@@ -559,16 +664,53 @@ export function createToolTrackingHook(
   const storesByState = new WeakMap<AuditState, FindingStore>()
   let lastDiagnostics: DropDiagnostic[] = []
   const orphanBuffer = new Map<string, OrphanEvent[]>()
+  const orphanTtlMs = options?.orphanBufferBounds?.ttlMs ?? DEFAULT_ORPHAN_BUFFER_TTL_MS
+  const maxOrphanEventsPerSession =
+    options?.orphanBufferBounds?.maxEventsPerSession ?? DEFAULT_MAX_ORPHAN_EVENTS_PER_SESSION
+  const maxOrphanSessions = options?.orphanBufferBounds?.maxSessions ?? DEFAULT_MAX_ORPHAN_SESSIONS
+
+  function newestBufferedAt(entries: OrphanEvent[]): number {
+    return entries[entries.length - 1]?.bufferedAt ?? 0
+  }
+
+  function stalestOrphanSession(): string | undefined {
+    let stalest: string | undefined
+    let oldest = Number.POSITIVE_INFINITY
+    for (const [sid, entries] of orphanBuffer) {
+      const ts = newestBufferedAt(entries)
+      if (ts < oldest) {
+        oldest = ts
+        stalest = sid
+      }
+    }
+    return stalest
+  }
 
   function bufferOrphanEvent(sessionId: string, entry: OrphanEvent): void {
     let entries = orphanBuffer.get(sessionId)
     if (!entries) {
+      // WS-3 I7: bound the buffer globally so sessions that never receive a sink cannot grow it
+      // without limit — reclaim TTL-expired sessions first, then evict the stalest live session
+      // while still at the session cap.
+      for (const [sid, buffered] of orphanBuffer) {
+        if (entry.bufferedAt - newestBufferedAt(buffered) >= orphanTtlMs) {
+          orphanBuffer.delete(sid)
+        }
+      }
+      while (orphanBuffer.size >= maxOrphanSessions) {
+        const stalest = stalestOrphanSession()
+        if (!stalest) break
+        logger.warn(
+          `Global orphan buffer at capacity (${maxOrphanSessions} sessions) — evicting stalest session ${stalest}`,
+        )
+        orphanBuffer.delete(stalest)
+      }
       entries = []
       orphanBuffer.set(sessionId, entries)
     }
-    if (entries.length >= MAX_ORPHAN_EVENTS_PER_SESSION) {
+    if (entries.length >= maxOrphanEventsPerSession) {
       logger.warn(
-        `Orphan event buffer full for session ${sessionId} (${MAX_ORPHAN_EVENTS_PER_SESSION} events) — dropping oldest`,
+        `Orphan event buffer full for session ${sessionId} (${maxOrphanEventsPerSession} events) — dropping oldest`,
       )
       entries.shift()
     }
@@ -648,7 +790,21 @@ export function createToolTrackingHook(
       }
 
       if (resolved) {
-        recordToolExecution(resolved.state, "task", 0, true, buildFindingCounts(resolved.state, 0))
+        const taskArgs = (input.args ?? {}) as Record<string, unknown>
+        const subagentType =
+          typeof taskArgs.subagent_type === "string"
+            ? taskArgs.subagent_type
+            : typeof taskArgs.category === "string"
+              ? taskArgs.category
+              : undefined
+        recordToolExecution(
+          resolved.state,
+          "task",
+          0,
+          true,
+          buildFindingCounts(resolved.state, 0),
+          subagentType,
+        )
         onStateChanged?.({ tool: "task", findingsCount: 0, sessionId: input.sessionID })
       }
 
@@ -784,7 +940,10 @@ export function createToolTrackingHook(
           const opencodeTruncation = input.result.match(
             /bytes truncated|output was truncated|tool call succeeded/i,
           )
-          const truncatedSuccess = successInPartialJson?.[1] === "true" || !!opencodeTruncation
+          const truncatedSuccess =
+            successInPartialJson?.[1] === "true" ||
+            !!opencodeTruncation ||
+            hasUnclosedJsonValue(input.result)
           if (truncatedSuccess) {
             diag.error(
               "TRUNCATED_OUTPUT",
@@ -812,6 +971,7 @@ export function createToolTrackingHook(
           return
         }
         completedRecord = record
+        completedSuccess = record.success === true
 
         switch (input.tool) {
           case "argus_slither_analyze": {
@@ -839,19 +999,22 @@ export function createToolTrackingHook(
             break
           }
           case "argus_check_patterns":
-            findingsCount = processToolResult(
-              record,
-              store,
-              diag,
-              findingMetadata,
-              PATTERN_CONFIG,
-              projectDir,
-            )
+            // Pattern matches are hints to verify, not canonical observations:
+            // they are surfaced in the tool's direct output and never enrolled
+            // as findings, so the report is not flooded and lineage stays exact.
             if (typeof record.patternVersion === "string") {
               auditState.patternVersion = record.patternVersion
             }
             break
           case "argus_record_finding":
+            if (!sink) {
+              // WS-3 I6 reject-before-mutate: refuse to record findings that cannot be
+              // journaled to a durable sink rather than mutating live state optimistically
+              // (an un-journaled finding is lost from the report on replay).
+              throw new Error(
+                "argus_record_finding: no durable event sink — findings would be lost from the report",
+              )
+            }
             findingsCount = processToolResult(
               record,
               store,
@@ -859,6 +1022,7 @@ export function createToolTrackingHook(
               findingMetadata,
               RECORDED_CONFIG,
               projectDir,
+              auditState.scope,
             )
             break
           case "argus_read_findings":
@@ -886,6 +1050,7 @@ export function createToolTrackingHook(
             processFuzzResult(record, auditState)
             break
           case "argus_generate_report": {
+            if (!completedSuccess) break
             const reportError = toRecord(record.error)
             const filePath = record.filePath
             if (reportError) {
@@ -972,19 +1137,6 @@ export function createToolTrackingHook(
           throw new Error("argus_record_finding did not persist any findings")
         }
 
-        if (input.tool === "argus_record_finding" && !sink) {
-          const newFindings = auditState.findings.slice(findingsCountBefore)
-          if (newFindings.length > 0) {
-            throw new Error(
-              `argus_record_finding produced ${newFindings.length} finding(s) but no event sink is available — findings would be lost from the report`,
-            )
-          }
-          diag.error(
-            "NO_EVENT_SINK",
-            "argus_record_finding: no active event sink — no new findings to emit",
-          )
-        }
-
         if (sink) {
           const failFast = input.tool === "argus_record_finding"
           const newFindings = auditState.findings.slice(findingsCountBefore)
@@ -1001,22 +1153,42 @@ export function createToolTrackingHook(
               },
               projectDir,
             )
-            await emitToSink(
-              sink,
-              buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
-              { failFast },
-            )
+            try {
+              await emitToSink(
+                sink,
+                buildEvent("finding.added", runId, sessionId, toolCallId, canonical),
+                { failFast },
+              )
+            } catch (err) {
+              // WS-3 I6: the durable journal append failed — roll this finding and every
+              // later un-journaled one out of live state so the persisted snapshot never
+              // holds a finding the journal lacks. Already-journaled findings stay.
+              store.removeFindings(newFindings.slice(index).map((f) => f.id))
+              throw err
+            }
           }
         }
-
-        completedSuccess = record.success !== false
       }
 
       const findingCounts = buildFindingCounts(auditState, findingsCount)
       auditState.findingCounts = findingCounts
-      recordToolExecution(auditState, input.tool, findingsCount, completedSuccess, findingCounts)
+      const toolEvidence: ToolEvidence = {
+        passed_tests:
+          input.tool === "argus_forge_test" && completedRecord
+            ? extractPassedForgeTests(completedRecord)
+            : undefined,
+      }
+      recordToolExecution(
+        auditState,
+        input.tool,
+        findingsCount,
+        completedSuccess,
+        findingCounts,
+        undefined,
+        toolEvidence,
+      )
 
-      const nextPhase = inferPhaseAdvancement(auditState, input.tool)
+      const nextPhase = completedSuccess ? inferPhaseAdvancement(auditState, input.tool) : null
       if (nextPhase) {
         auditState.currentPhase = nextPhase
         if (sink) {
@@ -1032,6 +1204,8 @@ export function createToolTrackingHook(
 
       onStateChanged?.({ tool: input.tool, findingsCount, sessionId: input.sessionID })
     } catch (error) {
+      completedSuccess = false
+      findingsCount = Math.max(0, auditState.findings.length - findingsCountBefore)
       completionError = error instanceof Error ? error.message : String(error)
       throw error
     } finally {
@@ -1066,9 +1240,26 @@ export function createToolTrackingHook(
             case "argus_check_patterns":
               if (auditState.patternVersion) enrichment.patternVersion = auditState.patternVersion
               break
+            case "argus_forge_test": {
+              const passedTests = completedRecord
+                ? extractPassedForgeTests(completedRecord)
+                : undefined
+              if (passedTests) enrichment.passed_tests = passedTests
+              break
+            }
             case "argus_themis_disposition":
               if (completedRecord?.themisDisposition) {
                 enrichment.themisDisposition = completedRecord.themisDisposition
+              }
+              break
+            case "argus_generate_report":
+              // WS-3 I9: persist the report's quality-gate + file metadata in the completed
+              // event so run finalization certifies against gates/warnings it can actually read.
+              if (completedRecord?.qualityGates) {
+                enrichment.qualityGates = completedRecord.qualityGates
+              }
+              if (typeof completedRecord?.filePath === "string") {
+                enrichment.filePath = completedRecord.filePath
               }
               break
           }
@@ -1116,7 +1307,7 @@ export function createToolTrackingHook(
 
     orphanBuffer.delete(sessionId)
     const now = Date.now()
-    const fresh = entries.filter((e) => now - e.bufferedAt < ORPHAN_BUFFER_TTL_MS)
+    const fresh = entries.filter((e) => now - e.bufferedAt < orphanTtlMs)
 
     if (fresh.length < entries.length) {
       logger.debug(
@@ -1135,6 +1326,10 @@ export function createToolTrackingHook(
     }
 
     return flushed
+  }
+
+  hookFn.clearOrphanEvents = (sessionId: string): void => {
+    orphanBuffer.delete(sessionId)
   }
 
   return hookFn

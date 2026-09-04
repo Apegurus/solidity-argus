@@ -46,4 +46,10 @@ describe("audit-specialist prompt rubric instructions", () => {
     const matches = promptText.match(/Refutation Rubric \(REQUIRED\)/g) ?? []
     expect(matches.length).toBe(1)
   })
+
+  test("inherits generic PoC truthfulness without compiler-specific reentrancy rules", () => {
+    expect(promptText).toContain("attacker_net_gain")
+    expect(promptText).toContain("Trace the recipient")
+    expect(promptText).not.toContain("Solidity >=0.8")
+  })
 })

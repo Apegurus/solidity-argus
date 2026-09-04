@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
+import type { DroppedObservation } from "../shared/dropped-observations"
 import type { AuditEvent, CanonicalFinding } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
 import { executeReportGeneration } from "./report-generator-tool"
@@ -77,10 +78,12 @@ test("generates a clean live report from events without session.deleted", async 
         finding({
           seq: 2,
           id: "conf",
+          check: "uninitialized-proxy-implementation",
           severity: "Critical",
           rubric_verdict: "CONFIRMED",
           confidence_score: 90,
-          description: "Cross-function reentrancy drains the vault",
+          description:
+            "Implementation contract left uninitialized; initializer is callable by anyone",
         }),
       ),
       event(
@@ -137,20 +140,102 @@ async function writeDeduped(
   runId: string,
   dir: string,
   findings: Array<Record<string, unknown>>,
+  dropped_observations: DroppedObservation[] = [],
 ): Promise<void> {
   const dedupedFile = createAuditArtifactResolver(runId, dir).paths().dedupedFindingsFile
   await mkdir(dirname(dedupedFile), { recursive: true })
   await writeFile(
     dedupedFile,
-    JSON.stringify({ run_id: runId, findings, dropped_observations: [] }, null, 2),
+    JSON.stringify(
+      { run_id: runId, findings, dropped_observations, deduped_by: "scribe" },
+      null,
+      2,
+    ),
   )
 }
 
-// P0-1 regression: report parity must validate deduped lineage against the deduped raw
-// universe (findings.json = dedupe(projectFindings)) that argus_persist_deduped uses, not
-// the un-deduped projectFindings(events). obs-a and obs-b share issue-shared so they
-// collapse to one survivor (primary obs-a); the report previously flagged the collapsed
-// obs-b as a "missing observation" because it compared against the raw projection.
+test("strict report generation accepts scoped findings with dropped out-of-scope observations", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-parity-dropped-oos-"))
+  const runId = "run-live"
+  try {
+    const events: AuditEvent[] = [
+      event("session.created", 1, { scope: ["src/Vault.sol"] }),
+      event(
+        "finding.added",
+        2,
+        finding({
+          seq: 2,
+          id: "vault",
+          observation_id: "obs-vault",
+          issue_fingerprint: "issue-vault",
+          check: "missing-access-control",
+          severity: "Medium",
+          file: "src/Vault.sol",
+          rubric_verdict: "CONFIRMED",
+          confidence_score: 90,
+        }),
+      ),
+      event(
+        "finding.added",
+        3,
+        finding({
+          seq: 3,
+          id: "token",
+          observation_id: "obs-token",
+          issue_fingerprint: "issue-token",
+          check: "erc20-interface",
+          severity: "Medium",
+          file: "src/Token.sol",
+        }),
+      ),
+      event("session.idle", 4, { reason: "audit-paused" }),
+    ]
+    await writeJournal(runId, tempDir, events)
+    await writeDeduped(
+      runId,
+      tempDir,
+      [
+        {
+          ...finding({
+            seq: 2,
+            id: "vault",
+            observation_id: "obs-vault",
+            issue_fingerprint: "issue-vault",
+            check: "missing-access-control",
+            severity: "Medium",
+            file: "src/Vault.sol",
+            rubric_verdict: "CONFIRMED",
+            confidence_score: 90,
+          }),
+          id: "issue-vault",
+          observation_ids: ["obs-vault"],
+          observation_count: 1,
+        },
+      ],
+      [{ observation_id: "obs-token", reason: "out-of-scope", note: "outside requested scope" }],
+    )
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "ScopedVault",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        preflight_policy: "strict-fail",
+        quality_gate_policy: "strict-fail",
+        tool_coverage_policy: "skip",
+      },
+      context(tempDir),
+    )
+
+    expect(result.qualityGates.passed).toBe(true)
+    expect(result.report).toContain("src/Vault.sol")
+    expect(result.report).not.toContain("src/Token.sol")
+    expect(result.report).not.toContain("Finding parity mismatch")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
 test("report parity validates deduped lineage against the deduped raw universe, not the raw projection (P0-1)", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "argus-parity-dedup-"))
   const runId = "run-live"
@@ -192,8 +277,8 @@ test("report parity validates deduped lineage against the deduped raw universe, 
       {
         ...finding({ seq: 2, id: "a", observation_id: "obs-a", issue_fingerprint: "issue-shared" }),
         id: "issue-shared",
-        observation_ids: ["obs-a"],
-        observation_count: 1,
+        observation_ids: ["obs-a", "obs-b"],
+        observation_count: 2,
       },
       {
         ...finding({
@@ -222,7 +307,7 @@ test("report parity validates deduped lineage against the deduped raw universe, 
 
     expect(result.report).not.toContain("⚠ Completeness Warning")
     expect(result.report).not.toContain("Finding parity mismatch")
-    expect(result.report).not.toContain("obs-b")
+    expect(result.report).not.toContain("Missing observation IDs")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

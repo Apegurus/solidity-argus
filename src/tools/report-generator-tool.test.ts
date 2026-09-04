@@ -1,10 +1,19 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
-import { SCHEMA_VERSION } from "../state/schemas"
+import { type ReportInput, SCHEMA_VERSION } from "../state/schemas"
 import type {
   AuditState,
   Finding,
@@ -18,9 +27,12 @@ import {
   normalizeRawFinding,
   parseLocationString,
   type ReportGenerationResult,
+  renderObservationLine,
   renderReportMarkdown,
   reportGeneratorTool,
+  sourceExcerpt,
 } from "./report-generator-tool"
+import { resolveExpectedRunId } from "./report-input"
 
 function createContext(): ToolContext {
   return {
@@ -39,6 +51,32 @@ function createContext(): ToolContext {
   }
 }
 
+function makeConfigWithOutputDir(outputDir: string) {
+  return {
+    agents: {
+      argus: {},
+      sentinel: {},
+      pythia: {},
+      auditSpecialist: {},
+      scribe: {},
+      themis: {},
+    },
+    tools: {},
+    knowledge: {
+      scvd: { enabled: true, apiUrl: "https://api.scvd.dev" },
+      autoSync: true,
+      skillPrecedence: "bundled-first" as const,
+    },
+    reporting: {
+      confidenceThreshold: 80,
+      severityThreshold: "low" as const,
+      output_dir: outputDir,
+    },
+    solodit: { enabled: true },
+    disabled_hooks: [],
+  }
+}
+
 function makeReportInput(
   findings: Finding[],
   overrides?: Partial<{
@@ -50,7 +88,7 @@ function makeReportInput(
     patternVersion: string
     skillsLoaded: string[]
   }>,
-) {
+): ReportInput {
   const runId = overrides?.run_id ?? "test-run-1"
   const normalizeSeverity = (value: unknown): Finding["severity"] => {
     if (typeof value !== "string") return "Informational"
@@ -309,6 +347,41 @@ test("rubric adoption: a finding with neither verdict nor textual trace is flagg
   expect(report).toContain("0/1 findings assessed via the 4-gate refutation rubric")
 })
 
+test("renderReportMarkdown renders observation lineage only when ids are present", () => {
+  const withLineage = makeFinding({
+    id: "f-lineage",
+    observation_ids: ["a", "b"],
+    observation_count: 2,
+  })
+  const withoutLineage = makeFinding({ id: "f-no-lineage" })
+
+  expect(renderObservationLine(withLineage)).toBe("**Observations (2):** a · b")
+  expect(renderObservationLine(withoutLineage)).toBeNull()
+})
+
+test("renderReportMarkdown renders observation lineage for leads", () => {
+  const lead = {
+    ...makeFinding({
+      id: "f-lead-lineage",
+      observation_ids: ["lead-a", "lead-b"],
+      observation_count: 2,
+    }),
+    rubric_verdict: "DEMOTED" as const,
+  }
+
+  const input = makeReportInput([lead])
+  const renderedLead = input.findings[0]
+  if (!renderedLead) throw new Error("expected lineage lead")
+  renderedLead.observation_id = "lead-a"
+  const sibling = { ...renderedLead, id: "f-lead-lineage-b", observation_id: "lead-b" }
+  input.findings.push(sibling)
+
+  const report = renderReportMarkdown(input, { projectName: "Demo" })
+
+  expect(report).toContain("## Leads")
+  expect(report).toContain("**Observations (2):** lead-a · lead-b")
+})
+
 function methodologySection(report: string): string {
   const start = report.indexOf("## Methodology")
   if (start === -1) return ""
@@ -330,6 +403,21 @@ test("methodology lists a key tool only when it executed successfully", () => {
 
   expect(methodology).toContain("Slither static analysis")
   expect(methodology).toContain("Pattern analysis")
+})
+
+test("methodology does not claim fuzzing for forge test execution alone", () => {
+  const finding = makeFinding({ id: "m-forge", file: "src/Vault.sol", description: "Reentrancy." })
+  const input = makeReportInput([finding], {
+    toolsExecuted: [
+      { tool: "argus_forge_test", success: true, startTime: 1, endTime: 2, findingsCount: 0 },
+    ],
+  })
+
+  const report = renderReportMarkdown(input, { projectName: "Demo", scope: ["src/Vault.sol"] })
+  const methodology = methodologySection(report)
+
+  expect(methodology).toContain("Foundry tests")
+  expect(methodology).not.toContain("fuzzing")
 })
 
 test("methodology omits a key tool that did not run successfully (no Slither contradiction)", () => {
@@ -612,6 +700,42 @@ test("executeReportGeneration includes source excerpts for findings when files a
   }
 })
 
+test("sourceExcerpt reads an in-project file but refuses absolute or traversal escapes", () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-excerpt-"))
+  const projectDir = path.join(tempDir, "project")
+  mkdirSync(path.join(projectDir, "src"), { recursive: true })
+  writeFileSync(path.join(projectDir, "src", "In.sol"), "line1\nSAFE_IN_PROJECT\nline3\n")
+  const secretPath = path.join(tempDir, "SECRET.txt")
+  writeFileSync(secretPath, "TOP_SECRET_EXFIL_MARKER")
+
+  try {
+    expect(sourceExcerpt(projectDir, makeFinding({ file: "src/In.sol", lines: [2, 2] }))).toContain(
+      "SAFE_IN_PROJECT",
+    )
+    expect(sourceExcerpt(projectDir, makeFinding({ file: secretPath, lines: [1, 1] }))).toBeNull()
+    expect(
+      sourceExcerpt(projectDir, makeFinding({ file: "../SECRET.txt", lines: [1, 1] })),
+    ).toBeNull()
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration rejects an explicit run_id with path traversal", async () => {
+  await expect(
+    executeReportGeneration(
+      {
+        project_name: "TraversalRunId",
+        scope: ["Vault.sol"],
+        run_id: "../../../etc/evil",
+        report_input: JSON.stringify(makeReportInput([makeFinding({ id: "f-1" })])),
+        tool_coverage_policy: "skip",
+      },
+      createContext(),
+    ),
+  ).rejects.toThrow(/invalid run_id/)
+})
+
 test("executeReportGeneration supports disabling executive summary", async () => {
   const findings: Finding[] = [
     makeFinding({ id: "f-high", check: "reentrancy-eth", severity: "High" }),
@@ -663,28 +787,101 @@ test("executeReportGeneration handles empty findings after threshold filtering",
 })
 
 test("reportGeneratorTool execute returns stringified ReportGenerationResult", async () => {
-  const findings: Finding[] = [
-    makeFinding({ id: "f-high", check: "reentrancy-eth", severity: "High" }),
-  ]
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-execute-"))
+  try {
+    const findings: Finding[] = [
+      makeFinding({ id: "f-high", check: "reentrancy-eth", severity: "High" }),
+    ]
 
-  const payload = await reportGeneratorTool.execute(
+    const payload = await reportGeneratorTool.execute(
+      {
+        project_name: "ToolExecuteProject",
+        scope: ["Vault.sol"],
+        include_executive_summary: true,
+        severity_threshold: "low",
+        preflight_policy: "warn",
+        report_input: JSON.stringify(makeReportInput(findings)),
+        tool_coverage_policy: "skip",
+      } as Parameters<typeof reportGeneratorTool.execute>[0],
+      { ...createContext(), directory: tempDir, worktree: tempDir, agent: "scribe" },
+    )
+
+    const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
+      reportSummary: string
+    }
+    expect(parsed.success).toBe(true)
+    expect(parsed.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
+    expect(parsed.findingsCount.high).toBe(1)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("reportGeneratorTool execute surfaces a tool-level error when no report is written", async () => {
+  await expect(
+    reportGeneratorTool.execute(
+      {
+        project_name: "ErrProject",
+        scope: ["Vault.sol"],
+        include_executive_summary: true,
+        severity_threshold: "low",
+        report_input: JSON.stringify(makeReportInput([makeFinding({ id: "f-err" })])),
+        tool_coverage_policy: "skip",
+        revision: 1,
+      } as Parameters<typeof reportGeneratorTool.execute>[0],
+      { ...createContext(), agent: "scribe" },
+    ),
+  ).rejects.toThrow(/INVALID_REGENERATION_OPTIONS/)
+})
+
+test("executeReportGeneration excludes out-of-scope findings from returned counts", async () => {
+  const inScope = makeFinding({
+    id: "in-scope",
+    check: "reentrancy-eth",
+    severity: "High",
+    file: "src/Vault.sol",
+  })
+  const outOfScope = makeFinding({
+    id: "out-of-scope",
+    check: "reentrancy-eth",
+    severity: "High",
+    file: "src/OtherContract.sol",
+  })
+
+  const result = await executeReportGeneration(
     {
-      project_name: "ToolExecuteProject",
-      scope: ["Vault.sol"],
-      include_executive_summary: true,
-      severity_threshold: "low",
-      preflight_policy: "warn",
-      report_input: JSON.stringify(makeReportInput(findings)),
+      project_name: "ScopeCounts",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(makeReportInput([inScope, outOfScope])),
       tool_coverage_policy: "skip",
-    } as Parameters<typeof reportGeneratorTool.execute>[0],
+    },
     createContext(),
   )
 
-  const parsed = JSON.parse(payload) as Omit<ReportGenerationResult, "report"> & {
-    reportSummary: string
+  expect(result.findingsCount.high).toBe(1)
+})
+
+test("executeReportGeneration returns a filename matching the written path under configured output_dir", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-outdir-"))
+  try {
+    const result = await executeReportGeneration(
+      {
+        project_name: "OutDirProject",
+        scope: ["Vault.sol"],
+        report_input: JSON.stringify(makeReportInput([makeFinding({ id: "f-out" })])),
+        tool_coverage_policy: "skip",
+      },
+      { ...createContext(), directory: tempDir, worktree: tempDir },
+      { loadConfig: () => makeConfigWithOutputDir("custom-reports") },
+    )
+
+    expect(result.filePath).toBeDefined()
+    if (!result.filePath) return
+    expect(result.filePath).toContain(path.join(tempDir, "custom-reports"))
+    expect(result.filename).toBe(path.basename(result.filePath))
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
   }
-  expect(parsed.reportSummary).toMatch(/Report written to disk \(\d+ bytes/)
-  expect(parsed.findingsCount.high).toBe(1)
 })
 
 function makeAuditState(overrides: Partial<AuditState> = {}): AuditState {
@@ -1037,13 +1234,27 @@ test("normalizeRawFinding extracts lines from location even when file is already
   expect(result.lines).toEqual([18, 23])
 })
 
-test("normalizeRawFinding defaults lines to [0,0] when no line info available", () => {
+test("normalizeRawFinding leaves missing line info invalid", () => {
   const result = normalizeRawFinding({
     title: "Floating Pragma",
     file: "src/Token.sol",
     severity: "Informational",
   })
-  expect(result.lines).toEqual([0, 0])
+  expect(result.lines).toBeUndefined()
+})
+
+test("resolveExpectedRunId prefers inline report input over stale session mapping", () => {
+  const result = resolveExpectedRunId(
+    {
+      project_name: "Inline",
+      scope: [],
+      report_input: JSON.stringify(makeReportInput([])),
+    },
+    createContext(),
+    { resolveCanonicalRunId: () => "stale-run" },
+  )
+
+  expect(result).toBeUndefined()
 })
 
 test("provenance appendix shows data freshness with pattern version", async () => {
@@ -1167,16 +1378,11 @@ test("executeReportGeneration writes report to disk and returns filePath", async
           },
           reporting: {
             confidenceThreshold: 80,
-            format: "markdown" as const,
             severityThreshold: "low" as const,
-            gasAnalysis: false,
             output_dir: outputDir,
           },
-          solodit: { enabled: true, port: 54173 },
+          solodit: { enabled: true },
           disabled_hooks: [],
-          hooks: {},
-          cli: {},
-          background: { max_concurrent: 3 },
         }),
       },
     )
@@ -1189,6 +1395,175 @@ test("executeReportGeneration writes report to disk and returns filePath", async
     const content = await Bun.file(result.filePath ?? "").text()
     expect(content).toContain("# Security Audit Report — DiskWriteTest")
     expect(content).toContain("### [HIGH-1] Disk Write Test · severity: High · evidence: High")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("Argus recovery refuses report generation without persisted deduped findings", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-recovery-"))
+  const runId = "run-missing-deduped"
+  const resolver = createAuditArtifactResolver(runId, tempDir)
+
+  try {
+    mkdirSync(path.dirname(resolver.paths().reportInputFile), { recursive: true })
+    writeFileSync(
+      resolver.paths().reportInputFile,
+      JSON.stringify(makeReportInput([], { run_id: runId, scope: ["src/Vault.sol"] })),
+    )
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+      agent: "argus",
+    }
+
+    await expect(
+      reportGeneratorTool.execute(
+        {
+          project_name: "RecoveryTest",
+          scope: ["src/Vault.sol"],
+          run_id: runId,
+          include_executive_summary: true,
+          severity_threshold: "informational",
+        },
+        context,
+      ),
+    ).rejects.toThrow("persisted deduped findings")
+    expect(existsSync(resolver.paths().dedupedFindingsFile)).toBe(false)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("Argus recovery renders persisted deduped findings idempotently with persisted scope", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-recovery-"))
+  const runId = "run-valid-recovery"
+  const paths = createAuditArtifactResolver(runId, tempDir).paths()
+
+  try {
+    mkdirSync(paths.runDir, { recursive: true })
+    const sessionEvent = {
+      type: "session.created",
+      run_id: runId,
+      seq: 1,
+      session_id: "session-argus",
+      source: "create-hooks",
+      schema_version: SCHEMA_VERSION,
+      timestamp: 1_774_880_000_000,
+      payload: { projectDir: tempDir, sessionId: runId, scope: ["src/Vault.sol"] },
+    }
+    writeFileSync(paths.journalFile, `${JSON.stringify(sessionEvent)}\n`)
+    writeFileSync(
+      paths.reportInputFile,
+      JSON.stringify(makeReportInput([], { run_id: runId, scope: ["src/Vault.sol"] })),
+    )
+    const dedupedArtifact = {
+      run_id: runId,
+      schema_version: SCHEMA_VERSION,
+      deduped_at: 1_774_880_000_000,
+      deduped_by: "scribe",
+      findings_count: 0,
+      findings: [],
+      dropped_observations: [],
+    }
+    writeFileSync(paths.dedupedFindingsFile, JSON.stringify(dedupedArtifact))
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+      agent: "argus",
+    }
+    const args = {
+      project_name: "RecoveryTest",
+      scope: ["wrong/Scope.sol"],
+      include_executive_summary: true,
+      severity_threshold: "critical" as const,
+      tool_coverage_policy: "skip" as const,
+      run_id: runId,
+      report_input: JSON.stringify({
+        ...makeReportInput(
+          [makeFinding({ id: "injected", check: "injected-finding", file: "wrong/Scope.sol" })],
+          { run_id: runId, scope: ["wrong/Scope.sol"] },
+        ),
+        projectDir: tempDir,
+      }),
+    }
+
+    await expect(reportGeneratorTool.execute(args, context)).rejects.toThrow(
+      "Tool coverage gate failed",
+    )
+
+    const keyTools = [
+      "argus_slither_analyze",
+      "argus_forge_test",
+      "argus_check_patterns",
+      "argus_solodit_search",
+      "argus_analyze_contract",
+    ]
+    const toolEvents = keyTools.flatMap((tool, index) => {
+      const seq = index * 2 + 2
+      const toolCallId = `recovery-tool-${index}`
+      return [
+        {
+          type: "tool.started",
+          run_id: runId,
+          seq,
+          session_id: "session-argus",
+          tool_call_id: toolCallId,
+          source: "create-hooks",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_774_880_000_000 + seq,
+          payload: { tool },
+        },
+        {
+          type: "tool.completed",
+          run_id: runId,
+          seq: seq + 1,
+          session_id: "session-argus",
+          tool_call_id: toolCallId,
+          source: "create-hooks",
+          schema_version: SCHEMA_VERSION,
+          timestamp: 1_774_880_000_001 + seq,
+          payload: { tool, success: true, findingsCount: 0 },
+        },
+      ]
+    })
+    writeFileSync(
+      paths.journalFile,
+      `${[sessionEvent, ...toolEvents].map((event) => JSON.stringify(event)).join("\n")}\n`,
+    )
+
+    writeFileSync(
+      paths.dedupedFindingsFile,
+      JSON.stringify({ ...dedupedArtifact, run_id: "run-other" }),
+    )
+    await expect(reportGeneratorTool.execute(args, context)).rejects.toThrow("run_id mismatch")
+    writeFileSync(
+      paths.dedupedFindingsFile,
+      JSON.stringify({ ...dedupedArtifact, deduped_by: "argus" }),
+    )
+    await expect(reportGeneratorTool.execute(args, context)).rejects.toThrow(
+      "invalid deduped artifact provenance",
+    )
+    writeFileSync(paths.dedupedFindingsFile, JSON.stringify(dedupedArtifact))
+
+    const first = JSON.parse(await reportGeneratorTool.execute(args, context)) as {
+      reportStatus: string
+      filePath: string
+    }
+    const second = JSON.parse(await reportGeneratorTool.execute(args, context)) as {
+      reportStatus: string
+      filePath: string
+    }
+
+    expect(first.reportStatus).toBe("written")
+    expect(second.reportStatus).toBe("reused")
+    expect(second.filePath).toBe(first.filePath)
+    const report = readFileSync(first.filePath, "utf8")
+    expect(report).toContain("- src/Vault.sol")
+    expect(report).not.toContain("wrong/Scope.sol")
+    expect(report).not.toContain("Injected Finding")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -1219,6 +1594,215 @@ test("executeReportGeneration returns write error when disk write fails", async 
   expect(result.report).toContain("# Security Audit Report — WriteFailTest")
   expect(result.report).toContain("Config load failed")
   expect(result.findingsCount.low).toBe(1)
+})
+
+test("executeReportGeneration does not mutate finding ID registry on report output error", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-write-fail-registry-"))
+  const runId = "run-write-fail-registry"
+
+  try {
+    const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+    const reportInput = makeReportInput(
+      [makeFinding({ id: "f-write-fail", check: "write-fail-registry", severity: "High" })],
+      { run_id: runId, scope: ["src/Vault.sol"] },
+    )
+    const registryPath = createAuditArtifactResolver(runId, tempDir).paths().findingIdMapFile
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "WriteFailRegistry",
+        scope: ["src/Vault.sol"],
+        report_input: JSON.stringify({ ...reportInput, projectDir: tempDir }),
+        tool_coverage_policy: "skip",
+      },
+      context,
+      {
+        loadConfig: () => ({
+          agents: {
+            argus: {},
+            sentinel: {},
+            pythia: {},
+            auditSpecialist: {},
+            scribe: {},
+            themis: {},
+          },
+          tools: {},
+          knowledge: {
+            scvd: { enabled: false, apiUrl: "" },
+            autoSync: false,
+            skillPrecedence: "bundled-first",
+          },
+          reporting: {
+            confidenceThreshold: 80,
+            severityThreshold: "low",
+            output_dir: "../outside-reports",
+          },
+          solodit: { enabled: false },
+          disabled_hooks: [],
+        }),
+      },
+    )
+
+    expect(result.error?.code).toBe("OUTPUT_DIR_TRAVERSAL")
+    expect(result.filePath).toBeUndefined()
+    expect(existsSync(registryPath)).toBe(false)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration rejects an output_dir that escapes via an in-project symlink", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-symlink-"))
+  const outsideDir = mkdtempSync(path.join(tmpdir(), "argus-report-escape-"))
+  const runId = "run-symlink-escape"
+
+  try {
+    symlinkSync(outsideDir, path.join(tempDir, "escaped-reports"), "dir")
+    const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+    const reportInput = makeReportInput(
+      [makeFinding({ id: "f-symlink", check: "symlink-escape", severity: "High" })],
+      { run_id: runId, scope: ["src/Vault.sol"] },
+    )
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "SymlinkEscape",
+        scope: ["src/Vault.sol"],
+        report_input: JSON.stringify({ ...reportInput, projectDir: tempDir }),
+        tool_coverage_policy: "skip",
+      },
+      context,
+      { loadConfig: () => makeConfigWithOutputDir("escaped-reports") },
+    )
+
+    expect(result.error?.code).toBe("OUTPUT_DIR_TRAVERSAL")
+    expect(result.filePath).toBeUndefined()
+    expect(readdirSync(outsideDir)).toHaveLength(0)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration preserves historical manifest deduped hash when scanning reports", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-manifest-hash-"))
+  const runId = "run-manifest-hash"
+  const outputDir = "reports"
+
+  try {
+    const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+    const resolver = createAuditArtifactResolver(runId, tempDir)
+    const manifestPath = resolver.paths().reportsManifestFile
+    const resolvedOutputDir = path.join(tempDir, outputDir)
+    const historicalPath = path.join(resolvedOutputDir, "historical.md")
+    mkdirSync(path.dirname(manifestPath), { recursive: true })
+    mkdirSync(resolvedOutputDir, { recursive: true })
+    writeFileSync(
+      historicalPath,
+      `# Historical Report\n\n<!-- argus:report_metadata {"run_id":"${runId}","policy_version":"1.0.0"} -->\n`,
+    )
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(
+        {
+          run_id: runId,
+          schema_version: SCHEMA_VERSION,
+          updatedAt: 1,
+          reports: [
+            {
+              revision: 1,
+              filePath: historicalPath,
+              filename: path.basename(historicalPath),
+              contentHash: "historical-content-hash",
+              dedupedContentHash: "deduped-hash-from-original-findings",
+              createdAt: 1,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "ManifestHash",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        revision: 2,
+        report_input: JSON.stringify(
+          makeReportInput(
+            [
+              makeFinding({
+                id: "f-manifest-hash",
+                check: "manifest-hash-test",
+                severity: "High",
+                impact: "Incorrect manifest provenance hides whether findings changed.",
+                recommendation: "Preserve historical deduped hashes when rescanning reports.",
+              }),
+            ],
+            { run_id: runId, scope: ["src/Vault.sol"] },
+          ),
+        ),
+        tool_coverage_policy: "skip",
+      },
+      context,
+      { loadConfig: () => makeConfigWithOutputDir(outputDir) },
+    )
+
+    expect(result.error).toBeUndefined()
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      reports: Array<{ filePath: string; dedupedContentHash: string }>
+    }
+    const historical = manifest.reports.find((entry) => entry.filePath === historicalPath)
+    expect(historical?.dedupedContentHash).toBe("deduped-hash-from-original-findings")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration does not reuse an idempotent report outside the active output_dir", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-output-dir-reuse-"))
+  const runId = "run-output-dir-reuse"
+
+  try {
+    const context: ToolContext = { ...createContext(), directory: tempDir, worktree: tempDir }
+    const args = {
+      project_name: "OutputDirReuse",
+      scope: ["src/Vault.sol"],
+      run_id: runId,
+      report_input: JSON.stringify(
+        makeReportInput(
+          [
+            makeFinding({
+              id: "f-output-dir-reuse",
+              check: "output-dir-reuse",
+              severity: "Low",
+            }),
+          ],
+          { run_id: runId, scope: ["src/Vault.sol"] },
+        ),
+      ),
+      tool_coverage_policy: "skip" as const,
+    }
+
+    const first = await executeReportGeneration(args, context, {
+      loadConfig: () => makeConfigWithOutputDir("reports-a"),
+    })
+    expect(first.error).toBeUndefined()
+    expect(first.filePath).toContain(`${path.sep}reports-a${path.sep}`)
+
+    const second = await executeReportGeneration(args, context, {
+      loadConfig: () => makeConfigWithOutputDir("reports-b"),
+    })
+    expect(second.error).toBeUndefined()
+    expect(second.idempotent).not.toBe(true)
+    expect(second.reportStatus).toBe("written")
+    expect(second.filePath).toContain(`${path.sep}reports-b${path.sep}`)
+    expect(existsSync(second.filePath ?? "")).toBe(true)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test("executeReportGeneration sanitizes project name for disk filename", async () => {
@@ -1257,16 +1841,11 @@ test("executeReportGeneration sanitizes project name for disk filename", async (
           },
           reporting: {
             confidenceThreshold: 80,
-            format: "markdown" as const,
             severityThreshold: "low" as const,
-            gasAnalysis: false,
             output_dir: outputDir,
           },
-          solodit: { enabled: true, port: 54173 },
+          solodit: { enabled: true },
           disabled_hooks: [],
-          hooks: {},
-          cli: {},
-          background: { max_concurrent: 3 },
         }),
       },
     )
@@ -1426,6 +2005,59 @@ test("executeReportGeneration normalizes incomplete toolsExecuted in report_inpu
   )
 
   expect(result.report).toContain("IncompleteToolsExecuted")
+})
+
+test("tool coverage gate warns instead of blocking failed key tool attempts", async () => {
+  const reportInput = makeReportInput([], {
+    run_id: "run-failed-pattern-attempt",
+    scope: ["src/Vault.sol"],
+    toolsExecuted: [
+      {
+        tool: "argus_slither_analyze",
+        success: true,
+        startTime: 100,
+        endTime: 110,
+        findingsCount: 0,
+      },
+      { tool: "argus_forge_test", success: true, startTime: 111, endTime: 120, findingsCount: 0 },
+      {
+        tool: "argus_check_patterns",
+        success: false,
+        startTime: 121,
+        endTime: 130,
+        findingsCount: 0,
+      },
+      {
+        tool: "argus_solodit_search",
+        success: true,
+        startTime: 131,
+        endTime: 140,
+        findingsCount: 0,
+      },
+      {
+        tool: "argus_analyze_contract",
+        success: true,
+        startTime: 141,
+        endTime: 150,
+        findingsCount: 0,
+      },
+    ],
+  })
+
+  const result = await executeReportGeneration(
+    {
+      project_name: "FailedPatternAttempt",
+      scope: ["src/Vault.sol"],
+      report_input: JSON.stringify(reportInput),
+      preflight_policy: "warn",
+    },
+    createContext(),
+    { readEvents: async () => [] },
+  )
+
+  expect(result.report).toContain("Completeness Warning")
+  expect(result.report).toContain("Key audit tool attempts failed")
+  expect(result.report).toContain("patterns")
 })
 
 test("durable-evidence report path renders without undefined when synthesis text is absent", async () => {
@@ -1983,7 +2615,7 @@ test("rejects report_input when explicit run_id mismatches report_input run_id",
   ).rejects.toThrow("canonical run_id")
 })
 
-test("rejects report_input when canonical run inferred from session mismatches", async () => {
+test("accepts report_input when a session mapping is stale", async () => {
   const reportInput = {
     run_id: "run-from-report-input",
     seq: 1,
@@ -2008,13 +2640,14 @@ test("rejects report_input when canonical run inferred from session mismatches",
         project_name: "InferredRunIdMismatch",
         scope: ["Vault.sol"],
         report_input: JSON.stringify(reportInput),
+        tool_coverage_policy: "skip",
       },
       context,
       {
         resolveCanonicalRunId: () => "run-canonical",
       },
     ),
-  ).rejects.toThrow("canonical run_id")
+  ).resolves.toBeDefined()
 })
 
 test("filename date matches body audit date (parity)", async () => {
@@ -2274,6 +2907,183 @@ test("executeReportGeneration accepts Scribe-style deduped findings without cano
     expect(result.report).toContain("Complete loss of all deposited funds via reentrant withdraw")
     expect(result.report).toContain("Add nonReentrant modifier")
     expect(result.report).not.toContain("Impact details were not provided")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration honors dropped-only deduped artifacts over stale report-input", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-dropped-only-"))
+  const runId = "run-dropped-only"
+
+  try {
+    const resolver = createAuditArtifactResolver(runId, tempDir)
+    const reportInputPath = resolver.paths().reportInputFile
+    const dedupedPath = resolver.paths().dedupedFindingsFile
+    mkdirSync(path.dirname(reportInputPath), { recursive: true })
+
+    const staleFinding = makeFinding({
+      id: "stale-raw-1",
+      check: "stale-raw-finding",
+      description: "This raw finding should not appear after Scribe dropped it.",
+      observation_ids: ["obs-raw-1"],
+      observation_count: 1,
+    })
+    const staleReportInput = makeReportInput([staleFinding], {
+      run_id: runId,
+      scope: ["src/Vault.sol"],
+    })
+    writeFileSync(
+      reportInputPath,
+      JSON.stringify({ ...staleReportInput, projectDir: tempDir }, null, 2),
+    )
+    writeFileSync(
+      dedupedPath,
+      JSON.stringify(
+        {
+          run_id: runId,
+          schema_version: SCHEMA_VERSION,
+          deduped_by: "scribe",
+          findings: [],
+          dropped_observations: [
+            {
+              observation_id: "obs-stale-raw-1",
+              reason: "false-positive",
+              note: "Refuted during Scribe deduplication.",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    )
+
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+    }
+
+    const result = await executeReportGeneration(
+      {
+        project_name: "DroppedOnly",
+        scope: ["src/Vault.sol"],
+        run_id: runId,
+        preflight_policy: "warn",
+        tool_coverage_policy: "skip",
+      },
+      context,
+      {
+        readEvents: async () => [
+          {
+            type: "session.created" as const,
+            run_id: runId,
+            seq: 1,
+            session_id: "session-1",
+            source: "argus",
+            schema_version: SCHEMA_VERSION,
+            timestamp: 1,
+            payload: {},
+          },
+          {
+            type: "finding.added" as const,
+            run_id: runId,
+            seq: 2,
+            session_id: "session-1",
+            tool_call_id: "finding-1",
+            source: "sentinel",
+            schema_version: SCHEMA_VERSION,
+            timestamp: 2,
+            payload: staleReportInput.findings[0],
+          },
+          {
+            type: "session.deleted" as const,
+            run_id: runId,
+            seq: 3,
+            session_id: "session-1",
+            source: "argus",
+            schema_version: SCHEMA_VERSION,
+            timestamp: 3,
+            payload: {},
+          },
+        ],
+      },
+    )
+
+    expect(result.findingsCount.high).toBe(0)
+    expect(result.totalCount.high).toBe(0)
+    expect(result.report).not.toContain("stale-raw-finding")
+    expect(result.report).not.toContain("This raw finding should not appear")
+    expect(result.report).not.toContain("Finding parity not verifiable")
+    expect(result.report).not.toContain("Finding parity mismatch")
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test("executeReportGeneration rejects invalid deduped artifact instead of falling back to stale report-input", async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), "argus-report-invalid-deduped-"))
+  const runId = "run-invalid-deduped"
+
+  try {
+    const resolver = createAuditArtifactResolver(runId, tempDir)
+    const reportInputPath = resolver.paths().reportInputFile
+    const dedupedPath = resolver.paths().dedupedFindingsFile
+    mkdirSync(path.dirname(reportInputPath), { recursive: true })
+
+    const staleReportInput = makeReportInput(
+      [
+        makeFinding({
+          id: "stale-raw-1",
+          check: "stale-raw-finding",
+          description: "This stale finding must not be rendered if deduped artifact is invalid.",
+        }),
+      ],
+      { run_id: runId, scope: ["src/Vault.sol"] },
+    )
+    writeFileSync(
+      reportInputPath,
+      JSON.stringify({ ...staleReportInput, projectDir: tempDir }, null, 2),
+    )
+    writeFileSync(
+      dedupedPath,
+      JSON.stringify(
+        {
+          run_id: runId,
+          schema_version: SCHEMA_VERSION,
+          deduped_by: "scribe",
+          findings: [],
+          dropped_observations: [
+            {
+              observation_id: "obs-stale-raw-1",
+              reason: "not-a-valid-reason",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    )
+
+    const context: ToolContext = {
+      ...createContext(),
+      directory: tempDir,
+      worktree: tempDir,
+    }
+
+    expect(
+      executeReportGeneration(
+        {
+          project_name: "InvalidDeduped",
+          scope: ["src/Vault.sol"],
+          run_id: runId,
+          preflight_policy: "warn",
+          tool_coverage_policy: "skip",
+        },
+        context,
+        { readEvents: async () => [] },
+      ),
+    ).rejects.toThrow("deduped artifact failed schema validation")
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }

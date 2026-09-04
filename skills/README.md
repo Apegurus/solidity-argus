@@ -7,10 +7,10 @@ The Argus knowledge base provides a structured collection of Solidity security p
 ```
 OpenCode Skills System
 ├── skills/ (bundled with plugin)
-│   ├── vulnerability-patterns/ (57 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
+│   ├── vulnerability-patterns/ (60 patterns from kadenzipfel + DeFiFoFum + BailSec + Argus)
 │   ├── methodology/ (3 files from DeFiFoFum)
 │   ├── specialist-profiles/ (8 profile skills for audit-specialist)
-│   ├── protocol-patterns/ (5 files from DeFiFoFum)
+│   ├── protocol-patterns/ (7 files from DeFiFoFum + Argus)
 │   ├── checklists/ (6 files from DeFiFoFum + Cyfrin)
 │   ├── references/ (3 files: SmartBugs + DeFiHackLabs + attack-vector deck)
 │   └── case-studies/ (15 case studies from DeFiFoFum)
@@ -18,7 +18,7 @@ OpenCode Skills System
 │   └── 7,769+ findings, auto-synced from api.scvd.dev
 └── Companion Plugins (installed separately)
     ├── Trail of Bits Skills (trailofbits/skills)
-    └── Solodit MCP (auto-registered by Argus)
+    └── Solodit tRPC API (queried by \`argus_solodit_search\`)
 ```
 
 ## Source Attribution
@@ -39,6 +39,11 @@ All sources in the table below must include the following metadata in their SKIL
 | BailSec | CC0 | https://github.com/bailsec/BailSec | Vulnerability patterns extracted from professional audit PDFs |
 | SCVD (api.scvd.dev) | CC0 | https://api.scvd.dev | 7,769+ findings via local index (auto-synced) |
 | Argus specialist profiles | MIT | https://github.com/Apegurus/solidity-argus | 8 profile skills and one attack-vector deck for deep/adversarial audit passes |
+| devdacian/ai-auditor-primers (Dacian) | MIT | https://github.com/devdacian/ai-auditor-primers | Liquidation, ERC-4626, precision, and lending patterns (inferred, original prose) |
+| 0xJuancito/multichain-auditor | MIT | https://github.com/0xJuancito/multichain-auditor | Chain-specific and token cross-chain patterns (inferred) |
+| Sigma Prime | Reference (cited) | https://blog.sigmaprime.io | Oracle, liquid-restaking, and governance research (inferred) |
+| beirao.xyz | Reference (cited) | https://beirao.xyz | General footguns, lending, staking, and arbitrary-call patterns (inferred) |
+| Pyth Network | Apache-2.0 | https://docs.pyth.network | Pyth pull-oracle validation patterns (inferred) |
 
 ## SKILL.md Format Specification
 
@@ -49,7 +54,7 @@ Contributors can add custom skills using this format:
 name: topic-name          # Must match parent directory name
 description: One sentence description (1-1024 chars)
 version: 1.0.0            # Optional semver
-category: vulnerability-pattern # methodology, protocol-pattern, checklist, reference
+category: vulnerability-pattern # Required for bundled skills. One of: vulnerability-pattern, methodology, protocol-pattern, checklist, reference
 source_url: "https://github.com/org/repo"
 source_license: "MIT"
 imported_at: "2024-01-01T00:00:00Z"
@@ -80,11 +85,13 @@ By default, built-in skills take priority. You can change this behavior using th
 }
 ```
 
-When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields.
+When set to `custom-first`, skills in your `customSkillsDir` will override built-in skills with the same name. All custom skills must have valid frontmatter with at least `name` and `description` fields. Bundled skills also require `category` so catalog discovery can route them consistently.
 
 ## Detection Rules
 
-Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered and loaded by the pattern checker.
+Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter. Pattern scanning is strict: a rule is scanned only when the effective resolver winner has both `pattern_category` and non-empty `detection_rules`. `category` is catalog/routing taxonomy; `pattern_category` is deterministic scanner taxonomy.
+
+The scanner and skill-discovery tools use the same resolver roots: bundled skills, `knowledge.customSkillsDir`, Trail of Bits cache, OpenCode project/global skills, and Claude project/global skills. Discovery tools return metadata only; full skill bodies remain behind `argus_skill_load`.
 
 ### Adding Detection Rules to a Skill
 
@@ -92,6 +99,7 @@ Vulnerability patterns are defined as `detection_rules` in SKILL.md frontmatter.
 ---
 name: my-vulnerability
 description: Description of the vulnerability
+category: vulnerability-pattern
 pattern_category: reentrancy
 detection_rules:
   - regex: '\\.call\\{value:'
@@ -121,4 +129,4 @@ detection_rules:
 
 ## Inventory
 
-See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 97 SKILL.md files currently bundled with Argus.
+See [INVENTORY.md](./INVENTORY.md) for a complete listing of all 103 SKILL.md files currently bundled with Argus.

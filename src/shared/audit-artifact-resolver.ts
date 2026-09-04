@@ -1,5 +1,6 @@
 import { basename, join } from "node:path"
 import { defaultRootResolver } from "./path-root-resolver"
+import { validateRunId } from "./path-safety"
 
 export class ArtifactResolverError extends Error {
   constructor(message: string) {
@@ -20,6 +21,8 @@ export interface AuditArtifactPaths {
   dedupedFindingsFile: string
   /** {projectDir}/.argus/runs/{runId}/finding-id-map.json */
   findingIdMapFile: string
+  /** {projectDir}/.argus/runs/{runId}/reports.json */
+  reportsManifestFile: string
   /** {projectDir}/.argus/reports */
   reportDir: string
   /** {projectDir}/.argus/runs/{runId}/evidence */
@@ -51,6 +54,8 @@ export function createAuditArtifactResolver(
     throw new ArtifactResolverError("projectDir must not be empty")
   }
 
+  validateRunId(runId)
+
   const writeRoot = defaultRootResolver.writeRoot(projectDir)
   const runDir = join(writeRoot, "runs", runId)
 
@@ -61,6 +66,7 @@ export function createAuditArtifactResolver(
     reportInputFile: join(runDir, "report-input.json"),
     dedupedFindingsFile: join(runDir, "deduped-findings.json"),
     findingIdMapFile: join(runDir, "finding-id-map.json"),
+    reportsManifestFile: join(runDir, "reports.json"),
     reportDir: join(writeRoot, "reports"),
     evidenceDir: join(runDir, "evidence"),
     archiveDir: join(writeRoot, "archives"),

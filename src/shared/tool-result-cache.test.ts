@@ -38,6 +38,18 @@ describe("createToolResultCache", () => {
     expect(cache.takeMatch("ses_1", "argus_skill_load", "alpha")).toBe("alpha-result")
   })
 
+  it("takeNext consumes the oldest entry for a session/tool pair", () => {
+    const cache = createToolResultCache()
+    cache.set("ses_1", "argus_check_patterns", "first")
+    cache.set("ses_1", "argus_check_patterns", "second")
+    cache.set("ses_1", "argus_forge_test", "other-tool")
+
+    expect(cache.takeNext("ses_1", "argus_check_patterns")).toBe("first")
+    expect(cache.takeNext("ses_1", "argus_check_patterns")).toBe("second")
+    expect(cache.takeNext("ses_1", "argus_check_patterns")).toBeUndefined()
+    expect(cache.takeNext("ses_1", "argus_forge_test")).toBe("other-tool")
+  })
+
   it("isolates entries by session and by tool", () => {
     const cache = createToolResultCache()
     cache.set("ses_1", "argus_check_patterns", "a")
@@ -69,6 +81,16 @@ describe("createToolResultCache", () => {
 
     expect(cache.takeMatch("ses_1", "argus_solodit_search", "AAAA")).toBe("AAAA-longer-full-result")
     expect(cache.takeMatch("ses_1", "argus_solodit_search", "AAAA")).toBe("AAAA")
+  })
+
+  it("returns a tracking payload only for its exact displayed result", () => {
+    const cache = createToolResultCache()
+    cache.setTracking("ses_1", "argus_check_patterns", "compact-a", "full-a")
+    cache.setTracking("ses_1", "argus_check_patterns", "compact-b", "full-b")
+
+    expect(cache.takeTrackingMatch("ses_1", "argus_check_patterns", "compact-b")).toBe("full-b")
+    expect(cache.takeTrackingMatch("ses_1", "argus_check_patterns", "compact-a")).toBe("full-a")
+    expect(cache.size()).toBe(0)
   })
 
   it("evicts the oldest entry when capacity is exceeded", () => {

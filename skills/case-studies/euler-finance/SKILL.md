@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/euler-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'donateToReserves'
-    severity: "High"
-    description: "Detects donation functions that might allow a user to intentionally make their position underwater to trigger liquidations."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

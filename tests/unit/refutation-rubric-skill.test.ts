@@ -12,6 +12,15 @@ const SKILL_PATH = join(
   "refutation-rubric",
   "SKILL.md",
 )
+const REENTRANCY_SKILL_PATH = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "skills",
+  "vulnerability-patterns",
+  "reentrancy",
+  "SKILL.md",
+)
 
 describe("refutation-rubric skill", () => {
   test("SKILL.md file exists", () => {
@@ -118,5 +127,28 @@ describe("refutation-rubric skill", () => {
   test("Rubric Trace Format requires Verdict line in header", () => {
     const raw = readFileSync(SKILL_PATH, "utf8")
     expect(raw).toMatch(/Verdict:\s*<CONFIRMED\|DEMOTED\|REJECTED_DEMOTED>/)
+  })
+
+  test("requires conservation-aware theft and drain proof", () => {
+    const raw = readFileSync(SKILL_PATH, "utf8")
+    expect(raw).toContain("attacker_net_gain")
+    expect(raw).toContain("conservation")
+    expect(raw).toContain("Passing tests are not proof")
+  })
+
+  test("keeps compiler-specific same-recipient reentrancy guidance out of the core rubric", () => {
+    const raw = readFileSync(SKILL_PATH, "utf8")
+    expect(raw).not.toContain("Solidity >=0.8")
+    expect(raw).not.toContain("same-recipient reentrancy safe pattern")
+    expect(raw).toContain("Trace the recipient")
+    expect(raw).toContain("Do not suppress latent technical issues")
+  })
+
+  test("keeps same-recipient reentrancy demotion in the reentrancy domain skill", () => {
+    const raw = readFileSync(REENTRANCY_SKILL_PATH, "utf8")
+    expect(raw).toContain("same-recipient reentrancy")
+    expect(raw).toContain("Solidity >=0.8")
+    expect(raw).toContain("no alternate beneficiary")
+    expect(raw).toContain("Do not suppress CEI")
   })
 })

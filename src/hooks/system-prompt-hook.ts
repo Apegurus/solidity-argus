@@ -1,11 +1,13 @@
 import { computeMissingKeyTools, KEY_TOOLS, TOOL_SHORT_NAMES } from "../shared/key-tools"
-import { estimateTokens } from "../shared/token-utils"
 import { countBySeverity } from "../shared/validation-constants"
 import type { AuditState } from "../state/types"
 
-export { estimateTokens }
-
 const DEFAULT_TOKEN_BUDGET = 2000
+const CHARS_PER_TOKEN = 4
+
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN)
+}
 
 export type ReportingThresholds = {
   confidenceThreshold: number
@@ -136,7 +138,7 @@ export function buildDynamicContext(
     pendingKeyTools.length === 0
       ? "REPORTING GATE: ALLOWED"
       : dispatchedSubagents
-        ? `REPORTING GATE: DELEGATED \u2014 key-tool coverage runs in subagents and is verified run-scoped at report time; not observed in this orchestrator session: ${pendingKeyTools.join(", ")}`
+        ? `REPORTING GATE: DELEGATED \u2014 key tools not observed in this orchestrator session (${pendingKeyTools.join(", ")}); they run in dispatched subagents. Report-time coverage only sees the canonical run's own journal, so confirm delegated tool runs reached the canonical run_id before reporting.`
         : `REPORTING GATE: BLOCKED \u2014 key tools pending: ${pendingKeyTools.join(", ")}`
   const lines: string[] = [
     `<argus-context agent="${agent}">`,

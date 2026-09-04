@@ -11,15 +11,30 @@ function createMockEventSink(runId = "run-123"): { sink: EventSink; events: Audi
   const events: AuditEvent[] = []
   let seq = 0
   const state = { finalized: false }
+  const owners = new Set<string>()
 
   const sink: EventSink = {
     runId,
+    get state() {
+      return state.finalized ? ("SEALED" as const) : ("ACTIVE" as const)
+    },
     get isFinalized() {
       return state.finalized
+    },
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
     },
     markFinalized() {
       state.finalized = true
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
     async append(event: AuditEvent): Promise<void> {
       seq++
       events.push({ ...event, seq })

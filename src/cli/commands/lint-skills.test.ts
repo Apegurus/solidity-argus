@@ -196,6 +196,68 @@ category: ${cat}
     expect(result.valid).toBe(categories.length)
     expect(result.invalid).toBe(0)
   })
+
+  it("requires category only when a skill file is marked as bundled", () => {
+    const content = `---
+name: bundled-skill
+description: Missing category
+---
+# Content`
+
+    const customResult = lintSkillFiles([{ path: "custom/SKILL.md", content }])
+    expect(customResult.valid).toBe(1)
+    expect(customResult.invalid).toBe(0)
+
+    const bundledResult = lintSkillFiles([
+      {
+        path: "skills/vulnerability-patterns/bundled-skill/SKILL.md",
+        content,
+        requireCategory: true,
+      },
+    ])
+    expect(bundledResult.valid).toBe(0)
+    expect(bundledResult.invalid).toBe(1)
+    expect(bundledResult.errors[0]?.errors[0]).toContain("Bundled skills must declare category")
+  })
+
+  it("warns when detection_rules are present without a pattern_category", () => {
+    const result = lintSkillFiles([
+      {
+        path: "inert.md",
+        content: `---
+name: inert-skill
+category: vulnerability-pattern
+detection_rules:
+  - regex: "selfdestruct"
+    severity: High
+---
+# Content`,
+      },
+    ])
+    expect(result.valid).toBe(1)
+    expect(result.invalid).toBe(0)
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]?.file).toBe("inert.md")
+    expect(result.warnings[0]?.warnings[0]).toContain("pattern_category")
+  })
+
+  it("does not warn when detection_rules have a pattern_category", () => {
+    const result = lintSkillFiles([
+      {
+        path: "active.md",
+        content: `---
+name: active-skill
+category: vulnerability-pattern
+pattern_category: reentrancy
+detection_rules:
+  - regex: "selfdestruct"
+    severity: High
+---
+# Content`,
+      },
+    ])
+    expect(result.warnings).toHaveLength(0)
+  })
 })
 
 describe("lintSkillsCommand", () => {

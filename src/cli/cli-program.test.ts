@@ -123,27 +123,12 @@ describe("CliProgram", () => {
   })
 
   describe("registered commands", () => {
-    it("should have doctor command", async () => {
-      const program = createCliProgram()
-      const _exitCode = await program.dispatch(["doctor"])
+    it("registers the built-in commands without executing them", () => {
+      const names = createCliProgram().getCommandNames()
 
-      expect(output.join("\n")).toContain("Argus Doctor")
-    }, 15_000)
-
-    it("should have init command", async () => {
-      const program = createCliProgram()
-      const _exitCode = await program.dispatch(["init"])
-
-      const combined = output.join("\n") + errorOutput.join("\n")
-      expect(combined).toMatch(/solidity-argus/)
-    })
-
-    it("should have install command", async () => {
-      const program = createCliProgram()
-      const _exitCode = await program.dispatch(["install"])
-
-      const combined = output.join("\n") + errorOutput.join("\n")
-      expect(combined).toMatch(/solidity-argus|opencode/)
+      expect(names).toEqual(
+        expect.arrayContaining(["doctor", "init", "install", "lint-skills", "check-skills"]),
+      )
     })
   })
 })

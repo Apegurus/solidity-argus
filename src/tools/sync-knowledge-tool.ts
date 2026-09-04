@@ -1,7 +1,7 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { loadArgusConfig } from "../config/loader"
 import type { ArgusConfig } from "../config/types"
-import { ScvdClient } from "../knowledge/scvd-client"
+import { assertScvdApiUrlAllowed, ScvdClient } from "../knowledge/scvd-client"
 import { type SyncResult, syncAll, syncIncremental } from "../knowledge/scvd-sync"
 import { getScvdIndexPath } from "../shared/cache-paths"
 import { resolveProjectDir } from "../shared/project-utils"
@@ -81,6 +81,7 @@ export async function executeSyncKnowledge(
     }
 
     const apiUrl = argusConfig.knowledge?.scvd?.apiUrl ?? DEFAULT_SCVD_API_URL
+    assertScvdApiUrlAllowed(apiUrl)
     const indexPath = getScvdIndexPath()
 
     const client = dependencies.createClient(apiUrl, context.abort)

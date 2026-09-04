@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { dirname, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { ensureRunArtifactsMaterialized } from "../features/persistent-state/findings-materializer"
 import { createAuditArtifactResolver } from "../shared/audit-artifact-resolver"
@@ -7,17 +7,24 @@ import {
   DROPPED_OBSERVATION_REASONS,
   type DroppedObservation,
 } from "../shared/dropped-observations"
+import { readTextCapped } from "../shared/file-utils"
 import { validateFindingLineage } from "../shared/lineage-validator"
 import { createLogger } from "../shared/logger"
+import { isContained } from "../shared/path-safety"
 import { resolveProjectDir } from "../shared/project-utils"
 import { isNonEmptyString } from "../shared/type-guards"
+import { reconcileRubricVerdict } from "../shared/validation-constants"
+import { maxConfidenceScore, selectPrimaryObservation } from "../state/finding-aggregation"
 import { stableHash } from "../state/projectors"
 import type { CanonicalFinding } from "../state/schemas"
 import { SCHEMA_VERSION } from "../state/schemas"
 
+const MAX_DEDUPED_FINDINGS_FILE_BYTES = 8 * 1024 * 1024
+
 type PersistDedupedArgs = {
   run_id: string
-  deduped_findings: string
+  deduped_findings?: string
+  deduped_findings_path?: string
 }
 
 export interface DedupedFindingsArtifact {
@@ -107,6 +114,33 @@ function semanticHash(
   return stableHash({ findings, dropped_observations: droppedObservations })
 }
 
+function rederiveVerdictsFromLineage(
+  findings: CanonicalFinding[],
+  rawFindings: CanonicalFinding[],
+): CanonicalFinding[] {
+  const rawByObservationId = new Map(
+    rawFindings.map((finding) => [finding.observation_id, finding]),
+  )
+  return findings.map((finding) => {
+    const observations = (finding.observation_ids ?? [])
+      .map((id) => rawByObservationId.get(id))
+      .filter((observation): observation is CanonicalFinding => observation !== undefined)
+    if (observations.length === 0) return finding
+    const primary = selectPrimaryObservation(observations)
+    const confidenceScore = maxConfidenceScore(observations)
+    const gateDemoted = observations.some((observation) => observation.gate_demoted === true)
+    const rubricVerdict = reconcileRubricVerdict(primary.rubric_verdict, confidenceScore, {
+      gateDemoted,
+    })
+    return {
+      ...finding,
+      ...(confidenceScore !== undefined ? { confidence_score: confidenceScore } : {}),
+      ...(rubricVerdict ? { rubric_verdict: rubricVerdict } : {}),
+      ...(gateDemoted ? { gate_demoted: true } : {}),
+    }
+  })
+}
+
 async function loadExistingArtifact(path: string): Promise<DedupedFindingsArtifact | null> {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8"))
@@ -126,14 +160,64 @@ export async function executePersistDeduped(
   if (!isNonEmptyString(args.run_id)) {
     return JSON.stringify({ success: false, error: "run_id is required" })
   }
-  if (!isNonEmptyString(args.deduped_findings)) {
-    return JSON.stringify({ success: false, error: "deduped_findings is required" })
+  if (context.agent !== "scribe") {
+    return JSON.stringify({
+      success: false,
+      error: "PersistDedupedForbidden",
+      message: "argus_persist_deduped is reserved for Scribe",
+    })
+  }
+
+  const hasInline = isNonEmptyString(args.deduped_findings)
+  const hasPath = isNonEmptyString(args.deduped_findings_path)
+  if (hasInline === hasPath) {
+    return JSON.stringify({
+      success: false,
+      error: "provide exactly one of deduped_findings or deduped_findings_path",
+    })
+  }
+
+  const projectDir = resolveProjectDir(context)
+
+  let dedupedFindingsRaw: string
+  if (hasPath) {
+    const runDir = createAuditArtifactResolver(args.run_id, projectDir).paths().runDir
+    if (!isContained(runDir, projectDir)) {
+      return JSON.stringify({ success: false, error: "run directory escapes the project root" })
+    }
+    const candidate = resolve(projectDir, args.deduped_findings_path as string)
+    if (!isContained(candidate, runDir)) {
+      return JSON.stringify({
+        success: false,
+        error: "deduped_findings_path must resolve inside the run directory",
+      })
+    }
+    let fileContent: { text: string; capped: boolean }
+    try {
+      fileContent = readTextCapped(candidate, MAX_DEDUPED_FINDINGS_FILE_BYTES, { noFollow: true })
+    } catch (err) {
+      return JSON.stringify({
+        success: false,
+        error: "DedupedFindingsPathUnreadable",
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+    if (fileContent.capped) {
+      return JSON.stringify({
+        success: false,
+        error: "DedupedFindingsTooLargeError",
+        max_bytes: MAX_DEDUPED_FINDINGS_FILE_BYTES,
+      })
+    }
+    dedupedFindingsRaw = fileContent.text
+  } else {
+    dedupedFindingsRaw = args.deduped_findings as string
   }
 
   let findings: CanonicalFinding[]
   let droppedObservations: DroppedObservation[] = []
   try {
-    const parsed = JSON.parse(args.deduped_findings)
+    const parsed = JSON.parse(dedupedFindingsRaw)
     findings = Array.isArray(parsed) ? parsed : parsed.findings
     if (!Array.isArray(findings)) {
       return JSON.stringify({
@@ -159,7 +243,6 @@ export async function executePersistDeduped(
     })
   }
 
-  const projectDir = resolveProjectDir(context)
   const resolver = createAuditArtifactResolver(args.run_id, projectDir)
   const dedupedPath = resolver.paths().dedupedFindingsFile
   await ensureRunArtifactsMaterialized(args.run_id, projectDir, context.sessionID, {
@@ -210,6 +293,8 @@ export async function executePersistDeduped(
     })
   }
 
+  findings = rederiveVerdictsFromLineage(findings, rawFindings)
+
   const contentHash = semanticHash(findings, droppedObservations)
   const existingArtifact = await loadExistingArtifact(dedupedPath)
   if (existingArtifact?.content_hash === contentHash) {
@@ -255,13 +340,20 @@ export async function executePersistDeduped(
 
 export const persistDedupedTool = tool({
   description:
-    "Persist deduplicated and enriched findings to disk as the source-of-truth JSON artifact. Call this BEFORE argus_generate_report so the report tool can read from disk instead of requiring inline data.",
+    "Persist deduplicated and enriched findings to disk as the source-of-truth JSON artifact. Call this BEFORE argus_generate_report so the report tool can read from disk instead of requiring inline data. Provide exactly one of deduped_findings (inline JSON) or deduped_findings_path (a file inside the run directory, for payloads too large to pass inline).",
   args: {
     run_id: tool.schema.string().describe("The canonical run ID from <argus-context>."),
     deduped_findings: tool.schema
       .string()
+      .optional()
       .describe(
-        "Serialized JSON array of deduplicated and enriched findings. Each finding should have: check, severity, confidence, description, file, lines, source, impact, recommendation, proofOfConcept, and observation_ids lineage proving which raw findings were merged.",
+        'Serialized JSON array of deduplicated and enriched findings, or a serialized JSON object { "findings": [...], "dropped_observations": [...] } when raw observations are intentionally excluded from final findings. Each finding should have: check, severity, confidence, description, file, lines, source, impact, recommendation, proofOfConcept, observation_ids, and observation_count. Each dropped observation should have observation_id, reason (out-of-scope|false-positive|merged-into|non-actionable-noise), and optional note.',
+      ),
+    deduped_findings_path: tool.schema
+      .string()
+      .optional()
+      .describe(
+        "Absolute or project-relative path to a JSON file inside .argus/runs/{run_id}/ holding the same payload as deduped_findings. Use this when the inline payload is too large to pass inline. Must be a regular file inside the run directory and at most 8 MiB.",
       ),
   },
   async execute(args, context) {

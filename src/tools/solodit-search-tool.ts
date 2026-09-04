@@ -1,15 +1,13 @@
 import type { ToolDefinition } from "@opencode-ai/plugin"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createLogger } from "../shared/logger"
-import { isSoloditAvailable } from "../solodit-lifecycle"
+import { parseSoloditFindings } from "./solodit-response-parser"
 
 const logger = createLogger()
 
-const SOLODIT_MCP_TOOLS = ["search", "search_findings"] as const
 const DEFAULT_LIMIT = 10
-export const DEFAULT_SOLODIT_PORT = 54173
-const SOLODIT_HTTP_TIMEOUT_MS = 10_000
 const SOLODIT_TRPC_TIMEOUT_MS = 15_000
+const MAX_SOLODIT_TRPC_RESPONSE_BYTES = 1_048_576
 const SOLODIT_TRPC_ENDPOINT = "https://solodit.cyfrin.io/api/trpc/findings.get"
 
 type SoloditSearchArgs = {
@@ -36,10 +34,6 @@ export type SoloditSearchResult = {
 
 /** Fetch abstraction for testing */
 export type SoloditFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
 
 /** Extract severity from common audit title prefixes like [H-01], [M-17], H-1:, M-2: */
 function extractSeverityFromTitle(title: string): string {
@@ -98,154 +92,6 @@ function parseFinding(raw: unknown): SoloditFinding {
     remediation: typeof obj.remediation === "string" ? obj.remediation : "",
   }
 }
-
-function parseFindings(response: unknown): SoloditFinding[] {
-  if (!Array.isArray(response)) return []
-  return response.map(parseFinding)
-}
-
-function parseFindingsFromAnyResponse(response: unknown): SoloditFinding[] {
-  const direct = parseFindings(response)
-  if (direct.length > 0) return direct
-
-  if (typeof response === "object" && response !== null) {
-    const findings = (response as Record<string, unknown>).findings
-    if (Array.isArray(findings)) return findings.map(parseFinding)
-  }
-
-  return extractFindingsFromMcpResponse(response)
-}
-
-function hasMcpError(response: unknown): boolean {
-  if (typeof response !== "object" || response === null) return false
-  return "error" in (response as Record<string, unknown>)
-}
-
-function buildMcpArgs(
-  toolName: (typeof SOLODIT_MCP_TOOLS)[number],
-  query: string,
-  limit: number,
-): Record<string, unknown> {
-  if (toolName === "search") {
-    return { keywords: query }
-  }
-  return { keywords: query, pageSize: limit }
-}
-
-function parseSseData(body: string): unknown {
-  for (const line of body.split("\n")) {
-    if (line.startsWith("data: ")) {
-      try {
-        return JSON.parse(line.slice(6))
-      } catch {}
-    }
-  }
-  try {
-    return JSON.parse(body)
-  } catch {
-    return null
-  }
-}
-
-function extractFindingsFromMcpResponse(envelope: unknown): SoloditFinding[] {
-  if (typeof envelope !== "object" || envelope === null) return []
-  const result = (envelope as Record<string, unknown>).result
-  if (typeof result !== "object" || result === null) return []
-
-  const structured = (result as Record<string, unknown>).structuredContent
-  const reportsJson =
-    typeof structured === "object" && structured !== null
-      ? (structured as Record<string, unknown>).reportsJSON
-      : undefined
-
-  if (typeof reportsJson === "string") {
-    try {
-      const parsed = JSON.parse(reportsJson)
-      if (Array.isArray(parsed)) return parsed.map(parseFinding)
-    } catch {
-      logger.debug("Failed to parse Solodit structured response")
-    }
-  }
-
-  const content = (result as Record<string, unknown>).content
-  if (Array.isArray(content) && content.length > 0) {
-    const first = content[0] as Record<string, unknown> | undefined
-    if (typeof first?.text === "string") {
-      try {
-        const parsed = JSON.parse(first.text)
-        if (Array.isArray(parsed)) return parsed.map(parseFinding)
-      } catch {
-        logger.debug("Failed to parse Solodit content text")
-      }
-    }
-  }
-
-  return []
-}
-
-// ---------------------------------------------------------------------------
-// Primary path: MCP HTTP
-// ---------------------------------------------------------------------------
-
-async function callSoloditMcpHttp(
-  query: string,
-  limit: number,
-  port: number,
-  fetchImpl: SoloditFetch = fetch,
-): Promise<SoloditSearchResult | null> {
-  if (!isSoloditAvailable()) {
-    logger.debug(`[solodit] MCP not available — skipping HTTP primary path`)
-    return null
-  }
-
-  let lastError: string | undefined
-
-  for (const toolName of SOLODIT_MCP_TOOLS) {
-    try {
-      const response = await fetchImpl(`http://localhost:${port}/mcp`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "tools/call",
-          params: { name: toolName, arguments: buildMcpArgs(toolName, query, limit) },
-          id: 1,
-        }),
-        signal: AbortSignal.timeout(SOLODIT_HTTP_TIMEOUT_MS),
-      })
-
-      if (!response.ok) {
-        lastError = `Solodit HTTP ${response.status}`
-        continue
-      }
-
-      const body = await response.text()
-      const envelope = parseSseData(body)
-
-      if (hasMcpError(envelope)) {
-        continue
-      }
-
-      const findings = parseFindingsFromAnyResponse(envelope)
-      return { results: findings.slice(0, limit), totalFound: findings.length, query }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error"
-      lastError = `Solodit MCP unreachable: ${message}`
-    }
-  }
-
-  logger.debug(
-    `[solodit] MCP HTTP failed: ${lastError ?? "all tools failed"} — will try tRPC fallback`,
-  )
-  return null
-}
-
-// ---------------------------------------------------------------------------
-// Fallback path: tRPC direct to solodit.cyfrin.io
-// ---------------------------------------------------------------------------
 
 function buildTrpcInput(query: string, page: number = 1): string {
   const inner = JSON.stringify([
@@ -327,22 +173,33 @@ function mapTrpcFinding(raw: unknown): SoloditFinding {
 }
 
 function parseTrpcData(dataStr: string): { findings?: unknown } {
-  const cleaned = dataStr.trim().replace(/^\(/, "").replace(/\)$/, "")
+  const findings = parseSoloditFindings(dataStr)
+  return findings ? { findings } : {}
+}
 
-  // Try standard JSON first
-  try {
-    return JSON.parse(cleaned) as { findings?: unknown }
-  } catch {
-    // Fall through to unquoted-key fixup
+async function readSoloditResponseTextCapped(response: Response): Promise<string> {
+  const stream = response.body
+  if (!stream) {
+    throw new Error("Solodit tRPC response has no readable body to bound")
   }
 
-  // Fallback: attempt to fix unquoted keys
-  try {
-    const fixed = cleaned.replace(/([{,]\s*)([a-zA-Z_]\w*)\s*:/g, '$1"$2":')
-    return JSON.parse(fixed) as { findings?: unknown }
-  } catch {
-    return {}
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    received += value.byteLength
+    if (received > MAX_SOLODIT_TRPC_RESPONSE_BYTES) {
+      await reader.cancel()
+      throw new Error(
+        `Solodit tRPC response exceeded the ${MAX_SOLODIT_TRPC_RESPONSE_BYTES}-byte cap`,
+      )
+    }
+    chunks.push(value)
   }
+
+  return Buffer.concat(chunks).toString("utf8")
 }
 
 async function callSoloditTrpc(
@@ -372,7 +229,7 @@ async function callSoloditTrpc(
       }
     }
 
-    const responseText = await response.text()
+    const responseText = await readSoloditResponseTextCapped(response)
     const batchResults = JSON.parse(responseText) as Array<Record<string, unknown>>
     const first = batchResults[0] as { result?: { data?: unknown } } | undefined
     const dataStr = typeof first?.result?.data === "string" ? first.result.data : ""
@@ -400,14 +257,9 @@ async function callSoloditTrpc(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Main entry point
-// ---------------------------------------------------------------------------
-
 export async function executeSoloditSearch(
   args: SoloditSearchArgs,
   context: ToolContext,
-  port: number = DEFAULT_SOLODIT_PORT,
   fetchImpl: SoloditFetch = fetch,
 ): Promise<SoloditSearchResult> {
   const { query } = args
@@ -415,19 +267,11 @@ export async function executeSoloditSearch(
 
   context.metadata({ title: `Solodit search: ${query}` })
 
-  // Primary: MCP HTTP to local solodit-mcp server
-  const mcpResult = await callSoloditMcpHttp(query, limit, port, fetchImpl)
-  if (mcpResult !== null && mcpResult.results.length > 0) {
-    logger.debug(`[solodit] MCP HTTP returned ${mcpResult.results.length} findings for '${query}'`)
-    return mcpResult
-  }
-
-  // Fallback: tRPC direct to solodit.cyfrin.io
   logger.debug(`[solodit] Falling back to tRPC for query: ${query}`)
   return callSoloditTrpc(query, limit, fetchImpl)
 }
 
-export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): ToolDefinition {
+export function createSoloditSearchTool(): ToolDefinition {
   return tool({
     description:
       "Search Solodit audit findings database for known vulnerabilities and past audit results.",
@@ -436,7 +280,7 @@ export function createSoloditSearchTool(port: number = DEFAULT_SOLODIT_PORT): To
       limit: tool.schema.number().optional(),
     },
     async execute(args, context) {
-      const result = await executeSoloditSearch(args, context, port)
+      const result = await executeSoloditSearch(args, context)
       return JSON.stringify(result)
     },
   })
@@ -452,13 +296,7 @@ export const _testExports = {
   buildTrpcInput,
   mapTrpcFinding,
   truncateDescription,
-  callSoloditMcpHttp,
   callSoloditTrpc,
-  parseSseData,
-  extractFindingsFromMcpResponse,
-  parseFindingsFromAnyResponse,
   parseFinding,
-  buildMcpArgs,
-  hasMcpError,
   parseTrpcData,
 }

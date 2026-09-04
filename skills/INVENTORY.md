@@ -1,13 +1,14 @@
 # Argus Knowledge Base Inventory
 
 Generated: 2026-02-20
-Last updated: 2026-05-28 (added 6 2025+ vulnerability patterns)
-Total SKILL.md files: 97
+Last updated: 2026-06-22 (listed previously-missing refutation-rubric; removed inert case-study detection_rules). Prior 2026-06-19: added 5 DeFi-depth skills (liquidation, LSD/restaking, concentrated-liquidity, Pyth, arbitrary-external-call)
+Total SKILL.md files: 103
 
 ## Vulnerability Patterns
 | File | Source(s) | Topic | Word Count |
 |------|-----------|-------|------------|
 | vulnerability-patterns/access-control/SKILL.md | DeFiFoFum, kadenzipfel | Access Control Exploits | 1164 |
+| vulnerability-patterns/arbitrary-external-call/SKILL.md | Argus (beirao, Decurity) | Arbitrary External Call / Approval Drain | 650 |
 | vulnerability-patterns/arbitrary-storage-location/SKILL.md | kadenzipfel | Write to Arbitrary Storage Location | 334 |
 | vulnerability-patterns/assert-violation/SKILL.md | kadenzipfel | Assert Violation | 369 |
 | vulnerability-patterns/asserting-contract-from-code-size/SKILL.md | kadenzipfel | Asserting Contract from Code Size | 367 |
@@ -34,6 +35,7 @@ Total SKILL.md files: 97
 | vulnerability-patterns/incorrect-inheritance-order/SKILL.md | kadenzipfel | Incorrect Inheritance Order | 325 |
 | vulnerability-patterns/insufficient-gas-griefing/SKILL.md | kadenzipfel | Insufficient Gas Griefing | 392 |
 | vulnerability-patterns/lack-of-precision/SKILL.md | kadenzipfel | Lack of Precision | 395 |
+| vulnerability-patterns/liquidation-vulnerabilities/SKILL.md | Argus (Dacian, MIT) | Liquidation Vulnerabilities | 950 |
 | vulnerability-patterns/logic-errors/SKILL.md | DeFiFoFum, kadenzipfel | Logic Bug Exploits | 1336 |
 | vulnerability-patterns/missing-parameter-bounds/SKILL.md | BailSec | Missing Parameter Bounds | 407 |
 | vulnerability-patterns/missing-protection-signature-replay/SKILL.md | kadenzipfel | Missing Protection Against Signature Replay | 362 |
@@ -44,6 +46,7 @@ Total SKILL.md files: 97
 | vulnerability-patterns/overflow-underflow/SKILL.md | kadenzipfel | Integer Overflow and Underflow | 385 |
 | vulnerability-patterns/permit2-allowance-abuse/SKILL.md | Argus (Uniswap Permit2, MIT) | Permit2 Allowance Abuse | 995 |
 | vulnerability-patterns/proxy-vulnerabilities/SKILL.md | Argus | Proxy Pattern Vulnerabilities | 1063 |
+| vulnerability-patterns/pyth-oracle-validation/SKILL.md | Argus (Pyth, Sigma Prime) | Pyth Oracle Validation | 620 |
 | vulnerability-patterns/reentrancy/SKILL.md | DeFiFoFum, kadenzipfel | Reentrancy Exploits | 1160 |
 | vulnerability-patterns/shadowing-state-variables/SKILL.md | kadenzipfel | Shadowing State Variables | 404 |
 | vulnerability-patterns/share-accounting-desynchronization/SKILL.md | BailSec | Share Accounting Desynchronization | 390 |
@@ -69,6 +72,7 @@ Total SKILL.md files: 97
 | File | Source(s) | Topic | Word Count |
 |------|-----------|-------|------------|
 | methodology/audit-workflow/SKILL.md | DeFiFoFum | Audit Workflow | 523 |
+| methodology/refutation-rubric/SKILL.md | pashov/skills | Refutation Rubric (4-Gate Finding Validation) | 1886 |
 | methodology/report-template/SKILL.md | DeFiFoFum | Audit Report Template | 585 |
 | methodology/severity-classification/SKILL.md | DeFiFoFum | Severity Classification Guide | 603 |
 
@@ -89,8 +93,10 @@ Total SKILL.md files: 97
 |------|-----------|-------|------------|
 | protocol-patterns/amm-dex/SKILL.md | DeFiFoFum | AMM (Automated Market Maker) Security Guide | 852 |
 | protocol-patterns/bridges-cross-chain/SKILL.md | DeFiFoFum | Cross-Chain Bridge Security Guide | 1083 |
+| protocol-patterns/concentrated-liquidity/SKILL.md | Argus (Dacian, Hacken) | Concentrated Liquidity & UniV4 Hooks | 900 |
 | protocol-patterns/dao-governance/SKILL.md | DeFiFoFum | Governance Protocol Security Guide | 1024 |
 | protocol-patterns/lending-borrowing/SKILL.md | DeFiFoFum | Lending Protocol Security Guide | 871 |
+| protocol-patterns/liquid-staking-restaking/SKILL.md | Argus (Sigma Prime, beirao) | Liquid Staking & Restaking | 850 |
 | protocol-patterns/staking-vesting/SKILL.md | DeFiFoFum | Staking Protocol Security Guide | 895 |
 
 ## Checklists

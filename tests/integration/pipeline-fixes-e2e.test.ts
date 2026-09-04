@@ -6,6 +6,7 @@ import { join, resolve } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { ArgusConfigSchema } from "../../src/config/schema"
 import { createHooks } from "../../src/create-hooks"
+import { createAuditStateManager } from "../../src/features/persistent-state/audit-state-manager"
 import {
   createEventSink,
   readEvents,
@@ -14,7 +15,6 @@ import {
 import { materializeReportInput } from "../../src/features/persistent-state/findings-materializer"
 import { resolveRunIdFromOpencodeSession } from "../../src/features/persistent-state/global-run-index"
 import { finalizeRun } from "../../src/features/persistent-state/run-finalizer"
-import type { Managers } from "../../src/managers/types"
 import type { AuditEvent } from "../../src/state/schemas"
 import { SCHEMA_VERSION } from "../../src/state/schemas"
 import type { AuditState } from "../../src/state/types"
@@ -105,30 +105,6 @@ function makeAuditState(overrides?: Partial<AuditState>): AuditState {
     currentPhase: "reconnaissance",
     scope: [],
     startTime: Date.now(),
-    ...overrides,
-  }
-}
-
-function makeManagers(overrides?: Partial<Managers>): Managers {
-  return {
-    backgroundManager: {
-      dispatch: () => "task-1",
-      cancel: () => {},
-      getResult: async () => null,
-      getTaskStatus: async () => undefined,
-      onComplete: () => {},
-      getActiveCount: () => 0,
-    },
-    auditStateManager: {
-      bindSession: () => {},
-      load: async () => null,
-      save: async () => {},
-      get: () => null,
-      update: async () => {},
-      reset: async () => {},
-      archive: async () => {},
-      dispose: async () => {},
-    },
     ...overrides,
   }
 }
@@ -288,10 +264,12 @@ describe("Pipeline fixes E2E", () => {
     })
   })
 
-  describe("Fix #4: stale/completed state is discarded on session.created", () => {
-    test("recovered state with reportGenerated=true is discarded", async () => {
+  describe("Fix #4 / WS-3 I10: recovered state resumes on session.created unless stale (>24h)", () => {
+    test("report-generated (unsealed) state resumes under its original run identity, not discarded (WS-3 I10/I4)", async () => {
       const sessionId = "oc-new-session"
-      const staleState = makeAuditState({
+      // WS-3 I10: reportGenerated is not terminal — an unsealed report-generated run is still
+      // active (awaiting Themis disposition), so recovery must resume it rather than discard.
+      const reportGeneratedState = makeAuditState({
         sessionId: "old-completed-run",
         findings: [
           {
@@ -312,12 +290,11 @@ describe("Pipeline fixes E2E", () => {
         startTime: Date.now(),
       })
 
-      await writeSessionState(sessionId, staleState)
-      const managers = makeManagers()
-
+      await writeSessionState(sessionId, reportGeneratedState)
+      const auditStateManager = createAuditStateManager(FIXTURE_DIR)
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
-        managers,
+        auditStateManager,
         projectDir: FIXTURE_DIR,
         isHookEnabled: () => true,
       })
@@ -327,19 +304,21 @@ describe("Pipeline fixes E2E", () => {
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
       await activateArgusSession(hooks, sessionId)
 
-      const freshRunId = await waitForRunId(sessionId)
-      const eventsPath = join(RUNS_DIR, freshRunId, "events.jsonl")
+      // WS-3 I4: the resumed run keeps its original runId, not a fresh one.
+      const resumedRunId = await waitForRunId(sessionId)
+      expect(resumedRunId).toBe("old-completed-run")
+      const eventsPath = join(RUNS_DIR, resumedRunId, "events.jsonl")
       expect(existsSync(eventsPath)).toBe(true)
 
       await hooks.event?.({
         event: { type: "session.idle", properties: { info: { id: sessionId } } },
       } as unknown as Parameters<NonNullable<typeof hooks.event>>[0])
 
-      const journalEvents = await readEvents(freshRunId, FIXTURE_DIR)
+      const journalEvents = await readEvents(resumedRunId, FIXTURE_DIR)
       const idleEvent = journalEvents.find((e) => e.type === "session.idle")
       const idlePayload = idleEvent?.payload as Record<string, unknown> | undefined
-      expect(idlePayload?.findingsCount).toBe(0)
-      expect(idlePayload?.toolsExecutedCount).toBe(0)
+      expect(idlePayload?.findingsCount).toBe(1)
+      expect(idlePayload?.toolsExecutedCount).toBe(1)
     })
 
     test("recovered state older than 24h is discarded", async () => {
@@ -364,11 +343,10 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await writeSessionState(sessionId, staleState)
-      const managers = makeManagers()
-
+      const auditStateManager = createAuditStateManager(FIXTURE_DIR)
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
-        managers,
+        auditStateManager,
         projectDir: FIXTURE_DIR,
         isHookEnabled: () => true,
       })
@@ -410,11 +388,10 @@ describe("Pipeline fixes E2E", () => {
       })
 
       await writeSessionState(sessionId, freshState)
-      const managers = makeManagers()
-
+      const auditStateManager = createAuditStateManager(FIXTURE_DIR)
       const hooks = createHooks({
         config: ArgusConfigSchema.parse({}),
-        managers,
+        auditStateManager,
         projectDir: FIXTURE_DIR,
         isHookEnabled: () => true,
       })

@@ -57,12 +57,6 @@ const CORPUS: CorpusCase[] = [
     negative: "flash-loan-unchecked-negative.sol",
   },
   {
-    patternName: "missing-access-modifier",
-    regex: "function\\s+\\w+\\s*\\([^)]*\\)\\s+(external|public)",
-    positive: "access-control-missing-positive.sol",
-    negative: "access-control-missing-negative.sol",
-  },
-  {
     patternName: "unprotected-initialize",
     regex: "function\\s+initialize",
     positive: "access-control-initialize-positive.sol",
@@ -146,6 +140,12 @@ const CORPUS: CorpusCase[] = [
     positive: "frontrunning-vulnerable.sol",
     negative: "frontrunning-safe.sol",
   },
+  {
+    patternName: "pyth-unsafe-price-read",
+    regex: "getPriceUnsafe\\s*\\(",
+    positive: "pyth-unsafe-positive.sol",
+    negative: "pyth-safe-negative.sol",
+  },
 ]
 
 describe("Pattern Test Corpus", () => {
@@ -197,6 +197,62 @@ describe("Pattern Test Corpus", () => {
       }
       const results = findMatches(fixture, [pattern])
       expect(results).toHaveLength(0)
+    })
+  })
+
+  describe("scanner rule eligibility", () => {
+    it("does NOT match advisory protocol guidance or safe feature use", () => {
+      const advisoryRulePrefixes = [
+        "concentrated-liquidity-",
+        "liquid-staking-restaking-",
+        "staking-vesting-",
+      ]
+      const safeFeatures = [
+        "items[index] = amount;",
+        "members.add(account);",
+        "delete positions[id];",
+        "multicall(calls);",
+        "scale = price.expo;",
+        "function withdraw(uint256 amount) external {",
+      ]
+
+      expect(
+        skillPatterns.some((pattern) =>
+          advisoryRulePrefixes.some((prefix) => pattern.name.startsWith(prefix)),
+        ),
+      ).toBe(false)
+
+      for (const safeFeature of safeFeatures) {
+        expect(skillPatterns.some((pattern) => matchesRegex(safeFeature, pattern.regex))).toBe(
+          false,
+        )
+      }
+    })
+
+    it("matches unsafe Pyth reads and unbounded iteration", () => {
+      const unsafeExamples = [
+        "pyth.getPriceUnsafe(priceId);",
+        "for (uint256 i = 0; i < users.length; ++i) {}",
+      ]
+
+      for (const unsafeExample of unsafeExamples) {
+        expect(skillPatterns.some((pattern) => matchesRegex(unsafeExample, pattern.regex))).toBe(
+          true,
+        )
+      }
+    })
+
+    it("does NOT load context-free function/math presence rules", () => {
+      const removedRegexSources = [
+        "function\\s+\\w+\\s*\\(",
+        "function\\s+\\w+\\s*\\([^)]*\\)\\s+(external|public)",
+        "mulDiv|roundUp|roundDown|FullMath",
+      ]
+      const loadedSources = new Set(skillPatterns.map((pattern) => pattern.regex))
+
+      for (const source of removedRegexSources) {
+        expect(loadedSources.has(source)).toBe(false)
+      }
     })
   })
 })

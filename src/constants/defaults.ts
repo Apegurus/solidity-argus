@@ -1,10 +1,19 @@
 export const DEFAULT_MODELS = {
-  argus: "anthropic/claude-opus-4-8",
-  sentinel: "anthropic/claude-sonnet-4-6",
-  pythia: "anthropic/claude-sonnet-4-6",
-  auditSpecialist: "anthropic/claude-sonnet-4-6",
-  scribe: "anthropic/claude-sonnet-4-6",
-  themis: "openai/gpt-5.5",
+  argus: "anthropic/claude-opus-5",
+  sentinel: "anthropic/claude-sonnet-5",
+  pythia: "openai/gpt-5.6-terra",
+  auditSpecialist: "anthropic/claude-sonnet-5",
+  scribe: "anthropic/claude-sonnet-4-5",
+  themis: "openai/gpt-5.6-sol",
+} as const
+
+export const DEFAULT_VARIANTS = {
+  argus: "max",
+  sentinel: "high",
+  pythia: "high",
+  auditSpecialist: "xhigh",
+  scribe: undefined,
+  themis: "xhigh",
 } as const
 
 export const DEFAULT_STEPS = 50 as const

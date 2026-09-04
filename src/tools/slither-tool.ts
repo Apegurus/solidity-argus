@@ -1,27 +1,37 @@
-import { createHash } from "node:crypto"
-import {
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
-import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join, resolve } from "node:path"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { join, resolve } from "node:path"
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { createLogger } from "../shared/logger"
-import type { Finding, FindingSeverity } from "../state/types"
+import { assertContained, PathSafetyError } from "../shared/path-safety"
+import { buildSafeEnv } from "../shared/process-runner"
+import { findFoundryProjectDir, resolveProjectDir } from "../shared/project-utils"
+import {
+  appendTruncationMarker,
+  DEFAULT_SUBPROCESS_TIMEOUT_MS,
+  MAX_SUBPROCESS_STDERR_BYTES,
+  MAX_SUBPROCESS_STDOUT_BYTES,
+  readStreamCapped,
+} from "../shared/subprocess-io"
+import type { Finding } from "../state/types"
+import { defaultFlattenDeps } from "./slither-fallback-runtime"
+import { parseSlitherFindings, type SlitherPayload } from "./slither-findings"
+import { flattenFallback, TRUSTED_SLITHER_CONFIG } from "./slither-flatten-fallback"
+import {
+  filterSlitherFindings,
+  resolveSlitherInvocation,
+  validateFoundryCompilerConfig,
+  validateFoundrySourceClosure,
+  validateSlitherTarget,
+} from "./slither-target"
 
 const logger = createLogger()
 
-import {
-  extractContractNames as extractContractNamesShared,
-  hasBinary as hasBinaryShared,
-  parseSolcVersion as parseSolcVersionShared,
-} from "../shared/binary-utils"
-import { resolveProjectDir } from "../shared/project-utils"
+export {
+  defaultSpawnFn,
+  type FlattenFallbackDeps,
+  type SpawnFn,
+} from "./slither-fallback-runtime"
+export { flattenFallback } from "./slither-flatten-fallback"
 
 type SlitherArgs = {
   target: string
@@ -29,27 +39,6 @@ type SlitherArgs = {
   exclude?: string[]
   solc_version?: string
   via_ir?: boolean
-}
-
-type SlitherDetector = {
-  check?: string
-  impact?: string
-  confidence?: string
-  description?: string
-  elements?: Array<{
-    source_mapping?: {
-      filename_relative?: string
-      lines?: number[]
-    }
-  }>
-}
-
-type SlitherPayload = {
-  success?: boolean
-  error?: string | null
-  results?: {
-    detectors?: SlitherDetector[]
-  }
 }
 
 export type SlitherRunResult = {
@@ -71,60 +60,35 @@ export type SlitherAnalyzeResult = {
   executionTime: number
   errors: string[]
   error?: string
+  failureCode?: SlitherFailureCode
   hint?: string
   suggested_command?: string
 }
 
-function mapSeverity(impact?: string): FindingSeverity {
-  switch (impact) {
-    case "High":
-      return "High"
-    case "Medium":
-      return "Medium"
-    case "Low":
-      return "Low"
-    case "Informational":
-      return "Informational"
-    default:
-      return "Informational"
-  }
-}
+export type SlitherFailureCode =
+  | "SLITHER_INVALID_ARGUMENT"
+  | "SLITHER_TARGET_NOT_FOUND"
+  | "SLITHER_TARGET_OUTSIDE_PROJECT"
+  | "SLITHER_BINARY_UNAVAILABLE"
+  | "SLITHER_ABORTED"
+  | "SLITHER_OUTPUT_PARSE_FAILED"
+  | "SLITHER_PROJECT_COMPILATION_FAILED"
+  | "SLITHER_UNSAFE_FOUNDRY_CONFIG"
+  | "SLITHER_UNSAFE_SOURCE_TREE"
+  | "SLITHER_EXECUTION_FAILED"
 
-function mapConfidence(confidence?: string): "High" | "Medium" | "Low" {
-  switch (confidence) {
-    case "High":
-      return "High"
-    case "Medium":
-      return "Medium"
-    case "Low":
-      return "Low"
-    default:
-      return "Low"
-  }
-}
-
-function findingLines(lines?: number[]): [number, number] {
-  if (!lines || lines.length === 0) {
-    return [1, 1]
-  }
-
-  if (lines.length === 1) {
-    const only = lines[0] ?? 1
-    return [only, only]
-  }
-
-  const start = lines[0] ?? 1
-  const end = lines[lines.length - 1] ?? start
-  return [start, end]
-}
-
-function createFindingID(check: string, file: string, lines: [number, number]): string {
-  const key = `${check}:${file}:${lines[0]}-${lines[1]}`
-  return createHash("sha256").update(key).digest("hex").slice(0, 16)
-}
-
-function buildCommand(args: SlitherArgs): string[] {
-  const command = ["slither", args.target, "--json", "-", "--filter-paths", "node_modules"]
+function buildCommand(args: SlitherArgs, commandTarget: string, forceFoundry = false): string[] {
+  const command = [
+    "slither",
+    commandTarget,
+    "--json",
+    "-",
+    "--filter-paths",
+    "node_modules",
+    "--config-file",
+    TRUSTED_SLITHER_CONFIG,
+  ]
+  if (forceFoundry || args.via_ir) command.push("--compile-force-framework", "foundry")
 
   if (args.detectors && args.detectors.length > 0) {
     command.push("--detect", args.detectors.join(","))
@@ -200,36 +164,8 @@ function mixedPragmaDiagnostics(
   return {
     hint: "Try narrowing target to a single-pragma subdirectory and check foundry.toml/remappings for mixed compiler or vendored dependency scope issues.",
     suggested_command: suggestion
-      ? buildCommand({ ...args, target: suggestion }).join(" ")
+      ? buildCommand({ ...args, target: suggestion }, suggestion).join(" ")
       : undefined,
-  }
-}
-
-const parseSolcVersion = parseSolcVersionShared
-const extractContractNames = extractContractNamesShared
-const hasBinary = hasBinaryShared
-
-async function ensureSolc(version: string): Promise<boolean> {
-  if (hasBinary("solc")) return true
-  if (!hasBinary("solc-select")) return false
-  try {
-    const installProc = Bun.spawn(["solc-select", "install", version], {
-      stdout: "pipe",
-      stderr: "pipe",
-      signal: AbortSignal.timeout(30_000),
-    })
-    const installExit = await installProc.exited
-    if (installExit !== 0) return false
-
-    const useProc = Bun.spawn(["solc-select", "use", version], {
-      stdout: "pipe",
-      stderr: "pipe",
-      signal: AbortSignal.timeout(30_000),
-    })
-    const useExit = await useProc.exited
-    return useExit === 0
-  } catch (_e) {
-    return false
   }
 }
 
@@ -239,266 +175,21 @@ export const runSlitherCommand: RunSlitherCommand = async (command, signal, cwd)
     stdout: "pipe",
     stderr: "pipe",
     signal,
+    timeout: DEFAULT_SUBPROCESS_TIMEOUT_MS,
+    env: buildSafeEnv(),
   })
 
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    readStreamCapped(child.stdout, MAX_SUBPROCESS_STDOUT_BYTES),
+    readStreamCapped(child.stderr, MAX_SUBPROCESS_STDERR_BYTES),
   ])
 
   return {
-    stdout,
-    stderr,
+    stdout: appendTruncationMarker(stdout, "stdout"),
+    stderr: appendTruncationMarker(stderr, "stderr"),
     exitCode,
   }
-}
-
-export type SpawnFn = (
-  command: string[],
-  options?: { cwd?: string; timeout?: number },
-) => Promise<{ stdout: string; exitCode: number }>
-
-export type FlattenFallbackDeps = {
-  runCommand: RunSlitherCommand
-  hasBinary: (name: string) => boolean
-  ensureSolc: (version: string) => Promise<boolean>
-  parseSolcVersion: (target: string) => Promise<string | undefined> | string | undefined
-  extractContractNames: (filePath: string) => Promise<string[]> | string[]
-  spawnFn: SpawnFn
-  cwd: string
-}
-
-async function defaultSpawnFn(
-  command: string[],
-  options?: { cwd?: string; timeout?: number },
-): Promise<{ stdout: string; exitCode: number }> {
-  const proc = Bun.spawn(command, {
-    stdout: "pipe",
-    stderr: "pipe",
-    cwd: options?.cwd,
-    ...(options?.timeout ? { signal: AbortSignal.timeout(options.timeout) } : {}),
-  })
-  const exitCode = await proc.exited
-  const stdout = await new Response(proc.stdout).text()
-  return { stdout, exitCode }
-}
-
-function getDefaultFlattenDeps(): FlattenFallbackDeps {
-  return {
-    runCommand: runSlitherCommand,
-    hasBinary,
-    ensureSolc,
-    parseSolcVersion,
-    extractContractNames,
-    spawnFn: defaultSpawnFn,
-    cwd: process.cwd(),
-  }
-}
-
-export async function flattenFallback(
-  args: SlitherArgs,
-  context: ToolContext,
-  deps: FlattenFallbackDeps = getDefaultFlattenDeps(),
-): Promise<SlitherAnalyzeResult | undefined> {
-  const startedAt = Date.now()
-
-  if (!deps.hasBinary("forge")) {
-    return {
-      success: false,
-      findingsCount: 0,
-      findings: [],
-      executionTime: Date.now() - startedAt,
-      errors: ["forge binary not found — required for via_ir flatten fallback"],
-      error: "forge binary not found — required for via_ir flatten fallback",
-    }
-  }
-
-  const solcVersion = args.solc_version ?? (await deps.parseSolcVersion(args.target))
-  if (!solcVersion) {
-    return {
-      success: false,
-      findingsCount: 0,
-      findings: [],
-      executionTime: Date.now() - startedAt,
-      errors: [
-        "Could not determine solc version from foundry.toml or pragma — required for flatten fallback",
-      ],
-      error:
-        "Could not determine solc version from foundry.toml or pragma — required for flatten fallback",
-    }
-  }
-
-  if (!(await deps.ensureSolc(solcVersion))) {
-    return {
-      success: false,
-      findingsCount: 0,
-      findings: [],
-      executionTime: Date.now() - startedAt,
-      errors: ["solc not available and solc-select not found"],
-      error:
-        "Flatten fallback requires solc on PATH. Install with: pipx install solc-select && solc-select install " +
-        solcVersion,
-    }
-  }
-
-  const srcDir = join(args.target, "src")
-  let solFiles: string[] = []
-  if (args.target.endsWith(".sol")) {
-    solFiles = [args.target]
-  } else if (existsSync(srcDir)) {
-    try {
-      const findResult = await deps.spawnFn(
-        [
-          "find",
-          srcDir,
-          "-maxdepth",
-          "3",
-          "-name",
-          "*.sol",
-          "-not",
-          "-path",
-          "*/mocks/*",
-          "-not",
-          "-path",
-          "*/test/*",
-        ],
-        { timeout: 5_000 },
-      )
-      if (findResult.exitCode !== 0) {
-        return {
-          success: false,
-          findingsCount: 0,
-          findings: [],
-          executionTime: Date.now() - startedAt,
-          errors: ["[flatten-fallback] find command failed — could not discover .sol files"],
-        }
-      }
-      solFiles = findResult.stdout.trim().split("\n").filter(Boolean)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return {
-        success: false,
-        findingsCount: 0,
-        findings: [],
-        executionTime: Date.now() - startedAt,
-        errors: [`[flatten-fallback] file discovery failed: ${msg}`],
-      }
-    }
-  }
-
-  if (solFiles.length === 0) {
-    return {
-      success: false,
-      findingsCount: 0,
-      findings: [],
-      executionTime: Date.now() - startedAt,
-      errors: ["[flatten-fallback] no .sol files found in target directory"],
-    }
-  }
-
-  const tmpDir = mkdtempSync(join(tmpdir(), "argus-slither-"))
-  const allFindings: Finding[] = []
-  const errors: string[] = []
-
-  try {
-    for (const solFile of solFiles) {
-      if (context.abort.aborted) break
-
-      const baseName = solFile.split("/").pop()?.replace(".sol", "") ?? "Contract"
-      const flatFile = join(tmpDir, `${baseName}.flat.sol`)
-      const originalContracts = await deps.extractContractNames(solFile)
-
-      try {
-        const flatResult = await deps.spawnFn(["forge", "flatten", solFile], {
-          cwd: deps.cwd,
-          timeout: 30_000,
-        })
-        if (flatResult.exitCode !== 0) {
-          errors.push(`forge flatten failed for ${solFile}`)
-          continue
-        }
-        writeFileSync(flatFile, flatResult.stdout)
-      } catch (_e) {
-        errors.push(`forge flatten failed for ${solFile}`)
-        continue
-      }
-
-      const command = ["slither", flatFile, "--json", "-", "--solc-solcs-select", solcVersion]
-
-      try {
-        const runResult = await deps.runCommand(command, context.abort, deps.cwd)
-
-        let payload: SlitherPayload
-        try {
-          payload = JSON.parse(runResult.stdout) as SlitherPayload
-        } catch (_e) {
-          if (runResult.stderr.trim()) errors.push(runResult.stderr.trim())
-          continue
-        }
-
-        const rawFindings = parseFindings(payload)
-        const filtered =
-          originalContracts.length > 0
-            ? rawFindings.filter((f) => {
-                if (f.file.includes(".flat.sol") || f.file === flatFile) return true
-                return originalContracts.some(
-                  (name) => f.description.includes(name) || f.file.includes(name),
-                )
-              })
-            : rawFindings
-
-        const remapped = filtered.map((f) => ({
-          ...f,
-          file: f.file.includes(".flat.sol") ? solFile.replace(`${args.target}/`, "") : f.file,
-        }))
-
-        allFindings.push(...remapped)
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        errors.push(`Slither flatten fallback failed for ${baseName}: ${msg}`)
-      }
-    }
-
-    return {
-      success: allFindings.length > 0 || errors.length === 0,
-      findingsCount: allFindings.length,
-      findings: allFindings,
-      executionTime: Date.now() - startedAt,
-      errors:
-        errors.length > 0
-          ? [`[flatten-fallback] ${errors.join("; ")}`]
-          : ["[flatten-fallback] Analysis completed via forge flatten"],
-    }
-  } finally {
-    try {
-      rmSync(tmpDir, { recursive: true, force: true })
-    } catch (_cleanupErr) {
-      logger.debug("Failed to clean up temp directory")
-    }
-  }
-}
-
-function parseFindings(payload: SlitherPayload): Finding[] {
-  const detectors = payload.results?.detectors ?? []
-
-  return detectors.map((detector) => {
-    const file = detector.elements?.[0]?.source_mapping?.filename_relative ?? "unknown"
-    const lines = findingLines(detector.elements?.[0]?.source_mapping?.lines)
-    const check = detector.check ?? "unknown-check"
-
-    return {
-      id: createFindingID(check, file, lines),
-      check,
-      severity: mapSeverity(detector.impact),
-      impact: detector.impact,
-      confidence: mapConfidence(detector.confidence),
-      description: detector.description ?? "",
-      file,
-      lines,
-      source: "slither",
-    }
-  })
 }
 
 export async function executeSlitherAnalyze(
@@ -521,13 +212,43 @@ export async function executeSlitherAnalyze(
         `Invalid solc_version format: "${args.solc_version}". Expected semver format (e.g. 0.8.20)`,
       ],
       error: `Invalid solc_version format: "${args.solc_version}". Expected semver format (e.g. 0.8.20)`,
+      failureCode: "SLITHER_INVALID_ARGUMENT",
     }
   }
 
-  const command = buildCommand(args)
+  const invocation = resolveSlitherInvocation(args.target, projectDir)
+  const compilerConfig = validateFoundryCompilerConfig(invocation.cwd)
+  if (!compilerConfig.ok) {
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: [compilerConfig.message],
+      error: compilerConfig.message,
+      failureCode: "SLITHER_UNSAFE_FOUNDRY_CONFIG",
+    }
+  }
+  const sourceClosure = validateFoundrySourceClosure(invocation.cwd, projectDir)
+  if (!sourceClosure.ok) {
+    return {
+      success: false,
+      findingsCount: 0,
+      findings: [],
+      executionTime: Date.now() - startedAt,
+      errors: [sourceClosure.message],
+      error: sourceClosure.message,
+      failureCode: "SLITHER_UNSAFE_SOURCE_TREE",
+    }
+  }
+  const command = buildCommand(
+    args,
+    invocation.commandTarget,
+    existsSync(join(invocation.cwd, "foundry.toml")),
+  )
 
   try {
-    const runResult = await runCommand(command, context.abort, projectDir)
+    const runResult = await runCommand(command, context.abort, invocation.cwd)
     const errors: string[] = []
 
     if (runResult.exitCode !== 0) {
@@ -543,11 +264,12 @@ export async function executeSlitherAnalyze(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown parse error"
       const diagnostics = mixedPragmaDiagnostics(args, projectDir, errors, runResult.stderr)
-      if (!diagnostics && (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))) {
+      if (!args.via_ir && !diagnostics && shouldTryFlattenFallback(errors, runResult.stderr)) {
         const fallbackResult = await flattenFallback(args, context, {
-          ...getDefaultFlattenDeps(),
+          ...defaultFlattenDeps(runCommand),
           runCommand,
-          cwd: projectDir,
+          cwd: invocation.cwd,
+          projectDir,
         })
         if (fallbackResult) return fallbackResult
       }
@@ -557,7 +279,10 @@ export async function executeSlitherAnalyze(
         findings: [],
         executionTime: Date.now() - startedAt,
         errors,
-        error: `Slither output parse error: ${message}`,
+        error: args.via_ir
+          ? `SLITHER_VIA_IR_ANALYSIS_FAILED: Slither output parse error: ${message}`
+          : `Slither output parse error: ${message}`,
+        failureCode: "SLITHER_OUTPUT_PARSE_FAILED",
         ...diagnostics,
       }
     }
@@ -566,7 +291,12 @@ export async function executeSlitherAnalyze(
       errors.push(payload.error)
     }
 
-    const findings = parseFindings(payload)
+    const findings = filterSlitherFindings(
+      parseSlitherFindings(payload),
+      invocation.reportTarget,
+      invocation.cwd,
+      projectDir,
+    )
     const success = findings.length > 0 || (runResult.exitCode === 0 && payload.success !== false)
 
     const diagnostics = mixedPragmaDiagnostics(args, projectDir, errors, runResult.stderr)
@@ -575,12 +305,14 @@ export async function executeSlitherAnalyze(
       !success &&
       findings.length === 0 &&
       !diagnostics &&
-      (args.via_ir || shouldTryFlattenFallback(errors, runResult.stderr))
+      !args.via_ir &&
+      shouldTryFlattenFallback(errors, runResult.stderr)
     ) {
       const fallbackResult = await flattenFallback(args, context, {
-        ...getDefaultFlattenDeps(),
+        ...defaultFlattenDeps(runCommand),
         runCommand,
-        cwd: projectDir,
+        cwd: invocation.cwd,
+        projectDir,
       })
       if (fallbackResult) return fallbackResult
     }
@@ -591,6 +323,11 @@ export async function executeSlitherAnalyze(
       findings,
       executionTime: Date.now() - startedAt,
       errors,
+      error:
+        args.via_ir && !success
+          ? "SLITHER_VIA_IR_ANALYSIS_FAILED: direct Foundry analysis failed"
+          : undefined,
+      failureCode: success ? undefined : "SLITHER_PROJECT_COMPILATION_FAILED",
       ...diagnostics,
     }
   } catch (error) {
@@ -605,6 +342,7 @@ export async function executeSlitherAnalyze(
         executionTime: Date.now() - startedAt,
         errors: [],
         error: "Slither not found. Install with: pip install slither-analyzer",
+        failureCode: "SLITHER_BINARY_UNAVAILABLE",
       }
     }
 
@@ -616,6 +354,7 @@ export async function executeSlitherAnalyze(
         executionTime: Date.now() - startedAt,
         errors: ["Slither analysis aborted"],
         error: "Slither analysis aborted",
+        failureCode: "SLITHER_ABORTED",
       }
     }
 
@@ -626,29 +365,22 @@ export async function executeSlitherAnalyze(
       executionTime: Date.now() - startedAt,
       errors: [message],
       error: message,
+      failureCode: "SLITHER_EXECUTION_FAILED",
     }
   }
 }
 
-export function detectViaIr(target: string): boolean {
-  let dir = resolve(target.endsWith(".sol") ? dirname(target) : target)
-  const root = resolve("/")
-
-  while (true) {
-    const foundryTomlPath = join(dir, "foundry.toml")
-    if (existsSync(foundryTomlPath)) {
-      try {
-        const content = readFileSync(foundryTomlPath, "utf-8")
-        if (/^\s*via[_-]ir\s*=\s*true/m.test(content)) return true
-      } catch {
-        logger.debug("Unreadable foundry.toml, continuing directory walk")
-      }
-    }
-    if (dir === root) break
-    dir = dirname(dir)
+export function detectViaIr(target: string, projectDir?: string): boolean {
+  const foundryRoot = findFoundryProjectDir(resolve(target), projectDir)
+  const foundryTomlPath = join(foundryRoot, "foundry.toml")
+  if (!existsSync(foundryTomlPath)) return false
+  try {
+    const containedConfig = assertContained(foundryTomlPath, projectDir ?? foundryRoot)
+    return /^\s*via[_-]ir\s*=\s*true/m.test(readFileSync(containedConfig, "utf-8"))
+  } catch (error) {
+    if (!(error instanceof PathSafetyError)) logger.debug("Unreadable foundry.toml")
+    return false
   }
-
-  return false
 }
 
 export const slitherTool = tool({
@@ -662,8 +394,20 @@ export const slitherTool = tool({
   },
   async execute(args, context) {
     const projectDir = resolveProjectDir(context)
-    const resolvedTarget = isAbsolute(args.target) ? args.target : resolve(projectDir, args.target)
-    const viaIr = args.via_ir ?? detectViaIr(resolvedTarget)
+    const target = validateSlitherTarget(args.target, projectDir)
+    if (!target.ok) {
+      return JSON.stringify({
+        success: false,
+        findingsCount: 0,
+        findings: [],
+        executionTime: 0,
+        errors: [target.message],
+        error: target.message,
+        failureCode: target.code,
+      } satisfies SlitherAnalyzeResult)
+    }
+    const resolvedTarget = target.target
+    const viaIr = args.via_ir ?? detectViaIr(resolvedTarget, projectDir)
     const result = await executeSlitherAnalyze(
       { ...args, target: resolvedTarget, via_ir: viaIr },
       context,

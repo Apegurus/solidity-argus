@@ -33,7 +33,7 @@ function createContext(): {
   return { context, metadataCalls }
 }
 
-function createArgusConfig(enabled: boolean): ArgusConfig {
+function createArgusConfig(enabled: boolean, apiUrl = "https://api.scvd.dev"): ArgusConfig {
   return {
     agents: {
       argus: {},
@@ -47,26 +47,20 @@ function createArgusConfig(enabled: boolean): ArgusConfig {
     knowledge: {
       scvd: {
         enabled,
-        apiUrl: "https://api.scvd.dev",
+        apiUrl,
       },
       autoSync: true,
       skillPrecedence: "bundled-first" as const,
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: ".opencode/reports/",
     },
     solodit: {
       enabled: true,
-      port: 54173,
     },
     disabled_hooks: [],
-    hooks: {},
-    cli: {},
-    background: { max_concurrent: 3 },
   }
 }
 
@@ -158,6 +152,31 @@ test("executeSyncKnowledge runs incremental sync by default", async () => {
   expect(result.scvd?.totalIndexed).toBe(10)
   expect(syncIncrementalCalled).toBe(true)
   expect(syncAllCalled).toBe(false)
+})
+
+test("executeSyncKnowledge rejects a disallowed (loopback/private) SCVD apiUrl without creating a client", async () => {
+  const { context } = createContext()
+  let clientCreated = false
+
+  const deps: SyncKnowledgeDependencies = {
+    loadConfig: () => createArgusConfig(true, "http://169.254.169.254/latest/meta-data"),
+    createClient: () => {
+      clientCreated = true
+      return { kind: "client" }
+    },
+    syncAllFn: async () => {
+      throw new Error("should not sync")
+    },
+    syncIncrementalFn: async () => {
+      throw new Error("should not sync")
+    },
+  }
+
+  const result = await executeSyncKnowledge({ force: false }, context, deps)
+
+  expect(result.success).toBe(false)
+  expect(clientCreated).toBe(false)
+  expect(result.error ?? "").toMatch(/loopback|link-local|private|allowed host/i)
 })
 
 test("executeSyncKnowledge returns disabled error when SCVD is off", async () => {

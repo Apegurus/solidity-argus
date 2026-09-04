@@ -1,17 +1,15 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { createLogger } from "./logger"
+import { buildSafeEnv } from "./process-runner"
 
 const logger = createLogger()
 
 export function hasBinary(name: string): boolean {
   try {
-    const result = Bun.spawnSync(["which", name], {
-      stdout: "ignore",
-      stderr: "ignore",
-      timeout: 5_000,
-    })
-    return result.exitCode === 0
+    const { PATH } = buildSafeEnv()
+    if (!PATH) return false
+    return Bun.which(name, { PATH }) !== null
   } catch (_e) {
     return false
   }
@@ -32,10 +30,11 @@ export async function parseSolcVersion(target: string): Promise<string | undefin
     const srcDir = join(target, "src")
     if (existsSync(srcDir)) {
       try {
-        const proc = Bun.spawn(["find", srcDir, "-maxdepth", "3", "-name", "*.sol"], {
+        const proc = Bun.spawn(["find", srcDir, "-name", "*.sol"], {
           stdout: "pipe",
           stderr: "pipe",
           signal: AbortSignal.timeout(10_000),
+          env: buildSafeEnv(),
         })
         const exitCode = await proc.exited
         if (exitCode === 0) {

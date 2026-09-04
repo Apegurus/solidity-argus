@@ -5,11 +5,83 @@ import {
   ALL_CATEGORIES,
   type ArgusInstall,
   buildSkillHealthReport,
+  checkBinary,
   detectInstallDrift,
   doctorCommand,
   enumerateArgusInstallCandidates,
   findDuplicateSkills,
+  readJsonCapped,
+  SOLC_SELECT_PROBE_ARGS,
 } from "./doctor"
+
+function hasTerminalControl(text: string, allowLineFeeds = false): boolean {
+  return Array.from(text).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (allowLineFeeds && codePoint === 0x0a) return false
+    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)
+  })
+}
+
+describe("checkBinary", () => {
+  it("uses the supported versions subcommand when probing solc-select", () => {
+    expect(SOLC_SELECT_PROBE_ARGS).toEqual(["versions"])
+  })
+
+  it("withholds non-allowlisted host env vars from the probed child (adj_29)", () => {
+    const allowed = new Set([
+      "PATH",
+      "HOME",
+      "LANG",
+      "LC_ALL",
+      "LC_CTYPE",
+      "TMPDIR",
+      "TEMP",
+      "TMP",
+      "TERM",
+      "TZ",
+      "FOUNDRY_PROFILE",
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "NO_PROXY",
+      "http_proxy",
+      "https_proxy",
+      "no_proxy",
+    ])
+    const leakVar = Object.keys(Bun.env).find(
+      (k) => !allowed.has(k) && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && (Bun.env[k] ?? "").length > 0,
+    )
+    expect(leakVar).toBeDefined()
+    const result = checkBinary("sh", ["-c", `printf '%s' "\${${leakVar}:-ABSENT}"`])
+    expect(result.found).toBe(true)
+    expect(result.version).toBe("ABSENT")
+  })
+
+  it("removes terminal control bytes from probed version output", () => {
+    const maliciousVersion = "v1\u001b[31mRED\u0007\rFORGED\u007f\u0085tail"
+    const result = checkBinary("bun", [
+      "-e",
+      `process.stdout.write(${JSON.stringify(maliciousVersion)})`,
+    ])
+
+    expect(result.found).toBe(true)
+    expect(hasTerminalControl(result.version ?? "")).toBe(false)
+    expect(result.version).toContain("[31mRED")
+    expect(result.version).toContain("FORGED")
+  })
+})
+
+describe("readJsonCapped", () => {
+  it("rejects a null-body response instead of an unbounded json() fallback (adj_28)", async () => {
+    const res = new Response(null, { status: 200 })
+    expect(readJsonCapped(res, 1024)).rejects.toThrow("no readable body")
+  })
+
+  it("parses a within-cap JSON body", async () => {
+    const res = new Response(JSON.stringify({ version: "1.2.3" }))
+    const body = (await readJsonCapped(res, 1024)) as { version: string }
+    expect(body.version).toBe("1.2.3")
+  })
+})
 
 function makeSkill(
   name: string,
@@ -64,21 +136,22 @@ describe("doctorCommand", () => {
     expect([0, 1]).toContain(exitCode)
   })
 
-  it("checks Solodit through the local MCP health probe", async () => {
-    const urls: string[] = []
+  it("reports Solodit as enabled without probing a local MCP server", async () => {
     const output: string[] = []
-    globalThis.fetch = mock((url: string | URL | Request) => {
-      const target = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url
-      urls.push(target)
-      return Promise.resolve(new Response("ok", { status: 200 }))
-    }) as unknown as typeof fetch
     cliOutput.log = (...args: unknown[]) => output.push(args.join(" "))
 
     await doctorCommand.execute([])
 
-    expect(urls).toContain("http://localhost:54173/mcp")
-    expect(urls.some((url) => url.includes("solodit.cyfrin.io/api/trpc/findings.get"))).toBe(false)
-    expect(output.join("\n")).toContain("Solodit MCP: reachable on port 54173")
+    expect(output.join("\n")).toContain("Solodit: enabled (direct tRPC search)")
+  })
+
+  it("reports solc-select availability for the flatten fallback", async () => {
+    const output: string[] = []
+    cliOutput.log = (...args: unknown[]) => output.push(args.join(" "))
+
+    await doctorCommand.execute([])
+
+    expect(output.join("\n")).toContain("solc-select")
   })
 })
 
@@ -116,9 +189,9 @@ describe("buildSkillHealthReport", () => {
       ["reentrancy", makeSkill("reentrancy", "bundled", { category: "vulnerability-pattern" })],
     ])
     const allEntries = [
-      { name: "reentrancy", source: "bundled" },
-      { name: "reentrancy", source: "custom" },
-      { name: "oracle", source: "bundled" },
+      { name: "reentrancy", source: "bundled", filePath: "/bundled/reentrancy/SKILL.md" },
+      { name: "reentrancy", source: "custom", filePath: "/custom/reentrancy/SKILL.md" },
+      { name: "oracle", source: "bundled", filePath: "/bundled/oracle/SKILL.md" },
     ]
     const report = buildSkillHealthReport(skills, allEntries)
     expect(report.duplicates).toHaveLength(1)
@@ -132,8 +205,8 @@ describe("buildSkillHealthReport", () => {
       ["a", makeSkill("a", "bundled", { category: "methodology" })],
     ])
     const allEntries = [
-      { name: "a", source: "bundled" },
-      { name: "b", source: "custom" },
+      { name: "a", source: "bundled", filePath: "/bundled/a/SKILL.md" },
+      { name: "b", source: "custom", filePath: "/custom/b/SKILL.md" },
     ]
     const report = buildSkillHealthReport(skills, allEntries)
     expect(report.duplicates).toHaveLength(0)
@@ -182,18 +255,22 @@ describe("buildSkillHealthReport", () => {
 describe("findDuplicateSkills", () => {
   it("returns empty array when no duplicates", () => {
     const entries = [
-      { name: "a", source: "bundled" },
-      { name: "b", source: "custom" },
+      { name: "a", source: "bundled", filePath: "/bundled/a/SKILL.md" },
+      { name: "b", source: "custom", filePath: "/custom/b/SKILL.md" },
     ]
     expect(findDuplicateSkills(entries)).toHaveLength(0)
   })
 
   it("detects skills present in multiple sources", () => {
     const entries = [
-      { name: "reentrancy", source: "bundled" },
-      { name: "reentrancy", source: "custom" },
-      { name: "reentrancy", source: "trailofbits" },
-      { name: "oracle", source: "bundled" },
+      { name: "reentrancy", source: "bundled", filePath: "/bundled/reentrancy/SKILL.md" },
+      { name: "reentrancy", source: "custom", filePath: "/custom/reentrancy/SKILL.md" },
+      {
+        name: "reentrancy",
+        source: "trailofbits",
+        filePath: "/trailofbits/reentrancy/SKILL.md",
+      },
+      { name: "oracle", source: "bundled", filePath: "/bundled/oracle/SKILL.md" },
     ]
     const dupes = findDuplicateSkills(entries)
     expect(dupes).toHaveLength(1)
@@ -201,12 +278,51 @@ describe("findDuplicateSkills", () => {
     expect(dupes.at(0)?.sources).toHaveLength(3)
   })
 
-  it("ignores same-source duplicate entries", () => {
+  it("reports distinct same-source candidates with their paths and winner", () => {
     const entries = [
-      { name: "a", source: "bundled" },
-      { name: "a", source: "bundled" },
+      { name: "a", source: "trailofbits", filePath: "/plugins/a/skills/a/SKILL.md" },
+      { name: "a", source: "trailofbits", filePath: "/plugins/b/skills/a/SKILL.md" },
     ]
-    expect(findDuplicateSkills(entries)).toHaveLength(0)
+    const duplicates = findDuplicateSkills(entries)
+
+    expect(duplicates).toHaveLength(1)
+    expect(duplicates.at(0)?.paths).toEqual([
+      "/plugins/a/skills/a/SKILL.md",
+      "/plugins/b/skills/a/SKILL.md",
+    ])
+    expect(duplicates.at(0)?.winner).toBe("/plugins/a/skills/a/SKILL.md")
+  })
+
+  it("removes terminal control bytes from duplicate diagnostic values", () => {
+    const entries = [
+      {
+        name: "a\u001b]8;;https://example.invalid\u0007",
+        source: "custom\u001b[31m",
+        filePath: "/skills/a\u001b]8;;https://example.invalid\u0007/SKILL.md",
+      },
+      {
+        name: "a\u001b]8;;https://example.invalid\u0007",
+        source: "custom\u001b[31m",
+        filePath: "/skills/b\u001b[31m/SKILL.md",
+      },
+    ]
+
+    const duplicate = findDuplicateSkills(entries).at(0)
+    const renderedValues = [
+      duplicate?.name ?? "",
+      ...(duplicate?.sources ?? []),
+      ...(duplicate?.paths ?? []),
+      duplicate?.winner ?? "",
+    ]
+
+    expect(
+      renderedValues.every((value) =>
+        Array.from(value).every((character) => {
+          const codePoint = character.codePointAt(0) ?? 0
+          return codePoint >= 0x20 && (codePoint < 0x7f || codePoint > 0x9f)
+        }),
+      ),
+    ).toBe(true)
   })
 })
 
@@ -287,5 +403,29 @@ describe("detectInstallDrift", () => {
     ])
     expect(result.errors).toHaveLength(1)
     expect(result.warnings).toHaveLength(0)
+  })
+
+  it("removes terminal control bytes from install paths and versions", () => {
+    const result = detectInstallDrift(
+      { source: "current", path: "/canonical", version: "0.5.8\u0085current" },
+      [
+        {
+          source: "hoisted-cache",
+          path: "/h\u001b]8;;https://example.invalid\u0007\rforged",
+          version: "0.3.7\u007f",
+        },
+        {
+          source: "package-cache",
+          path: "/p\nforged",
+          version: "0.5.8\u009b31m",
+        },
+      ],
+    )
+
+    const message = result.errors[0] ?? ""
+    expect(hasTerminalControl(message, true)).toBe(false)
+    expect(message.split("\n")).toHaveLength(5)
+    expect(message).toContain("/h ]8;;https://example.invalid  forged")
+    expect(message).toContain("/p forged")
   })
 })

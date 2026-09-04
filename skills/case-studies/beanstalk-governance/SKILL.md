@@ -5,10 +5,6 @@ category: reference
 source_url: "https://rekt.news/beanstalk-rekt/"
 source_license: "CC0"
 imported_at: "2025-02-20T00:00:00Z"
-detection_rules:
-  - regex: 'propose\(.*\)'
-    severity: "Medium"
-    description: "Detects governance proposal functions. Critical to check if voting power can be acquired via flash loans."
 ---
 <!-- Source: rekt.news (CC0) -->
 <!-- Source: SunWeb3Sec/DeFiHackLabs (Reference) -->

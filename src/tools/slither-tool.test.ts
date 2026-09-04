@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import {
+  defaultSpawnFn,
   detectViaIr,
   executeSlitherAnalyze,
   type FlattenFallbackDeps,
@@ -11,6 +12,12 @@ import {
   type SlitherRunResult,
   slitherTool,
 } from "./slither-tool"
+
+test("defaultSpawnFn drains stderr without deadlocking and returns stdout (adj_3 / Oracle blocker)", async () => {
+  const result = await defaultSpawnFn(["sh", "-c", "yes x | head -c 200000 >&2; printf done"])
+  expect(result.stdout).toBe("done")
+  expect(result.exitCode).toBe(0)
+})
 
 function createContext(overrides?: Partial<ToolContext>): {
   context: ToolContext
@@ -129,8 +136,8 @@ test("executeSlitherAnalyze returns mixed-pragma narrowing hint with safe src su
     expect(result.success).toBe(false)
     expect(result.hint).toContain("Try narrowing target to a single-pragma subdirectory")
     expect(result.hint).toContain("foundry.toml/remappings")
-    expect(result.suggested_command).toBe(
-      `slither ${join(tempDir, "src")} --json - --filter-paths node_modules`,
+    expect(result.suggested_command).toContain(
+      `slither ${join(tempDir, "src")} --json - --filter-paths node_modules --config-file`,
     )
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
@@ -222,45 +229,41 @@ test("executeSlitherAnalyze returns parse error for non-JSON output", async () =
 
 test("executeSlitherAnalyze forwards optional CLI flags and abort signal", async () => {
   const calls: SlitherRunResult[] = []
-  const { context } = createContext()
+  const tempDir = mkdtempSync(join(tmpdir(), "argus-slither-flags-"))
+  const { context } = createContext({ directory: tempDir, worktree: tempDir })
 
-  const result = await executeSlitherAnalyze(
-    {
-      target: "contracts",
-      detectors: ["reentrancy-eth", "unchecked-transfer"],
-      exclude: ["unused-state"],
-      solc_version: "0.8.24",
-    },
-    context,
-    async (command, signal, _cwd) => {
-      expect(command).toEqual([
-        "slither",
-        "contracts",
-        "--json",
-        "-",
-        "--filter-paths",
-        "node_modules",
-        "--detect",
-        "reentrancy-eth,unchecked-transfer",
-        "--exclude",
-        "unused-state",
-        "--solc",
-        "solc:0.8.24",
-      ])
-      expect(signal).toBe(context.abort)
-      const response: SlitherRunResult = {
-        stdout: '{"success":true,"results":{"detectors":[]}}',
-        stderr: "",
-        exitCode: 0,
-      }
-      calls.push(response)
-      return response
-    },
-  )
+  try {
+    const result = await executeSlitherAnalyze(
+      {
+        target: "contracts",
+        detectors: ["reentrancy-eth", "unchecked-transfer"],
+        exclude: ["unused-state"],
+        solc_version: "0.8.24",
+      },
+      context,
+      async (command, signal, _cwd) => {
+        expect(command).toContain("--config-file")
+        expect(command).toContain("reentrancy-eth,unchecked-transfer")
+        expect(command).toContain("unused-state")
+        expect(command).toContain("solc:0.8.24")
+        expect(signal).toBe(context.abort)
+        const response: SlitherRunResult = {
+          stdout: '{"success":true,"results":{"detectors":[]}}',
+          stderr: "",
+          exitCode: 0,
+        }
+        calls.push(response)
+        return response
+      },
+      tempDir,
+    )
 
-  expect(calls.length).toBe(1)
-  expect(result.success).toBe(true)
-  expect(result.findingsCount).toBe(0)
+    expect(calls.length).toBe(1)
+    expect(result.success).toBe(true)
+    expect(result.findingsCount).toBe(0)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
 })
 
 test("executeSlitherAnalyze attempts direct slither before flatten fallback when via_ir is requested", async () => {
@@ -281,9 +284,130 @@ test("executeSlitherAnalyze attempts direct slither before flatten fallback when
   )
 
   expect(result.success).toBe(true)
-  expect(commands).toEqual([
-    ["slither", "src/WAlpha.sol", "--json", "-", "--filter-paths", "node_modules"],
-  ])
+  expect(commands).toHaveLength(1)
+  expect(commands[0]).toContain("--config-file")
+  expect(commands[0]).toContain("--compile-force-framework")
+})
+
+test("detectViaIr does not read a foundry.toml symlink outside the project", () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-via-ir-symlink-"))
+  const outsideDir = mkdtempSync(join(tmpdir(), "argus-via-ir-outside-"))
+  writeFileSync(join(outsideDir, "foundry.toml"), "[profile.default]\nvia_ir = true\n")
+  symlinkSync(join(outsideDir, "foundry.toml"), join(projectDir, "foundry.toml"))
+
+  try {
+    expect(detectViaIr(projectDir, projectDir)).toBe(false)
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  }
+})
+
+test("executeSlitherAnalyze compiles the Foundry root and reports only the requested contract", async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-slither-scope-"))
+  const sourceDir = join(projectDir, "src")
+  const libraryDir = join(projectDir, "lib")
+  const target = join(sourceDir, "Vault.sol")
+  mkdirSync(sourceDir, { recursive: true })
+  mkdirSync(libraryDir, { recursive: true })
+  writeFileSync(join(projectDir, "foundry.toml"), "[profile.default]\nvia_ir = true\n")
+  writeFileSync(target, "contract Vault {}")
+
+  const payload = JSON.stringify({
+    success: true,
+    results: {
+      detectors: [
+        {
+          check: "reentrancy-eth",
+          impact: "High",
+          confidence: "High",
+          description: "In-scope finding",
+          elements: [{ source_mapping: { filename_relative: "src/Vault.sol", lines: [5] } }],
+        },
+        {
+          check: "incorrect-shift",
+          impact: "High",
+          confidence: "Medium",
+          description: "Dependency finding",
+          elements: [{ source_mapping: { filename_relative: "lib/Math.sol", lines: [9] } }],
+        },
+      ],
+    },
+  })
+  const { context } = createContext({ directory: projectDir, worktree: projectDir })
+  let capturedCommand: string[] = []
+  let capturedCwd = ""
+
+  try {
+    const result = await executeSlitherAnalyze(
+      { target, via_ir: true },
+      context,
+      async (command, _signal, cwd) => {
+        capturedCommand = command
+        capturedCwd = cwd
+        return { stdout: payload, stderr: "", exitCode: 0 }
+      },
+      projectDir,
+    )
+
+    expect(capturedCommand.at(1)).toBe(projectDir)
+    expect(capturedCommand).toContain("--filter-paths")
+    expect(capturedCommand).toContain("--config-file")
+    expect(capturedCommand.at(capturedCommand.indexOf("--config-file") + 1)).toEndWith(
+      "trusted-slither.config.json",
+    )
+    expect(capturedCommand).toContain("--compile-force-framework")
+    expect(capturedCwd).toBe(projectDir)
+    expect(result.findings.map((finding) => finding.file)).toEqual(["src/Vault.sol"])
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+})
+
+test("executeSlitherAnalyze preserves project-root reporting scope", async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-slither-root-scope-"))
+  const sourceDir = join(projectDir, "src")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(join(projectDir, "foundry.toml"), "[profile.default]\n")
+  writeFileSync(join(sourceDir, "Vault.sol"), "contract Vault {}")
+  const payload = JSON.stringify({
+    success: true,
+    results: {
+      detectors: [
+        {
+          check: "reentrancy-eth",
+          impact: "High",
+          confidence: "High",
+          description: "Source finding",
+          elements: [{ source_mapping: { filename_relative: "src/Vault.sol", lines: [5] } }],
+        },
+        {
+          check: "incorrect-shift",
+          impact: "High",
+          confidence: "Medium",
+          description: "Dependency finding",
+          elements: [{ source_mapping: { filename_relative: "lib/Math.sol", lines: [9] } }],
+        },
+      ],
+    },
+  })
+  const { context } = createContext({ directory: projectDir, worktree: projectDir })
+
+  try {
+    const result = await executeSlitherAnalyze(
+      { target: projectDir },
+      context,
+      async () => ({ stdout: payload, stderr: "", exitCode: 0 }),
+      projectDir,
+    )
+
+    expect(result.findings.map((finding) => finding.file)).toEqual([
+      "src/Vault.sol",
+      "lib/Math.sol",
+    ])
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+  }
 })
 
 test("executeSlitherAnalyze returns stderr when direct slither fails without fallback", async () => {
@@ -301,6 +425,34 @@ test("executeSlitherAnalyze returns stderr when direct slither fails without fal
   expect(result.error).toContain("Slither output parse error")
 })
 
+test("executeSlitherAnalyze rejects a path-valued Foundry compiler before spawning", async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-unsafe-solc-"))
+  const sourceDir = join(projectDir, "src")
+  const target = join(sourceDir, "Vault.sol")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(join(projectDir, "foundry.toml"), '[profile.default]\nsolc = "./tools/solc"\n')
+  writeFileSync(target, "contract Vault {}")
+  const { context } = createContext({ directory: projectDir, worktree: projectDir })
+  let spawned = false
+
+  try {
+    const result = await executeSlitherAnalyze(
+      { target },
+      context,
+      async () => {
+        spawned = true
+        return { stdout: "", stderr: "", exitCode: 0 }
+      },
+      projectDir,
+    )
+
+    expect(spawned).toBe(false)
+    expect(result.failureCode).toBe("SLITHER_UNSAFE_FOUNDRY_CONFIG")
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+})
+
 function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): FlattenFallbackDeps {
   return {
     runCommand: async (_command, _signal, _cwd) => ({
@@ -311,9 +463,9 @@ function createFlattenDeps(overrides: Partial<FlattenFallbackDeps> = {}): Flatte
     hasBinary: () => true,
     ensureSolc: async () => true,
     parseSolcVersion: () => "0.8.20",
-    extractContractNames: () => ["Vault"],
     spawnFn: async () => ({ stdout: "", exitCode: 0 }),
     cwd: "/tmp/project",
+    projectDir: "/tmp/project",
     ...overrides,
   }
 }
@@ -349,9 +501,30 @@ test("flattenFallback returns error when solc unavailable and solc-select missin
   expect(result?.error).toContain("solc-select install 0.8.20")
 })
 
+test("flattenFallback fails when child Slither exits nonzero", async () => {
+  const { context } = createContext()
+  const tmpFile = join(tmpdir(), `argus-failed-fallback-${Date.now()}.sol`)
+  writeFileSync(tmpFile, "pragma solidity ^0.8.20; contract Vault {}")
+  const deps = createFlattenDeps({
+    projectDir: tmpdir(),
+    runCommand: async () => ({ stdout: "", stderr: "compile failed", exitCode: 1 }),
+    spawnFn: async () => ({ stdout: "// flattened", exitCode: 0 }),
+  })
+
+  try {
+    const result = await flattenFallback({ target: tmpFile }, context, deps)
+    expect(result?.success).toBe(false)
+    expect(result?.failureCode).toBe("SLITHER_EXECUTION_FAILED")
+    expect(result?.errors.join(" ")).toContain("compile failed")
+  } finally {
+    rmSync(tmpFile, { force: true })
+  }
+})
+
 test("flattenFallback processes flattened files and returns findings", async () => {
   const { context } = createContext()
-  const tmpFile = join(tmpdir(), `argus-test-${Date.now()}.sol`)
+  const canonicalTmpDir = realpathSync(tmpdir())
+  const tmpFile = join(canonicalTmpDir, `argus-test-${Date.now()}.sol`)
   writeFileSync(
     tmpFile,
     "pragma solidity ^0.8.20;\ncontract Vault { function withdraw() external {} }",
@@ -368,11 +541,19 @@ test("flattenFallback processes flattened files and returns findings", async () 
           description: "Reentrancy in Vault.withdraw()",
           elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [10, 20] } }],
         },
+        {
+          check: "reentrancy-eth",
+          impact: "High",
+          confidence: "High",
+          description: "Second reentrancy in Vault.deposit()",
+          elements: [{ source_mapping: { filename_relative: "Vault.flat.sol", lines: [30, 35] } }],
+        },
       ],
     },
   })
 
   const deps = createFlattenDeps({
+    projectDir: canonicalTmpDir,
     runCommand: async (_command, _signal, _cwd) => ({
       stdout: slitherJSON,
       stderr: "",
@@ -383,22 +564,89 @@ test("flattenFallback processes flattened files and returns findings", async () 
         return { stdout: "// flattened content", exitCode: 0 }
       return { stdout: "", exitCode: 0 }
     },
-    extractContractNames: () => ["Vault"],
   })
 
   try {
     const result = await flattenFallback({ target: tmpFile }, context, deps)
     expect(result).toBeDefined()
     expect(result?.success).toBe(true)
-    expect(result?.findingsCount).toBe(1)
+    expect(result?.findingsCount).toBe(2)
     expect(result?.findings.at(0)?.check).toBe("reentrancy-eth")
+    expect(result?.findings.at(0)?.file).toBe(tmpFile.split("/").at(-1))
+    expect(result?.findings.at(0)?.lines).toEqual([1, 1])
+    expect(result?.findings.at(0)?.confidence).toBe("Low")
+    expect(result?.findings.at(0)?.description).toContain("flattened source lines 10-20")
+    expect(result?.findings.at(1)?.description).toContain("flattened source lines 30-35")
+    expect(result?.findings.at(0)?.source_location_id).not.toBe(
+      result?.findings.at(1)?.source_location_id,
+    )
     expect(result?.errors.at(0)).toContain("[flatten-fallback]")
   } finally {
     rmSync(tmpFile, { force: true })
   }
 })
 
-test("flattenFallback filters findings to original contract names", async () => {
+test("flattenFallback scans a requested source directory from the Foundry root", async () => {
+  const { context } = createContext()
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "argus-flatten-source-")))
+  const sourceDir = join(projectDir, "src")
+  const sourceFile = join(sourceDir, "Vault.sol")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(sourceFile, "pragma solidity ^0.8.20; contract Vault {}")
+  const calls: Array<{ command: string[]; cwd?: string }> = []
+  const deps = createFlattenDeps({
+    cwd: projectDir,
+    projectDir,
+    spawnFn: async (command, options) => {
+      calls.push({ command, cwd: options?.cwd })
+      return { stdout: "// flattened", exitCode: 0 }
+    },
+  })
+
+  try {
+    const result = await flattenFallback({ target: sourceDir }, context, deps)
+
+    expect(result?.success).toBe(true)
+    expect(calls.at(0)?.command.at(-1)).toBe(sourceFile)
+    expect(calls.find((call) => call.command[0] === "forge")?.cwd).toBe(projectDir)
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+})
+
+test("flattenFallback rejects discovered source symlinks outside the active project", async () => {
+  const { context } = createContext()
+  const projectDir = mkdtempSync(join(tmpdir(), "argus-flatten-symlink-"))
+  const outsideDir = mkdtempSync(join(tmpdir(), "argus-flatten-outside-"))
+  const sourceDir = join(projectDir, "src")
+  const outsideFile = join(outsideDir, "Outside.sol")
+  const linkedFile = join(sourceDir, "Linked.sol")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(outsideFile, "contract Outside {}")
+  symlinkSync(outsideFile, linkedFile)
+  let forgeCalled = false
+  const deps = createFlattenDeps({
+    cwd: projectDir,
+    projectDir,
+    spawnFn: async () => {
+      forgeCalled = true
+      return { stdout: "// flattened", exitCode: 0 }
+    },
+  })
+
+  try {
+    const result = await flattenFallback({ target: sourceDir }, context, deps)
+
+    expect(forgeCalled).toBe(false)
+    expect(result?.success).toBe(false)
+    expect(result?.errors.join(" ")).toContain("outside the active project")
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  }
+})
+
+test("flattenFallback retains file-level findings without a contract name", async () => {
   const { context } = createContext()
   const tmpFile = join(tmpdir(), `argus-filter-test-${Date.now()}.sol`)
   writeFileSync(
@@ -429,6 +677,7 @@ test("flattenFallback filters findings to original contract names", async () => 
   })
 
   const deps = createFlattenDeps({
+    projectDir: tmpdir(),
     runCommand: async (_command, _signal, _cwd) => ({
       stdout: slitherJSON,
       stderr: "",
@@ -439,22 +688,99 @@ test("flattenFallback filters findings to original contract names", async () => 
         return { stdout: "// flattened", exitCode: 0 }
       return { stdout: "", exitCode: 0 }
     },
-    extractContractNames: () => ["Vault"],
   })
 
   try {
     const result = await flattenFallback({ target: tmpFile }, context, deps)
     expect(result).toBeDefined()
-    expect(result?.findingsCount).toBe(1)
-    expect(result?.findings.at(0)?.description).toContain("Vault")
+    expect(result?.findingsCount).toBe(2)
+    expect(result?.findings.at(1)?.check).toBe("naming-convention")
   } finally {
     rmSync(tmpFile, { force: true })
+  }
+})
+
+test("flattenFallback scans the exact requested root instead of narrowing to src", async () => {
+  const { context } = createContext()
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "argus-flatten-root-")))
+  const sourceDir = join(projectDir, "src")
+  mkdirSync(sourceDir)
+  writeFileSync(join(sourceDir, "Vault.sol"), "contract Vault {}")
+  let flattenedTarget = ""
+  const deps = createFlattenDeps({
+    cwd: projectDir,
+    projectDir,
+    spawnFn: async (command) => {
+      flattenedTarget = command.at(-1) ?? ""
+      return { stdout: "// flattened", exitCode: 0 }
+    },
+  })
+
+  try {
+    await flattenFallback({ target: projectDir }, context, deps)
+    expect(flattenedTarget).toBe(join(sourceDir, "Vault.sol"))
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
+  }
+})
+
+test("flattenFallback forwards detector selection and exclusions", async () => {
+  const { context } = createContext()
+  const tmpFile = join(tmpdir(), `argus-fallback-options-${Date.now()}.sol`)
+  writeFileSync(tmpFile, "pragma solidity ^0.8.20; contract Vault {}")
+  let slitherCommand: string[] = []
+  const deps = createFlattenDeps({
+    projectDir: tmpdir(),
+    runCommand: async (command) => {
+      slitherCommand = command
+      return { stdout: '{"success":true,"results":{"detectors":[]}}', stderr: "", exitCode: 0 }
+    },
+    spawnFn: async () => ({ stdout: "// flattened", exitCode: 0 }),
+  })
+
+  try {
+    await flattenFallback(
+      { target: tmpFile, detectors: ["reentrancy-eth"], exclude: ["naming-convention"] },
+      context,
+      deps,
+    )
+    expect(slitherCommand).toContain("reentrancy-eth")
+    expect(slitherCommand).toContain("naming-convention")
+  } finally {
+    rmSync(tmpFile, { force: true })
+  }
+})
+
+test("flattenFallback discovers contracts nested deeper than three directories", async () => {
+  const { context } = createContext()
+  const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "argus-fallback-deep-")))
+  const deepDir = join(projectDir, "src", "one", "two", "three", "four")
+  const sourceFile = join(deepDir, "Vault.sol")
+  mkdirSync(deepDir, { recursive: true })
+  writeFileSync(sourceFile, "pragma solidity ^0.8.20; contract Vault {}")
+  let flattened = false
+  const deps = createFlattenDeps({
+    cwd: projectDir,
+    projectDir,
+    spawnFn: async (command) => {
+      flattened = command.at(-1) === sourceFile
+      return { stdout: "// flattened", exitCode: 0 }
+    },
+  })
+
+  try {
+    const result = await flattenFallback({ target: projectDir }, context, deps)
+    expect(result.success).toBe(true)
+    expect(flattened).toBe(true)
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true })
   }
 })
 
 test("executeSlitherAnalyze triggers flatten fallback on parse error with crytic_compile stderr", async () => {
   const { context } = createContext()
   let callCount = 0
+  const target = `/tmp/argus-slither-fallback-${Date.now()}`
   const slitherJSON = JSON.stringify({
     success: true,
     results: {
@@ -471,7 +797,7 @@ test("executeSlitherAnalyze triggers flatten fallback on parse error with crytic
   })
 
   const result = await executeSlitherAnalyze(
-    { target: "/tmp/project" },
+    { target },
     context,
     async (_command, _signal, _cwd) => {
       callCount++
@@ -486,10 +812,8 @@ test("executeSlitherAnalyze triggers flatten fallback on parse error with crytic
     },
   )
 
-  // flattenFallback now returns a structured error (forge not found) instead of undefined,
-  // so the result comes from the fallback, not the parse error path
   expect(result.success).toBe(false)
-  expect(result.error).toBeDefined()
+  expect(result.errors.join(" ")).toContain("flatten fallback")
 })
 
 test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with findings", async () => {
@@ -520,25 +844,23 @@ test("executeSlitherAnalyze does NOT trigger fallback when primary succeeds with
   expect(result.findings[0]?.check).toBe("reentrancy-eth")
 })
 
-test("executeSlitherAnalyze uses flatten fallback after direct via_ir analysis fails", async () => {
+test("executeSlitherAnalyze reports capability loss without flattening when direct via_ir analysis fails", async () => {
   const { context } = createContext()
-  let primaryCalled = false
+  const commands: string[][] = []
 
   const result = await executeSlitherAnalyze(
     { target: "/tmp/project", via_ir: true },
     context,
     async (command, _signal, _cwd) => {
-      if (command.includes("slither") && !command.some((c) => c.includes(".flat.sol"))) {
-        primaryCalled = true
-      }
-      return { stdout: "{}", stderr: "", exitCode: 1 }
+      commands.push(command)
+      return { stdout: "not-json", stderr: "YulException", exitCode: 1 }
     },
   )
 
-  expect(primaryCalled).toBe(true)
+  expect(commands).toHaveLength(1)
+  expect(commands[0]).toContain("--compile-force-framework")
   expect(result.success).toBe(false)
-  // flattenFallback returns structured error (forge not found or solc version missing)
-  expect(result.error).toBeDefined()
+  expect(result.error).toContain("SLITHER_VIA_IR_ANALYSIS_FAILED")
 })
 
 test("executeSlitherAnalyze runs primary when via_ir is false", async () => {
@@ -571,6 +893,22 @@ test("detectViaIr returns true for foundry.toml with via_ir = true", () => {
 
 test("detectViaIr returns false when no foundry.toml exists", () => {
   expect(detectViaIr(`/tmp/nonexistent-dir-${Date.now()}`)).toBe(false)
+})
+
+test("detectViaIr does not inspect Foundry configuration above the active project", () => {
+  const parent = mkdtempSync(join(tmpdir(), "argus-via-ir-parent-"))
+  const projectDir = join(parent, "workspace")
+  const sourceDir = join(projectDir, "src")
+  mkdirSync(sourceDir, { recursive: true })
+  writeFileSync(join(parent, "foundry.toml"), "[profile.default]\nvia_ir = true\n")
+  const target = join(sourceDir, "Vault.sol")
+  writeFileSync(target, "contract Vault {}")
+
+  try {
+    expect(detectViaIr(target, projectDir)).toBe(false)
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
 })
 
 test("detectViaIr returns false for foundry.toml without via_ir", () => {
@@ -655,6 +993,7 @@ test("manual via_ir: true override bypasses auto-detection", async () => {
   expect(primaryRunCalled).toBe(true)
   expect(result.success).toBe(false)
   expect(result.error).toBeDefined()
+  expect(result.failureCode).toBe("SLITHER_PROJECT_COMPILATION_FAILED")
 })
 
 test("executeSlitherAnalyze passes cwd to runCommand", async () => {

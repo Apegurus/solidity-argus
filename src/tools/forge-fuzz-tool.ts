@@ -1,7 +1,8 @@
 import { type ToolContext, tool } from "@opencode-ai/plugin"
 import { classifyForgeError } from "../shared/forge-errors"
 import { runForgeCommand } from "../shared/forge-runner"
-import { assertContained, validateUrlScheme } from "../shared/path-containment"
+import { assertContained } from "../shared/path-safety"
+import { assertAllowedHost, safeCliValue } from "../shared/process-runner"
 import { resolveProjectDir } from "../shared/project-utils"
 
 type ForgeFuzzArgs = {
@@ -61,8 +62,8 @@ function normalizeArgs(args: ForgeFuzzArgs, context: ToolContext): NormalizedFor
   const target =
     args.target && args.target !== "." ? assertContained(args.target, projectRoot) : projectRoot
 
-  if (args.fork_url && !validateUrlScheme(args.fork_url)) {
-    throw new Error(`fork_url must use http:// or https:// scheme, got: "${args.fork_url}"`)
+  if (args.fork_url) {
+    assertAllowedHost(args.fork_url)
   }
 
   return {
@@ -78,7 +79,7 @@ function buildForgeFuzzCommand(args: NormalizedForgeFuzzArgs): string[] {
   const command = ["forge", "test", "--fuzz-runs", String(args.runs)]
 
   if (args.match_test) {
-    command.push("--match-test", args.match_test)
+    command.push("--match-test", safeCliValue("match-test", args.match_test))
   }
   if (typeof args.seed === "number" && Number.isFinite(args.seed)) {
     command.push("--fuzz-seed", String(Math.floor(args.seed)))

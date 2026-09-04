@@ -1,14 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ArgusConfig } from "../config/types"
+import { resetLoggerSink } from "../shared/logger"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
   resolveArgusSkills,
   resolveSkillRoots,
 } from "./argus-skill-resolver"
+
+function hasTerminalControl(text: string, allowLineFeeds = false): boolean {
+  return Array.from(text).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (allowLineFeeds && codePoint === 0x0a) return false
+    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)
+  })
+}
 
 describe("argus-skill-resolver", () => {
   it("normalizes legacy and namespaced skill names", () => {
@@ -28,6 +37,66 @@ describe("argus-skill-resolver", () => {
     const skills = resolveArgusSkills(process.cwd())
     for (const requiredSkill of getRequiredAuditSkills()) {
       expect(skills.has(requiredSkill)).toBe(true)
+    }
+  })
+
+  it("orders Trail of Bits plugin roots deterministically", () => {
+    const cacheDir = mkdtempSync(join(realpathSync(tmpdir()), "argus-tob-order-"))
+    const previousCacheDir = process.env.ARGUS_CACHE_DIR
+    process.env.ARGUS_CACHE_DIR = cacheDir
+
+    try {
+      const pluginsDir = join(cacheDir, "trailofbits-skills", "plugins")
+      mkdirSync(join(pluginsDir, "z-plugin", "skills"), { recursive: true })
+      mkdirSync(join(pluginsDir, "a-plugin", "skills"), { recursive: true })
+
+      const trailOfBitsRoots = resolveSkillRoots(cacheDir)
+        .filter((root) => root.source === "trailofbits")
+        .map((root) => root.path)
+
+      expect(trailOfBitsRoots).toEqual([
+        join(pluginsDir, "a-plugin", "skills"),
+        join(pluginsDir, "z-plugin", "skills"),
+      ])
+    } finally {
+      if (previousCacheDir === undefined) {
+        delete process.env.ARGUS_CACHE_DIR
+      } else {
+        process.env.ARGUS_CACHE_DIR = previousCacheDir
+      }
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+  })
+
+  it("sanitizes invalid skill paths before stderr logging", () => {
+    const projectDir = mkdtempSync(join(realpathSync(tmpdir()), "argus-skill-log-"))
+    const invalidSkillDir = join(projectDir, ".opencode", "skills", "bad\u001b[31m\u0007\u0085")
+    const previousLogMode = process.env.ARGUS_LOG
+    const stderrWrite = spyOn(process.stderr, "write").mockImplementation(() => true)
+    process.env.ARGUS_LOG = "stderr"
+    resetLoggerSink()
+
+    try {
+      mkdirSync(invalidSkillDir, { recursive: true })
+      writeFileSync(
+        join(invalidSkillDir, "SKILL.md"),
+        "---\nname: INVALID NAME\ndescription: invalid\n---\n# Invalid",
+      )
+
+      resolveArgusSkills(projectDir)
+
+      const stderr = stderrWrite.mock.calls.map((call) => String(call[0])).join("")
+      expect(stderr).toContain("Skipping skill with invalid frontmatter")
+      expect(hasTerminalControl(stderr, true)).toBe(false)
+    } finally {
+      stderrWrite.mockRestore()
+      if (previousLogMode === undefined) {
+        delete process.env.ARGUS_LOG
+      } else {
+        process.env.ARGUS_LOG = previousLogMode
+      }
+      resetLoggerSink()
+      rmSync(projectDir, { recursive: true, force: true })
     }
   })
 
@@ -55,12 +124,20 @@ describe("argus-skill-resolver", () => {
       "skills/specialist-profiles/math-precision/SKILL.md",
     )
   })
+
+  it("exposes frontmatter metadata for catalog and scanner consumers", () => {
+    const skills = resolveArgusSkills(process.cwd())
+    const reentrancy = skills.get("reentrancy")
+
+    expect(reentrancy?.category).toBe("vulnerability-pattern")
+    expect(reentrancy?.pattern_category).toBe("reentrancy")
+    expect(reentrancy?.detection_rules?.length).toBeGreaterThan(0)
+  })
 })
 
 describe("skill precedence", () => {
   let tmpDir: string
   let customDir: string
-  let _bundledSkillContent: string
   let customSkillContent: string
 
   beforeEach(() => {
@@ -68,8 +145,6 @@ describe("skill precedence", () => {
     customDir = join(tmpDir, "custom-skills")
     mkdirSync(join(customDir, "reentrancy"), { recursive: true })
 
-    _bundledSkillContent =
-      "---\nname: reentrancy\ndescription: bundled reentrancy\n---\n# Bundled reentrancy"
     customSkillContent =
       "---\nname: reentrancy\ndescription: custom reentrancy\n---\n# Custom reentrancy"
     writeFileSync(join(customDir, "reentrancy", "SKILL.md"), customSkillContent)
@@ -91,16 +166,11 @@ describe("skill precedence", () => {
       },
       reporting: {
         confidenceThreshold: 80,
-        format: "markdown",
         severityThreshold: "low",
-        gasAnalysis: false,
         output_dir: ".opencode/reports/",
       },
-      solodit: { enabled: true, port: 54173 },
+      solodit: { enabled: true },
       disabled_hooks: [],
-      hooks: {},
-      cli: {},
-      background: { max_concurrent: 3 },
     }
   }
 
@@ -142,6 +212,30 @@ describe("skill precedence", () => {
     expect(skills.get("reentrancy")?.source).toBe("bundled")
     expect(skills.has("my-unique-check")).toBe(true)
     expect(skills.get("my-unique-check")?.source).toBe("custom")
+  })
+
+  it("ignores nested Markdown references without skill frontmatter", () => {
+    mkdirSync(join(customDir, "vector-forge", "references"), { recursive: true })
+    writeFileSync(
+      join(customDir, "vector-forge", "references", "reference-only.md"),
+      "# Supporting reference\nNot a loadable skill.",
+    )
+
+    const skills = resolveArgusSkills(tmpDir, makeConfig("custom-first"))
+
+    expect(skills.has("reference-only")).toBe(false)
+  })
+
+  it("uses validated YAML metadata for quoted skill names", () => {
+    mkdirSync(join(customDir, "quoted-skill"), { recursive: true })
+    writeFileSync(
+      join(customDir, "quoted-skill", "SKILL.md"),
+      "---\nname: 'quoted-skill'\ndescription: 'Quoted description'\n---\n# Quoted",
+    )
+
+    const skills = resolveArgusSkills(tmpDir, makeConfig("custom-first"))
+
+    expect(skills.get("quoted-skill")?.description).toBe("Quoted description")
   })
 })
 

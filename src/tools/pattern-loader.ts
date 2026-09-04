@@ -1,8 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { createLogger } from "../shared/logger"
+import type { ResolvedSkill } from "../skills/argus-skill-resolver"
 import { parseFrontmatter, SkillFrontmatterSchema } from "../skills/skill-schema"
 import type { PatternDefinition } from "./pattern-schema"
+import { regexSafetyError } from "./regex-safety"
 
 const logger = createLogger()
 
@@ -41,6 +43,50 @@ export interface PatternLoaderResult {
   errors: string[]
 }
 
+function appendSkillDetectionRules(
+  extracted: PatternDefinition[],
+  errors: string[],
+  skillName: string,
+  category: PatternDefinition["category"] | undefined,
+  rules: ResolvedSkill["detection_rules"],
+): void {
+  if (!category) return
+  if (!rules || rules.length === 0) return
+
+  for (const [index, rule] of rules.entries()) {
+    const name = `${skillName}-rule-${index + 1}`
+    const safetyError = regexSafetyError(rule.regex)
+    if (safetyError) {
+      const msg = `Skipped unsafe detection rule ${name}: ${safetyError}`
+      logger.warn(msg)
+      errors.push(msg)
+      continue
+    }
+
+    const unsafeExclude = rule.exclude_if?.find((exclude) => regexSafetyError(exclude))
+    if (unsafeExclude) {
+      const msg = `Skipped unsafe detection rule ${name}: exclude_if ${regexSafetyError(
+        unsafeExclude,
+      )}`
+      logger.warn(msg)
+      errors.push(msg)
+      continue
+    }
+
+    extracted.push({
+      name,
+      category,
+      severity: rule.severity,
+      confidence: rule.confidence ?? "Medium",
+      version: "1.0",
+      regex: rule.regex,
+      description: rule.description ?? `Detection rule from ${skillName} SKILL.md`,
+      ...(rule.swc ? { swc: rule.swc } : {}),
+      ...(rule.exclude_if ? { exclude_if: rule.exclude_if } : {}),
+    })
+  }
+}
+
 export function extractDetectionRulesFromSkills(skillsDir: string): PatternLoaderResult {
   const skillFiles = listSkillMarkdownFiles(skillsDir)
   const extracted: PatternDefinition[] = []
@@ -62,29 +108,38 @@ export function extractDetectionRulesFromSkills(skillsDir: string): PatternLoade
       }
 
       const skillName = parsed.data.name
+      if (parsed.data.category !== "vulnerability-pattern") continue
+
       const category = parsed.data.pattern_category
       if (!category) continue
 
-      const rules = parsed.data.detection_rules
-      if (!rules || rules.length === 0) continue
-
-      for (const [index, rule] of rules.entries()) {
-        extracted.push({
-          name: `${skillName}-rule-${index + 1}`,
-          category,
-          severity: rule.severity,
-          confidence: rule.confidence ?? "Medium",
-          version: "1.0",
-          regex: rule.regex,
-          description: rule.description ?? `Detection rule from ${skillName} SKILL.md`,
-          ...(rule.swc ? { swc: rule.swc } : {}),
-        })
-      }
+      appendSkillDetectionRules(extracted, errors, skillName, category, parsed.data.detection_rules)
     } catch (err) {
       const msg = `Failed to parse ${filePath}: ${err instanceof Error ? err.message : "parse error"}`
       logger.warn(msg)
       errors.push(msg)
     }
+  }
+
+  return { patterns: extracted, errors }
+}
+
+export function extractDetectionRulesFromResolvedSkills(
+  skills: Iterable<ResolvedSkill>,
+): PatternLoaderResult {
+  const extracted: PatternDefinition[] = []
+  const errors: string[] = []
+
+  for (const skill of skills) {
+    if (skill.category !== "vulnerability-pattern") continue
+
+    appendSkillDetectionRules(
+      extracted,
+      errors,
+      skill.name,
+      skill.pattern_category,
+      skill.detection_rules,
+    )
   }
 
   return { patterns: extracted, errors }

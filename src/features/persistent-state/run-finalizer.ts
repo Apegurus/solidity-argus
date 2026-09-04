@@ -95,18 +95,24 @@ function isGenerateReportCompletion(event: AuditEvent): boolean {
   if (event.type !== "tool.completed") return false
   const payload = asRecord(event.payload)
   if (!payload) return false
+  if (payload.success !== true) return false
   return payload.tool === "argus_generate_report" || payload.name === "argus_generate_report"
+}
+
+function latestGenerateReportCompletion(events: AuditEvent[]): AuditEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event && isGenerateReportCompletion(event)) return event
+  }
+  return undefined
 }
 
 async function collectReportCompletenessWarnings(events: AuditEvent[]): Promise<string[]> {
   const warnings: string[] = []
-  const reportEvents = events.filter(isGenerateReportCompletion)
-
-  for (const event of reportEvents) {
-    const payload = asRecord(event.payload)
-    const filePath = payload?.filePath
-    if (typeof filePath !== "string" || filePath.length === 0) continue
-
+  const reportEvent = latestGenerateReportCompletion(events)
+  const payload = asRecord(reportEvent?.payload)
+  const filePath = payload?.filePath
+  if (typeof filePath === "string" && filePath.length > 0) {
     try {
       const report = await Bun.file(filePath).text()
       if (report.includes("## ⚠ Completeness Warning")) {
@@ -122,16 +128,21 @@ async function collectReportCompletenessWarnings(events: AuditEvent[]): Promise<
 
 function collectReportQualityGateErrors(events: AuditEvent[]): string[] {
   const errors: string[] = []
-  const reportEvents = events.filter(isGenerateReportCompletion)
-
-  for (const event of reportEvents) {
-    const payload = asRecord(event.payload)
-    const qualityGates = asRecord(payload?.qualityGates)
-    if (qualityGates?.passed !== false) continue
-
-    const violations = Array.isArray(qualityGates.violations)
-      ? qualityGates.violations.filter((entry): entry is string => typeof entry === "string")
-      : []
+  const reportEvent = latestGenerateReportCompletion(events)
+  const payload = asRecord(reportEvent?.payload)
+  const qualityGates = asRecord(payload?.qualityGates)
+  if (qualityGates?.passed === false) {
+    const rawViolations = Array.isArray(qualityGates.violations) ? qualityGates.violations : []
+    const violations = rawViolations
+      .map((entry) => {
+        if (typeof entry === "string") return entry
+        const rec = asRecord(entry)
+        if (!rec) return ""
+        const head = [rec.code, rec.message].filter(hasText).join(": ")
+        const id = hasText(rec.findingId) ? ` [${rec.findingId}]` : ""
+        return `${head}${id}`.trim()
+      })
+      .filter((entry) => entry.length > 0)
     const details = violations.length > 0 ? `: ${violations.join("; ")}` : ""
     errors.push(`generated report failed quality gates${details}`)
   }
@@ -216,11 +227,8 @@ function collectThemisDispositionErrors(events: AuditEvent[]): string[] {
   const hasUnresolvedRejection = laterEvents.some((event) => {
     if (event.type !== "tool.completed") return false
     const payload = asRecord(event.payload)
-    return (
-      payload?.tool === "task" &&
-      payload.subagent_type === "themis" &&
-      hasRejectedThemisVerdict(payload.themis)
-    )
+    const disposition = asRecord(payload?.themisDisposition) as ThemisDisposition | null
+    return hasRejectedThemisVerdict(disposition?.verdict)
   })
 
   return hasUnresolvedRejection
@@ -447,8 +455,12 @@ export async function finalizeRun(
   const sessionId = events.at(-1)?.session_id ?? ""
 
   if (sink) {
+    // WS-3 I3/#18: SEAL (run.finalized) only on a SUCCESSFUL finalization. A failed
+    // finalization emits run.finalization_failed instead, leaving the sink FAILED_RECOVERABLE
+    // (open) so remediation / themis disposition / a regenerated report can still be recorded
+    // and finalizeRun can be retried.
     await sink.append({
-      type: "run.finalized",
+      type: invariantsPassed ? "run.finalized" : "run.finalization_failed",
       run_id: runId,
       seq: 0,
       session_id: sessionId,
@@ -466,7 +478,9 @@ export async function finalizeRun(
         build_dirty: ARGUS_BUILD_PROVENANCE.gitDirty ?? null,
       },
     })
-    sink.markFinalized()
+    if (invariantsPassed) {
+      sink.markFinalized()
+    }
   }
 
   return {

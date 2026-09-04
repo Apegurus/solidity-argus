@@ -189,24 +189,13 @@ export async function executeProxyDetection(
   } catch (error) {
     const maybeError = error as Error & { code?: string }
     if (maybeError.code === "ENOENT") {
-      return {
-        file: args.file_path,
-        isProxy: false,
-        proxyType: null,
-        indicators: [],
-        confidence: "low",
-        error: `File not found: ${args.file_path}`,
-      }
+      throw new Error(
+        `argus_proxy_detection: contract file not found at ${fileToRead} (file_path: ${args.file_path}). A missing file is not evidence that a contract is non-upgradeable — provide a readable absolute or project-relative path.`,
+      )
     }
-
-    return {
-      file: args.file_path,
-      isProxy: false,
-      proxyType: null,
-      indicators: [],
-      confidence: "low",
-      error: maybeError.message || "proxy detection failed",
-    }
+    throw new Error(
+      `argus_proxy_detection: failed to read ${fileToRead} (file_path: ${args.file_path}): ${maybeError.message || "unknown read error"}`,
+    )
   }
 }
 

@@ -213,21 +213,14 @@ test("uses an absolute file_path as-is", async () => {
   expect(readPath).toBe("/abs/Proxy.sol")
 })
 
-test("handles file-not-found without crashing", async () => {
+test("hard-errors on file-not-found instead of returning a misleading non-proxy verdict", async () => {
   const { context } = createContext()
 
-  const result = await executeProxyDetection(
-    { file_path: "contracts/Missing.sol" },
-    context,
-    async () => {
+  await expect(
+    executeProxyDetection({ file_path: "contracts/Missing.sol" }, context, async () => {
       const error = new Error("ENOENT") as Error & { code?: string }
       error.code = "ENOENT"
       throw error
-    },
-  )
-
-  expect(result.isProxy).toBe(false)
-  expect(result.proxyType).toBeNull()
-  expect(result.indicators).toEqual([])
-  expect(result.error).toContain("File not found: contracts/Missing.sol")
+    }),
+  ).rejects.toThrow(/not found/i)
 })

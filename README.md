@@ -15,7 +15,7 @@ Argus Panoptes — the mythological all-seeing giant — orchestrates a team of 
 **What it does:**
 - Runs Slither static analysis and Foundry tests automatically
 - Searches 7,769+ real-world audit findings via SCVD and Solodit
-- Matches code against 91 curated SKILL.md knowledge files
+- Matches code against 103 curated SKILL.md knowledge files
 - Generates professional markdown audit reports with severity classifications
 - Follows a rigorous 7-step audit methodology (Reconnaissance → Report)
 
@@ -44,6 +44,34 @@ bun add solidity-argus
 
 `solidity-argus` is Bun/OpenCode-native. The package entrypoints and CLI bins intentionally point at TypeScript source executed by Bun/OpenCode, so use `bun` or `bunx` for CLI commands rather than Node-only runners.
 
+### Local development
+
+Install dependencies, then register this checkout once. For project-only development, create an
+`opencode.json` at the checkout root that loads the TypeScript entrypoint directly:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["./src/index.ts"]
+}
+```
+
+If the checkout is already registered in your global OpenCode config with a `file://` entry, do
+not add the project entry too; OpenCode would initialize the plugin twice.
+
+```bash
+bun install --frozen-lockfile
+bun run typecheck
+bun run ci
+bun test
+bun run doctor
+opencode
+```
+
+At OpenCode startup, verify stderr contains an `[argus]` build banner and that `@argus` is
+available. Restart OpenCode after changing `opencode.json` or plugin source because plugin
+configuration is loaded at process startup.
+
 ---
 
 ## Quick Start
@@ -63,14 +91,14 @@ Argus will automatically:
 
 ## Agents
 
-| Agent | Role | Model |
-|-------|------|-------|
-| `@argus` | Orchestrator — coordinates the full audit | claude-opus-4-8 |
-| `@sentinel` | Static analysis & testing specialist | claude-sonnet-4-6 |
-| `@pythia` | Vulnerability researcher | claude-sonnet-4-6 |
-| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-4-6 |
-| `@scribe` | Audit report writer | claude-sonnet-4-6 |
-| `@themis` | Independent audit quality gate | gpt-5.5 |
+| Agent | Role | Model | Reasoning |
+|-------|------|-------|-----------|
+| `@argus` | Orchestrator — coordinates the full audit | claude-opus-5 | max |
+| `@sentinel` | Static analysis & testing specialist | claude-sonnet-5 | high |
+| `@pythia` | Vulnerability researcher | gpt-5.6-terra | high |
+| `@audit-specialist` | Profile-driven adversarial specialist | claude-sonnet-5 | xhigh |
+| `@scribe` | Audit report writer | claude-sonnet-4-5 | default |
+| `@themis` | Independent audit quality gate | gpt-5.6-sol | xhigh |
 
 ### @argus — The Orchestrator
 Argus Panoptes is the lead auditor. It follows a 7-step methodology (Reconnaissance, Automated Scanning, Manual Review, Attack Surface Mapping, Vulnerability Research, Testing & Verification, Reporting) and delegates to Sentinel, Pythia, Audit Specialist, Scribe, and Themis as needed.
@@ -105,11 +133,13 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 | `argus_gas_analysis` | Sentinel, Audit Specialist | Runs forge gas report analysis, parses per-function gas metrics, and identifies high-gas hotspots above configurable threshold |
 | `argus_forge_fuzz` | Sentinel, Audit Specialist | Fuzzes specific functions with random inputs to find edge cases and invariant violations |
 | `argus_forge_coverage` | Sentinel, Audit Specialist | Runs forge coverage analysis and returns structured per-file coverage metrics (lines, statements, branches, functions) |
+| `argus_list_skills` | Argus, Sentinel, Pythia, Audit Specialist, Themis | Lists Argus skill catalog metadata across bundled, custom, Trail of Bits, OpenCode, and Claude resolver roots without exposing full skill bodies |
+| `argus_recommend_skills` | Argus, Sentinel, Pythia, Audit Specialist, Themis | Recommends relevant Argus skills from Solidity/protocol context using deterministic metadata scoring |
 | `argus_skill_load` | Pythia, Audit Specialist, Themis | Loads curated SKILL.md knowledge files on demand for vulnerability patterns, protocol guidance, methodology, and case studies |
 | `argus_record_finding` | Sentinel, Pythia, Audit Specialist | Records verified manual, static-analysis, research, or testing findings into durable audit state |
 | `argus_read_findings` | Scribe, Themis | Reads persisted findings and audit artifacts for report generation and validation |
 | `argus_persist_deduped` | Scribe | Persists deduplicated findings before final report generation and validation |
-| `argus_generate_report` | Scribe | Generates the final structured audit report in professional markdown format |
+| `argus_generate_report` | Scribe, Argus recovery | Generates the final structured audit report from Scribe-persisted findings |
 | `argus_themis_disposition` | Argus | Records Argus' resolved disposition for Themis validation: approved, remediated, or explicitly overridden |
 | `argus_sync_knowledge` | Argus | Syncs the local vulnerability database from SCVD (api.scvd.dev) |
 
@@ -117,24 +147,23 @@ Validates the completed audit by comparing raw findings, deduped findings, and t
 
 ## Knowledge Base
 
-The plugin ships with **91 curated SKILL.md files** organized into 7 categories:
+The plugin ships with **103 curated SKILL.md files** organized into 5 metadata categories:
 
 | Category | Files | Description |
 |----------|-------|-------------|
-| Vulnerability Patterns | 51 | Reentrancy, oracle manipulation, flash loans, access control, ERC4626, governance, front-running, and 44 more |
-| Methodology | 11 | Audit workflow, report templates, severity classification, and 8 audit-specialist profiles |
-| Protocol Patterns | 5 | AMM/DEX, bridges, governance, lending, staking security guides |
+| Vulnerability Patterns | 60 | Reentrancy, oracle manipulation, flash loans, access control, ERC4626, governance, front-running, and more |
+| Methodology | 12 | Audit workflow, report templates, severity classification, refutation rubric, and 8 audit-specialist profiles |
+| Protocol Patterns | 7 | AMM/DEX, bridges, governance, lending, staking, concentrated liquidity, and liquid-staking/restaking security guides |
 | Checklists | 6 | Cyfrin audit checklists (DeFi core, integrations, upgrades, gas, best practices) |
-| References | 3 | DeFi exploit reference index, SmartBugs vulnerable contract examples, and the attack-vector deck |
-| Case Studies | 15 | Major DeFi exploit analyses (Euler, Nomad Bridge, Ronin, Cream Finance, etc.) |
+| References | 18 | DeFi exploit reference index, SmartBugs examples, attack-vector deck, and major DeFi exploit case studies |
 
 **Sources:** Trail of Bits, Cyfrin, DeFiFoFum, kadenzipfel, SunWeb3Sec, smartbugs, BailSec, Argus
 
 ### Detection Rules
 
-Vulnerability detection patterns are defined as `detection_rules` in SKILL.md frontmatter. Each skill with a `pattern_category` field is automatically discovered by the pattern checker — no separate configuration needed.
+Vulnerability detection patterns are defined as `detection_rules` in SKILL.md frontmatter. The pattern checker scans effective resolver winners from every Argus skill root — bundled, `customSkillsDir`, Trail of Bits cache, OpenCode project/global, and Claude project/global — but only when a skill has both `pattern_category` and non-empty `detection_rules`.
 
-- **51 vulnerability pattern skills** with detection rules across **14 categories**
+- **57 scanner-eligible skills** with detection rules across **14 categories**
 - Categories: `reentrancy`, `oracle-manipulation`, `flash-loan`, `access-control`, `erc4626`, `proxy`, `signature`, `dos`, `front-running`, `governance`, `token-standard`, `gas-optimization`, `logic-error`, `delegatecall`
 
 #### Adding Custom Detection Rules
@@ -145,6 +174,7 @@ Add custom detection rules by creating SKILL.md files in your `customSkillsDir`:
 ---
 name: my-custom-pattern
 description: Detects insecure transfer patterns
+category: vulnerability-pattern
 pattern_category: access-control
 detection_rules:
   - regex: 'transfer\(msg\.sender, .+\)'
@@ -289,17 +319,12 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
 ```jsonc
 {
   "agents": {
-    "argus": { "model": "anthropic/claude-opus-4-8" },
-    "sentinel": { "model": "anthropic/claude-sonnet-4-6" },
-    "pythia": { "model": "anthropic/claude-sonnet-4-6" },
-    "auditSpecialist": { "model": "anthropic/claude-sonnet-4-6" },
-    "scribe": { "model": "anthropic/claude-sonnet-4-6" },
-    "themis": { "model": "openai/gpt-5.5" }
-  },
-
-  "tools": {
-    "slitherPath": "/usr/local/bin/slither",
-    "forgePath": "/usr/local/bin/forge"
+    "argus": { "model": "anthropic/claude-opus-5", "variant": "max" },
+    "sentinel": { "model": "anthropic/claude-sonnet-5", "variant": "high" },
+    "pythia": { "model": "openai/gpt-5.6-terra", "variant": "high" },
+    "auditSpecialist": { "model": "anthropic/claude-sonnet-5", "variant": "xhigh" },
+    "scribe": { "model": "anthropic/claude-sonnet-4-5" },
+    "themis": { "model": "openai/gpt-5.6-sol", "variant": "xhigh" }
   },
 
   "knowledge": {
@@ -310,21 +335,14 @@ Create `.argus/solidity-argus.jsonc` in your project root. `.opencode/solidity-a
   },
 
   "reporting": {
-    "format": "markdown",
-    "severityThreshold": "low",
-    "gasAnalysis": false
+    "severityThreshold": "low"
   },
 
   "solodit": {
-    "enabled": true,
-    "port": 54173
+    "enabled": true
   },
 
-  "disabled_hooks": [],
-
-  "background": {
-    "max_concurrent": 3
-  }
+  "disabled_hooks": []
 }
 ```
 
@@ -341,6 +359,7 @@ Argus uses a **three-channel context delivery system** to inject dynamic audit s
 | **Prompt** | Static agent identity files (`src/agents/*-prompt.ts`) | Methodology, personality, tool instructions, audit framework | Agent-specific | Never changes at runtime |
 | **Hook** | `experimental.chat.system.transform` (agent-gated injection) | Audit progress, findings count, current phase, session state | Per-session | Changes every turn |
 | **Skill-load** | `argus_skill_load` tool (on-demand) | Vulnerability patterns, protocol-specific knowledge, historical exploits | On-demand | Loaded when agent requests |
+| **Skill discovery** | `argus_list_skills` / `argus_recommend_skills` | Metadata-only catalog search/recommendation before loading exact skills | On-demand | No full skill bodies exposed |
 
 ### Prompt Channel (Static Identity)
 
@@ -375,13 +394,13 @@ This prevents context pollution and ensures non-audit agents operate independent
 
 ### Skill-Load Channel (On-Demand Knowledge)
 
-Agents load specialized knowledge on-demand via the `argus_skill_load` tool:
+Agents discover specialized knowledge with metadata-only `argus_list_skills` / `argus_recommend_skills` when the exact name is unknown, then load selected full knowledge on-demand via the `argus_skill_load` tool:
 
-- **Vulnerability Patterns** — 51 SKILL.md files covering reentrancy, oracle manipulation, flash loans, etc.
-- **Protocol Patterns** — 5 files for AMM/DEX, bridges, governance, lending, staking
-- **Methodology** — 11 files for audit workflow, report templates, severity classification, and specialist profiles
+- **Vulnerability Patterns** — 60 SKILL.md files covering reentrancy, oracle manipulation, flash loans, ERC4626, governance, front-running, and more
+- **Protocol Patterns** — 7 files for AMM/DEX, bridges, governance, lending, staking, concentrated liquidity, and liquid-staking/restaking
+- **Methodology** — 12 files for audit workflow, report templates, severity classification, refutation rubric, and specialist profiles
 - **Checklists** — 6 Cyfrin audit checklists
-- **References** — 3 files for exploit index, vulnerable contract examples, and attack-vector deck
+- **References** — 18 files for exploit index, vulnerable contract examples, attack-vector deck, and major DeFi exploit case studies
 
 This channel is **lazy-loaded** — agents request skills only when needed, reducing context overhead.
 
@@ -421,9 +440,12 @@ Selectively disable any hook via config:
 
 ```jsonc
 {
-  "disabled_hooks": ["context-monitor", "audit-enforcer"]
+  "disabled_hooks": ["system-prompt", "compaction"]
 }
 ```
+
+Supported hook gates are `compaction`, `tool-tracking`, `event`, `system-prompt`, and
+`audit-specialist-watchdog`.
 
 ### Multi-Level Configuration
 
@@ -435,15 +457,7 @@ Config is resolved by merging three layers (last wins):
 
 ### Background Agent Management
 
-Background tasks (knowledge sync, long-running analysis) are tracked with configurable concurrency limits:
-
-```jsonc
-{
-  "background": {
-    "max_concurrent": 3
-  }
-}
-```
+Background operations use internal scheduling and are not configured through the Argus schema.
 
 ### Persistent Audit State
 
@@ -462,7 +476,7 @@ Monitors token usage and adaptively reduces injection sizes when context pressur
 ## Companion Plugins
 
 - **Trail of Bits Skills** — Additional security research skills from Trail of Bits auditors
-- **Solodit MCP** — Direct MCP integration with Solodit's audit report database for richer vulnerability research
+- **Solodit research** — \`argus_solodit_search\` queries Solodit's audit report database directly via tRPC
 
 ---
 
@@ -471,11 +485,24 @@ Monitors token usage and adaptively reduces injection sizes when context pressur
 | Dependency | Required | Notes |
 |------------|----------|-------|
 | OpenCode | ✅ Required | The AI coding environment this plugin runs in |
-| Bun | ✅ Required | `>=1.0.0` — runtime for the plugin |
-| Slither | ⚠️ Optional | Enables `argus_slither_analyze`. Install: `pip install slither-analyzer` |
+| Bun | ✅ Required | `>=1.3.6` — runtime for the plugin (`Bun.JSONC.parse`) |
+| Slither | ⚠️ Optional | Enables `argus_slither_analyze`. Python 3.13 is recommended: `pipx install --python python3.13 slither-analyzer` (Python 3.14 compatibility varies by Slither release) |
 | Foundry/Forge | ⚠️ Optional | Enables `argus_forge_test` and `argus_forge_fuzz`. Install: `curl -L https://foundry.paradigm.xyz \| bash` |
+| solc-select | ⚠️ Optional | Required only if the final Slither flatten fallback must install or select the project's pinned compiler. Install: `pipx install solc-select` |
 
 If Slither or Foundry are unavailable, Argus gracefully falls back to manual review mode and notes the limitation in the audit report.
+
+For Foundry projects, Argus compiles the nearest project root so Slither retains remappings,
+inheritance, and cross-project dependencies. The requested target remains the reporting scope:
+request the project root for all findings, or request a contract/source directory to filter out
+findings outside that narrower scope.
+
+Argus ignores project-local `slither.config.json` compiler settings and rejects Foundry compiler
+paths or config indirection so an audited repository cannot select host executables.
+
+If eligible non-`via_ir` analysis still fails, Argus can retry through `forge flatten` as a final
+compatibility fallback. Flattened findings are returned with low confidence and an explicit
+flattened-line reference because exact original-source line mapping cannot be guaranteed.
 
 ---
 

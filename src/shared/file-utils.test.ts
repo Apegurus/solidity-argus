@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { detectConfigFile, readJsoncFile } from "./file-utils"
+import { detectConfigFile, readJsoncFile, readJsoncFileResult, readTextCapped } from "./file-utils"
 
 describe("file-utils", () => {
   const testDir = `/tmp/argus-test-${Date.now()}`
@@ -172,6 +173,108 @@ describe("file-utils", () => {
 
       const result = readJsoncFile(configPath)
       expect(result).toBeNull()
+    })
+
+    it("rejects an oversized config instead of reading it unbounded (WS-6)", () => {
+      const configPath = join(testDir, "huge.json")
+      writeFileSync(configPath, `{"key":"value"}${" ".repeat(600 * 1024)}`)
+
+      expect(readJsoncFile(configPath)).toBeNull()
+    })
+  })
+
+  describe("readTextCapped", () => {
+    it("reads a file within budget whole, without the capped flag", () => {
+      const filePath = join(testDir, "small.txt")
+      writeFileSync(filePath, "hello world")
+
+      const result = readTextCapped(filePath, 1024)
+      expect(result.capped).toBe(false)
+      expect(result.text).toBe("hello world")
+    })
+
+    it("truncates an oversized file to the byte budget and sets the capped flag", () => {
+      const filePath = join(testDir, "big.txt")
+      writeFileSync(filePath, "A".repeat(5000))
+
+      const result = readTextCapped(filePath, 1024)
+      expect(result.capped).toBe(true)
+      expect(Buffer.byteLength(result.text, "utf8")).toBeLessThanOrEqual(1024)
+      expect(result.text.length).toBeLessThan(5000)
+    })
+
+    it("throws on a non-regular file so a special file cannot bypass the cap (adj_2)", () => {
+      const dirPath = join(testDir, "a-directory")
+      mkdirSync(dirPath, { recursive: true })
+      expect(() => readTextCapped(dirPath, 1024)).toThrow()
+    })
+
+    it("rejects a FIFO without blocking on the open", () => {
+      const fifoPath = join(testDir, "pipe.fifo")
+      execFileSync("mkfifo", [fifoPath])
+      expect(() => readTextCapped(fifoPath, 1024)).toThrow("not a regular file")
+    })
+
+    it("rejects a final-component symlink when noFollow is set", () => {
+      const target = join(testDir, "symlink-target.txt")
+      writeFileSync(target, "secret")
+      const link = join(testDir, "escape.txt")
+      symlinkSync(target, link)
+      expect(() => readTextCapped(link, 1024, { noFollow: true })).toThrow()
+    })
+
+    it("follows a symlink to a regular file when noFollow is not set", () => {
+      const target = join(testDir, "followed-target.txt")
+      writeFileSync(target, "followed")
+      const link = join(testDir, "followed-link.txt")
+      symlinkSync(target, link)
+      expect(readTextCapped(link, 1024).text).toBe("followed")
+    })
+
+    it("does not flag a file exactly at the byte budget as capped", () => {
+      const filePath = join(testDir, "exact.txt")
+      writeFileSync(filePath, "A".repeat(1024))
+      const result = readTextCapped(filePath, 1024)
+      expect(result.capped).toBe(false)
+      expect(result.text.length).toBe(1024)
+    })
+  })
+
+  describe("readJsoncFileResult (adj_1: distinguishes failure modes)", () => {
+    it("returns 'missing' for a non-existent file", () => {
+      expect(readJsoncFileResult(join(testDir, "nope.json")).status).toBe("missing")
+    })
+
+    it("returns 'empty' for a whitespace-only file", () => {
+      const p = join(testDir, "empty.jsonc")
+      writeFileSync(p, "   \n  ")
+      expect(readJsoncFileResult(p).status).toBe("empty")
+    })
+
+    it("returns 'invalid' for malformed JSONC, distinct from missing", () => {
+      const p = join(testDir, "bad.jsonc")
+      writeFileSync(p, "{ oops: }")
+      expect(readJsoncFileResult(p).status).toBe("invalid")
+    })
+
+    it("returns 'invalid' for a non-object top level", () => {
+      const p = join(testDir, "arr.json")
+      writeFileSync(p, "[1,2,3]")
+      expect(readJsoncFileResult(p).status).toBe("invalid")
+    })
+
+    it("returns 'too-large' for an oversized config", () => {
+      const p = join(testDir, "huge2.json")
+      writeFileSync(p, `{"k":"v"}${" ".repeat(600 * 1024)}`)
+      expect(readJsoncFileResult(p).status).toBe("too-large")
+    })
+
+    it("returns 'ok' with the parsed value for valid JSONC", () => {
+      const p = join(testDir, "good.jsonc")
+      writeFileSync(p, `{ "a": 1 /* c */ }`)
+      const r = readJsoncFileResult(p)
+      expect(r.status).toBe("ok")
+      expect(r.status === "ok" ? r.value : null).toEqual({ a: 1 })
     })
   })
 })

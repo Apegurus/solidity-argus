@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import type { Config } from "@opencode-ai/sdk/v2"
 import type { ArgusConfig } from "../config/types"
-import { DEFAULT_MODELS, DEFAULT_STEPS } from "../constants/defaults"
+import { DEFAULT_MODELS, DEFAULT_STEPS, DEFAULT_VARIANTS } from "../constants/defaults"
 import { createConfigHandler } from "./config-handler"
 
 function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
@@ -33,31 +30,22 @@ function createArgusConfig(overrides?: Partial<ArgusConfig>): ArgusConfig {
     },
     reporting: {
       confidenceThreshold: 80,
-      format: "markdown",
       severityThreshold: "low",
-      gasAnalysis: false,
       output_dir: ".opencode/reports/",
       ...(overrides?.reporting ?? {}),
-    } as unknown as {
-      confidenceThreshold: number
-      format: "markdown"
-      severityThreshold: "critical" | "high" | "medium" | "low" | "informational"
-      gasAnalysis: boolean
-      output_dir: string
     },
     solodit: {
       enabled: true,
-      port: 54173,
       ...overrides?.solodit,
     },
     disabled_hooks: overrides?.disabled_hooks ?? [],
-    hooks: overrides?.hooks ?? {},
-    cli: overrides?.cli ?? {},
-    background: {
-      max_concurrent: 3,
-      ...overrides?.background,
-    },
   }
+}
+
+function readToolsConfig(agentConfig: unknown): unknown {
+  if (typeof agentConfig !== "object" || agentConfig === null) return undefined
+  const { tools } = agentConfig as { tools?: unknown }
+  return tools
 }
 
 describe("createConfigHandler", () => {
@@ -73,6 +61,42 @@ describe("createConfigHandler", () => {
     expect(config.agent?.["audit-specialist"]).toBeDefined()
     expect(config.agent?.scribe).toBeDefined()
     expect(config.agent?.themis).toBeDefined()
+  })
+
+  test("delegates companion clone + knowledge sync to injectable deps (network-free registration)", async () => {
+    let companionCalls = 0
+    let syncCalls = 0
+    const handler = createConfigHandler(createArgusConfig(), {
+      ensureCompanionSkills: () => {
+        companionCalls += 1
+      },
+      syncKnowledge: () => {
+        syncCalls += 1
+      },
+    })
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(companionCalls).toBe(1)
+    expect(syncCalls).toBe(1)
+  })
+
+  test("does not trigger knowledge sync when autoSync is disabled", async () => {
+    const argusConfig = createArgusConfig()
+    if (argusConfig.knowledge) argusConfig.knowledge.autoSync = false
+    let syncCalls = 0
+    const handler = createConfigHandler(argusConfig, {
+      ensureCompanionSkills: () => {},
+      syncKnowledge: () => {
+        syncCalls += 1
+      },
+    })
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(syncCalls).toBe(0)
   })
 
   test("sets mode primary for argus and subagent for others", async () => {
@@ -96,6 +120,10 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.permission).toEqual({
+      argus_generate_report: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
+      argus_themis_disposition: "allow",
       task: {
         sentinel: "allow",
         pythia: "allow",
@@ -115,6 +143,8 @@ describe("createConfigHandler", () => {
       argus_proxy_detection: "allow",
       argus_forge_coverage: "allow",
       argus_record_finding: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -122,6 +152,8 @@ describe("createConfigHandler", () => {
       argus_solodit_search: "allow",
       argus_check_patterns: "allow",
       argus_record_finding: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
     })
@@ -137,14 +169,44 @@ describe("createConfigHandler", () => {
       argus_forge_coverage: "allow",
       argus_gas_analysis: "allow",
       argus_record_finding: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       skill: "allow",
     })
     expect(config.agent?.scribe?.permission).toEqual({
       argus_read_findings: "allow",
       argus_generate_report: "allow",
       argus_persist_deduped: "allow",
+      skill: "allow",
+    })
+    expect(config.agent?.themis?.permission).toEqual({
+      argus_read_findings: "allow",
+      argus_solodit_search: "allow",
+      argus_check_patterns: "allow",
+      argus_list_skills: "allow",
+      argus_recommend_skills: "allow",
       argus_skill_load: "allow",
       skill: "allow",
+    })
+  })
+
+  test("keeps Argus delegation and final disposition tools enabled despite argus wildcard denial", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    const argusTools = readToolsConfig(config.agent?.argus)
+    expect(argusTools).toMatchObject({
+      "argus_*": false,
+      argus_generate_report: true,
+      argus_list_skills: true,
+      argus_recommend_skills: true,
+      argus_themis_disposition: true,
+      task: true,
+    })
+    expect(config.agent?.argus?.permission).toMatchObject({
+      argus_generate_report: "allow",
     })
   })
 
@@ -154,12 +216,12 @@ describe("createConfigHandler", () => {
 
     await handler(config)
 
-    expect(config.agent?.sentinel?.tools).toBeUndefined()
-    expect(config.agent?.pythia?.tools).toBeUndefined()
-    expect(config.agent?.["audit-specialist"]?.tools).toBeUndefined()
-    expect(config.agent?.scribe?.tools).toBeUndefined()
+    expect(readToolsConfig(config.agent?.sentinel)).toBeUndefined()
+    expect(readToolsConfig(config.agent?.pythia)).toBeUndefined()
+    expect(readToolsConfig(config.agent?.["audit-specialist"])).toBeUndefined()
+    expect(readToolsConfig(config.agent?.scribe)).toBeUndefined()
     // argus still uses tools for wildcard denials
-    expect(config.agent?.argus?.tools).toBeDefined()
+    expect(readToolsConfig(config.agent?.argus)).toBeDefined()
   })
 
   test("applies model override for argus", async () => {
@@ -168,6 +230,7 @@ describe("createConfigHandler", () => {
         agents: {
           argus: {
             model: "openai/gpt-5",
+            variant: "low",
           },
           sentinel: {},
           pythia: {},
@@ -182,6 +245,7 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.model).toBe("openai/gpt-5")
+    expect(config.agent?.argus?.variant).toBe("low")
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
   })
 
@@ -234,11 +298,17 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.agent?.argus?.model).toBe(DEFAULT_MODELS.argus)
-    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-4-8")
+    expect(config.agent?.argus?.model).toBe("anthropic/claude-opus-5")
     expect(config.agent?.sentinel?.model).toBe(DEFAULT_MODELS.sentinel)
+    expect(config.agent?.sentinel?.model).toBe("anthropic/claude-sonnet-5")
     expect(config.agent?.pythia?.model).toBe(DEFAULT_MODELS.pythia)
+    expect(config.agent?.pythia?.model).toBe("openai/gpt-5.6-terra")
     expect(config.agent?.["audit-specialist"]?.model).toBe(DEFAULT_MODELS.auditSpecialist)
+    expect(config.agent?.["audit-specialist"]?.model).toBe("anthropic/claude-sonnet-5")
     expect(config.agent?.scribe?.model).toBe(DEFAULT_MODELS.scribe)
+    expect(config.agent?.scribe?.model).toBe("anthropic/claude-sonnet-4-5")
+    expect(config.agent?.themis?.model).toBe(DEFAULT_MODELS.themis)
+    expect(config.agent?.themis?.model).toBe("openai/gpt-5.6-sol")
   })
 
   test("sets default steps for all Argus agents", async () => {
@@ -254,19 +324,33 @@ describe("createConfigHandler", () => {
     expect(config.agent?.scribe?.steps).toBe(DEFAULT_STEPS)
   })
 
-  test("registers Solodit MCP server when enabled", async () => {
+  test("sets role-specific reasoning variants for all Argus agents", async () => {
     const handler = createConfigHandler(createArgusConfig())
     const config: Config = {}
 
     await handler(config)
 
-    const solodit = config.mcp?.["solodit-mcp"] as
-      | { type: string; url: string; enabled?: boolean }
-      | undefined
-    expect(solodit).toBeDefined()
-    expect(solodit?.type).toBe("remote")
-    expect(solodit?.url).toBe("http://localhost:54173/mcp")
-    expect(solodit?.enabled).toBe(true)
+    expect(config.agent?.argus?.variant).toBe(DEFAULT_VARIANTS.argus)
+    expect(config.agent?.argus?.variant).toBe("max")
+    expect(config.agent?.sentinel?.variant).toBe(DEFAULT_VARIANTS.sentinel)
+    expect(config.agent?.sentinel?.variant).toBe("high")
+    expect(config.agent?.pythia?.variant).toBe(DEFAULT_VARIANTS.pythia)
+    expect(config.agent?.pythia?.variant).toBe("high")
+    expect(config.agent?.["audit-specialist"]?.variant).toBe(DEFAULT_VARIANTS.auditSpecialist)
+    expect(config.agent?.["audit-specialist"]?.variant).toBe("xhigh")
+    expect(config.agent?.scribe?.variant).toBe(DEFAULT_VARIANTS.scribe)
+    expect(config.agent?.scribe?.variant).toBeUndefined()
+    expect(config.agent?.themis?.variant).toBe(DEFAULT_VARIANTS.themis)
+    expect(config.agent?.themis?.variant).toBe("xhigh")
+  })
+
+  test("does not register Solodit MCP server when enabled", async () => {
+    const handler = createConfigHandler(createArgusConfig())
+    const config: Config = {}
+
+    await handler(config)
+
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
   test("does not register Solodit MCP when disabled", async () => {
@@ -274,7 +358,6 @@ describe("createConfigHandler", () => {
       createArgusConfig({
         solodit: {
           enabled: false,
-          port: 54173,
         },
       }),
     )
@@ -285,16 +368,13 @@ describe("createConfigHandler", () => {
     expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
-  test("registers plugin skills directory", async () => {
+  test("does NOT register Argus skills in the global config.skills.paths", async () => {
     const handler = createConfigHandler(createArgusConfig())
     const config: Config = {}
 
     await handler(config)
 
-    expect(config.skills?.paths).toBeDefined()
-    expect(Array.isArray(config.skills?.paths)).toBe(true)
-    expect(config.skills?.paths?.length).toBeGreaterThan(0)
-    expect(config.skills?.paths?.[0]).toMatch(/skills$/)
+    expect(config.skills?.paths).toBeUndefined()
   })
 
   test("preserves existing MCP entries", async () => {
@@ -311,86 +391,15 @@ describe("createConfigHandler", () => {
     await handler(config)
 
     expect(config.mcp?.["custom-mcp"]).toBeDefined()
-    expect(config.mcp?.["solodit-mcp"]).toBeDefined()
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
-  test("preserves existing skills paths", async () => {
+  test("leaves a user's existing config.skills.paths untouched", async () => {
     const handler = createConfigHandler(createArgusConfig())
-    const config: Config = {
-      skills: {
-        paths: ["/existing/skills"],
-      },
-    }
+    const config: Config = { skills: { paths: ["/existing/skills"] } }
 
     await handler(config)
 
-    expect(config.skills?.paths).toContain("/existing/skills")
-    expect(config.skills?.paths?.length).toBeGreaterThan(1)
-  })
-
-  test("registers customSkillsDir when directory exists", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "argus-custom-skills-"))
-    const customDir = join(tempRoot, "my-skills")
-    mkdirSync(customDir, { recursive: true })
-
-    try {
-      const handler = createConfigHandler(
-        createArgusConfig({
-          knowledge: {
-            scvd: {
-              enabled: true,
-              apiUrl: "https://api.scvd.dev",
-            },
-            autoSync: true,
-            skillPrecedence: "bundled-first" as const,
-            customSkillsDir: customDir,
-          },
-        }),
-      )
-      const config: Config = {}
-
-      await handler(config)
-
-      expect(config.skills?.paths).toContain(customDir)
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true })
-    }
-  })
-
-  test("skips customSkillsDir when directory does not exist", async () => {
-    const missingDir = join(tmpdir(), "argus-missing-skills", "does-not-exist")
-
-    const handler = createConfigHandler(
-      createArgusConfig({
-        knowledge: {
-          scvd: {
-            enabled: true,
-            apiUrl: "https://api.scvd.dev",
-          },
-          autoSync: true,
-          skillPrecedence: "bundled-first" as const,
-          customSkillsDir: missingDir,
-        },
-      }),
-    )
-    const config: Config = {}
-
-    await handler(config)
-
-    expect(config.skills?.paths).not.toContain(missingDir)
-  })
-
-  test("registers Trail of Bits plugin skill directories", async () => {
-    const handler = createConfigHandler(createArgusConfig())
-    const config: Config = {}
-
-    await handler(config)
-
-    const tobPaths =
-      config.skills?.paths?.filter((path) => path.includes("trailofbits-skills/plugins/")) ?? []
-
-    if (tobPaths.length > 0) {
-      expect(tobPaths.every((path) => path.endsWith("/skills"))).toBe(true)
-    }
+    expect(config.skills?.paths).toEqual(["/existing/skills"])
   })
 })

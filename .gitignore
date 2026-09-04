@@ -51,6 +51,9 @@ docs/handoff-*.md
 .omo/
 .reviews/
 
+# isolated release worktrees
+/.worktrees/
+
 # local plugin state
 /.opencode/
 /.argus/
@@ -85,3 +88,7 @@ tests/fixtures/vulnerable-vault/test/SentinelDrainPoC.t.sol
 
 # Foundry caches in test fixtures (regenerated on each test run)
 tests/fixtures/**/cache/
+tests/fixtures/**/foundry.lock
+
+# stale forge coverage redirect output in fixtures (not consumed by any test)
+tests/fixtures/**/coverage_out.txt

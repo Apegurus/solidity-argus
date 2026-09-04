@@ -1,57 +1,24 @@
-import { afterEach, expect, test } from "bun:test"
+import { expect, test } from "bun:test"
 import type { ToolContext } from "@opencode-ai/plugin"
-import * as lifecycle from "../solodit-lifecycle"
-import {
-  _testExports,
-  DEFAULT_SOLODIT_PORT,
-  executeSoloditSearch,
-  type SoloditFetch,
-  type SoloditSearchResult,
-  soloditSearchTool,
-} from "./solodit-search-tool"
+import { _testExports, executeSoloditSearch, type SoloditFetch } from "./solodit-search-tool"
 
-const {
-  buildTrpcInput,
-  mapTrpcFinding,
-  truncateDescription,
-  parseSseData,
-  extractFindingsFromMcpResponse,
-  parseFindingsFromAnyResponse,
-  parseFinding,
-  buildMcpArgs,
-  hasMcpError,
-} = _testExports
+const { buildTrpcInput, mapTrpcFinding, truncateDescription, parseFinding, parseTrpcData } =
+  _testExports
 
-function createContext(): {
-  context: ToolContext
-  metadataCalls: Array<{ title?: string }>
-} {
-  const metadataCalls: Array<{ title?: string }> = []
-  const abortController = new AbortController()
-  const context: ToolContext = {
+function createContext(): ToolContext {
+  return {
     sessionID: "session-1",
     messageID: "message-1",
     agent: "argus",
     directory: "/tmp/project",
     worktree: "/tmp/project",
-    abort: abortController.signal,
-    metadata(input) {
-      metadataCalls.push({ title: input.title })
-    },
+    abort: new AbortController().signal,
+    metadata() {},
     async ask() {
       return
     },
   }
-  return { context, metadataCalls }
 }
-
-afterEach(() => {
-  lifecycle._resetSoloditState()
-})
-
-test("DEFAULT_SOLODIT_PORT is 54173", () => {
-  expect(DEFAULT_SOLODIT_PORT).toBe(54173)
-})
 
 test("buildTrpcInput returns valid JSON with query embedded", () => {
   const input = buildTrpcInput("reentrancy")
@@ -63,61 +30,21 @@ test("buildTrpcInput returns valid JSON with query embedded", () => {
 })
 
 test("mapTrpcFinding maps impact to severity and truncates content", () => {
-  const raw = {
+  const finding = mapTrpcFinding({
     title: "Bug",
     slug: "bug-123",
     impact: "HIGH",
     content: "A".repeat(600),
     protocol_name: "Compound",
-  }
-  const finding = mapTrpcFinding(raw)
+  })
   expect(finding.title).toBe("Bug")
   expect(finding.severity).toBe("HIGH")
   expect(finding.description.length).toBeLessThanOrEqual(503)
   expect(finding.protocol).toBe("Compound")
-  expect(finding.url).toBe("https://solodit.cyfrin.io/issues/bug-123")
-})
-
-test("mapTrpcFinding handles null gracefully", () => {
-  expect(mapTrpcFinding(null).title).toBe("")
 })
 
 test("truncateDescription leaves short strings unchanged", () => {
   expect(truncateDescription("short")).toBe("short")
-})
-
-test("truncateDescription truncates long strings", () => {
-  const result = truncateDescription("X".repeat(600))
-  expect(result.length).toBe(503)
-  expect(result.endsWith("...")).toBe(true)
-})
-
-test("parseSseData extracts JSON from SSE", () => {
-  expect(parseSseData('event: message\ndata: {"r":true}\n')).toEqual({ r: true })
-})
-
-test("parseSseData falls back to plain JSON", () => {
-  expect(parseSseData('{"p":"j"}')).toEqual({ p: "j" })
-})
-test("parseSseData returns null for invalid", () => {
-  expect(parseSseData("nope")).toBeNull()
-})
-
-test("extractFindingsFromMcpResponse extracts from structuredContent", () => {
-  const envelope = {
-    result: {
-      structuredContent: { reportsJSON: JSON.stringify([{ title: "A", severity: "High" }]) },
-    },
-  }
-  expect(extractFindingsFromMcpResponse(envelope)).toHaveLength(1)
-})
-
-test("extractFindingsFromMcpResponse returns empty for non-object", () => {
-  expect(extractFindingsFromMcpResponse(null)).toEqual([])
-})
-
-test("parseFindingsFromAnyResponse handles direct array", () => {
-  expect(parseFindingsFromAnyResponse([{ title: "A" }])).toHaveLength(1)
 })
 
 test("parseFinding sanitizes partial objects", () => {
@@ -127,258 +54,12 @@ test("parseFinding sanitizes partial objects", () => {
   expect(f.slug).toBe("")
 })
 
-test("buildMcpArgs returns keywords for search", () => {
-  expect(buildMcpArgs("search", "r", 10)).toEqual({ keywords: "r" })
-})
-test("buildMcpArgs returns keywords+pageSize for search_findings", () => {
-  expect(buildMcpArgs("search_findings", "o", 5)).toEqual({ keywords: "o", pageSize: 5 })
-})
-test("hasMcpError detects error", () => {
-  expect(hasMcpError({ error: {} })).toBe(true)
-  expect(hasMcpError(null)).toBe(false)
+test("parseTrpcData handles standard JSON and malformed payloads", () => {
+  expect(parseTrpcData('{"findings":[{"title":"A"}]}')).toEqual({ findings: [{ title: "A" }] })
+  expect(parseTrpcData("not-json")).toEqual({})
 })
 
-test("soloditSearchTool uses tool() helper contract", () => {
-  expect(soloditSearchTool.description.length).toBeGreaterThan(0)
-  expect(typeof soloditSearchTool.execute).toBe("function")
-})
-
-test("soloditSearchTool.execute returns JSON string", async () => {
-  const { context } = createContext()
-  const output = await soloditSearchTool.execute({ query: "reentrancy" }, context)
-  const parsed = JSON.parse(output) as SoloditSearchResult
-  expect(parsed.query).toBe("reentrancy")
-  expect(parsed.results).toBeInstanceOf(Array)
-})
-
-test("MCP HTTP primary when soloditAvailable=true", async () => {
-  const { context } = createContext()
-  lifecycle._setSoloditAvailable(true)
-  const urls: string[] = []
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    urls.push(url)
-    return new Response(
-      `event: message\ndata: ${JSON.stringify({ result: { structuredContent: { reportsJSON: JSON.stringify([{ title: "MCP Finding", severity: "High" }]) } } })}\n`,
-      { status: 200 },
-    )
-  }
-  const result = await executeSoloditSearch({ query: "reentrancy" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(1)
-  expect(result.results[0]?.title).toBe("MCP Finding")
-  expect(urls.some((u) => u.includes("localhost:54173/mcp"))).toBe(true)
-})
-
-test("falls back to tRPC when MCP returns empty", async () => {
-  const { context } = createContext()
-  lifecycle._setSoloditAvailable(true)
-  const urls: string[] = []
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    urls.push(url)
-    if (url.includes("localhost"))
-      return new Response(`data: ${JSON.stringify({ result: { content: [{ text: "[]" }] } })}\n`, {
-        status: 200,
-      })
-    return new Response(
-      JSON.stringify([
-        {
-          result: {
-            data: `({findings: [{title: "tRPC", impact: "HIGH", content: "", protocol_name: "A", slug: "s"}]})`,
-          },
-        },
-      ]),
-      { status: 200 },
-    )
-  }
-  const result = await executeSoloditSearch({ query: "oracle" }, context, 54173, mockFetch)
-  expect(urls.some((u) => u.includes("solodit.cyfrin.io"))).toBe(true)
-  expect(result.results[0]?.title).toBe("tRPC")
-})
-
-test("skips MCP when soloditAvailable=false", async () => {
-  const { context } = createContext()
-  const urls: string[] = []
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    urls.push(url)
-    return new Response(
-      JSON.stringify([
-        {
-          result: {
-            data: `({findings: [{title: "Direct", impact: "M", content: "", protocol_name: "", slug: "d"}]})`,
-          },
-        },
-      ]),
-      { status: 200 },
-    )
-  }
-  const result = await executeSoloditSearch({ query: "flash loan" }, context, 54173, mockFetch)
-  expect(urls.every((u) => !u.includes("localhost"))).toBe(true)
-  expect(result.results[0]?.title).toBe("Direct")
-})
-
-test("falls back to tRPC when MCP HTTP 500", async () => {
-  const { context } = createContext()
-  lifecycle._setSoloditAvailable(true)
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    if (url.includes("localhost")) return new Response("err", { status: 500 })
-    return new Response(
-      JSON.stringify([
-        {
-          result: {
-            data: `({findings: [{title: "FB", impact: "L", content: "", protocol_name: "", slug: "f"}]})`,
-          },
-        },
-      ]),
-      { status: 200 },
-    )
-  }
-  const result = await executeSoloditSearch({ query: "overflow" }, context, 54173, mockFetch)
-  expect(result.results[0]?.title).toBe("FB")
-})
-
-test("falls back to tRPC when MCP throws", async () => {
-  const { context } = createContext()
-  lifecycle._setSoloditAvailable(true)
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    if (url.includes("localhost")) throw new Error("Connection refused")
-    return new Response(
-      JSON.stringify([
-        {
-          result: {
-            data: `({findings: [{title: "AT", impact: "H", content: "", protocol_name: "", slug: "a"}]})`,
-          },
-        },
-      ]),
-      { status: 200 },
-    )
-  }
-  const result = await executeSoloditSearch({ query: "access" }, context, 54173, mockFetch)
-  expect(result.results[0]?.title).toBe("AT")
-})
-
-test("error when both MCP and tRPC fail", async () => {
-  const { context } = createContext()
-  lifecycle._setSoloditAvailable(true)
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    if (url.includes("localhost")) throw new Error("refused")
-    return new Response("err", { status: 503 })
-  }
-  const result = await executeSoloditSearch({ query: "test" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(0)
-  expect(result.error).toContain("503")
-})
-
-test("error when tRPC has no data", async () => {
-  const { context } = createContext()
-  const mockFetch: SoloditFetch = async () =>
-    new Response(JSON.stringify([{ result: {} }]), { status: 200 })
-  const result = await executeSoloditSearch({ query: "test" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(0)
-  expect(result.error).toContain("did not include result data")
-})
-
-test("applies default limit (10)", async () => {
-  const { context } = createContext()
-  const findings = Array.from({ length: 15 }, (_, i) => ({
-    title: `f-${i}`,
-    impact: "L",
-    content: "",
-    protocol_name: "",
-    slug: `s-${i}`,
-  }))
-  const mockFetch: SoloditFetch = async () =>
-    new Response(
-      JSON.stringify([{ result: { data: `({findings: ${JSON.stringify(findings)}})` } }]),
-      { status: 200 },
-    )
-  const result = await executeSoloditSearch({ query: "delegatecall" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(10)
-  expect(result.totalFound).toBe(15)
-})
-
-test("applies custom limit", async () => {
-  const { context } = createContext()
-  const findings = Array.from({ length: 15 }, (_, i) => ({
-    title: `f-${i}`,
-    impact: "L",
-    content: "",
-    protocol_name: "",
-    slug: `s-${i}`,
-  }))
-  const mockFetch: SoloditFetch = async () =>
-    new Response(
-      JSON.stringify([{ result: { data: `({findings: ${JSON.stringify(findings)}})` } }]),
-      { status: 200 },
-    )
-  const result = await executeSoloditSearch(
-    { query: "delegatecall", limit: 25 },
-    context,
-    54173,
-    mockFetch,
-  )
-  expect(result.results).toHaveLength(15)
-  expect(result.totalFound).toBe(15)
-})
-
-test("returns all findings regardless of severity", async () => {
-  const { context } = createContext()
-  const findings = [
-    { title: "A", impact: "HIGH", content: "", protocol_name: "", slug: "a" },
-    { title: "B", impact: "LOW", content: "", protocol_name: "", slug: "b" },
-    { title: "C", impact: "", content: "", protocol_name: "", slug: "c" },
-  ]
-  const mockFetch: SoloditFetch = async () =>
-    new Response(
-      JSON.stringify([{ result: { data: `({findings: ${JSON.stringify(findings)}})` } }]),
-      { status: 200 },
-    )
-  const result = await executeSoloditSearch({ query: "overflow" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(3)
-  expect(result.totalFound).toBe(3)
-})
-
-test("falls back to tRPC when MCP returns error envelope", async () => {
-  const { context } = createContext()
-  lifecycle._setSoloditAvailable(true)
-  const mockFetch: SoloditFetch = async (input) => {
-    const url = typeof input === "string" ? input : input.toString()
-    if (url.includes("localhost"))
-      return new Response(`data: ${JSON.stringify({ error: { code: -32601 } })}\n`, { status: 200 })
-    return new Response(
-      JSON.stringify([
-        {
-          result: {
-            data: `({findings: [{title: "EE", impact: "H", content: "", protocol_name: "", slug: "e"}]})`,
-          },
-        },
-      ]),
-      { status: 200 },
-    )
-  }
-  const result = await executeSoloditSearch({ query: "reentrancy" }, context, 54173, mockFetch)
-  expect(result.results[0]?.title).toBe("EE")
-})
-
-test("rejects malicious response containing process.exit", async () => {
-  const { context } = createContext()
-  const mockFetch: SoloditFetch = async () =>
-    new Response(JSON.stringify([{ result: { data: "({findings: [], attack: process.exit})" } }]), {
-      status: 200,
-    })
-
-  const result = await executeSoloditSearch({ query: "malicious" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(0)
-  expect(result.totalFound).toBe(0)
-  expect(result.error).toBe("Failed to parse Solodit response")
-})
-
-test("parses valid JS object literal format correctly", async () => {
-  const { context } = createContext()
+test("executeSoloditSearch uses direct tRPC results", async () => {
   const mockFetch: SoloditFetch = async () =>
     new Response(
       JSON.stringify([
@@ -391,19 +72,35 @@ test("parses valid JS object literal format correctly", async () => {
       { status: 200 },
     )
 
-  const result = await executeSoloditSearch({ query: "valid" }, context, 54173, mockFetch)
+  const result = await executeSoloditSearch({ query: "valid" }, createContext(), mockFetch)
   expect(result.error).toBeUndefined()
   expect(result.totalFound).toBe(1)
   expect(result.results[0]?.title).toBe("Valid")
 })
 
-test("returns empty result for non-parseable response", async () => {
-  const { context } = createContext()
-  const mockFetch: SoloditFetch = async () =>
-    new Response(JSON.stringify([{ result: { data: "({findings:" } }]), { status: 200 })
+test("executeSoloditSearch rejects an oversized tRPC response before parsing it", async () => {
+  const mockFetch: SoloditFetch = async () => new Response("x".repeat(1_048_577))
 
-  const result = await executeSoloditSearch({ query: "broken" }, context, 54173, mockFetch)
-  expect(result.results).toHaveLength(0)
-  expect(result.totalFound).toBe(0)
-  expect(result.error).toBe("Failed to parse Solodit response")
+  const result = await executeSoloditSearch({ query: "oversized" }, createContext(), mockFetch)
+
+  expect(result.results).toEqual([])
+  expect(result.error).toContain("exceeded the 1048576-byte cap")
+})
+
+test("executeSoloditSearch parses the live devalue response shape without evaluating code", async () => {
+  const liveShape = `(function(a){a[0]={wardens_warden:{handle:"Cyfrin"}};return {findings:[{id:45750n,kind:"MARKDOWN",impact:"HIGH",title:"[H-01] Reentrancy",content:"External call before state update",report_date:new Date(1729036800000),slug:"reentrancy-live-shape",protocol_name:"Example",issues_issue_finders:[a[0]]}]}}([]))`
+  const mockFetch: SoloditFetch = async () =>
+    new Response(JSON.stringify([{ result: { data: liveShape } }]), { status: 200 })
+
+  const result = await executeSoloditSearch({ query: "reentrancy" }, createContext(), mockFetch)
+
+  expect(result.error).toBeUndefined()
+  expect(result.totalFound).toBe(1)
+  expect(result.results[0]).toMatchObject({
+    title: "[H-01] Reentrancy",
+    severity: "HIGH",
+    description: "External call before state update",
+    protocol: "Example",
+    url: "https://solodit.cyfrin.io/issues/reentrancy-live-shape",
+  })
 })

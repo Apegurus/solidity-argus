@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.8.0 (2026-08-03)
+
+### Features
+- Upgraded the default audit model stack to Claude Opus 5, Claude Sonnet 5, GPT-5.6 Terra, and GPT-5.6 Sol while retaining Scribe's temporary Claude Sonnet 4.5 compatibility pin.
+- Added provider-neutral per-agent `variant` overrides with role-specific defaults: Argus `max`, Sentinel `high`, Pythia `high`, Audit Specialist `xhigh`, Scribe provider default, and Themis `xhigh`.
+- Expanded the bundled DeFi vulnerability knowledge base. Techniques were inferred from primary sources and authored as original content (not ported verbatim): Dacian (`devdacian/ai-auditor-primers`, MIT), `0xJuancito/multichain-auditor` (MIT), Sigma Prime, beirao.xyz, Cyfrin, Hacken, and Pyth.
+  - **5 new skills**: `liquidation-vulnerabilities` (over-seize, partial-liq bad-debt bypass, liquidation DoS, auction liquidation), `liquid-staking-restaking` (LSD quirks + EigenLayer credential/proof/accounting), `concentrated-liquidity` (CLM sandwich + Uniswap V4 hooks), `pyth-oracle-validation` (pull-oracle freshness/confidence/exponent), `arbitrary-external-call` (approval-drain via user-controlled call + calldata).
+  - **Extended** `oracle-manipulation` (L2 sequencer-uptime feed, minAnswer/maxAnswer depeg breaker, per-feed heartbeat, unhandled revert, deprecated `latestAnswer`), `lack-of-precision` (rounding-direction matrix, cross-decimal scaling, round-to-zero), `lending-borrowing` (AAVE/Compound integration semantics, collateral valuation), `erc4626-exchange-rate-manipulation` (EIP-4626 compliance), `flash-loan-attacks` (flash-mint `totalSupply`, flash-deposit reward extraction), `staking-vesting` (reward-rate dilution, lock/cooldown bypass).
+  - **Folded** orphan patterns (with detection rules) into `weird-tokens` (ERC677/1363 hooks, native+ERC20 double-count), `unsafe-erc20-transfers` (Solmate no-code success, approve-to-zero), `logic-errors` (`EnumerableSet.add` ignored return, struct-deletion-leaves-mapping), `unchecked-return-values` (try/catch swallow), `weak-sources-randomness` (Chainlink VRF).
+  - Bundled knowledge base grows to 103 SKILL.md files (60 vulnerability patterns, 7 protocol patterns).
+- Added metadata-only Argus skill discovery through `argus_list_skills` and `argus_recommend_skills`, bringing the tool surface to 18 tools when Solodit is enabled (17 core tools without Solodit). Discovery uses the same resolver roots and effective-winner precedence as `argus_skill_load`, while full skill bodies remain available only through `argus_skill_load`.
+- Expanded `argus_check_patterns` to scan resolver-effective skill detection rules across bundled, custom, Trail of Bits, OpenCode, and Claude roots, while preserving strict `pattern_category + detection_rules` gating and making broad protocol-guide rules advisory-only unless explicitly scanned.
+
+### Fixes
+- Added fail-closed report rendering recovery after repeated Scribe runtime failures. Argus can render only an existing Scribe-persisted deduped artifact, with persisted scope and strict lineage/quality gates; it cannot deduplicate, revise, force-overwrite, or inject inline report input.
+- Temporarily pinned the default Scribe model to Claude Sonnet 4.5 while OpenCode's Claude 4.6+ assistant-prefill compatibility fix remains unreleased. Agent model overrides remain supported.
+- Restored Slither coverage for Foundry projects using `via_ir` by compiling through Foundry directly. Failed IR analysis now emits structured capability loss and proceeds through manual/pattern fallbacks instead of retrying through incompatible source flattening.
+- Slither now compiles the nearest in-project Foundry root while returning findings only for the requested contract or source scope, and `argus doctor` warns when Python 3.14 may be incompatible with the installed Slither release.
+- The guarded non-`via_ir` flatten fallback now honors root, source-directory, and file targets, runs from the selected Foundry root, and marks locations as approximate instead of presenting flattened line numbers as original-source positions.
+- Slither analysis now rejects repository-controlled compiler executables, compiler overrides, config indirection, and escaping source/library symlinks before invoking Foundry. Project-local Slither configuration is disabled through a trusted empty config, while version-pinned Foundry compilers remain supported.
+- Flatten fallback failures now fail closed instead of reporting a clean scan, retain file-level detectors with approximate locations, and scan the literal requested scope.
+- Preserved the v0.7.1 skill-scoping guarantee while adding discovery: Argus can call only the lightweight discovery tools directly, non-Argus agents still do not receive global Argus skill injection, and Scribe remains excluded from discovery tools.
+- Hardened skill-derived regex loading against ReDoS by rejecting unsafe repeated groups, lookaround assertions, backreferences, invalid expressions, and unsafe `exclude_if` filters before scan execution.
+- Enforced bundled `category` metadata in `argus lint-skills` and cleaned stale skill metadata, citation markers, and source-license noise.
+- Added targeted corpus coverage for Pyth unsafe/safe price reads and caller-influenced `call(abi.encodeWithSelector(...))` patterns, including allowlisted negative fixtures.
+
+## 0.7.1 (2026-06-17)
+
+### Fixes
+- Scoped the bundled skills to the Argus agents. The plugin no longer registers its `skills/` directory or the Trail of Bits companion skills in OpenCode's global `config.skills.paths`, which had leaked all ~91 skill descriptions into the `<available_skills>` context of every skill-enabled agent — not just the Argus family. Argus agents still load skills on demand via the scoped `argus_skill_load` tool (its resolver reads the bundled skills, `customSkillsDir`, and the Trail of Bits cache directly), and the Trail of Bits companion clone is preserved.
+
 ## 0.7.0 (2026-06-17)
 
 ### Features

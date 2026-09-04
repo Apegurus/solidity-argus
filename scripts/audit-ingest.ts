@@ -1,3 +1,4 @@
+import { escapeMarkdown } from "../src/shared/untrusted-content"
 import {
   buildTfidfCorpus,
   type ClusterFinding,
@@ -208,6 +209,8 @@ export function renderCandidateSkill(
 ): string {
   const title = normalizeOneLine(cluster.medoid.title)
   const overview = normalizeOneLine(cluster.medoid.description)
+  const bodyTitle = escapeMarkdown(title)
+  const bodyOverview = escapeMarkdown(overview)
   const indicators = cluster.topTokens.slice(0, 10)
   const indicatorList =
     indicators.length > 0 ? indicators.map((token) => `- ${token}`).join("\n") : "- none identified"
@@ -229,11 +232,11 @@ imported_at: "${new Date().toISOString()}"
 detection_rules: []
 ---
 
-# ${title}
+# ${bodyTitle}
 
 ## Overview
 
-${overview}
+${bodyOverview}
 
 ## Common Indicators
 

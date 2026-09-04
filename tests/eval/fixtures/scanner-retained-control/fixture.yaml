@@ -1,0 +1,22 @@
+slug: scanner-retained-control
+name: Retained scanner control
+description: Internal deterministic control for the bundled Pyth unsafe-price rule.
+source:
+  name: solidity-argus internal fixture
+  license: MIT
+project:
+  root: tests/fixtures/scanner-controls/vulnerable
+  contracts_glob: "**/*.sol"
+  foundry: false
+expected_findings:
+  - id: scanner-001-pyth-unsafe
+    title: Pyth unsafe price read bypasses freshness validation
+    severity: High
+    file: PythUnsafe.sol
+    lines: [14, 14]
+    source:
+      audit: solidity-argus internal annotation
+    category: oracle-manipulation
+    acceptance_criteria:
+      - predicted finding overlaps the getPriceUnsafe call
+      - severity is High

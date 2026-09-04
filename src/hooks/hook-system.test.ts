@@ -10,12 +10,8 @@ describe("createHookGuard", () => {
       "compaction",
       "tool-tracking",
       "event",
-      "knowledge-sync",
-      "session-recovery",
-      "tool-error-recovery",
-      "context-window-monitor",
-      "tool-output-truncator",
-      "audit-continuation",
+      "system-prompt",
+      "audit-specialist-watchdog",
     ]
 
     allHooks.forEach((hook) => {
@@ -29,12 +25,8 @@ describe("createHookGuard", () => {
     expect(isHookEnabled("compaction")).toBe(false)
     expect(isHookEnabled("event")).toBe(false)
     expect(isHookEnabled("tool-tracking")).toBe(true)
-    expect(isHookEnabled("knowledge-sync")).toBe(true)
-    expect(isHookEnabled("session-recovery")).toBe(true)
-    expect(isHookEnabled("tool-error-recovery")).toBe(true)
-    expect(isHookEnabled("context-window-monitor")).toBe(true)
-    expect(isHookEnabled("tool-output-truncator")).toBe(true)
-    expect(isHookEnabled("audit-continuation")).toBe(true)
+    expect(isHookEnabled("system-prompt")).toBe(true)
+    expect(isHookEnabled("audit-specialist-watchdog")).toBe(true)
   })
 
   it("returns false for all hooks when all are disabled", () => {
@@ -42,24 +34,16 @@ describe("createHookGuard", () => {
       "compaction",
       "tool-tracking",
       "event",
-      "knowledge-sync",
-      "session-recovery",
-      "tool-error-recovery",
-      "context-window-monitor",
-      "tool-output-truncator",
-      "audit-continuation",
+      "system-prompt",
+      "audit-specialist-watchdog",
     ])
 
     const allHooks: HookName[] = [
       "compaction",
       "tool-tracking",
       "event",
-      "knowledge-sync",
-      "session-recovery",
-      "tool-error-recovery",
-      "context-window-monitor",
-      "tool-output-truncator",
-      "audit-continuation",
+      "system-prompt",
+      "audit-specialist-watchdog",
     ]
 
     allHooks.forEach((hook) => {

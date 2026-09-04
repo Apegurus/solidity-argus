@@ -4,8 +4,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
+import { createAuditState } from "../state/audit-state"
+import { validateReportInput } from "../state/schemas"
 import type { ReadFindingsResult } from "./read-findings-tool"
-import { executeReadFindings } from "./read-findings-tool"
+import { convertAuditStateToReportInput, executeReadFindings } from "./read-findings-tool"
 
 const tempDirs: string[] = []
 
@@ -19,6 +21,49 @@ async function makeTempDir(): Promise<string> {
   tempDirs.push(dir)
   return dir
 }
+
+test("convertAuditStateToReportInput dedups legacy-scheme duplicate findings (adj_26)", async () => {
+  const dir = await makeTempDir()
+  const { state } = createAuditState(dir)
+  const dup = {
+    check: "reentrancy-eth",
+    severity: "High" as const,
+    confidence: "High" as const,
+    description: "duplicate finding",
+    file: "src/Vault.sol",
+    lines: [10, 15] as [number, number],
+    source: "manual" as const,
+  }
+  state.findings = [
+    { ...dup, id: "legacy-a" },
+    { ...dup, id: "legacy-b" },
+  ]
+
+  const result = convertAuditStateToReportInput(state, "run-1", dir)
+
+  expect(result.findings).toHaveLength(1)
+})
+
+test("convertAuditStateToReportInput produces canonical report input without legacy provenance", async () => {
+  const dir = await makeTempDir()
+  const { state } = createAuditState(dir)
+  state.findings = [
+    {
+      id: "legacy-finding",
+      check: "unchecked-call",
+      severity: "Medium",
+      confidence: "High",
+      description: "Unchecked low-level call",
+      file: "src/Vault.sol",
+      lines: [10, 10],
+      source: "manual",
+    },
+  ]
+
+  const result = validateReportInput(convertAuditStateToReportInput(state, state.sessionId, dir))
+
+  expect(result.success).toBe(true)
+})
 
 function createContext(dir: string): ToolContext {
   return {
@@ -77,7 +122,7 @@ function makeFinding(index: number, overrides: Record<string, unknown> = {}) {
     confidence: "High",
     description: `Finding ${index}: vulnerability description.`,
     file: `src/Contract${index}.sol`,
-    lines: [index * 10, index * 10 + 5],
+    lines: [index * 10 + 1, index * 10 + 6],
     source: "manual",
     reported_by_agent: "sentinel",
     reported_by_session_id: "ses-test",
@@ -106,6 +151,7 @@ test("returns inline result with truncated=false for small output", async () => 
   if (!parsed.truncated) {
     expect(Array.isArray(parsed.reportInput.findings)).toBe(true)
     expect(parsed.reportInput.findings.length).toBe(1)
+    expect(parsed.reportInput.findings[0]?.observation_id).toBe("FIND-0")
     expect(Array.isArray(parsed.reportInput.toolsExecuted)).toBe(true)
     expect(Array.isArray(parsed.reportInput.scope)).toBe(true)
   }
@@ -138,10 +184,12 @@ test("returns file reference with truncated=true when output exceeds threshold",
     const topFinding = parsed.summary.topFindings[0]
     if (topFinding) expect(topFinding.severity).toBe("Critical")
     expect(parsed.instructions).toContain("read tool")
+    expect(parsed.instructions).toContain("canonical raw observation_id")
 
     const compactFileContent = await readFile(parsed.compactReportInputFile, "utf-8")
     const compactData = JSON.parse(compactFileContent)
     expect(compactData.findings.length).toBe(200)
+    expect(compactData.findings[0].observation_id).toBe("FIND-0")
   }
 })
 
@@ -217,12 +265,74 @@ test("prefers flat report-input.json over audit state", async () => {
   await writeFile(join(argusDir, "report-input.json"), JSON.stringify(flatInput))
   await writeAuditState(dir, makeAuditState({ findings: [makeFinding(0)] }))
 
-  const payload = await executeReadFindings({ run_id: "any" }, createContext(dir))
+  const payload = await executeReadFindings({ run_id: "flat-run" }, createContext(dir))
   const parsed = JSON.parse(payload) as ReadFindingsResult
 
   expect(parsed.success).toBe(true)
   if (!parsed.truncated) {
     expect(parsed.reportInput.findings[0]?.check).toBe("from-flat")
+  }
+})
+
+test("rejects legacy fallbacks that are not bound to the requested run", async () => {
+  const dir = await makeTempDir()
+  const argusDir = join(dir, ".argus")
+  await mkdir(argusDir, { recursive: true })
+  await writeFile(
+    join(argusDir, "report-input.json"),
+    JSON.stringify({ run_id: "other-run", findings: [makeFinding(0)] }),
+  )
+  await writeAuditState(dir, makeAuditState({ sessionId: "other-run", findings: [makeFinding(1)] }))
+
+  expect(executeReadFindings({ run_id: "target-run" }, createContext(dir))).rejects.toThrow(
+    "Cannot read findings from any source",
+  )
+})
+
+test("preserves canonical observation_id from materialized report input", async () => {
+  const dir = await makeTempDir()
+  await writeRunArtifact(dir, "run-materialized", "report-input.json", {
+    run_id: "run-materialized",
+    seq: 7,
+    session_id: "ses-materialized",
+    tool_call_id: "tc-materialized",
+    source: "argus",
+    schema_version: "2.0.0",
+    projectDir: dir,
+    findings: [
+      {
+        id: "finding-display-id",
+        check: "from-materialized",
+        severity: "High",
+        confidence: "High",
+        description: "materialized finding",
+        file: "src/A.sol",
+        lines: [1, 2],
+        source: "manual",
+        run_id: "run-materialized",
+        seq: 3,
+        schema_version: "2.0.0",
+        observation_id: "obs-canonical-123",
+        issue_fingerprint: "issue-fp",
+        observation_fingerprint: "obs-fp",
+        reported_by_agent: "sentinel",
+        reported_by_session_id: "ses-child",
+      },
+    ],
+    toolsExecuted: [],
+    scope: ["src/A.sol"],
+  })
+
+  const payload = await executeReadFindings({ run_id: "run-materialized" }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  if (!parsed.truncated) {
+    const finding = parsed.reportInput.findings[0] as Record<string, unknown> | undefined
+    expect(finding?.observation_id).toBe("obs-canonical-123")
+    expect(finding?.id).toBe("finding-display-id")
+    expect(finding?.run_id).toBeUndefined()
+    expect(finding?.issue_fingerprint).toBeUndefined()
   }
 })
 
@@ -354,4 +464,69 @@ test("rejects invalid deduped-findings lineage instead of returning stale data",
   expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
     "Invalid deduped findings lineage",
   )
+})
+
+test("rejects a deduped artifact attributed to another run", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "findings.json", { findings: [] })
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: "other-run",
+    findings: [],
+  })
+
+  expect(executeReadFindings({ run_id: runId }, createContext(dir))).rejects.toThrow(
+    "does not match requested run",
+  )
+})
+
+test("prefers dropped-only deduped-findings artifact over stale report-input", async () => {
+  const dir = await makeTempDir()
+  const runId = "run-test"
+
+  await writeRunArtifact(dir, runId, "report-input.json", {
+    run_id: runId,
+    findings: [makeFinding(1, { check: "stale-raw-finding" })],
+    toolsExecuted: [],
+    scope: ["src/Vault.sol"],
+    projectDir: dir,
+  })
+  await writeRunArtifact(dir, runId, "findings.json", {
+    findings: [
+      makeFinding(1, {
+        id: "RAW-1",
+        observation_id: "obs-raw-1",
+        issue_fingerprint: "issue-raw-1",
+        observation_fingerprint: "obs-fingerprint-raw-1",
+      }),
+    ],
+  })
+  await writeRunArtifact(dir, runId, "deduped-findings.json", {
+    run_id: runId,
+    findings: [],
+    dropped_observations: [
+      {
+        observation_id: "obs-raw-1",
+        reason: "false-positive",
+        note: "Superseded during Scribe deduplication.",
+      },
+    ],
+  })
+
+  const payload = await executeReadFindings({ run_id: runId }, createContext(dir))
+  const parsed = JSON.parse(payload) as ReadFindingsResult
+
+  expect(parsed.success).toBe(true)
+  if (!parsed.truncated) {
+    expect(parsed.reportInput.findings).toHaveLength(0)
+    expect(parsed.reportInput.dropped_observations).toEqual([
+      {
+        observation_id: "obs-raw-1",
+        reason: "false-positive",
+        note: "Superseded during Scribe deduplication.",
+      },
+    ])
+    expect(parsed.reportInput.scope).toEqual(["src/Vault.sol"])
+  }
 })

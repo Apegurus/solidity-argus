@@ -72,7 +72,7 @@ describe("confidence_score field validation", () => {
   })
 
   test("SCHEMA_VERSION remains 2.0.0 (additive change)", () => {
-    expect(SCHEMA_VERSION).toBe("2.0.0")
+    expect(SCHEMA_VERSION).toBe("2.1.0")
   })
 })
 

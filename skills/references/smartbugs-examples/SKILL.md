@@ -1,6 +1,7 @@
 ---
 name: smartbugs-examples
 description: SmartBugs curated dataset — 143 annotated vulnerable Solidity contracts organized by DASP vulnerability category
+category: reference
 ---
 <!-- Source: smartbugs/smartbugs-curated (Apache-2.0) -->
 <!-- Auto-generated from https://github.com/smartbugs/smartbugs-curated -->

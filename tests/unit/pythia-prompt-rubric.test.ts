@@ -38,4 +38,10 @@ describe("pythia prompt rubric instructions", () => {
     expect(PYTHIA_PROMPT).toContain("rubric_verdict")
     expect(PYTHIA_PROMPT).toMatch(/confidence_score\s*[≤<=]+\s*30/)
   })
+
+  test("does not let historical precedent upgrade theft without current-code profit proof", () => {
+    expect(PYTHIA_PROMPT).toContain("current-code profit proof")
+    expect(PYTHIA_PROMPT).toContain("attacker_net_gain")
+    expect(PYTHIA_PROMPT).toContain("historical precedent")
+  })
 })

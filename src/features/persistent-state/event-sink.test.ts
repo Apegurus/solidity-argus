@@ -47,6 +47,16 @@ describe("EventSink", () => {
     return dir
   }
 
+  test("createEventSink rejects a runId with path traversal", () => {
+    const projectDir = makeTempDir()
+    expect(() => createEventSink("../../evil", projectDir)).toThrow(/invalid run_id/)
+  })
+
+  test("readEvents rejects a runId containing a path separator", async () => {
+    const projectDir = makeTempDir()
+    await expect(readEvents("runs/../escape", projectDir)).rejects.toThrow(/invalid run_id/)
+  })
+
   test("sequential appends produce contiguous seq numbers 1-5", async () => {
     const projectDir = makeTempDir()
     const sink = createEventSink(RUN_ID, projectDir)
@@ -58,6 +68,55 @@ describe("EventSink", () => {
     const events = await sink.readAll()
     expect(events).toHaveLength(5)
     expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  test("run.finalization_failed marks the sink FAILED_RECOVERABLE and keeps it open (WS-3 I3)", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "run.finalization_failed" }))
+    expect(sink.state).toBe("FAILED_RECOVERABLE")
+    expect(sink.isFinalized).toBe(false)
+
+    await sink.append(makeEvent({ type: "finding.added" }))
+    const events = await sink.readAll()
+    expect(events.map((e) => e.type)).toEqual(["run.finalization_failed", "finding.added"])
+  })
+
+  test("restores FAILED_RECOVERABLE from the journal on restart (adj_12)", async () => {
+    const projectDir = makeTempDir()
+    const sink1 = createEventSink(RUN_ID, projectDir)
+    await sink1.append(makeEvent({ type: "session.created" }))
+    await sink1.append(makeEvent({ type: "run.finalization_failed" }))
+    await sink1.append(makeEvent({ type: "finding.added" }))
+    expect(sink1.state).toBe("FAILED_RECOVERABLE")
+
+    resetSinkRegistry()
+    const sink2 = createEventSink(RUN_ID, projectDir)
+    await sink2.readAll()
+    expect(sink2.state).toBe("FAILED_RECOVERABLE")
+
+    await sink2.append(makeEvent({ type: "finding.added" }))
+    const events = await sink2.readAll()
+    expect(events.map((e) => e.type)).toEqual([
+      "session.created",
+      "run.finalization_failed",
+      "finding.added",
+      "finding.added",
+    ])
+  })
+
+  test("run.finalized seals the sink (SEALED terminal) and drops later non-finalized events (WS-3 I3)", async () => {
+    const projectDir = makeTempDir()
+    const sink = createEventSink(RUN_ID, projectDir)
+
+    await sink.append(makeEvent({ type: "run.finalized" }))
+    expect(sink.state).toBe("SEALED")
+    expect(sink.isFinalized).toBe(true)
+
+    await sink.append(makeEvent({ type: "finding.added" }))
+    const events = await sink.readAll()
+    expect(events.map((e) => e.type)).toEqual(["run.finalized"])
   })
 
   test("concurrent appends (50 parallel) produce no duplicates and no gaps", async () => {

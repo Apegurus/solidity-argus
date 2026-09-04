@@ -200,6 +200,25 @@ describe("FindingStore", () => {
     expect(state.findings).toHaveLength(1)
   })
 
+  test("addFinding preserves distinct approximate source locations", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+    const finding = {
+      check: "reentrancy-eth",
+      severity: "High" as const,
+      confidence: "Low" as const,
+      description: "Flattened fallback finding",
+      file: "src/Vault.sol",
+      lines: [1, 1] as [number, number],
+      source: "slither" as const,
+    }
+
+    store.addFinding({ ...finding, source_location_id: "flattened:10-12" })
+    store.addFinding({ ...finding, source_location_id: "flattened:40-44" })
+
+    expect(store.getFindings()).toHaveLength(2)
+  })
+
   test("serialize reflects observation counts", () => {
     const state = createBaseState()
     const store = createFindingStore(state)
@@ -225,5 +244,43 @@ describe("FindingStore", () => {
     })
 
     expect(store.serialize()).toContain("Findings: 1")
+  })
+
+  test("addFinding dedupes against a hydrated finding stored under a different id scheme (WS-5 #25)", () => {
+    const state = createBaseState([
+      createPersistedFinding("reentrancy-eth", "src/Vault.sol", [10, 15]),
+    ])
+    const store = createFindingStore(state)
+
+    const added = store.addFinding({
+      check: "reentrancy-eth",
+      severity: "High",
+      confidence: "High",
+      description: "same logical finding, recorded live",
+      file: "src/Vault.sol",
+      lines: [10, 15],
+      source: "slither",
+    })
+
+    expect(store.getFindings()).toHaveLength(1)
+    expect(state.findings).toHaveLength(1)
+    expect(added.id).toBe("persisted-reentrancy-eth-src/Vault.sol-10-15")
+  })
+
+  test("hasFinding matches an absolute path against a finding stored as relative (WS-5 #26)", () => {
+    const state = createBaseState()
+    const store = createFindingStore(state)
+    store.addFinding({
+      check: "reentrancy-eth",
+      severity: "High",
+      confidence: "High",
+      description: "recorded with an absolute path",
+      file: "/test/project/src/Vault.sol",
+      lines: [10, 15],
+      source: "slither",
+    })
+
+    expect(store.hasFinding("reentrancy-eth", "/test/project/src/Vault.sol", [10, 15])).toBe(true)
+    expect(store.hasFinding("reentrancy-eth", "src/Vault.sol", [10, 15])).toBe(true)
   })
 })

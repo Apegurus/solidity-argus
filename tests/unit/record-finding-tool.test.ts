@@ -55,9 +55,20 @@ function createAuditState(): AuditState {
 
 function createMemorySink(runId: string): EventSink & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
+  const owners = new Set<string>()
   return {
     runId,
+    state: "ACTIVE",
     isFinalized: false,
+    get ownerSet(): ReadonlySet<string> {
+      return owners
+    },
+    addOwner(sessionId: string): void {
+      owners.add(sessionId)
+    },
+    removeOwner(sessionId: string): void {
+      owners.delete(sessionId)
+    },
     events,
     async append(event: AuditEvent) {
       events.push(event)
@@ -68,6 +79,8 @@ function createMemorySink(runId: string): EventSink & { events: AuditEvent[] } {
     markFinalized() {
       return
     },
+    markDraining(): void {},
+    markFailedRecoverable(): void {},
   }
 }
 

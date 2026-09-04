@@ -66,6 +66,20 @@ async function persistErrorMetadata(indexPath: string, errorResult: SyncError): 
   await saveIndex(existing, indexPath)
 }
 
+async function refreshSyncMetadata(index: ScvdIndex, indexPath: string): Promise<string> {
+  const now = new Date().toISOString()
+  index.lastSync = now
+  index.metadata = {
+    lastSuccess: now,
+    lastAttempt: now,
+    errorCount: 0,
+    lastError: null,
+    lastErrorReason: null,
+  }
+  await saveIndex(index, indexPath)
+  return now
+}
+
 async function syncAllUnlocked(client: ScvdClient, indexPath: string): Promise<SyncResult> {
   const fetchResult = await withRetry(() => client.fetchAllFindings(), {
     maxAttempts: RETRY_MAX_ATTEMPTS,
@@ -179,11 +193,20 @@ export async function syncIncremental(client: ScvdClient, indexPath: string): Pr
 
     const stats = statsResult.value
 
-    if (existingIndex && existingIndex.totalFindings === stats.total) {
+    // A same-count local index is only "current" when it is also fresh: a stale index
+    // (whose content may have changed under an unchanged total) must resync in full.
+    if (
+      existingIndex &&
+      existingIndex.totalFindings === stats.total &&
+      !isSyncStale(existingIndex)
+    ) {
+      // Refresh the sync timestamp so a confirmed-current index is not reported stale
+      // and does not trigger a redundant resync on the next run.
+      const lastSync = await refreshSyncMetadata(existingIndex, indexPath)
       return createSyncSuccess({
         newFindings: 0,
         totalIndexed: existingIndex.totalFindings,
-        lastSync: existingIndex.lastSync,
+        lastSync,
       })
     }
 

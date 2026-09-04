@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import type { Config } from "@opencode-ai/sdk"
 import type { ArgusConfig } from "../../src/config/types"
@@ -38,31 +40,21 @@ const DEFAULT_ARGUS_CONFIG: ArgusConfig = {
   },
   reporting: {
     confidenceThreshold: 80,
-    format: "markdown",
     severityThreshold: "low",
-    gasAnalysis: false,
     output_dir: ".argus/reports/",
   },
-  solodit: {
-    enabled: true,
-    port: 54173,
-  },
+  solodit: { enabled: true },
   disabled_hooks: [],
-  hooks: {},
-  cli: {},
-  background: {
-    max_concurrent: 3,
-  },
 }
 
-function createMockContext() {
+function createMockContext(directory: string = FIXTURE_DIR) {
   const controller = new AbortController()
   return {
     sessionID: "integration-session",
     messageID: "integration-message",
     agent: "argus",
-    directory: FIXTURE_DIR,
-    worktree: FIXTURE_DIR,
+    directory,
+    worktree: directory,
     abort: controller.signal,
     metadata: (_: { title: string }) => {},
     ask: async () => undefined,
@@ -93,12 +85,20 @@ function makeFinding(overrides: Partial<Finding>): Finding {
 }
 
 describe("full audit integration", () => {
+  let reportRoot: string
+  beforeEach(async () => {
+    reportRoot = await mkdtemp(path.join(tmpdir(), "argus-full-audit-"))
+  })
+  afterEach(async () => {
+    await rm(reportRoot, { recursive: true, force: true })
+  })
+
   test("plugin loads and exports all expected tools", async () => {
     const pluginContext = { directory: FIXTURE_DIR } as Parameters<typeof ArgusPlugin>[0]
     const plugin = await ArgusPlugin(pluginContext)
 
     const toolNames = Object.keys(plugin.tool ?? {})
-    expect(toolNames).toHaveLength(16)
+    expect(toolNames).toHaveLength(18)
     expect(toolNames).toContain("argus_slither_analyze")
     expect(toolNames).toContain("argus_forge_test")
     expect(toolNames).toContain("argus_gas_analysis")
@@ -111,6 +111,8 @@ describe("full audit integration", () => {
     expect(toolNames).toContain("argus_record_finding")
     expect(toolNames).toContain("argus_solodit_search")
     expect(toolNames).toContain("argus_generate_report")
+    expect(toolNames).toContain("argus_list_skills")
+    expect(toolNames).toContain("argus_recommend_skills")
     expect(toolNames).toContain("argus_skill_load")
     expect(toolNames).toContain("argus_themis_disposition")
     expect(toolNames).toContain("argus_sync_knowledge")
@@ -118,7 +120,7 @@ describe("full audit integration", () => {
     expect(typeof plugin.event).toBe("function")
   })
 
-  test("config handler registers Argus agents and Solodit MCP", async () => {
+  test("config handler registers Argus agents without Solodit MCP", async () => {
     const config: Config = { agent: {}, mcp: {} }
     const handler = createConfigHandler(DEFAULT_ARGUS_CONFIG)
 
@@ -129,7 +131,7 @@ describe("full audit integration", () => {
       expect.arrayContaining(["argus", "sentinel", "pythia", "scribe"]),
     )
     expect(config.agent?.argus?.mode).toBe("primary")
-    expect(config.mcp?.["solodit-mcp"]).toBeDefined()
+    expect(config.mcp?.["solodit-mcp"]).toBeUndefined()
   })
 
   test("contract analyzer executes against fixture project", async () => {
@@ -159,6 +161,7 @@ describe("full audit integration", () => {
         target: FIXTURE_DIR,
         patterns: ["reentrancy", "access-control"],
         include_scvd: true,
+        full_detail: false,
       },
       createMockContext(),
     )
@@ -233,7 +236,7 @@ describe("full audit integration", () => {
           scope: ["VulnerableVault.sol"],
         }),
       } as Parameters<typeof reportGeneratorTool.execute>[0],
-      createMockContext(),
+      { ...createMockContext(reportRoot), agent: "scribe" },
     )
 
     const result = JSON.parse(payload) as {
@@ -344,7 +347,6 @@ describe("full audit integration", () => {
         {
           target: FIXTURE_DIR,
           verbosity: 3,
-          coverage: false,
         },
         createMockContext(),
       )

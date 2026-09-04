@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test"
-import { extractContractInfo } from "./solidity-parser"
+import { extractContractInfo, extractJson } from "./solidity-parser"
 
 // Mock ABI output from forge inspect
 const mockABIOutput = JSON.stringify([
@@ -69,6 +69,16 @@ const mockStorageLayoutOutput = JSON.stringify({
       numberOfBytes: "20",
     },
   },
+})
+
+test("extractJson returns the complete JSON segment with trailing output ignored", () => {
+  expect(extractJson('forge logs\n{"success":true,"tests":[]}\nmore logs', "{")).toBe(
+    '{"success":true,"tests":[]}',
+  )
+})
+
+test("extractJson does not return a chopped JSON segment", () => {
+  expect(extractJson('forge logs\n{"success":true,"tests":[', "{")).toBe("")
 })
 
 const mockAccessControlABIOutput = JSON.stringify([
@@ -171,6 +181,24 @@ test("extractContractInfo - parses basic contract with ownable pattern", async (
   }
 })
 
+test("extractContractInfo - always uses the trusted forge executable", async () => {
+  const seen: string[][] = []
+  const spy = spyOn(Bun, "spawn").mockImplementation(((cmd: string[] | unknown) => {
+    const args = cmd as string[]
+    seen.push(args)
+    const output = args.includes("abi") ? mockABIOutput : mockStorageLayoutOutput
+    return mockSpawnResult(output, "", 0)
+  }) as typeof Bun.spawn)
+
+  try {
+    await extractContractInfo("TestContract", "/test/project")
+    expect(seen.length).toBe(2)
+    expect(seen.every((cmd) => cmd[0] === "forge")).toBe(true)
+  } finally {
+    spy.mockRestore()
+  }
+})
+
 test("extractContractInfo - detects access-control pattern", async () => {
   const spy = spyOn(Bun, "spawn").mockImplementation(
     createSpawnMock(mockAccessControlABIOutput, mockStorageLayoutOutput) as typeof Bun.spawn,
@@ -217,7 +245,7 @@ test("extractContractInfo - handles forge error gracefully", async () => {
   }
 })
 
-test("extractContractInfo - maps stateMutability to visibility correctly", async () => {
+test("extractContractInfo - reports external visibility and preserves stateMutability for all ABI functions", async () => {
   const abiWithAllMutabilities = JSON.stringify([
     {
       type: "function",
@@ -257,11 +285,11 @@ test("extractContractInfo - maps stateMutability to visibility correctly", async
     const result = await extractContractInfo("MutabilityTest", "/test/project")
 
     const pureFunc = result.functions.find((f) => f.name === "pureFunc")
-    expect(pureFunc?.visibility).toBe("view")
+    expect(pureFunc?.visibility).toBe("external")
     expect(pureFunc?.mutability).toBe("pure")
 
     const viewFunc = result.functions.find((f) => f.name === "viewFunc")
-    expect(viewFunc?.visibility).toBe("view")
+    expect(viewFunc?.visibility).toBe("external")
     expect(viewFunc?.mutability).toBe("view")
 
     const nonpayableFunc = result.functions.find((f) => f.name === "nonpayableFunc")

@@ -98,7 +98,7 @@ function resolveFindingsCount(payload: Record<string, unknown>): number {
 }
 
 function resolveToolSuccess(payload: Record<string, unknown>): boolean {
-  return payload.success !== false
+  return payload.success === true
 }
 
 const FINDING_COUNT_FIELDS = [
@@ -150,6 +150,11 @@ function asStringArray(value: unknown): string[] | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined
+}
+
+function asPassedTests(value: unknown): string[] | undefined {
+  const tests = asStringArray(value)
+  return tests && tests.length > 0 ? tests : undefined
 }
 
 function asSoloditResults(value: unknown): SoloditResult[] | undefined {
@@ -312,7 +317,6 @@ export function projectFindings(events: AuditEvent[]): CanonicalFinding[] {
       ...validation.data,
       seq: event.seq,
       run_id: event.run_id,
-      schema_version: event.schema_version,
     })
   }
 
@@ -366,6 +370,7 @@ export function projectToolExecutions(events: AuditEvent[]): CanonicalToolExecut
         success: existing?.success ?? false,
         findingsCount: existing?.findingsCount ?? 0,
         findingCounts: existing?.findingCounts,
+        passed_tests: existing?.passed_tests,
       })
       continue
     }
@@ -386,6 +391,7 @@ export function projectToolExecutions(events: AuditEvent[]): CanonicalToolExecut
       success: resolveToolSuccess(payload),
       findingsCount: resolveFindingsCount(payload),
       findingCounts: asFindingCounts(payload.findingCounts),
+      passed_tests: asPassedTests(payload.passed_tests) ?? base.passed_tests,
       run_id: event.run_id,
       schema_version: event.schema_version,
     })

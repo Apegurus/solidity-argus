@@ -15,8 +15,8 @@ project:
   foundry: true
 expected_findings:
   - id: vv-001-reentrancy-withdraw
-    title: Reentrancy in VulnerableVault.withdraw (state update after external call)
-    severity: Critical
+    title: CEI violation in VulnerableVault.withdraw (same-recipient reentrancy is not direct theft)
+    severity: Low
     file: src/VulnerableVault.sol
     lines: [18, 23]
     cwe: CWE-841
@@ -24,14 +24,15 @@ expected_findings:
     source:
       audit: solidity-argus internal annotation
     category: reentrancy
+    expected_verdict: DEMOTED
     acceptance_criteria:
       - predicted finding on src/VulnerableVault.sol
       - line range overlaps [18, 23]
-      - severity >= High
-      - check name or description references reentrancy / external-call-before-state
+      - severity <= Medium
+      - check name or description references CEI / external-call-before-state / same-recipient reentrancy
   - id: vv-002-missing-access-control-withdraw
-    title: Missing access control on withdraw — any caller can drain any user
-    severity: High
+    title: Missing access control on withdraw — any caller can force withdrawal to the credited user
+    severity: Medium
     file: src/VulnerableVault.sol
     lines: [18, 23]
     cwe: CWE-284
@@ -41,8 +42,8 @@ expected_findings:
     acceptance_criteria:
       - predicted finding on src/VulnerableVault.sol
       - line range overlaps [18, 23]
-      - severity >= High
-      - description references access control / unauthorized / missing modifier
+      - severity >= Medium
+      - description references access control / unauthorized / missing modifier / forced withdrawal
   - id: vv-003-missing-access-control-setpool
     title: Missing access control on PriceOracle.setPool
     severity: High
