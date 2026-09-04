@@ -4,6 +4,7 @@ import { basename, extname, join, resolve } from "node:path"
 import type { ArgusConfig } from "../config/types"
 import { getTrailOfBitsCacheDir } from "../shared/cache-paths"
 import { createLogger } from "../shared/logger"
+import { sanitizeTerminalText } from "../shared/terminal-safety"
 import { parseFrontmatter, type SkillFrontmatter, validateSkillFrontmatter } from "./skill-schema"
 
 export type ResolvedSkill = {
@@ -191,9 +192,9 @@ export function discoverArgusSkills(
       if (frontmatter) {
         const validation = validateSkillFrontmatter(frontmatter)
         if (!validation.success) {
-          logger.warn(
-            `Skipping skill with invalid frontmatter: ${markdownFile} — ${validation.errors.join(", ")}`,
-          )
+          const safePath = sanitizeTerminalText(markdownFile)
+          const safeErrors = sanitizeTerminalText(validation.errors.join(", "))
+          logger.warn(`Skipping skill with invalid frontmatter: ${safePath} — ${safeErrors}`)
           continue
         }
         validatedFrontmatter = validation.data

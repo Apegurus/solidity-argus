@@ -1,14 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ArgusConfig } from "../config/types"
+import { resetLoggerSink } from "../shared/logger"
 import {
   getRequiredAuditSkills,
   normalizeSkillName,
   resolveArgusSkills,
   resolveSkillRoots,
 } from "./argus-skill-resolver"
+
+function hasTerminalControl(text: string, allowLineFeeds = false): boolean {
+  return Array.from(text).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (allowLineFeeds && codePoint === 0x0a) return false
+    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)
+  })
+}
 
 describe("argus-skill-resolver", () => {
   it("normalizes legacy and namespaced skill names", () => {
@@ -56,6 +65,38 @@ describe("argus-skill-resolver", () => {
         process.env.ARGUS_CACHE_DIR = previousCacheDir
       }
       rmSync(cacheDir, { recursive: true, force: true })
+    }
+  })
+
+  it("sanitizes invalid skill paths before stderr logging", () => {
+    const projectDir = mkdtempSync(join(realpathSync(tmpdir()), "argus-skill-log-"))
+    const invalidSkillDir = join(projectDir, ".opencode", "skills", "bad\u001b[31m\u0007\u0085")
+    const previousLogMode = process.env.ARGUS_LOG
+    const stderrWrite = spyOn(process.stderr, "write").mockImplementation(() => true)
+    process.env.ARGUS_LOG = "stderr"
+    resetLoggerSink()
+
+    try {
+      mkdirSync(invalidSkillDir, { recursive: true })
+      writeFileSync(
+        join(invalidSkillDir, "SKILL.md"),
+        "---\nname: INVALID NAME\ndescription: invalid\n---\n# Invalid",
+      )
+
+      resolveArgusSkills(projectDir)
+
+      const stderr = stderrWrite.mock.calls.map((call) => String(call[0])).join("")
+      expect(stderr).toContain("Skipping skill with invalid frontmatter")
+      expect(hasTerminalControl(stderr, true)).toBe(false)
+    } finally {
+      stderrWrite.mockRestore()
+      if (previousLogMode === undefined) {
+        delete process.env.ARGUS_LOG
+      } else {
+        process.env.ARGUS_LOG = previousLogMode
+      }
+      resetLoggerSink()
+      rmSync(projectDir, { recursive: true, force: true })
     }
   })
 
