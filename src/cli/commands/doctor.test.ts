@@ -14,6 +14,14 @@ import {
   SOLC_SELECT_PROBE_ARGS,
 } from "./doctor"
 
+function hasTerminalControl(text: string, allowLineFeeds = false): boolean {
+  return Array.from(text).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (allowLineFeeds && codePoint === 0x0a) return false
+    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)
+  })
+}
+
 describe("checkBinary", () => {
   it("uses the supported versions subcommand when probing solc-select", () => {
     expect(SOLC_SELECT_PROBE_ARGS).toEqual(["versions"])
@@ -46,6 +54,19 @@ describe("checkBinary", () => {
     const result = checkBinary("sh", ["-c", `printf '%s' "\${${leakVar}:-ABSENT}"`])
     expect(result.found).toBe(true)
     expect(result.version).toBe("ABSENT")
+  })
+
+  it("removes terminal control bytes from probed version output", () => {
+    const maliciousVersion = "v1\u001b[31mRED\u0007\rFORGED\u007f\u0085tail"
+    const result = checkBinary("bun", [
+      "-e",
+      `process.stdout.write(${JSON.stringify(maliciousVersion)})`,
+    ])
+
+    expect(result.found).toBe(true)
+    expect(hasTerminalControl(result.version ?? "")).toBe(false)
+    expect(result.version).toContain("[31mRED")
+    expect(result.version).toContain("FORGED")
   })
 })
 
@@ -382,5 +403,29 @@ describe("detectInstallDrift", () => {
     ])
     expect(result.errors).toHaveLength(1)
     expect(result.warnings).toHaveLength(0)
+  })
+
+  it("removes terminal control bytes from install paths and versions", () => {
+    const result = detectInstallDrift(
+      { source: "current", path: "/canonical", version: "0.5.8\u0085current" },
+      [
+        {
+          source: "hoisted-cache",
+          path: "/h\u001b]8;;https://example.invalid\u0007\rforged",
+          version: "0.3.7\u007f",
+        },
+        {
+          source: "package-cache",
+          path: "/p\nforged",
+          version: "0.5.8\u009b31m",
+        },
+      ],
+    )
+
+    const message = result.errors[0] ?? ""
+    expect(hasTerminalControl(message, true)).toBe(false)
+    expect(message.split("\n")).toHaveLength(5)
+    expect(message).toContain("/h ]8;;https://example.invalid  forged")
+    expect(message).toContain("/p forged")
   })
 })

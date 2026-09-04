@@ -184,7 +184,8 @@ export function checkBinary(
     if (result.exitCode !== 0) {
       return { found: false, version: null }
     }
-    const version = new TextDecoder().decode(result.stdout).trim().split("\n")[0] ?? null
+    const rawVersion = new TextDecoder().decode(result.stdout).trim().split("\n")[0] ?? null
+    const version = rawVersion === null ? null : sanitizeTerminalText(rawVersion)
     return { found: true, version }
   } catch {
     return { found: false, version: null }
@@ -407,12 +408,16 @@ export function detectInstallDrift(
   // Highest-confidence error: hoisted cache shadows the canonical cache with a
   // DIFFERENT version. OpenCode will load the wrong one.
   if (hoisted && pkgCache && hoisted.version !== pkgCache.version) {
+    const hoistedPath = sanitizeTerminalText(hoisted.path)
+    const hoistedVersion = sanitizeTerminalText(hoisted.version ?? "unknown")
+    const packagePath = sanitizeTerminalText(pkgCache.path)
+    const packageVersion = sanitizeTerminalText(pkgCache.version ?? "unknown")
     errors.push(
       `Stale install shadowing canonical version:\n` +
-        `    ${hoisted.path} (v${hoisted.version ?? "unknown"})\n` +
-        `    shadows ${pkgCache.path} (v${pkgCache.version ?? "unknown"}).\n` +
-        `    OpenCode will load v${hoisted.version ?? "unknown"} instead of v${pkgCache.version ?? "unknown"}.\n` +
-        `    Fix: rm -rf "${hoisted.path}"`,
+        `    ${hoistedPath} (v${hoistedVersion})\n` +
+        `    shadows ${packagePath} (v${packageVersion}).\n` +
+        `    OpenCode will load v${hoistedVersion} instead of v${packageVersion}.\n` +
+        `    Fix: rm -rf "${hoistedPath}"`,
     )
     return { errors, warnings }
   }
@@ -420,10 +425,13 @@ export function detectInstallDrift(
   // Lower-confidence: hoisted install drifts from the version the doctor CLI
   // is itself running as (typical when the user upgraded via bunx/opencode).
   if (hoisted && current?.version && hoisted.version && hoisted.version !== current.version) {
+    const hoistedPath = sanitizeTerminalText(hoisted.path)
+    const hoistedVersion = sanitizeTerminalText(hoisted.version)
+    const currentVersion = sanitizeTerminalText(current.version)
     warnings.push(
       `Possible stale install (drift from running version):\n` +
-        `    ${hoisted.path} (v${hoisted.version}) differs from current (v${current.version}).\n` +
-        `    Fix: rm -rf "${hoisted.path}"`,
+        `    ${hoistedPath} (v${hoistedVersion}) differs from current (v${currentVersion}).\n` +
+        `    Fix: rm -rf "${hoistedPath}"`,
     )
   }
 
