@@ -44,6 +44,34 @@ bun add solidity-argus
 
 `solidity-argus` is Bun/OpenCode-native. The package entrypoints and CLI bins intentionally point at TypeScript source executed by Bun/OpenCode, so use `bun` or `bunx` for CLI commands rather than Node-only runners.
 
+### Local development
+
+Install dependencies, then register this checkout once. For project-only development, create an
+`opencode.json` at the checkout root that loads the TypeScript entrypoint directly:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["./src/index.ts"]
+}
+```
+
+If the checkout is already registered in your global OpenCode config with a `file://` entry, do
+not add the project entry too; OpenCode would initialize the plugin twice.
+
+```bash
+bun install --frozen-lockfile
+bun run typecheck
+bun run ci
+bun test
+bun run doctor
+opencode
+```
+
+At OpenCode startup, verify stderr contains an `[argus]` build banner and that `@argus` is
+available. Restart OpenCode after changing `opencode.json` or plugin source because plugin
+configuration is loaded at process startup.
+
 ---
 
 ## Quick Start
