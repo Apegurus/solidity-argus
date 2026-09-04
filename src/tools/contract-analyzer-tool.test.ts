@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
@@ -56,7 +56,7 @@ test("contractAnalyzerTool uses tool() helper contract", () => {
 })
 
 test("executeContractAnalyzer calls extractContractInfo using basename contract name", async () => {
-  const root = mkdtempSync(join(tmpdir(), "argus-contract-analyzer-"))
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "argus-contract-analyzer-")))
   tempDirs.push(root)
 
   const contractsDir = join(root, "src", "contracts")
@@ -261,9 +261,11 @@ test("executeContractAnalyzer populates externalCalls from Solidity AST", async 
 })
 
 test("executeContractAnalyzer returns structured error when file does not exist", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "argus-contract-analyzer-missing-")))
+  tempDirs.push(root)
   const result = await executeContractAnalyzer(
-    { file_path: "/tmp/does-not-exist/NotHere.sol" },
-    createContext(),
+    { file_path: join(root, "does-not-exist", "NotHere.sol") },
+    createContext(new AbortController(), { directory: root, worktree: root }),
     {
       extractInfo: async () => createBaseProfile(),
     },
