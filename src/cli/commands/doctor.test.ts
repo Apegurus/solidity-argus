@@ -271,6 +271,38 @@ describe("findDuplicateSkills", () => {
     ])
     expect(duplicates.at(0)?.winner).toBe("/plugins/a/skills/a/SKILL.md")
   })
+
+  it("removes terminal control bytes from duplicate diagnostic values", () => {
+    const entries = [
+      {
+        name: "a\u001b]8;;https://example.invalid\u0007",
+        source: "custom\u001b[31m",
+        filePath: "/skills/a\u001b]8;;https://example.invalid\u0007/SKILL.md",
+      },
+      {
+        name: "a\u001b]8;;https://example.invalid\u0007",
+        source: "custom\u001b[31m",
+        filePath: "/skills/b\u001b[31m/SKILL.md",
+      },
+    ]
+
+    const duplicate = findDuplicateSkills(entries).at(0)
+    const renderedValues = [
+      duplicate?.name ?? "",
+      ...(duplicate?.sources ?? []),
+      ...(duplicate?.paths ?? []),
+      duplicate?.winner ?? "",
+    ]
+
+    expect(
+      renderedValues.every((value) =>
+        Array.from(value).every((character) => {
+          const codePoint = character.codePointAt(0) ?? 0
+          return codePoint >= 0x20 && (codePoint < 0x7f || codePoint > 0x9f)
+        }),
+      ),
+    ).toBe(true)
+  })
 })
 
 describe("enumerateArgusInstallCandidates", () => {

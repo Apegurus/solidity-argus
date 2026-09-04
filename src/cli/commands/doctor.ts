@@ -221,6 +221,13 @@ export type SkillHealthReport = {
   missingCategories: string[]
 }
 
+function sanitizeTerminalText(value: string): string {
+  return Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f) ? " " : character
+  }).join("")
+}
+
 export function findDuplicateSkills(
   entries: Array<{ name: string; source: string; filePath: string }>,
 ): Array<{ name: string; sources: string[]; paths: string[]; winner: string }> {
@@ -235,10 +242,12 @@ export function findDuplicateSkills(
   return Array.from(candidatesByName)
     .filter(([, candidates]) => candidates.length > 1)
     .map(([name, candidates]) => ({
-      name,
-      sources: Array.from(new Set(candidates.map((candidate) => candidate.source))),
-      paths: candidates.map((candidate) => candidate.filePath),
-      winner: candidates[0]?.filePath ?? "",
+      name: sanitizeTerminalText(name),
+      sources: Array.from(
+        new Set(candidates.map((candidate) => sanitizeTerminalText(candidate.source))),
+      ),
+      paths: candidates.map((candidate) => sanitizeTerminalText(candidate.filePath)),
+      winner: sanitizeTerminalText(candidates[0]?.filePath ?? ""),
     }))
 }
 
