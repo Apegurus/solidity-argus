@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ArgusConfig } from "../config/types"
@@ -28,6 +28,34 @@ describe("argus-skill-resolver", () => {
     const skills = resolveArgusSkills(process.cwd())
     for (const requiredSkill of getRequiredAuditSkills()) {
       expect(skills.has(requiredSkill)).toBe(true)
+    }
+  })
+
+  it("orders Trail of Bits plugin roots deterministically", () => {
+    const cacheDir = mkdtempSync(join(realpathSync(tmpdir()), "argus-tob-order-"))
+    const previousCacheDir = process.env.ARGUS_CACHE_DIR
+    process.env.ARGUS_CACHE_DIR = cacheDir
+
+    try {
+      const pluginsDir = join(cacheDir, "trailofbits-skills", "plugins")
+      mkdirSync(join(pluginsDir, "z-plugin", "skills"), { recursive: true })
+      mkdirSync(join(pluginsDir, "a-plugin", "skills"), { recursive: true })
+
+      const trailOfBitsRoots = resolveSkillRoots(cacheDir)
+        .filter((root) => root.source === "trailofbits")
+        .map((root) => root.path)
+
+      expect(trailOfBitsRoots).toEqual([
+        join(pluginsDir, "a-plugin", "skills"),
+        join(pluginsDir, "z-plugin", "skills"),
+      ])
+    } finally {
+      if (previousCacheDir === undefined) {
+        delete process.env.ARGUS_CACHE_DIR
+      } else {
+        process.env.ARGUS_CACHE_DIR = previousCacheDir
+      }
+      rmSync(cacheDir, { recursive: true, force: true })
     }
   })
 

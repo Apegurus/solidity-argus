@@ -93,7 +93,7 @@ function getTrailOfBitsRoots(): string[] {
   }
 
   const roots: string[] = []
-  for (const entry of entries) {
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue
     const skillsDir = join(pluginsDir, entry.name, "skills")
     if (existsSync(skillsDir)) roots.push(skillsDir)
