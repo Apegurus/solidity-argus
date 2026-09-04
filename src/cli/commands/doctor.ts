@@ -10,6 +10,7 @@ import {
   ScvdNetworkError,
 } from "../../knowledge/scvd-client"
 import { buildSafeEnv, ProcessRunnerError } from "../../shared/process-runner"
+import { sanitizeTerminalText } from "../../shared/terminal-safety"
 import {
   discoverArgusSkills,
   getRequiredAuditSkills,
@@ -220,13 +221,6 @@ export type SkillHealthReport = {
   schemaSkipped: number
   invalidSkills: Array<{ name: string; error: string }>
   missingCategories: string[]
-}
-
-function sanitizeTerminalText(value: string): string {
-  return Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0) ?? 0
-    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f) ? " " : character
-  }).join("")
 }
 
 export function findDuplicateSkills(
