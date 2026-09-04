@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test"
 import { realpathSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode-ai/plugin"
 import { executeForgeCoverage, forgeCoverageTool } from "./forge-coverage-tool"
 
-const projectPath = join(realpathSync("/tmp"), "project")
+const projectPath = join(realpathSync(tmpdir()), "project")
 
 function createContext(overrides?: {
   directory?: string
@@ -255,14 +256,10 @@ test("executeForgeCoverage classifies bare unknown foundry config keys", async (
   const stderr = "Error: unknown key `optimizer_steps`"
   const commands: string[][] = []
 
-  const result = await executeForgeCoverage(
-    { target: "/tmp/project" },
-    context,
-    async (command) => {
-      commands.push(command)
-      return { stdout: "", stderr, exitCode: 1 }
-    },
-  )
+  const result = await executeForgeCoverage({ target: projectPath }, context, async (command) => {
+    commands.push(command)
+    return { stdout: "", stderr, exitCode: 1 }
+  })
 
   expect(result.success).toBe(false)
   expect(result.error).toBe(stderr)
@@ -275,7 +272,7 @@ test("executeForgeCoverage preserves generic forge stderr without hint", async (
   const { context } = createContext()
   const stderr = "forge coverage aborted"
 
-  const result = await executeForgeCoverage({ target: "/tmp/project" }, context, async () => ({
+  const result = await executeForgeCoverage({ target: projectPath }, context, async () => ({
     stdout: "",
     stderr,
     exitCode: 1,
