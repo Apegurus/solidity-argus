@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { parse as parseYaml } from "yaml"
@@ -36,7 +36,7 @@ const executeValidation = (
   branch: "main" | "staging",
   publishConfig?: MapValue,
 ) => {
-  const root = mkdtempSync(join(tmpdir(), "argus-artifact-"))
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "argus-artifact-")))
   roots.push(root)
   const artifact = join(root, "artifact")
   const packageRoot = join(root, "fixture", "package")
