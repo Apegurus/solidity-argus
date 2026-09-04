@@ -285,16 +285,17 @@ test("executeForgeCoverage preserves generic forge stderr without hint", async (
 })
 
 test("executeForgeCoverage resolves cwd from context when target is omitted", async () => {
+  const directory = join(projectPath, "from-directory")
   const { context } = createContext({
-    directory: "/tmp/from-directory",
-    worktree: "/tmp/from-worktree",
+    directory,
+    worktree: join(projectPath, "from-worktree"),
   })
 
-  await executeForgeCoverage(
+  const result = await executeForgeCoverage(
     {},
     context,
     async (_command: string[], options: { signal?: AbortSignal; cwd?: string }) => {
-      expect(options.cwd).toBe("/tmp/from-directory")
+      expect(options.cwd).toBe(directory)
       return {
         stdout:
           "| File | % Lines | % Statements | % Branches | % Funcs |\n|---|---|---|---|---|\n| Total | 10.00% (1/10) | 20.00% (2/10) | 30.00% (3/10) | 40.00% (4/10) |",
@@ -303,10 +304,12 @@ test("executeForgeCoverage resolves cwd from context when target is omitted", as
       }
     },
   )
+
+  expect(result.success).toBe(true)
 })
 
 test("executeForgeCoverage rejects an out-of-tree target without running forge", async () => {
-  const { context } = createContext({ directory: "/tmp/project" })
+  const { context } = createContext({ directory: projectPath })
 
   const result = await executeForgeCoverage({ target: "/etc" }, context, async () => {
     throw new Error("runCommand must not be reached for an out-of-tree target")
@@ -317,7 +320,7 @@ test("executeForgeCoverage rejects an out-of-tree target without running forge",
 })
 
 test("executeForgeCoverage rejects a match_path that escapes the project root", async () => {
-  const { context } = createContext({ directory: "/tmp/project" })
+  const { context } = createContext({ directory: projectPath })
 
   const result = await executeForgeCoverage(
     { target: ".", match_path: "../outside.t.sol" },
@@ -332,7 +335,7 @@ test("executeForgeCoverage rejects a match_path that escapes the project root", 
 })
 
 test("executeForgeCoverage rejects a flag-shaped match_path (option injection)", async () => {
-  const { context } = createContext({ directory: "/tmp/project" })
+  const { context } = createContext({ directory: projectPath })
 
   const result = await executeForgeCoverage(
     { match_path: "--fork-url=http://169.254.169.254" },
