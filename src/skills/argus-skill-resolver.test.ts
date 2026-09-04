@@ -69,7 +69,6 @@ describe("argus-skill-resolver", () => {
 describe("skill precedence", () => {
   let tmpDir: string
   let customDir: string
-  let _bundledSkillContent: string
   let customSkillContent: string
 
   beforeEach(() => {
@@ -77,8 +76,6 @@ describe("skill precedence", () => {
     customDir = join(tmpDir, "custom-skills")
     mkdirSync(join(customDir, "reentrancy"), { recursive: true })
 
-    _bundledSkillContent =
-      "---\nname: reentrancy\ndescription: bundled reentrancy\n---\n# Bundled reentrancy"
     customSkillContent =
       "---\nname: reentrancy\ndescription: custom reentrancy\n---\n# Custom reentrancy"
     writeFileSync(join(customDir, "reentrancy", "SKILL.md"), customSkillContent)
@@ -146,6 +143,30 @@ describe("skill precedence", () => {
     expect(skills.get("reentrancy")?.source).toBe("bundled")
     expect(skills.has("my-unique-check")).toBe(true)
     expect(skills.get("my-unique-check")?.source).toBe("custom")
+  })
+
+  it("ignores nested Markdown references without skill frontmatter", () => {
+    mkdirSync(join(customDir, "vector-forge", "references"), { recursive: true })
+    writeFileSync(
+      join(customDir, "vector-forge", "references", "reference-only.md"),
+      "# Supporting reference\nNot a loadable skill.",
+    )
+
+    const skills = resolveArgusSkills(tmpDir, makeConfig("custom-first"))
+
+    expect(skills.has("reference-only")).toBe(false)
+  })
+
+  it("uses validated YAML metadata for quoted skill names", () => {
+    mkdirSync(join(customDir, "quoted-skill"), { recursive: true })
+    writeFileSync(
+      join(customDir, "quoted-skill", "SKILL.md"),
+      "---\nname: 'quoted-skill'\ndescription: 'Quoted description'\n---\n# Quoted",
+    )
+
+    const skills = resolveArgusSkills(tmpDir, makeConfig("custom-first"))
+
+    expect(skills.get("quoted-skill")?.description).toBe("Quoted description")
   })
 })
 

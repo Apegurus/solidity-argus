@@ -11,9 +11,14 @@ import {
   enumerateArgusInstallCandidates,
   findDuplicateSkills,
   readJsonCapped,
+  SOLC_SELECT_PROBE_ARGS,
 } from "./doctor"
 
 describe("checkBinary", () => {
+  it("uses the supported versions subcommand when probing solc-select", () => {
+    expect(SOLC_SELECT_PROBE_ARGS).toEqual(["versions"])
+  })
+
   it("withholds non-allowlisted host env vars from the probed child (adj_29)", () => {
     const allowed = new Set([
       "PATH",
@@ -163,9 +168,9 @@ describe("buildSkillHealthReport", () => {
       ["reentrancy", makeSkill("reentrancy", "bundled", { category: "vulnerability-pattern" })],
     ])
     const allEntries = [
-      { name: "reentrancy", source: "bundled" },
-      { name: "reentrancy", source: "custom" },
-      { name: "oracle", source: "bundled" },
+      { name: "reentrancy", source: "bundled", filePath: "/bundled/reentrancy/SKILL.md" },
+      { name: "reentrancy", source: "custom", filePath: "/custom/reentrancy/SKILL.md" },
+      { name: "oracle", source: "bundled", filePath: "/bundled/oracle/SKILL.md" },
     ]
     const report = buildSkillHealthReport(skills, allEntries)
     expect(report.duplicates).toHaveLength(1)
@@ -179,8 +184,8 @@ describe("buildSkillHealthReport", () => {
       ["a", makeSkill("a", "bundled", { category: "methodology" })],
     ])
     const allEntries = [
-      { name: "a", source: "bundled" },
-      { name: "b", source: "custom" },
+      { name: "a", source: "bundled", filePath: "/bundled/a/SKILL.md" },
+      { name: "b", source: "custom", filePath: "/custom/b/SKILL.md" },
     ]
     const report = buildSkillHealthReport(skills, allEntries)
     expect(report.duplicates).toHaveLength(0)
@@ -229,18 +234,22 @@ describe("buildSkillHealthReport", () => {
 describe("findDuplicateSkills", () => {
   it("returns empty array when no duplicates", () => {
     const entries = [
-      { name: "a", source: "bundled" },
-      { name: "b", source: "custom" },
+      { name: "a", source: "bundled", filePath: "/bundled/a/SKILL.md" },
+      { name: "b", source: "custom", filePath: "/custom/b/SKILL.md" },
     ]
     expect(findDuplicateSkills(entries)).toHaveLength(0)
   })
 
   it("detects skills present in multiple sources", () => {
     const entries = [
-      { name: "reentrancy", source: "bundled" },
-      { name: "reentrancy", source: "custom" },
-      { name: "reentrancy", source: "trailofbits" },
-      { name: "oracle", source: "bundled" },
+      { name: "reentrancy", source: "bundled", filePath: "/bundled/reentrancy/SKILL.md" },
+      { name: "reentrancy", source: "custom", filePath: "/custom/reentrancy/SKILL.md" },
+      {
+        name: "reentrancy",
+        source: "trailofbits",
+        filePath: "/trailofbits/reentrancy/SKILL.md",
+      },
+      { name: "oracle", source: "bundled", filePath: "/bundled/oracle/SKILL.md" },
     ]
     const dupes = findDuplicateSkills(entries)
     expect(dupes).toHaveLength(1)
@@ -248,12 +257,19 @@ describe("findDuplicateSkills", () => {
     expect(dupes.at(0)?.sources).toHaveLength(3)
   })
 
-  it("ignores same-source duplicate entries", () => {
+  it("reports distinct same-source candidates with their paths and winner", () => {
     const entries = [
-      { name: "a", source: "bundled" },
-      { name: "a", source: "bundled" },
+      { name: "a", source: "trailofbits", filePath: "/plugins/a/skills/a/SKILL.md" },
+      { name: "a", source: "trailofbits", filePath: "/plugins/b/skills/a/SKILL.md" },
     ]
-    expect(findDuplicateSkills(entries)).toHaveLength(0)
+    const duplicates = findDuplicateSkills(entries)
+
+    expect(duplicates).toHaveLength(1)
+    expect(duplicates.at(0)?.paths).toEqual([
+      "/plugins/a/skills/a/SKILL.md",
+      "/plugins/b/skills/a/SKILL.md",
+    ])
+    expect(duplicates.at(0)?.winner).toBe("/plugins/a/skills/a/SKILL.md")
   })
 })
 
